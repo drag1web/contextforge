@@ -1,4 +1,5 @@
 import { BrainCircuit } from "lucide-react";
+import { appMeta } from "../../config/appMeta";
 
 export type AppPageId = "dashboard" | "projects" | "context" | "taskPacks" | "settings";
 
@@ -11,12 +12,12 @@ const navItems: {
   id: AppPageId;
   label: string;
 }[] = [
-  { id: "dashboard", label: "Dashboard" },
-  { id: "projects", label: "Projects" },
-  { id: "context", label: "Context Builder" },
-  { id: "taskPacks", label: "Task Packs" },
-  { id: "settings", label: "Settings" }
-];
+    { id: "dashboard", label: "Dashboard" },
+    { id: "projects", label: "Projects" },
+    { id: "context", label: "Context Builder" },
+    { id: "taskPacks", label: "Task Packs" },
+    { id: "settings", label: "Settings" }
+  ];
 
 export function Sidebar({ activePage, onNavigate }: SidebarProps) {
   return (
@@ -27,8 +28,10 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
         </div>
 
         <div>
-          <h1 className="text-sm font-semibold tracking-tight text-white">ContextForge</h1>
-          <p className="text-xs text-neutral-500">AI project control center</p>
+          <h1 className="text-sm font-semibold tracking-tight text-white">
+            {appMeta.name}
+          </h1>
+          <p className="text-xs text-neutral-500">{appMeta.subtitle}</p>
         </div>
       </div>
 
@@ -53,7 +56,13 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
         <p className="mb-2 text-[10px] uppercase tracking-[0.22em] text-neutral-600">
           MVP Status
         </p>
-        <p className="text-sm text-neutral-300">Phase 0.2 — Task Packs</p>
+        <p className="text-sm text-neutral-300">
+          {appMeta.phase} — {appMeta.phaseTitle}
+        </p>
+
+        <p className="mt-2 text-xs text-neutral-600">
+          v{appMeta.version}
+        </p>
       </div>
     </aside>
   );

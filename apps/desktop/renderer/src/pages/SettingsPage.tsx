@@ -9,6 +9,7 @@ import {
 import type { AppSettings, OllamaModel, OllamaStatus } from "../types";
 import { Button } from "../components/ui/Button";
 import { CustomSelect } from "../components/ui/CustomSelect";
+import { appMeta } from "../config/appMeta";
 
 function formatModelSize(size?: number) {
   if (!size) {
@@ -244,6 +245,30 @@ export function SettingsPage() {
         </div>
 
         <aside className="space-y-4">
+          <div className="cf-card p-5">
+            <p className="mb-3 text-sm font-medium text-white">Application</p>
+
+            <div className="space-y-3 text-sm">
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-neutral-500">Name</span>
+                <span className="font-medium text-white">{appMeta.name}</span>
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-neutral-500">Version</span>
+                <span className="font-medium text-white">v{appMeta.version}</span>
+              </div>
+
+              <div className="flex items-center justify-between gap-4">
+                <span className="text-neutral-500">Phase</span>
+                <span className="font-medium text-white">{appMeta.phase}</span>
+              </div>
+            </div>
+
+            <p className="mt-4 text-sm leading-6 text-neutral-500">
+              {appMeta.description}
+            </p>
+          </div>
           <div className="cf-card p-5">
             <p className="mb-4 text-sm font-medium text-white">Generation preferences</p>
 
