@@ -2,11 +2,14 @@
 import cors from "cors";
 import { config } from "./config/index.js";
 import { pool } from "./db/pool.js";
+import { ensureDatabaseSchema } from "./db/schema.js";
+import { projectsRouter } from "./routes/projects.js";
+import { taskPacksRouter } from "./routes/taskPacks.js";
 
 const app = express();
 
 app.use(cors({
-  origin: ["http://localhost:5173"]
+  origin: ["http://localhost:5173", "http://127.0.0.1:5173"]
 }));
 
 app.use(express.json());
@@ -38,6 +41,18 @@ app.get("/api/db/health", async (_req, res) => {
   }
 });
 
-app.listen(config.port, () => {
-  console.log(`ContextForge server started on http://localhost:${config.port}`);
+app.use("/api/projects", projectsRouter);
+app.use("/api/task-packs", taskPacksRouter);
+
+async function bootstrap() {
+  await ensureDatabaseSchema();
+
+  app.listen(config.port, () => {
+    console.log(`ContextForge server started on http://localhost:${config.port}`);
+  });
+}
+
+bootstrap().catch((error) => {
+  console.error("Failed to start ContextForge server:", error);
+  process.exit(1);
 });
