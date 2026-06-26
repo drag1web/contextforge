@@ -1,0 +1,28 @@
+﻿{
+  "name": "contextforge",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Desktop AI devtool for preparing software projects for AI agents.",
+  "type": "module",
+  "workspaces": [
+    "apps/desktop/renderer",
+    "server",
+    "packages/shared"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n SERVER,RENDERER,ELECTRON -c blue,green,magenta \"npm run dev:server\" \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "dev:server": "npm run dev -w @contextforge/server",
+    "dev:renderer": "npm run dev -w @contextforge/renderer",
+    "dev:electron": "wait-on tcp:5173 tcp:4000 && cross-env ELECTRON_RENDERER_URL=http://localhost:5173 electron apps/desktop/electron/main.cjs",
+    "build": "npm run build -w @contextforge/renderer && npm run build -w @contextforge/server",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:logs": "docker compose logs -f postgres"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0",
+    "cross-env": "^7.0.3",
+    "electron": "^33.0.0",
+    "wait-on": "^8.0.0"
+  }
+}

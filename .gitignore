@@ -1,0 +1,15 @@
+﻿node_modules
+dist
+dist-electron
+
+.env
+*.log
+
+apps/desktop/renderer/dist
+server/dist
+
+.vscode
+.idea
+
+.DS_Store
+Thumbs.db

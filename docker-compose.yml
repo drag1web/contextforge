@@ -1,0 +1,16 @@
+﻿services:
+  postgres:
+    image: postgres:17-alpine
+    container_name: contextforge-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: contextforge
+      POSTGRES_USER: contextforge
+      POSTGRES_PASSWORD: contextforge
+    ports:
+      - "5433:5432"
+    volumes:
+      - contextforge_pgdata:/var/lib/postgresql/data
+
+volumes:
+  contextforge_pgdata:
