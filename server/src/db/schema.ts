@@ -32,6 +32,25 @@ export async function ensureDatabaseSchema() {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      key TEXT PRIMARY KEY,
+      value JSONB NOT NULL,
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    );
+  `);
+
+  await pool.query(`
+    INSERT INTO app_settings (key, value)
+    VALUES
+      ('ollama_url', to_jsonb('http://localhost:11434'::text)),
+      ('generation_mode', to_jsonb('template'::text)),
+      ('default_target_tool', to_jsonb('codex'::text)),
+      ('default_task_type', to_jsonb('general'::text)),
+      ('default_ollama_model', 'null'::jsonb)
+    ON CONFLICT (key) DO NOTHING;
+  `);
+
+  await pool.query(`
     ALTER TABLE projects
     ADD COLUMN IF NOT EXISTS readiness_score INTEGER NOT NULL DEFAULT 0;
   `);

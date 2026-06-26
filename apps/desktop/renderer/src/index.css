@@ -15,45 +15,51 @@
 
   --cf-bg: #000000;
   --cf-bg-soft: #050505;
-  --cf-surface: #0a0a0a;
+
+  --cf-surface: #080808;
+  --cf-surface-soft: #0d0d0d;
   --cf-surface-elevated: #111111;
   --cf-surface-hover: #171717;
 
   --cf-border: #262626;
-  --cf-border-soft: #1f1f1f;
-  --cf-border-strong: #333333;
+  --cf-border-soft: #1a1a1a;
+  --cf-border-strong: #3a3a3a;
 
   --cf-text: #ededed;
   --cf-text-muted: #a1a1a1;
   --cf-text-subtle: #737373;
   --cf-text-disabled: #525252;
 
-  --cf-accent: #ffffff;
-  --cf-accent-soft: rgba(255, 255, 255, 0.08);
-
-  --cf-success: #22c55e;
-  --cf-warning: #f59e0b;
+  --cf-success: #00c896;
+  --cf-warning: #f5a524;
   --cf-danger: #ef4444;
   --cf-info: #38bdf8;
 
   --cf-radius-sm: 8px;
-  --cf-radius-md: 12px;
-  --cf-radius-lg: 16px;
-  --cf-radius-xl: 20px;
+  --cf-radius-md: 10px;
+  --cf-radius-lg: 14px;
+  --cf-radius-xl: 18px;
 
-  --cf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32);
-  --cf-shadow-md: 0 10px 30px rgba(0, 0, 0, 0.35);
-  --cf-shadow-lg: 0 24px 70px rgba(0, 0, 0, 0.5);
+  --cf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.36);
+  --cf-shadow-md: 0 14px 38px rgba(0, 0, 0, 0.42);
+  --cf-shadow-lg: 0 28px 90px rgba(0, 0, 0, 0.62);
 
   --cf-transition-fast: 140ms ease;
   --cf-transition-base: 220ms ease;
 }
 
-* {
-  box-sizing: border-box;
+/* Slightly smaller global scale */
+html {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  font-size: 14px;
+  background: var(--cf-bg);
+  text-rendering: geometricPrecision;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-html,
 body,
 #root {
   width: 100%;
@@ -61,24 +67,22 @@ body,
   margin: 0;
 }
 
-html {
-  background: var(--cf-bg);
-  text-rendering: geometricPrecision;
-  -webkit-font-smoothing: antialiased;
-  -moz-osx-font-smoothing: grayscale;
-}
-
 body {
   overflow: hidden;
   color: var(--cf-text);
   background:
-    radial-gradient(circle at 50% -20%, rgba(255, 255, 255, 0.07), transparent 34rem),
-    linear-gradient(180deg, #050505 0%, #000000 44%, #000000 100%);
+    radial-gradient(circle at 50% -14rem, rgba(255, 255, 255, 0.085), transparent 34rem),
+    radial-gradient(circle at 92% 8%, rgba(255, 255, 255, 0.035), transparent 22rem),
+    linear-gradient(180deg, #050505 0%, #000000 46%, #000000 100%);
 }
 
-body::selection {
-  color: #000000;
-  background: #ffffff;
+* {
+  box-sizing: border-box;
+}
+
+*::before,
+*::after {
+  box-sizing: border-box;
 }
 
 ::selection {
@@ -128,7 +132,21 @@ samp {
     monospace;
 }
 
-/* Vercel-like scrollbar */
+/* Electron drag zones */
+.app-drag {
+  -webkit-app-region: drag;
+}
+
+.app-no-drag,
+button,
+input,
+textarea,
+select,
+a {
+  -webkit-app-region: no-drag;
+}
+
+/* Scrollbar */
 ::-webkit-scrollbar {
   width: 10px;
   height: 10px;
@@ -139,50 +157,52 @@ samp {
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #262626;
-  border: 2px solid transparent;
+  background: #2a2a2a;
+  border: 3px solid transparent;
   border-radius: 999px;
   background-clip: content-box;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: #3f3f46;
-  border: 2px solid transparent;
+  background: #4a4a4a;
+  border: 3px solid transparent;
   background-clip: content-box;
 }
 
-/* Electron drag zones */
-.app-drag {
-  -webkit-app-region: drag;
+::-webkit-scrollbar-corner {
+  background: transparent;
 }
 
-.app-no-drag {
-  -webkit-app-region: no-drag;
+/* Focus */
+:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.72);
+  outline-offset: 3px;
 }
 
-/* Reusable primitives */
+/* Reusable surfaces */
 .cf-surface {
-  background: rgba(10, 10, 10, 0.82);
+  background: rgba(8, 8, 8, 0.82);
   border: 1px solid var(--cf-border-soft);
   box-shadow: var(--cf-shadow-sm);
   backdrop-filter: blur(16px);
 }
 
 .cf-surface-elevated {
-  background: rgba(17, 17, 17, 0.92);
+  background: rgba(15, 15, 15, 0.96);
   border: 1px solid var(--cf-border);
   box-shadow: var(--cf-shadow-md);
   backdrop-filter: blur(20px);
 }
 
+/* Vercel-like cards */
 .cf-card {
   position: relative;
   overflow: hidden;
   border-radius: var(--cf-radius-xl);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.012)),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.036), rgba(255, 255, 255, 0.012)),
     var(--cf-surface);
-  border: 1px solid var(--cf-border);
+  border: 1px solid var(--cf-border-soft);
   box-shadow: var(--cf-shadow-sm);
   transition:
     border-color var(--cf-transition-base),
@@ -191,30 +211,56 @@ samp {
     box-shadow var(--cf-transition-base);
 }
 
-.cf-card:hover {
-  border-color: var(--cf-border-strong);
+.cf-card::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.018)),
+    radial-gradient(circle at top left, rgba(255, 255, 255, 0.045), transparent 20rem),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 42%);
+  opacity: 0.9;
+}
+
+.cf-card > * {
+  position: relative;
+  z-index: 1;
+}
+
+.cf-card:hover {
+  border-color: var(--cf-border);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.016)),
     var(--cf-surface-elevated);
   box-shadow: var(--cf-shadow-md);
   transform: translateY(-1px);
 }
 
+.cf-card-menu {
+  overflow: visible;
+}
+
+.cf-card-menu::before {
+  border-radius: inherit;
+}
+
+/* Buttons */
 .cf-button-primary {
   display: inline-flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 40px;
-  padding: 0 16px;
+  min-height: 36px;
+  padding: 0 15px;
   border-radius: 999px;
   color: #000000;
   background: #ffffff;
-  font-size: 14px;
+  font-size: 13px;
   font-weight: 500;
+  line-height: 1;
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.08),
-    0 8px 22px rgba(255, 255, 255, 0.08);
+    0 0 0 1px rgba(255, 255, 255, 0.12),
+    0 10px 26px rgba(255, 255, 255, 0.08);
   transition:
     transform var(--cf-transition-fast),
     background var(--cf-transition-fast),
@@ -222,11 +268,11 @@ samp {
 }
 
 .cf-button-primary:hover {
-  background: #e5e5e5;
+  background: #e8e8e8;
   transform: translateY(-1px);
   box-shadow:
-    0 0 0 1px rgba(255, 255, 255, 0.12),
-    0 12px 30px rgba(255, 255, 255, 0.12);
+    0 0 0 1px rgba(255, 255, 255, 0.16),
+    0 14px 34px rgba(255, 255, 255, 0.12);
 }
 
 .cf-button-primary:active {
@@ -238,22 +284,25 @@ samp {
   align-items: center;
   justify-content: center;
   gap: 8px;
-  min-height: 40px;
-  padding: 0 16px;
+  min-height: 36px;
+  padding: 0 15px;
   border-radius: 999px;
   color: var(--cf-text);
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid var(--cf-border);
-  font-size: 14px;
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--cf-border-soft);
+  font-size: 13px;
   font-weight: 500;
+  line-height: 1;
   transition:
     border-color var(--cf-transition-fast),
     background var(--cf-transition-fast),
-    transform var(--cf-transition-fast);
+    transform var(--cf-transition-fast),
+    color var(--cf-transition-fast);
 }
 
 .cf-button-secondary:hover {
-  background: rgba(255, 255, 255, 0.075);
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.065);
   border-color: var(--cf-border-strong);
   transform: translateY(-1px);
 }
@@ -262,14 +311,15 @@ samp {
   transform: translateY(0);
 }
 
+/* Inputs */
 .cf-input {
   width: 100%;
-  min-height: 42px;
+  min-height: 40px;
   border-radius: var(--cf-radius-md);
   color: var(--cf-text);
   background: rgba(255, 255, 255, 0.035);
-  border: 1px solid var(--cf-border);
-  padding: 0 14px;
+  border: 1px solid var(--cf-border-soft);
+  padding: 0 13px;
   outline: none;
   transition:
     border-color var(--cf-transition-fast),
@@ -281,27 +331,40 @@ samp {
   color: var(--cf-text-disabled);
 }
 
+.cf-input:hover {
+  border-color: var(--cf-border);
+}
+
 .cf-input:focus {
   border-color: #ffffff;
   background: rgba(255, 255, 255, 0.055);
   box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.08);
 }
 
+/* Badges */
 .cf-badge {
   display: inline-flex;
   align-items: center;
   gap: 6px;
   width: fit-content;
-  min-height: 24px;
-  padding: 0 9px;
+  min-height: 22px;
+  padding: 0 8px;
   border-radius: 999px;
-  color: var(--cf-text-muted);
+  color: #bdbdbd;
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid var(--cf-border-soft);
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1;
+  white-space: nowrap;
 }
 
+.cf-badge:hover {
+  color: #ffffff;
+  border-color: var(--cf-border);
+  background: rgba(255, 255, 255, 0.055);
+}
+
+/* Text utilities */
 .cf-muted {
   color: var(--cf-text-muted);
 }
@@ -315,13 +378,39 @@ samp {
   background: var(--cf-border-soft);
 }
 
-/* Focus */
-:focus-visible {
-  outline: 2px solid rgba(255, 255, 255, 0.72);
-  outline-offset: 3px;
+/* Native controls polish */
+textarea,
+select,
+input {
+  color-scheme: dark;
 }
 
-/* Small entrance animation */
+select {
+  appearance: none;
+  background-image:
+    linear-gradient(45deg, transparent 50%, #777 50%),
+    linear-gradient(135deg, #777 50%, transparent 50%);
+  background-position:
+    calc(100% - 17px) 50%,
+    calc(100% - 12px) 50%;
+  background-size:
+    5px 5px,
+    5px 5px;
+  background-repeat: no-repeat;
+}
+
+/* Markdown/code preview */
+pre {
+  tab-size: 2;
+}
+
+pre::-webkit-scrollbar-thumb {
+  background: #333333;
+  border: 3px solid transparent;
+  background-clip: content-box;
+}
+
+/* Animations */
 @keyframes cf-fade-up {
   from {
     opacity: 0;
@@ -334,8 +423,30 @@ samp {
   }
 }
 
+@keyframes cf-scale-in {
+  from {
+    opacity: 0;
+    transform: scale(0.985);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .cf-fade-up {
   animation: cf-fade-up 420ms ease both;
+}
+
+.cf-scale-in {
+  animation: cf-scale-in 180ms ease both;
+}
+
+@media (max-width: 1200px) {
+  html {
+    font-size: 13.5px;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -347,4 +458,77 @@ samp {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
   }
+}
+
+.cf-select-popover {
+  font-family:
+    Inter,
+    Geist,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+.cf-floating-popover {
+  font-family:
+    Inter,
+    Geist,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+
+  background: rgba(0, 0, 0, 0.96);
+  border: 1px solid var(--cf-border);
+  box-shadow:
+    0 18px 60px rgba(0, 0, 0, 0.72),
+    0 0 0 1px rgba(255, 255, 255, 0.03);
+  backdrop-filter: blur(18px);
+}
+
+.cf-menu-item {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-radius: 8px;
+  padding: 8px 10px;
+  color: #d4d4d4;
+  font-size: 13px;
+  font-weight: 500;
+  text-align: left;
+  transition:
+    color 140ms ease,
+    background 140ms ease,
+    transform 140ms ease;
+}
+
+.cf-menu-item:hover {
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.075);
+}
+
+.cf-menu-item:active {
+  transform: scale(0.99);
+}
+
+.cf-menu-item-selected {
+  color: #000000;
+  background: #ffffff;
+}
+
+.cf-menu-item-selected:hover {
+  color: #000000;
+  background: #ffffff;
+}
+
+.cf-menu-item-disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
