@@ -11,7 +11,7 @@ interface ProjectsSectionProps {
   onToggleProject: (projectId: number) => void;
   onRescanProject: (project: Project) => void;
   onGenerateAgents: (project: Project) => void;
-  onCreateTaskPack: (project: Project) => void;
+  onCreateTaskPack: (project: Project) => void | Promise<void>;
 }
 
 export function ProjectsSection({

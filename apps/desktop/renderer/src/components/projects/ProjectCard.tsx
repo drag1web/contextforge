@@ -12,7 +12,7 @@ interface ProjectCardProps {
   onToggleReport: () => void;
   onRescan: () => void;
   onGenerateAgents: () => void;
-  onCreateTaskPack: () => void;
+  onCreateTaskPack: () => void | Promise<void>;
 }
 
 export function ProjectCard({

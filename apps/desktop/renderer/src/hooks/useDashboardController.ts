@@ -3,6 +3,7 @@ import {
   addProject,
   createTaskPack,
   getAgentsPreview,
+  getAppSettings,
   getProjects,
   getTaskPacks,
   rescanProject,
@@ -124,14 +125,39 @@ export function useDashboardController() {
     }
   }
 
-  function handleCreateTaskPackDraft(project: Project) {
-    setTaskPackDraft({
-      projectId: project.id,
-      projectName: project.name,
-      rawTask: "",
-      taskType: "general",
-      targetTool: "codex"
-    });
+  async function handleCreateTaskPackDraft(project: Project) {
+    try {
+      setIsLoading(true);
+      setStatusMessage(`Loading task pack defaults for "${project.name}"...`);
+
+      const settings = await getAppSettings();
+
+      setTaskPackDraft({
+        projectId: project.id,
+        projectName: project.name,
+        rawTask: "",
+        taskType: settings.defaultTaskType,
+        targetTool: settings.defaultTargetTool
+      });
+
+      setStatusMessage(`Task pack draft opened for "${project.name}".`);
+    } catch (error) {
+      setTaskPackDraft({
+        projectId: project.id,
+        projectName: project.name,
+        rawTask: "",
+        taskType: "general",
+        targetTool: "codex"
+      });
+
+      setStatusMessage(
+        error instanceof Error
+          ? `Settings unavailable. Using default task pack values. ${error.message}`
+          : "Settings unavailable. Using default task pack values."
+      );
+    } finally {
+      setIsLoading(false);
+    }
   }
 
   async function handleCreateTaskPack() {
