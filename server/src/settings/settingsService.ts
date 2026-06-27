@@ -5,7 +5,16 @@ export interface AppSettings {
   ollamaUrl: string;
   generationMode: "template" | "ollama";
   defaultTargetTool: "codex" | "cursor" | "claude" | "generic";
-  defaultTaskType: "general" | "ui" | "backend" | "bugfix" | "refactor" | "docs" | "tests";
+  defaultTaskType:
+    | "general"
+    | "ui"
+    | "backend"
+    | "fullstack"
+    | "build"
+    | "bugfix"
+    | "refactor"
+    | "docs"
+    | "tests";
   defaultOllamaModel: string | null;
 }
 
@@ -44,26 +53,11 @@ export async function getSettingValue<T>(key: string, fallback: T): Promise<T> {
 
 export async function getAppSettings(): Promise<AppSettings> {
   return {
-    ollamaUrl: await getSettingValue(
-      settingKeyMap.ollamaUrl,
-      defaultSettings.ollamaUrl
-    ),
-    generationMode: await getSettingValue(
-      settingKeyMap.generationMode,
-      defaultSettings.generationMode
-    ),
-    defaultTargetTool: await getSettingValue(
-      settingKeyMap.defaultTargetTool,
-      defaultSettings.defaultTargetTool
-    ),
-    defaultTaskType: await getSettingValue(
-      settingKeyMap.defaultTaskType,
-      defaultSettings.defaultTaskType
-    ),
-    defaultOllamaModel: await getSettingValue(
-      settingKeyMap.defaultOllamaModel,
-      defaultSettings.defaultOllamaModel
-    )
+    ollamaUrl: await getSettingValue(settingKeyMap.ollamaUrl, defaultSettings.ollamaUrl),
+    generationMode: await getSettingValue(settingKeyMap.generationMode, defaultSettings.generationMode),
+    defaultTargetTool: await getSettingValue(settingKeyMap.defaultTargetTool, defaultSettings.defaultTargetTool),
+    defaultTaskType: await getSettingValue(settingKeyMap.defaultTaskType, defaultSettings.defaultTaskType),
+    defaultOllamaModel: await getSettingValue(settingKeyMap.defaultOllamaModel, defaultSettings.defaultOllamaModel)
   };
 }
 

@@ -16,21 +16,18 @@ interface BuildTaskPackInput {
 }
 
 function formatStack(stack: string[]) {
-  if (stack.length === 0) {
-    return "- Unknown";
-  }
-
+  if (stack.length === 0) return "- Unknown";
   return stack.map((item) => `- ${item}`).join("\n");
 }
 
 function formatScripts(scripts: Record<string, string>) {
   const entries = Object.entries(scripts);
-
-  if (entries.length === 0) {
-    return "- No scripts detected.";
-  }
-
+  if (entries.length === 0) return "- No scripts detected.";
   return entries.map(([name, command]) => `- ${name}: \`${command}\``).join("\n");
+}
+
+function normalizeTaskType(taskType: string) {
+  return taskType.trim().toLowerCase();
 }
 
 function getTargetInstruction(targetTool: string) {
@@ -47,17 +44,23 @@ function getTargetInstruction(targetTool: string) {
 }
 
 function getTaskTypeInstruction(taskType: string) {
-  switch (taskType) {
+  const normalized = normalizeTaskType(taskType);
+
+  switch (normalized) {
     case "ui":
       return "This is a UI/UX task. Preserve existing behavior while improving visual design, layout, accessibility, and interaction quality.";
     case "backend":
       return "This is a backend task. Preserve existing API contracts, validation, error handling, and database behavior.";
+    case "fullstack":
+      return "This is a full-stack task. Coordinate UI, client API calls, server endpoints, validation, and user-visible feedback without breaking existing contracts.";
+    case "build":
+      return "This is a build/config task. Focus on package scripts, framework config, TypeScript/module resolution, import paths, aliases, and production build behavior.";
     case "bugfix":
       return "This is a bugfix task. Identify the root cause first, then apply the smallest safe fix.";
     case "refactor":
       return "This is a refactoring task. Do not change external behavior. Keep the refactor incremental and easy to review.";
     case "docs":
-      return "This is a documentation task. Keep the documentation accurate, concise, and aligned with the current project.";
+      return "This is a documentation task. Keep the documentation accurate, concise, and aligned with the current project scripts and setup.";
     case "tests":
       return "This is a testing task. Add or improve tests without changing production behavior unnecessarily.";
     default:
@@ -72,6 +75,7 @@ export function buildTaskPackPrompt(input: BuildTaskPackInput) {
   const verificationCommands = [
     project.scripts.build ? `- Build: \`${packageManager} run build\`` : null,
     project.scripts.test ? `- Tests: \`${packageManager} test\`` : null,
+    project.scripts.lint ? `- Lint: \`${packageManager} run lint\`` : null,
     project.scripts.dev ? `- Dev server: \`${packageManager} run dev\`` : null
   ].filter(Boolean);
 

@@ -23,6 +23,7 @@ interface GenerateWithOllamaInput {
     temperature?: number;
     numPredict?: number;
     expectedHeading?: string;
+    bypassCache?: boolean;
 }
 
 interface OllamaGenerateResponse {
@@ -39,7 +40,8 @@ export async function generateWithConfiguredOllama({
     fallbackContent,
     temperature = 0.1,
     numPredict = 1600,
-    expectedHeading
+    expectedHeading,
+    bypassCache = false
 }: GenerateWithOllamaInput): Promise<AssistedGenerationResult> {
     const startedAt = Date.now();
     const settings = await getAppSettings();
@@ -75,22 +77,24 @@ export async function generateWithConfiguredOllama({
         temperature
     });
 
-    const cachedGeneration = getCachedGeneration(cacheKey);
+    if (!bypassCache) {
+        const cachedGeneration = getCachedGeneration(cacheKey);
 
-    if (cachedGeneration) {
-        return {
-            content: cachedGeneration.content,
-            mode: "ollama",
-            model: cachedGeneration.model,
-            usedFallback: false,
-            cached: true,
-            message: `Generated from cache with Ollama model ${cachedGeneration.model}.`,
-            durationMs: getDurationMs(startedAt)
-        };
+        if (cachedGeneration) {
+            return {
+                content: cachedGeneration.content,
+                mode: "ollama",
+                model: cachedGeneration.model,
+                usedFallback: false,
+                cached: true,
+                message: `Generated from cache with Ollama model ${cachedGeneration.model}.`,
+                durationMs: getDurationMs(startedAt)
+            };
+        }
     }
 
     try {
-        const response = await fetch(`${settings.ollamaUrl}/api/generate`, {
+        const response = await fetch(`${settings.ollamaUrl.replace(/\/$/, "")}/api/generate`, {
             method: "POST",
             headers: {
                 "Content-Type": "application/json"

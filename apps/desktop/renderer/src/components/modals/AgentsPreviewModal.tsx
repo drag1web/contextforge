@@ -7,6 +7,7 @@ interface AgentsPreviewModalProps {
   isLoading: boolean;
   onClose: () => void;
   onSave: () => void;
+  onRegenerate: () => void;
 }
 
 function formatDuration(durationMs?: number) {
@@ -25,7 +26,8 @@ export function AgentsPreviewModal({
   preview,
   isLoading,
   onClose,
-  onSave
+  onSave,
+  onRegenerate
 }: AgentsPreviewModalProps) {
   return (
     <Modal
@@ -37,8 +39,17 @@ export function AgentsPreviewModal({
           <Button
             variant="secondary"
             onClick={() => navigator.clipboard.writeText(preview.markdown)}
+            disabled={isLoading}
           >
             Copy
+          </Button>
+
+          <Button
+            variant="secondary"
+            onClick={onRegenerate}
+            disabled={isLoading}
+          >
+            Regenerate
           </Button>
 
           <Button variant="primary" onClick={onSave} disabled={isLoading}>

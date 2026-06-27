@@ -1,3 +1,5 @@
+import type { TaskAwareProjectContext } from "../scanner/taskAwareContextScanner.js";
+
 interface ProjectLike {
     name: string;
     localPath?: string;
@@ -18,6 +20,7 @@ interface BuildTaskPackEnhancementPromptInput {
     rawTask: string;
     taskType: string;
     targetTool: string;
+    projectContext?: TaskAwareProjectContext;
 }
 
 function formatJson(value: unknown) {
@@ -104,12 +107,14 @@ ${templateMarkdown}
 `.trim();
 }
 
+
 export function buildTaskPackEnhancementPrompt({
     project,
     templatePrompt,
     rawTask,
     taskType,
-    targetTool
+    targetTool,
+    projectContext
 }: BuildTaskPackEnhancementPromptInput) {
     const targetToolLabel = getTargetToolLabel(targetTool);
     const taskTypeLabel = getTaskTypeLabel(taskType);
@@ -122,22 +127,30 @@ Your job:
 Improve a task pack prompt for an AI coding agent.
 
 Output contract:
-- Output the final AGENTS.md content only.
-- The first line must be exactly: # AGENTS.md
+- Output the final task pack prompt only.
+- The first line must be exactly: # AI Task Pack
 - Do not write introductions like "Here is", "Sure", or "Below is".
-- Do not write final notes, explanations, disclaimers, or commentary after the document.
+- Do not write final notes, explanations, disclaimers, or commentary after the prompt.
 - Do not output a table of contents.
 - Do not output an empty outline of headings.
 - Each required section must contain useful content.
 - Do not wrap the answer in code fences.
 - Use Markdown only.
 - Preserve the user's actual task.
+- The "ContextForge Assisted Notes" section must use the exact heading: ## ContextForge Assisted Notes
 - Do not invent project files, APIs, scripts, folders, dependencies, or implementation details.
 - Do not recommend npm scripts that are not present in project metadata.
 - ${hasTestScript
             ? "The project has a test script. You may include it in verification."
             : "The project has no detected test script. Do not recommend npm run test."
         }
+- Use the task-aware project context to make the prompt more specific.
+- Mention relevant file candidates when useful.
+- Use file snippets to understand architecture, but do not overfit to partial code.
+- Mention likely relevant files based on both file paths and snippets.
+- If snippets are incomplete or truncated, tell the coding agent to inspect the full files before editing.
+- Do not claim that a file definitely must be edited unless the context strongly suggests it.
+- Tell the coding agent to inspect relevant files before modifying them.
 - Make the prompt more actionable for ${targetToolLabel}.
 - Make acceptance criteria clear and specific.
 - Make verification steps practical.
@@ -151,11 +164,13 @@ Required document structure:
 ## Task Type
 ## Task
 ## Project Context
+## Relevant File Candidates
 ## Agent Instructions
 ## Constraints
 ## Known AI-Readiness Issues
 ## Acceptance Criteria
 ## Verification
+## ContextForge Assisted Notes
 ## Expected Final Response
 
 Target tool display name:
@@ -172,6 +187,16 @@ ${formatJson({
             detectedStack: project.detectedStack,
             scripts: project.scripts,
             readinessScore: project.readinessScore
+        })}
+
+Task-aware project context:
+${formatJson({
+            taskType: projectContext?.taskType,
+            taskIntent: projectContext?.taskIntent,
+            projectTree: projectContext?.projectTree,
+            relevantFiles: projectContext?.relevantFiles,
+            fileSnippets: projectContext?.fileSnippets,
+            notes: projectContext?.notes
         })}
 
 User task:

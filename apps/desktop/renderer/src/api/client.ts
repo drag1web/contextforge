@@ -53,16 +53,26 @@ export async function rescanProject(projectId: number): Promise<Project> {
 }
 
 export async function getAgentsPreview(
-  projectId: number
+  projectId: number,
+  options: { bypassCache?: boolean } = {}
 ): Promise<{
   markdown: string;
   generation?: GenerationMetadata;
 }> {
+  const searchParams = new URLSearchParams();
+
+  if (options.bypassCache) {
+    searchParams.set("bypassCache", "true");
+  }
+
+  const query = searchParams.toString();
+  const url = `/projects/${projectId}/agents-preview${query ? `?${query}` : ""}`;
+
   const data = await request<{
     ok: true;
     markdown: string;
     generation?: GenerationMetadata;
-  }>(`/projects/${projectId}/agents-preview`);
+  }>(url);
 
   return {
     markdown: data.markdown,

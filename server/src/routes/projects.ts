@@ -192,6 +192,9 @@ projectsRouter.post("/:id/rescan", async (req, res) => {
 projectsRouter.get("/:id/agents-preview", async (req, res) => {
   const projectId = Number(req.params.id);
 
+  const bypassCache =
+    req.query.bypassCache === "true" || req.query.bypassCache === "1";
+
   if (!Number.isInteger(projectId)) {
     res.status(400).json({
       ok: false,
@@ -217,6 +220,7 @@ projectsRouter.get("/:id/agents-preview", async (req, res) => {
       fallbackContent: templateMarkdown,
       expectedHeading: "# AGENTS.md",
       numPredict: 1800,
+      bypassCache,
       prompt: buildAgentsEnhancementPrompt({
         project,
         templateMarkdown

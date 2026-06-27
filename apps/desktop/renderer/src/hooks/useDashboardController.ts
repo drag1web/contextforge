@@ -111,6 +111,41 @@ export function useDashboardController() {
     }
   }
 
+  async function handleRegenerateAgentsPreview() {
+    if (!agentsPreview) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+
+      const settings = await getAppSettings();
+
+      setStatusMessage(
+        settings.generationMode === "ollama" && settings.defaultOllamaModel
+          ? `Regenerating AGENTS.md with Ollama (${settings.defaultOllamaModel}). Cache will be ignored...`
+          : `Regenerating AGENTS.md for "${agentsPreview.projectName}"...`
+      );
+
+      const preview = await getAgentsPreview(agentsPreview.projectId, {
+        bypassCache: true
+      });
+
+      setAgentsPreview({
+        projectId: agentsPreview.projectId,
+        projectName: agentsPreview.projectName,
+        markdown: preview.markdown,
+        generation: preview.generation
+      });
+
+      setStatusMessage(`AGENTS.md regenerated for "${agentsPreview.projectName}".`);
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function handleSaveAgentsFile() {
     if (!agentsPreview) {
       return;
@@ -228,6 +263,7 @@ export function useDashboardController() {
     handleSelectProject,
     handleRescanProject,
     handleGenerateAgentsPreview,
+    handleRegenerateAgentsPreview,
     handleSaveAgentsFile,
     handleCreateTaskPackDraft,
     handleCreateTaskPack,

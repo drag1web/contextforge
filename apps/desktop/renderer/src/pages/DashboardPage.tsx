@@ -129,6 +129,7 @@ export function DashboardPage() {
                     isLoading={dashboard.isLoading}
                     onClose={() => dashboard.setAgentsPreview(null)}
                     onSave={dashboard.handleSaveAgentsFile}
+                    onRegenerate={dashboard.handleRegenerateAgentsPreview}
                 />
             )}
 
