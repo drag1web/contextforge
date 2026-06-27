@@ -18,12 +18,19 @@ export function StatsGrid({
         <div className="mb-4 flex size-9 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-200">
           <Gauge size={18} />
         </div>
-        <p className="text-sm text-neutral-500">AI Readiness</p>
-        <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
+
+        <p className="cf-tech-label text-xs uppercase text-neutral-500">
+          AI Readiness
+        </p>
+
+        <p className="cf-display-font mt-2 text-4xl font-semibold leading-none text-white">
           {readinessScore ?? "—"}
         </p>
+
         {readinessScore !== null && (
-          <p className="mt-1 text-sm text-neutral-500">{getScoreLabel(readinessScore)}</p>
+          <p className="mt-2 text-sm text-neutral-500">
+            {getScoreLabel(readinessScore)}
+          </p>
         )}
       </div>
 
@@ -31,8 +38,12 @@ export function StatsGrid({
         <div className="mb-4 flex size-9 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-200">
           <Package size={18} />
         </div>
-        <p className="text-sm text-neutral-500">Projects</p>
-        <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
+
+        <p className="cf-tech-label text-xs uppercase text-neutral-500">
+          Projects
+        </p>
+
+        <p className="cf-display-font mt-2 text-4xl font-semibold leading-none text-white">
           {projectsCount}
         </p>
       </div>
@@ -41,8 +52,12 @@ export function StatsGrid({
         <div className="mb-4 flex size-9 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-200">
           <GitBranch size={18} />
         </div>
-        <p className="text-sm text-neutral-500">Task Packs</p>
-        <p className="mt-2 text-2xl font-semibold tracking-tight text-white">
+
+        <p className="cf-tech-label text-xs uppercase text-neutral-500">
+          Task Packs
+        </p>
+
+        <p className="cf-display-font mt-2 text-4xl font-semibold leading-none text-white">
           {taskPacksCount}
         </p>
       </div>

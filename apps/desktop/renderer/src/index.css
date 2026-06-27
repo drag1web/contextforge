@@ -1,4 +1,12 @@
-﻿@import "tailwindcss";
+﻿@font-face {
+  font-family: "Bitcount Single";
+  src: url("./assets/fonts/BitcountSingle-Regular.woff2") format("woff2");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@import "tailwindcss";
 
 :root {
   font-family:
@@ -46,6 +54,26 @@
 
   --cf-transition-fast: 140ms ease;
   --cf-transition-base: 220ms ease;
+}
+
+.cf-display-font {
+  font-family:
+    "Bitcount Single",
+    "Geist Mono",
+    "JetBrains Mono",
+    Consolas,
+    monospace;
+  letter-spacing: -0.035em;
+}
+
+.cf-tech-label {
+  font-family:
+    "Bitcount Single",
+    "Geist Mono",
+    "JetBrains Mono",
+    Consolas,
+    monospace;
+  letter-spacing: 0.02em;
 }
 
 /* Slightly smaller global scale */
@@ -222,7 +250,7 @@ a {
   opacity: 0.9;
 }
 
-.cf-card > * {
+.cf-card>* {
   position: relative;
   z-index: 1;
 }
@@ -450,6 +478,7 @@ pre::-webkit-scrollbar-thumb {
 }
 
 @media (prefers-reduced-motion: reduce) {
+
   *,
   *::before,
   *::after {

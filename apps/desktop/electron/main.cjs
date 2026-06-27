@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, ipcMain, dialog } = require("electron");
+﻿const { app, BrowserWindow, ipcMain, dialog, Menu } = require("electron");
 const path = require("node:path");
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
@@ -10,8 +10,9 @@ function createWindow() {
     minWidth: 1100,
     minHeight: 720,
     title: "ContextForge",
-    backgroundColor: "#070a12",
-    titleBarStyle: "hiddenInset",
+    backgroundColor: "#050505",
+    frame: false,
+    autoHideMenuBar: true,
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,
@@ -19,11 +20,17 @@ function createWindow() {
     }
   });
 
+  win.removeMenu();
+
   if (isDev) {
     win.loadURL(process.env.ELECTRON_RENDERER_URL);
   } else {
     win.loadFile(path.join(__dirname, "../renderer/dist/index.html"));
   }
+}
+
+function getWindowFromEvent(event) {
+  return BrowserWindow.fromWebContents(event.sender);
 }
 
 ipcMain.handle("dialog:select-project-folder", async () => {
@@ -39,7 +46,38 @@ ipcMain.handle("dialog:select-project-folder", async () => {
   return result.filePaths[0];
 });
 
+ipcMain.on("window:minimize", (event) => {
+  const win = getWindowFromEvent(event);
+  win?.minimize();
+});
+
+ipcMain.on("window:toggle-maximize", (event) => {
+  const win = getWindowFromEvent(event);
+
+  if (!win) {
+    return;
+  }
+
+  if (win.isMaximized()) {
+    win.unmaximize();
+    return;
+  }
+
+  win.maximize();
+});
+
+ipcMain.on("window:close", (event) => {
+  const win = getWindowFromEvent(event);
+  win?.close();
+});
+
+ipcMain.handle("window:is-maximized", (event) => {
+  const win = getWindowFromEvent(event);
+  return Boolean(win?.isMaximized());
+});
+
 app.whenReady().then(() => {
+  Menu.setApplicationMenu(null);
   createWindow();
 
   app.on("activate", () => {

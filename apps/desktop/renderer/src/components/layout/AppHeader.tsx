@@ -15,17 +15,19 @@ export function AppHeader({
   onAddProject
 }: AppHeaderProps) {
   return (
-    <header className="app-drag flex h-14 items-center justify-between border-b border-neutral-900 px-7">
-      <div>
+    <header className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-900 px-7">
+      <div className="min-w-0">
         <p className="text-[11px] text-neutral-500">{eyebrow}</p>
-        <h2 className="text-base font-semibold tracking-tight text-white">{title}</h2>
+        <h2 className="truncate text-base font-semibold tracking-tight text-white">
+          {title}
+        </h2>
       </div>
 
       <Button
         onClick={onAddProject}
         disabled={isLoading}
         variant="primary"
-        className="app-no-drag min-h-9 px-4 text-sm"
+        className="min-h-9 px-4 text-sm"
       >
         <FolderOpen size={15} />
         {isLoading ? "Scanning..." : "Add project"}
