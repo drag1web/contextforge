@@ -12,6 +12,7 @@ import { useDashboardController } from "../hooks/useDashboardController";
 import { TaskPacksPage } from "./TaskPacksPage";
 import { ContextBuilderPage } from "./ContextBuilderPage";
 import { SettingsPage } from "./SettingsPage";
+import { LoadingOverlay } from "../components/ui/LoadingOverlay";
 
 const pageTitles: Record<AppPageId, string> = {
     dashboard: "Dashboard",
@@ -148,6 +149,11 @@ export function DashboardPage() {
                 />
             )}
 
-        </main>
+            <LoadingOverlay
+                isVisible={dashboard.isLoading}
+                message={dashboard.statusMessage}
+            />
+
+        </main >
     );
 }

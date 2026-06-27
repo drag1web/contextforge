@@ -86,14 +86,21 @@ export function useDashboardController() {
   async function handleGenerateAgentsPreview(project: Project) {
     try {
       setIsLoading(true);
-      setStatusMessage(`Generating AGENTS.md for "${project.name}"...`);
+      const settings = await getAppSettings();
 
-      const markdown = await getAgentsPreview(project.id);
+      setStatusMessage(
+        settings.generationMode === "ollama" && settings.defaultOllamaModel
+          ? `Generating AGENTS.md with Ollama (${settings.defaultOllamaModel}). This may take 1–2 minutes on CPU...`
+          : `Generating AGENTS.md for "${project.name}"...`
+      );
+
+      const preview = await getAgentsPreview(project.id);
 
       setAgentsPreview({
         projectId: project.id,
         projectName: project.name,
-        markdown
+        markdown: preview.markdown,
+        generation: preview.generation
       });
 
       setStatusMessage(`AGENTS.md preview generated for "${project.name}".`);
@@ -113,7 +120,7 @@ export function useDashboardController() {
       setIsLoading(true);
       setStatusMessage(`Saving AGENTS.md for "${agentsPreview.projectName}"...`);
 
-      await saveAgentsFile(agentsPreview.projectId);
+      await saveAgentsFile(agentsPreview.projectId, agentsPreview.markdown);
 
       await refreshDashboard();
       setStatusMessage(`AGENTS.md saved to project "${agentsPreview.projectName}".`);
@@ -167,7 +174,13 @@ export function useDashboardController() {
 
     try {
       setIsLoading(true);
-      setStatusMessage(`Generating task pack for "${taskPackDraft.projectName}"...`);
+      const settings = await getAppSettings();
+
+      setStatusMessage(
+        settings.generationMode === "ollama" && settings.defaultOllamaModel
+          ? `Generating task pack with Ollama (${settings.defaultOllamaModel}). This may take 1–2 minutes on CPU...`
+          : `Generating task pack for "${taskPackDraft.projectName}"...`
+      );
 
       const taskPack = await createTaskPack({
         projectId: taskPackDraft.projectId,

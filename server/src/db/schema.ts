@@ -59,4 +59,28 @@ export async function ensureDatabaseSchema() {
     ALTER TABLE projects
     ADD COLUMN IF NOT EXISTS readiness_report JSONB NOT NULL DEFAULT '{}'::jsonb;
   `);
+  await pool.query(`
+    ALTER TABLE task_packs
+    ADD COLUMN IF NOT EXISTS generation_mode TEXT NOT NULL DEFAULT 'template';
+  `);
+
+  await pool.query(`
+    ALTER TABLE task_packs
+    ADD COLUMN IF NOT EXISTS generation_model TEXT;
+  `);
+
+  await pool.query(`
+    ALTER TABLE task_packs
+    ADD COLUMN IF NOT EXISTS generation_message TEXT;
+  `);
+
+  await pool.query(`
+    ALTER TABLE task_packs
+    ADD COLUMN IF NOT EXISTS generation_used_fallback BOOLEAN NOT NULL DEFAULT FALSE;
+  `);
+
+  await pool.query(`
+    ALTER TABLE task_packs
+    ADD COLUMN IF NOT EXISTS generation_duration_ms INTEGER;
+  `);
 }

@@ -2,6 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import { pool } from "../db/pool.js";
 import { buildTaskPackPrompt } from "../prompt/taskPackBuilder.js";
+import { generateWithConfiguredOllama } from "../ollama/ollamaService.js";
+import { buildTaskPackEnhancementPrompt } from "../ollama/promptEnhancers.js";
 
 export const taskPacksRouter = Router();
 
@@ -23,6 +25,11 @@ taskPacksRouter.get("/", async (_req, res) => {
       tp.task_type AS "taskType",
       tp.target_tool AS "targetTool",
       tp.generated_prompt AS "generatedPrompt",
+      tp.generation_mode AS "generationMode",
+      tp.generation_model AS "generationModel",
+      tp.generation_message AS "generationMessage",
+      tp.generation_used_fallback AS "generationUsedFallback",
+      tp.generation_duration_ms AS "generationDurationMs",
       tp.created_at AS "createdAt",
       tp.updated_at AS "updatedAt"
     FROM task_packs tp
@@ -76,12 +83,27 @@ taskPacksRouter.post("/", async (req, res) => {
 
         const project = projectResult.rows[0];
 
-        const generatedPrompt = buildTaskPackPrompt({
+        const templatePrompt = buildTaskPackPrompt({
             project,
             rawTask: parsed.data.rawTask,
             taskType: parsed.data.taskType,
             targetTool: parsed.data.targetTool
         });
+
+        const generation = await generateWithConfiguredOllama({
+            fallbackContent: templatePrompt,
+            expectedHeading: "# AI Task Pack",
+            numPredict: 1600,
+            prompt: buildTaskPackEnhancementPrompt({
+                project,
+                templatePrompt,
+                rawTask: parsed.data.rawTask,
+                taskType: parsed.data.taskType,
+                targetTool: parsed.data.targetTool
+            })
+        });
+
+        const generatedPrompt = generation.content;
 
         const title =
             parsed.data.rawTask.length > 80
@@ -96,9 +118,14 @@ taskPacksRouter.post("/", async (req, res) => {
         raw_task,
         task_type,
         target_tool,
-        generated_prompt
+        generated_prompt,
+        generation_mode,
+generation_model,
+generation_message,
+generation_used_fallback
+generation_duration_ms
       )
-      VALUES ($1, $2, $3, $4, $5, $6)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
       RETURNING
         id,
         project_id AS "projectId",
@@ -107,16 +134,22 @@ taskPacksRouter.post("/", async (req, res) => {
         task_type AS "taskType",
         target_tool AS "targetTool",
         generated_prompt AS "generatedPrompt",
+        generation_duration_ms AS "generationDurationMs",
         created_at AS "createdAt",
         updated_at AS "updatedAt";
       `,
             [
-                parsed.data.projectId,
+                project.id,
                 title,
                 parsed.data.rawTask,
                 parsed.data.taskType,
                 parsed.data.targetTool,
-                generatedPrompt
+                generatedPrompt,
+                generation.mode,
+                generation.model,
+                generation.message,
+                generation.usedFallback,
+                generation.durationMs
             ]
         );
 

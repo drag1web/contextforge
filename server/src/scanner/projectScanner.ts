@@ -1,5 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { resolveProjectRoot } from "./projectRootResolver.js";
 
 export interface ReadinessCheck {
   key: string;
@@ -168,8 +169,10 @@ function buildReadinessReport(files: string[], scripts: Record<string, string>):
 }
 
 export async function scanProject(projectPath: string): Promise<ScannedProject> {
-  const files = await fs.readdir(projectPath);
-  const packageJsonPath = path.join(projectPath, "package.json");
+  const projectRoot = await resolveProjectRoot(projectPath);
+
+  const files = await fs.readdir(projectRoot);
+  const packageJsonPath = path.join(projectRoot, "package.json");
 
   let packageJson: any = {};
 
@@ -180,13 +183,13 @@ export async function scanProject(projectPath: string): Promise<ScannedProject> 
     packageJson = {};
   }
 
-  const fallbackName = path.basename(projectPath);
+  const fallbackName = path.basename(projectRoot);
   const scripts = packageJson.scripts || {};
   const readinessReport = buildReadinessReport(files, scripts);
 
   return {
     name: packageJson.name || fallbackName,
-    localPath: projectPath,
+    localPath: projectRoot,
     packageManager: detectPackageManager(files),
     detectedStack: detectStack(packageJson, files),
     scripts,

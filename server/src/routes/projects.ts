@@ -5,11 +5,17 @@ import { z } from "zod";
 import { pool } from "../db/pool.js";
 import { scanProject } from "../scanner/projectScanner.js";
 import { buildAgentsMarkdown } from "../context/agentsBuilder.js";
+import { generateWithConfiguredOllama } from "../ollama/ollamaService.js";
+import { buildAgentsEnhancementPrompt } from "../ollama/promptEnhancers.js";
 
 export const projectsRouter = Router();
 
 const createProjectSchema = z.object({
   localPath: z.string().min(1)
+});
+
+const saveAgentsSchema = z.object({
+  markdown: z.string().min(1).optional()
 });
 
 async function getProjectById(projectId: number) {
@@ -205,12 +211,23 @@ projectsRouter.get("/:id/agents-preview", async (req, res) => {
       return;
     }
 
-    const markdown = buildAgentsMarkdown(project);
+    const templateMarkdown = buildAgentsMarkdown(project);
 
+    const generation = await generateWithConfiguredOllama({
+      fallbackContent: templateMarkdown,
+      expectedHeading: "# AGENTS.md",
+      numPredict: 1800,
+      prompt: buildAgentsEnhancementPrompt({
+        project,
+        templateMarkdown
+      })
+    });
     res.json({
       ok: true,
-      markdown
+      markdown: generation.content,
+      generation
     });
+
   } catch (error) {
     console.error("Failed to build AGENTS.md preview:", error);
 
@@ -233,6 +250,17 @@ projectsRouter.post("/:id/agents-save", async (req, res) => {
     return;
   }
 
+  const parsed = saveAgentsSchema.safeParse(req.body ?? {});
+
+  if (!parsed.success) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid request body",
+      issues: parsed.error.issues
+    });
+    return;
+  }
+
   try {
     const project = await getProjectById(projectId);
 
@@ -244,7 +272,24 @@ projectsRouter.post("/:id/agents-save", async (req, res) => {
       return;
     }
 
-    const markdown = buildAgentsMarkdown(project);
+    const generation =
+      parsed.data.markdown && parsed.data.markdown.trim().length > 0
+        ? {
+          content: parsed.data.markdown,
+          mode: "template" as const,
+          model: null,
+          usedFallback: false,
+          message: "Saved existing AGENTS.md preview."
+        }
+        : await generateWithConfiguredOllama({
+          fallbackContent: buildAgentsMarkdown(project),
+          prompt: buildAgentsEnhancementPrompt({
+            project,
+            templateMarkdown: buildAgentsMarkdown(project)
+          })
+        });
+
+    const markdown = generation.content;
     const agentsPath = path.join(project.localPath, "AGENTS.md");
 
     await fs.writeFile(agentsPath, markdown, "utf-8");
@@ -255,7 +300,8 @@ projectsRouter.post("/:id/agents-save", async (req, res) => {
       ok: true,
       message: "AGENTS.md saved successfully",
       path: agentsPath,
-      project: updatedProject
+      project: updatedProject,
+      generation
     });
   } catch (error) {
     console.error("Failed to save AGENTS.md:", error);

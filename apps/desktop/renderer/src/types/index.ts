@@ -35,6 +35,12 @@ export interface TaskPack {
   taskType: string;
   targetTool: string;
   generatedPrompt: string;
+  generationMode?: "template" | "ollama";
+  generationModel?: string | null;
+  generationMessage?: string | null;
+  generationUsedFallback?: boolean;
+  generationDurationMs?: number | null;
+  generationCached?: boolean;
   createdAt: string;
   updatedAt: string;
 }
@@ -43,6 +49,7 @@ export interface AgentsPreview {
   projectId: number;
   projectName: string;
   markdown: string;
+  generation?: GenerationMetadata;
 }
 
 export interface TaskPackDraft {
@@ -73,4 +80,14 @@ export interface AppSettings {
   defaultTargetTool: "codex" | "cursor" | "claude" | "generic";
   defaultTaskType: "general" | "ui" | "backend" | "bugfix" | "refactor" | "docs" | "tests";
   defaultOllamaModel: string | null;
+}
+
+export interface GenerationMetadata {
+  content: string;
+  mode: "template" | "ollama";
+  model: string | null;
+  usedFallback: boolean;
+  message: string;
+  durationMs?: number;
+  cached?: boolean;
 }

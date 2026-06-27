@@ -1,5 +1,6 @@
 import type {
   AppSettings,
+  GenerationMetadata,
   OllamaModel,
   OllamaStatus,
   Project,
@@ -51,23 +52,37 @@ export async function rescanProject(projectId: number): Promise<Project> {
   return data.project;
 }
 
-export async function getAgentsPreview(projectId: number): Promise<string> {
-  const data = await request<{ ok: true; markdown: string }>(
-    `/projects/${projectId}/agents-preview`
-  );
+export async function getAgentsPreview(
+  projectId: number
+): Promise<{
+  markdown: string;
+  generation?: GenerationMetadata;
+}> {
+  const data = await request<{
+    ok: true;
+    markdown: string;
+    generation?: GenerationMetadata;
+  }>(`/projects/${projectId}/agents-preview`);
 
-  return data.markdown;
+  return {
+    markdown: data.markdown,
+    generation: data.generation
+  };
 }
 
-export async function saveAgentsFile(projectId: number): Promise<Project> {
-  const data = await request<{ ok: true; project: Project }>(
-    `/projects/${projectId}/agents-save`,
-    {
-      method: "POST"
-    }
-  );
+export async function saveAgentsFile(projectId: number, markdown?: string) {
+  const data = await request<{
+    ok: true;
+    message: string;
+    path: string;
+  }>(`/projects/${projectId}/agents-save`, {
+    method: "POST",
+    body: JSON.stringify({
+      markdown
+    })
+  });
 
-  return data.project;
+  return data;
 }
 
 export async function getTaskPacks(): Promise<TaskPack[]> {

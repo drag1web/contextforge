@@ -62,6 +62,9 @@ export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps)
                 <div className="mt-4 flex flex-wrap gap-2">
                   <span className="cf-badge">{taskPack.targetTool}</span>
                   <span className="cf-badge">{taskPack.taskType}</span>
+                  <span className="cf-badge">
+                    {taskPack.generationMode === "ollama" ? "Ollama" : "Template"}
+                  </span>
                   <span className="cf-badge">{formatDate(taskPack.createdAt)}</span>
                 </div>
               </div>
