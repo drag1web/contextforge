@@ -7,6 +7,7 @@ import { projectsRouter } from "./routes/projects.js";
 import { taskPacksRouter } from "./routes/taskPacks.js";
 import { ollamaRouter } from "./routes/ollama.js";
 import { settingsRouter } from "./routes/settings.js";
+import { searchRouter } from "./routes/search.js";
 
 const app = express();
 
@@ -47,6 +48,7 @@ app.use("/api/projects", projectsRouter);
 app.use("/api/task-packs", taskPacksRouter);
 app.use("/api/ollama", ollamaRouter);
 app.use("/api/settings", settingsRouter);
+app.use("/api/search", searchRouter);
 
 async function bootstrap() {
   await ensureDatabaseSchema();

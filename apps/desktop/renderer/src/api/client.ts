@@ -4,7 +4,8 @@ import type {
   OllamaModel,
   OllamaStatus,
   Project,
-  TaskPack
+  TaskPack,
+  WorkspaceSearchResponse
 } from "../types";
 
 const API_URL = "http://localhost:4000/api";
@@ -138,4 +139,21 @@ export async function updateAppSettings(
   });
 
   return data.settings;
+}
+
+export async function searchWorkspace(query: string): Promise<WorkspaceSearchResponse> {
+  const searchParams = new URLSearchParams();
+
+  searchParams.set("q", query);
+
+  const data = await request<{
+    ok: true;
+    query: string;
+    results: WorkspaceSearchResponse["results"];
+  }>(`/search?${searchParams.toString()}`);
+
+  return {
+    query: data.query,
+    results: data.results
+  };
 }

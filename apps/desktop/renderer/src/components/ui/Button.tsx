@@ -15,7 +15,7 @@ export function Button({
     variant === "primary"
       ? "cf-button-primary"
       : variant === "ghost"
-        ? "inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-3 text-sm text-neutral-400 transition hover:bg-neutral-950 hover:text-white"
+        ? "cf-invert-action inline-flex min-h-9 items-center justify-center gap-2 rounded-xl px-3 text-sm"
         : "cf-button-secondary";
 
   return (

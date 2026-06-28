@@ -1,7 +1,19 @@
 import { useMemo, useState } from "react";
+import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { Code2, Copy, Eye } from "lucide-react";
+import {
+  Bot,
+  Check,
+  Clock3,
+  Code2,
+  Copy,
+  Eye,
+  FileText,
+  Sparkles,
+  Target,
+  Wrench
+} from "lucide-react";
 
 import type { TaskPack } from "../../types";
 import { Button } from "../ui/Button";
@@ -13,6 +25,13 @@ interface GeneratedTaskPackModalProps {
 }
 
 type PromptViewMode = "preview" | "raw";
+
+const VIEW_SWITCH_TRANSITION = {
+  type: "spring",
+  stiffness: 460,
+  damping: 36,
+  mass: 0.8
+} as const;
 
 const MARKDOWN_PREVIEW_STYLES = `
 .cf-markdown-preview {
@@ -63,7 +82,7 @@ const MARKDOWN_PREVIEW_STYLES = `
 .cf-markdown-preview h6 {
   margin: 1.25rem 0 0.5rem;
   color: rgb(163 163 163);
-  font-size: 0.8rem;
+  font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.14em;
   text-transform: uppercase;
@@ -79,15 +98,10 @@ const MARKDOWN_PREVIEW_STYLES = `
   font-weight: 650;
 }
 
-.cf-markdown-preview em {
-  color: rgb(229 229 229);
-}
-
 .cf-markdown-preview ul,
 .cf-markdown-preview ol {
   margin: 0.75rem 0;
   padding-left: 1.5rem;
-  color: rgb(212 212 212);
 }
 
 .cf-markdown-preview ul {
@@ -111,28 +125,24 @@ const MARKDOWN_PREVIEW_STYLES = `
 
 .cf-markdown-preview blockquote {
   margin: 1rem 0;
-  padding: 0.5rem 1rem;
-  border-left: 2px solid rgba(34, 211, 238, 0.55);
-  background: rgba(34, 211, 238, 0.05);
+  padding: 0.7rem 1rem;
+  border-left: 2px solid rgba(255, 255, 255, 0.45);
+  background: rgba(255, 255, 255, 0.035);
   color: rgb(212 212 212);
 }
 
 .cf-markdown-preview a {
-  color: rgb(103 232 249);
+  color: white;
   text-decoration: underline;
-  text-decoration-color: rgba(103, 232, 249, 0.35);
+  text-decoration-color: rgba(255, 255, 255, 0.35);
   text-underline-offset: 4px;
-}
-
-.cf-markdown-preview a:hover {
-  color: rgb(165 243 252);
 }
 
 .cf-markdown-preview code {
   border: 1px solid rgb(38 38 38);
-  border-radius: 0.375rem;
+  border-radius: 0.45rem;
   background: rgb(10 10 10);
-  color: rgb(165 243 252);
+  color: rgb(245 245 245);
   padding: 0.12rem 0.35rem;
   font-size: 0.92em;
 }
@@ -192,7 +202,7 @@ const MARKDOWN_PREVIEW_STYLES = `
 
 function formatDuration(durationMs?: number | null) {
   if (!durationMs) {
-    return null;
+    return "—";
   }
 
   if (durationMs < 1000) {
@@ -200,6 +210,10 @@ function formatDuration(durationMs?: number | null) {
   }
 
   return `${(durationMs / 1000).toFixed(1)} sec`;
+}
+
+function formatDate(value: string) {
+  return new Date(value).toLocaleString();
 }
 
 function getTaskPackBodyLabel(taskPack: TaskPack) {
@@ -223,116 +237,265 @@ function getTaskPackBodyDescription(taskPack: TaskPack) {
     : "The final markdown body was rendered with ContextForge's safe template. Intent analysis and file selection may still use Ollama.";
 }
 
+function InfoTile({
+  icon,
+  label,
+  value
+}: {
+  icon: React.ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
+      <div className="mb-3 flex size-8 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+        {icon}
+      </div>
+
+      <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+        {label}
+      </p>
+
+      <p className="mt-1 truncate text-sm font-medium text-white">
+        {value}
+      </p>
+    </div>
+  );
+}
+
 export function GeneratedTaskPackModal({
   taskPack,
   onClose
 }: GeneratedTaskPackModalProps) {
   const [viewMode, setViewMode] = useState<PromptViewMode>("preview");
+  const [isCopied, setIsCopied] = useState(false);
 
-  const duration = formatDuration(taskPack.generationDurationMs);
+  const generatedPrompt = taskPack.generatedPrompt ?? "";
   const bodyLabel = useMemo(() => getTaskPackBodyLabel(taskPack), [taskPack]);
   const bodyDescription = useMemo(() => getTaskPackBodyDescription(taskPack), [taskPack]);
-  const generatedPrompt = taskPack.generatedPrompt ?? "";
+
+  async function handleCopyPrompt() {
+    await navigator.clipboard.writeText(generatedPrompt);
+    setIsCopied(true);
+
+    window.setTimeout(() => {
+      setIsCopied(false);
+    }, 1400);
+  }
 
   return (
     <Modal
       title={taskPack.title}
       eyebrow="Generated Task Pack"
+      maxWidth="max-w-[1180px]"
+      scrollable={false}
       onClose={onClose}
       footer={
-        <Button
-          variant="primary"
-          onClick={() => navigator.clipboard.writeText(generatedPrompt)}
-        >
-          <Copy size={15} />
-          Copy prompt
-        </Button>
+        <div className="flex w-full items-center justify-between gap-4">
+          <p className="hidden text-xs leading-5 text-neutral-600 md:block">
+            Copy uses raw Markdown, ready for Codex, Claude Code, Cursor or another AI agent.
+          </p>
+
+          <Button variant="primary" onClick={handleCopyPrompt}>
+            {isCopied ? <Check size={15} /> : <Copy size={15} />}
+            {isCopied ? "Copied" : "Copy prompt"}
+          </Button>
+        </div>
       }
     >
       <style>{MARKDOWN_PREVIEW_STYLES}</style>
 
-      <div className="flex h-[calc(100vh-320px)] max-h-[680px] min-h-0 flex-col overflow-hidden px-5 pt-5 pb-5">
-        <div className="mb-5 shrink-0 rounded-2xl border border-neutral-900 bg-neutral-950/70 px-5 py-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-          <div className="flex items-start justify-between gap-5">
-            <div className="min-w-0">
-              <p className="text-xs uppercase tracking-[0.18em] text-neutral-600">
-                Task Pack Body
-              </p>
+      <div className="flex h-[calc(100vh-190px)] min-h-[560px] flex-col overflow-hidden p-5">
+        <div className="mb-4 grid shrink-0 gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
+          <section className="rounded-[1.5rem] border border-neutral-900 bg-black/40 p-5">
+            <div className="mb-4 flex flex-wrap gap-2">
+              <span className="cf-badge">
+                <Sparkles size={13} />
+                {bodyLabel}
+              </span>
 
-              <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-300">
-                {bodyDescription}
-              </p>
+              <span className="cf-badge">
+                {taskPack.generationCached ? "Cached" : "Fresh generation"}
+              </span>
 
-              {duration && (
-                <p className="mt-1 text-xs text-neutral-600">
-                  Duration: {duration}
-                </p>
+              {taskPack.generationModel && (
+                <span className="cf-badge">{taskPack.generationModel}</span>
               )}
             </div>
 
-            <span
-              className={[
-                "shrink-0 rounded-full border px-3 py-1 text-xs",
-                bodyLabel === "Ollama refined"
-                  ? "border-emerald-500/30 bg-emerald-500/10 text-emerald-300"
-                  : "border-cyan-500/25 bg-cyan-500/10 text-cyan-300"
-              ].join(" ")}
-            >
-              {bodyLabel}
-            </span>
-          </div>
+            <h3 className="line-clamp-2 text-2xl font-semibold leading-tight tracking-[-0.04em] text-white">
+              {taskPack.title}
+            </h3>
+
+            <p className="mt-3 line-clamp-2 max-w-4xl text-sm leading-6 text-neutral-500">
+              {bodyDescription}
+            </p>
+          </section>
+
+          <section className="grid grid-cols-2 gap-3">
+            <InfoTile
+              icon={<Target size={15} />}
+              label="Target"
+              value={taskPack.targetTool}
+            />
+
+            <InfoTile
+              icon={<Wrench size={15} />}
+              label="Task type"
+              value={taskPack.taskType}
+            />
+
+            <InfoTile
+              icon={<Clock3 size={15} />}
+              label="Duration"
+              value={formatDuration(taskPack.generationDurationMs)}
+            />
+
+            <InfoTile
+              icon={<Bot size={15} />}
+              label="Mode"
+              value={taskPack.generationMode ?? "template"}
+            />
+          </section>
         </div>
 
-        <div className="mb-5 flex shrink-0 flex-wrap items-center justify-between gap-4">
-          <div className="flex rounded-2xl border border-neutral-900 bg-neutral-950/80 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+        <div className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-4">
+          <div className="relative flex overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/70 p-1 shadow-[0_18px_52px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.055)]">
+            <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.012)_45%,rgba(255,255,255,0.004))]" />
+
             <button
               type="button"
               onClick={() => setViewMode("preview")}
               className={[
-                "inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs transition",
-                viewMode === "preview"
-                  ? "bg-white text-black shadow-sm"
-                  : "text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
+                "group relative z-10 flex min-w-[154px] items-center gap-3 rounded-[1.05rem] px-4 py-2.5 text-left transition duration-200",
+                viewMode === "preview" ? "text-black" : "text-neutral-500 hover:text-white"
               ].join(" ")}
             >
-              <Eye size={14} />
-              Preview
+              {viewMode === "preview" && (
+                <motion.span
+                  layoutId="task-pack-view-active-pill"
+                  className="absolute inset-0 rounded-[1.05rem] bg-white shadow-[0_14px_34px_rgba(255,255,255,0.16)]"
+                  transition={VIEW_SWITCH_TRANSITION}
+                />
+              )}
+
+              <span
+                className={[
+                  "relative z-10 grid size-8 shrink-0 place-items-center rounded-xl border transition",
+                  viewMode === "preview"
+                    ? "border-black/10 bg-black/5 text-black"
+                    : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/20 group-hover:text-white"
+                ].join(" ")}
+              >
+                <Eye size={14} />
+              </span>
+
+              <span className="relative z-10 min-w-0">
+                <span
+                  className={[
+                    "block text-xs font-semibold transition",
+                    viewMode === "preview" ? "text-black" : "text-neutral-300 group-hover:text-white"
+                  ].join(" ")}
+                >
+                  Preview
+                </span>
+
+                <span
+                  className={[
+                    "mt-0.5 block text-[10px] leading-none transition",
+                    viewMode === "preview" ? "text-black/55" : "text-neutral-700 group-hover:text-neutral-500"
+                  ].join(" ")}
+                >
+                  Rendered Markdown
+                </span>
+              </span>
             </button>
 
             <button
               type="button"
               onClick={() => setViewMode("raw")}
               className={[
-                "inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-xs transition",
-                viewMode === "raw"
-                  ? "bg-white text-black shadow-sm"
-                  : "text-neutral-500 hover:bg-neutral-900 hover:text-neutral-200"
+                "group relative z-10 flex min-w-[178px] items-center gap-3 rounded-[1.05rem] px-4 py-2.5 text-left transition duration-200",
+                viewMode === "raw" ? "text-black" : "text-neutral-500 hover:text-white"
               ].join(" ")}
             >
-              <Code2 size={14} />
-              Raw Markdown
+              {viewMode === "raw" && (
+                <motion.span
+                  layoutId="task-pack-view-active-pill"
+                  className="absolute inset-0 rounded-[1.05rem] bg-white shadow-[0_14px_34px_rgba(255,255,255,0.16)]"
+                  transition={VIEW_SWITCH_TRANSITION}
+                />
+              )}
+
+              <span
+                className={[
+                  "relative z-10 grid size-8 shrink-0 place-items-center rounded-xl border transition",
+                  viewMode === "raw"
+                    ? "border-black/10 bg-black/5 text-black"
+                    : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/20 group-hover:text-white"
+                ].join(" ")}
+              >
+                <Code2 size={14} />
+              </span>
+
+              <span className="relative z-10 min-w-0">
+                <span
+                  className={[
+                    "block text-xs font-semibold transition",
+                    viewMode === "raw" ? "text-black" : "text-neutral-300 group-hover:text-white"
+                  ].join(" ")}
+                >
+                  Raw Markdown
+                </span>
+
+                <span
+                  className={[
+                    "mt-0.5 block text-[10px] leading-none transition",
+                    viewMode === "raw" ? "text-black/55" : "text-neutral-700 group-hover:text-neutral-500"
+                  ].join(" ")}
+                >
+                  Agent-ready source
+                </span>
+              </span>
             </button>
           </div>
 
-          <p className="max-w-md text-right text-xs leading-5 text-neutral-600">
-            Copy always uses the raw Markdown prompt for Claude, Cursor, Codex, or another agent.
-          </p>
+          <div className="hidden items-center gap-2 text-xs text-neutral-600 lg:flex">
+            <FileText size={14} />
+            Created: {formatDate(taskPack.createdAt)}
+          </div>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-hidden rounded-2xl border border-neutral-900 bg-black/30 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-          {viewMode === "preview" ? (
-            <article className="h-full min-h-0 overflow-y-auto rounded-xl bg-neutral-950/40 px-6 py-5 text-sm">
-              <div className="cf-markdown-preview">
-                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                  {generatedPrompt}
-                </ReactMarkdown>
-              </div>
-            </article>
-          ) : (
-            <pre className="h-full min-h-0 overflow-y-auto rounded-xl bg-black/70 p-5 text-sm leading-6 text-neutral-300">
-              {generatedPrompt}
-            </pre>
-          )}
+        <div className="min-h-0 flex-1 overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/30 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          <AnimatePresence mode="wait">
+            {viewMode === "preview" ? (
+              <motion.article
+                key="preview"
+                className="h-full min-h-0 overflow-y-auto rounded-[1.1rem] bg-neutral-950/45 px-6 py-5 text-sm"
+                initial={{ opacity: 0, y: 8, scale: 0.995 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.995 }}
+                transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <div className="cf-markdown-preview">
+                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                    {generatedPrompt}
+                  </ReactMarkdown>
+                </div>
+              </motion.article>
+            ) : (
+              <motion.pre
+                key="raw"
+                className="h-full min-h-0 overflow-y-auto whitespace-pre-wrap rounded-[1.1rem] bg-black/75 p-5 text-sm leading-6 text-neutral-300"
+                initial={{ opacity: 0, y: 8, scale: 0.995 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.995 }}
+                transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+              >
+                {generatedPrompt}
+              </motion.pre>
+            )}
+          </AnimatePresence>
         </div>
       </div>
     </Modal>

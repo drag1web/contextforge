@@ -91,3 +91,25 @@ export interface GenerationMetadata {
   durationMs?: number;
   cached?: boolean;
 }
+
+export type WorkspaceSearchResultType = "project" | "taskPack" | "file";
+
+export interface WorkspaceSearchResult {
+  id: string;
+  type: WorkspaceSearchResultType;
+  title: string;
+  subtitle: string;
+  projectId?: number;
+  projectName?: string;
+  taskPackId?: number;
+  absolutePath?: string;
+  relativePath?: string;
+  line?: number;
+  snippet?: string;
+  score: number;
+}
+
+export interface WorkspaceSearchResponse {
+  query: string;
+  results: WorkspaceSearchResult[];
+}

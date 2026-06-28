@@ -225,17 +225,19 @@ a {
 /* Vercel-like cards */
 .cf-card {
   position: relative;
+  isolation: isolate;
   overflow: hidden;
   border-radius: var(--cf-radius-xl);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.036), rgba(255, 255, 255, 0.012)),
-    var(--cf-surface);
-  border: 1px solid var(--cf-border-soft);
-  box-shadow: var(--cf-shadow-sm);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.034), rgba(255, 255, 255, 0.01) 42%, rgba(255, 255, 255, 0.006)),
+    #080808;
+  border: 1px solid rgba(255, 255, 255, 0.075);
+  box-shadow:
+    0 16px 52px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.038);
   transition:
     border-color var(--cf-transition-base),
     background var(--cf-transition-base),
-    transform var(--cf-transition-base),
     box-shadow var(--cf-transition-base);
 }
 
@@ -243,11 +245,26 @@ a {
   content: "";
   position: absolute;
   inset: 0;
+  z-index: 0;
   pointer-events: none;
   background:
-    radial-gradient(circle at top left, rgba(255, 255, 255, 0.045), transparent 20rem),
-    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 42%);
-  opacity: 0.9;
+    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.055), transparent) top / 100% 1px no-repeat,
+    linear-gradient(180deg, rgba(255, 255, 255, 0.024), transparent 36%);
+  opacity: 0.72;
+  transition: opacity var(--cf-transition-base);
+}
+
+.cf-card::after {
+  content: "";
+  position: absolute;
+  inset: 1px;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: calc(var(--cf-radius-xl) - 1px);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 48%);
+  opacity: 0;
+  transition: opacity var(--cf-transition-base);
 }
 
 .cf-card>* {
@@ -256,12 +273,21 @@ a {
 }
 
 .cf-card:hover {
-  border-color: var(--cf-border);
+  border-color: rgba(255, 255, 255, 0.11);
   background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.055), rgba(255, 255, 255, 0.016)),
-    var(--cf-surface-elevated);
-  box-shadow: var(--cf-shadow-md);
-  transform: translateY(-1px);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.044), rgba(255, 255, 255, 0.013) 44%, rgba(255, 255, 255, 0.007)),
+    #0a0a0a;
+  box-shadow:
+    0 20px 62px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.052);
+}
+
+.cf-card:hover::before {
+  opacity: 1;
+}
+
+.cf-card:hover::after {
+  opacity: 1;
 }
 
 .cf-card-menu {
@@ -269,6 +295,10 @@ a {
 }
 
 .cf-card-menu::before {
+  border-radius: inherit;
+}
+
+.cf-card-menu::after {
   border-radius: inherit;
 }
 
@@ -321,22 +351,87 @@ a {
   font-size: 13px;
   font-weight: 500;
   line-height: 1;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
   transition:
-    border-color var(--cf-transition-fast),
-    background var(--cf-transition-fast),
-    transform var(--cf-transition-fast),
-    color var(--cf-transition-fast);
+    color 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
 }
 
 .cf-button-secondary:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.065);
-  border-color: var(--cf-border-strong);
-  transform: translateY(-1px);
+  color: #000000;
+  background: #ffffff;
+  border-color: #ffffff;
+  box-shadow:
+    0 12px 34px rgba(255, 255, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
 }
 
 .cf-button-secondary:active {
-  transform: translateY(0);
+  background: #e8e8e8;
+}
+
+.cf-health-track {
+  height: 8px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.075);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.04),
+    inset 0 0 0 1px rgba(255, 255, 255, 0.025);
+}
+
+.cf-health-fill {
+  height: 100%;
+  border-radius: 999px;
+  transition: width 520ms ease;
+}
+
+.cf-health-fill-danger {
+  background: #ff1744;
+  box-shadow:
+    0 0 18px rgba(255, 23, 68, 0.72),
+    0 0 38px rgba(255, 23, 68, 0.28);
+}
+
+.cf-health-fill-warning {
+  background: #ffffff;
+  box-shadow:
+    0 0 18px rgba(255, 255, 255, 0.48),
+    0 0 34px rgba(255, 255, 255, 0.18);
+}
+
+.cf-health-fill-success {
+  background: #00ff9d;
+  box-shadow:
+    0 0 18px rgba(0, 255, 157, 0.62),
+    0 0 34px rgba(0, 255, 157, 0.22);
+}
+
+.cf-invert-action {
+  color: var(--cf-text-muted);
+  background: rgba(255, 255, 255, 0.035);
+  border: 1px solid var(--cf-border-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
+  transition:
+    color 180ms ease,
+    background 180ms ease,
+    border-color 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.cf-invert-action:hover {
+  color: #000000;
+  background: #ffffff;
+  border-color: #ffffff;
+  box-shadow:
+    0 12px 34px rgba(255, 255, 255, 0.12),
+    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+}
+
+.cf-invert-action:hover svg {
+  color: #000000;
 }
 
 /* Inputs */

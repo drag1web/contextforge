@@ -1,4 +1,5 @@
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
+import { X } from "lucide-react";
 
 interface ModalProps {
   title: string;
@@ -6,8 +7,11 @@ interface ModalProps {
   children: ReactNode;
   footer?: ReactNode;
   maxWidth?: string;
+  scrollable?: boolean;
   onClose: () => void;
 }
+
+const MODAL_EXIT_MS = 180;
 
 export function Modal({
   title,
@@ -15,39 +19,108 @@ export function Modal({
   children,
   footer,
   maxWidth = "max-w-5xl",
+  scrollable = true,
   onClose
 }: ModalProps) {
+  const [isVisible, setIsVisible] = useState(false);
+  const [isClosing, setIsClosing] = useState(false);
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      setIsVisible(true);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frame);
+    };
+  }, []);
+
+  function requestClose() {
+    if (isClosing) {
+      return;
+    }
+
+    setIsClosing(true);
+    setIsVisible(false);
+
+    window.setTimeout(() => {
+      onClose();
+    }, MODAL_EXIT_MS);
+  }
+
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        requestClose();
+      }
+    }
+
+    window.addEventListener("keydown", handleKeyDown, true);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [isClosing]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-8 backdrop-blur-sm">
+    <div
+      className={[
+        "fixed inset-0 z-[120] flex items-center justify-center p-8",
+        "transition duration-200 ease-out",
+        isVisible
+          ? "bg-black/75 backdrop-blur-xl"
+          : "bg-black/0 backdrop-blur-0"
+      ].join(" ")}
+    >
       <div
         className={[
-          "flex max-h-[82vh] w-full flex-col overflow-hidden rounded-2xl",
-          "border border-neutral-800 bg-black shadow-2xl",
+          "relative flex max-h-[calc(100vh-72px)] w-full flex-col overflow-hidden rounded-[2rem]",
+          "border border-white/10 bg-black/95",
+          "shadow-[0_32px_120px_rgba(0,0,0,0.78),inset_0_1px_0_rgba(255,255,255,0.045)]",
+          "before:pointer-events-none before:absolute before:inset-0 before:rounded-[2rem]",
+          "before:bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.07),transparent_24rem),linear-gradient(180deg,rgba(255,255,255,0.035),transparent_42%)]",
+          "transition duration-200 ease-out",
+          isVisible
+            ? "translate-y-0 scale-100 opacity-100"
+            : "translate-y-3 scale-[0.985] opacity-0",
           maxWidth
         ].join(" ")}
       >
-        <div className="flex items-center justify-between border-b border-neutral-900 px-5 py-4">
-          <div>
+        <div className="relative z-10 flex shrink-0 items-center justify-between gap-5 border-b border-neutral-900 px-6 py-4">
+          <div className="min-w-0">
             {eyebrow && (
-              <p className="text-[11px] uppercase tracking-[0.18em] text-neutral-600">
+              <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
                 {eyebrow}
               </p>
             )}
-            <h3 className="mt-1 text-sm font-medium text-white">{title}</h3>
+
+            <h3 className="mt-1 truncate text-base font-semibold tracking-tight text-white">
+              {title}
+            </h3>
           </div>
 
           <button
-            onClick={onClose}
-            className="rounded-lg border border-neutral-900 bg-neutral-950 px-3 py-2 text-sm text-neutral-400 transition hover:text-white"
+            type="button"
+            onClick={requestClose}
+            className="cf-invert-action grid size-9 shrink-0 place-items-center rounded-xl"
+            aria-label="Close modal"
           >
-            Close
+            <X size={16} />
           </button>
         </div>
 
-        <div className="min-h-0 flex-1 overflow-auto">{children}</div>
+        <div
+          className={[
+            "relative z-10 min-h-0 flex-1",
+            scrollable ? "overflow-auto" : "overflow-hidden"
+          ].join(" ")}
+        >
+          {children}
+        </div>
 
         {footer && (
-          <div className="flex items-center justify-end gap-3 border-t border-neutral-900 px-5 py-4">
+          <div className="relative z-10 flex shrink-0 items-center justify-end gap-3 border-t border-neutral-900 bg-black/45 px-6 py-4">
             {footer}
           </div>
         )}

@@ -1,4 +1,4 @@
-import { Gauge, GitBranch, Package } from "lucide-react";
+import { Bot, Gauge, GitBranch, Package } from "lucide-react";
 import { getScoreLabel } from "../../lib/score";
 
 interface StatsGridProps {
@@ -13,7 +13,7 @@ export function StatsGrid({
   taskPacksCount
 }: StatsGridProps) {
   return (
-    <div className="grid grid-cols-3 gap-4">
+    <div className="grid gap-4 lg:grid-cols-4">
       <div className="cf-card p-5">
         <div className="mb-4 flex size-9 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-200">
           <Gauge size={18} />
@@ -46,6 +46,8 @@ export function StatsGrid({
         <p className="cf-display-font mt-2 text-4xl font-semibold leading-none text-white">
           {projectsCount}
         </p>
+
+        <p className="mt-2 text-sm text-neutral-500">local repositories</p>
       </div>
 
       <div className="cf-card p-5">
@@ -60,6 +62,24 @@ export function StatsGrid({
         <p className="cf-display-font mt-2 text-4xl font-semibold leading-none text-white">
           {taskPacksCount}
         </p>
+
+        <p className="mt-2 text-sm text-neutral-500">generated prompts</p>
+      </div>
+
+      <div className="cf-card p-5">
+        <div className="mb-4 flex size-9 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-200">
+          <Bot size={18} />
+        </div>
+
+        <p className="cf-tech-label text-xs uppercase text-neutral-500">
+          Local AI
+        </p>
+
+        <p className="cf-display-font mt-2 text-4xl font-semibold leading-none text-white">
+          ON
+        </p>
+
+        <p className="mt-2 text-sm text-neutral-500">Ollama workflow</p>
       </div>
     </div>
   );
