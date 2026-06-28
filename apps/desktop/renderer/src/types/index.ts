@@ -91,6 +91,7 @@ export interface AppSettings {
     docs: number;
     tests: number;
   };
+  sidebarShowDescriptions: boolean;
 }
 
 export interface GenerationMetadata {

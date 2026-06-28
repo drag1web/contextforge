@@ -1,9 +1,8 @@
 export const appMeta = {
   name: "ContextForge",
-  version: "0.2.0-alpha",
-  phase: "Phase 0.2",
-  phaseTitle: "AI Workflow Skeleton",
-  subtitle: "AI project control center",
+  version: "0.4.0-alpha",
+  phase: "Phase 0.4",
+  phaseTitle: "AI Readiness & Composer",
   description:
-    "Local-first AI workflow manager for preparing projects, context files, and task packs for AI coding agents."
+    "Local-first desktop workspace for preparing software projects, context, and Task Packs for AI coding agents."
 } as const;

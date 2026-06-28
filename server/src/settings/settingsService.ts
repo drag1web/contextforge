@@ -17,6 +17,7 @@ export interface AppSettings {
   | "tests";
   defaultOllamaModel: string | null;
   composerFileLimits: ComposerFileLimits;
+  sidebarShowDescriptions: boolean;
 }
 
 export interface ComposerFileLimits {
@@ -47,7 +48,8 @@ const defaultSettings: AppSettings = {
     refactor: 8,
     docs: 6,
     tests: 7
-  }
+  },
+  sidebarShowDescriptions: false
 };
 
 const settingKeyMap = {
@@ -56,7 +58,8 @@ const settingKeyMap = {
   defaultTargetTool: "default_target_tool",
   defaultTaskType: "default_task_type",
   defaultOllamaModel: "default_ollama_model",
-  composerFileLimits: "composer_file_limits"
+  composerFileLimits: "composer_file_limits",
+  sidebarShowDescriptions: "sidebar_show_descriptions"
 } as const;
 
 export async function getSettingValue<T>(key: string, fallback: T): Promise<T> {
@@ -86,6 +89,10 @@ export async function getAppSettings(): Promise<AppSettings> {
     composerFileLimits: await getSettingValue(
       settingKeyMap.composerFileLimits,
       defaultSettings.composerFileLimits
+    ),
+    sidebarShowDescriptions: await getSettingValue(
+      settingKeyMap.sidebarShowDescriptions,
+      defaultSettings.sidebarShowDescriptions
     )
   };
 }

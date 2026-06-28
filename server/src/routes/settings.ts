@@ -24,7 +24,8 @@ const updateSettingsSchema = z.object({
     .enum(["general", "ui", "backend", "bugfix", "refactor", "docs", "tests"])
     .optional(),
   defaultOllamaModel: z.string().nullable().optional(),
-  composerFileLimits: composerFileLimitsSchema.optional()
+  composerFileLimits: composerFileLimitsSchema.optional(),
+  sidebarShowDescriptions: z.boolean().optional()
 });
 
 settingsRouter.get("/", async (_req, res) => {

@@ -1,11 +1,16 @@
+import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   BarChart3,
   Bot,
+  ChevronLeft,
+  ChevronRight,
   FileText,
   FolderKanban,
   LayoutDashboard,
   Layers3,
+  PanelLeftClose,
+  PanelLeftOpen,
   PlugZap,
   Settings,
   WandSparkles,
@@ -131,6 +136,7 @@ export const pageMetaMap = navigationSections
 
 interface SidebarProps {
   activePage: AppPageId;
+  showDescriptions?: boolean;
   onNavigate: (page: AppPageId) => void;
 }
 
@@ -150,15 +156,87 @@ function getStatusLabel(status?: NavigationItem["status"]) {
   return null;
 }
 
-export function Sidebar({ activePage, onNavigate }: SidebarProps) {
+function getInitialCollapsedState() {
+  if (typeof window === "undefined") {
+    return false;
+  }
+
+  return window.localStorage.getItem("contextforge.sidebarCollapsed") === "true";
+}
+
+export function Sidebar({
+  activePage,
+  showDescriptions = false,
+  onNavigate
+}: SidebarProps) {
+  const [isCollapsed, setIsCollapsed] = useState(getInitialCollapsedState);
+
+  useEffect(() => {
+    window.localStorage.setItem(
+      "contextforge.sidebarCollapsed",
+      String(isCollapsed)
+    );
+  }, [isCollapsed]);
+
   return (
-    <aside className="flex h-full min-h-0 w-64 shrink-0 flex-col border-r border-neutral-900 bg-black px-4 pb-5 pt-5">
-      <nav className="min-h-0 flex-1 space-y-5 overflow-auto pr-1 text-sm">
+    <motion.aside
+      animate={{ width: isCollapsed ? 76 : 256 }}
+      transition={{
+        type: "spring",
+        stiffness: 420,
+        damping: 38,
+        mass: 0.7
+      }}
+      className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-neutral-900 bg-black pb-5 pt-5"
+    >
+      <div
+        className={[
+          "mb-4 flex shrink-0 items-center gap-2 px-4",
+          isCollapsed ? "justify-center" : "justify-between"
+        ].join(" ")}
+      >
+        {!isCollapsed && (
+          <div className="min-w-0">
+            <p className="cf-tech-label text-[10px] uppercase text-neutral-700">
+              Navigation
+            </p>
+
+            <p className="mt-1 truncate text-sm font-medium text-white">
+              Workspace
+            </p>
+          </div>
+        )}
+
+        <button
+          type="button"
+          onClick={() => setIsCollapsed((current) => !current)}
+          className="group grid size-9 shrink-0 place-items-center rounded-2xl border border-neutral-900 bg-neutral-950 text-neutral-500 transition hover:border-white hover:bg-white hover:text-black"
+          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+        >
+          {isCollapsed ? (
+            <PanelLeftOpen size={15} />
+          ) : (
+            <PanelLeftClose size={15} />
+          )}
+        </button>
+      </div>
+
+      <nav
+        className={[
+          "min-h-0 flex-1 overflow-auto text-sm",
+          isCollapsed ? "space-y-4 px-3" : "space-y-5 px-4 pr-3"
+        ].join(" ")}
+      >
         {navigationSections.map((section) => (
           <section key={section.title}>
-            <p className="cf-tech-label mb-2 px-2 text-[10px] uppercase text-neutral-700">
-              {section.title}
-            </p>
+            {isCollapsed ? (
+              <div className="mb-2 h-px bg-neutral-900" />
+            ) : (
+              <p className="cf-tech-label mb-2 px-2 text-[10px] uppercase text-neutral-700">
+                {section.title}
+              </p>
+            )}
 
             <div className="space-y-1">
               {section.items.map((item) => {
@@ -171,8 +249,10 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
                     key={item.id}
                     type="button"
                     onClick={() => onNavigate(item.id)}
+                    title={isCollapsed ? item.label : undefined}
                     className={[
-                      "group relative flex w-full items-center gap-3 overflow-hidden rounded-2xl px-3 py-2.5 text-left transition duration-200",
+                      "group relative flex w-full items-center overflow-hidden rounded-2xl text-left transition duration-200",
+                      isCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
                       isActive
                         ? "text-black"
                         : "text-neutral-500 hover:text-black"
@@ -205,32 +285,40 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
                       <Icon size={15} />
                     </span>
 
-                    <span className="relative z-10 min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">
-                        {item.label}
-                      </span>
+                    {!isCollapsed && (
+                      <>
+                        <span className="relative z-10 min-w-0 flex-1">
+                          <span className="block truncate text-sm font-medium">
+                            {item.label}
+                          </span>
 
-                      <span
-                        className={[
-                          "mt-0.5 block truncate text-[11px]",
-                          isActive ? "text-black/55" : "text-neutral-700 group-hover:text-black/55"
-                        ].join(" ")}
-                      >
-                        {item.status === "alpha" ? "Ready module" : "Future module"}
-                      </span>
-                    </span>
+                          {showDescriptions && (
+                            <span
+                              className={[
+                                "mt-0.5 block truncate text-[11px]",
+                                isActive
+                                  ? "text-black/55"
+                                  : "text-neutral-700 group-hover:text-black/55"
+                              ].join(" ")}
+                            >
+                              {item.status === "alpha" ? "Ready module" : "Future module"}
+                            </span>
+                          )}
+                        </span>
 
-                    {statusLabel && item.status !== "alpha" && (
-                      <span
-                        className={[
-                          "relative z-10 shrink-0 rounded-full px-2 py-0.5 text-[10px]",
-                          isActive
-                            ? "bg-black/10 text-black/60"
-                            : "border border-neutral-900 bg-neutral-950 text-neutral-600 group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black/55"
-                        ].join(" ")}
-                      >
-                        {statusLabel}
-                      </span>
+                        {statusLabel && item.status !== "alpha" && (
+                          <span
+                            className={[
+                              "relative z-10 shrink-0 rounded-full px-2 py-0.5 text-[10px]",
+                              isActive
+                                ? "bg-black/10 text-black/60"
+                                : "border border-neutral-900 bg-neutral-950 text-neutral-600 group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black/55"
+                            ].join(" ")}
+                          >
+                            {statusLabel}
+                          </span>
+                        )}
+                      </>
                     )}
                   </button>
                 );
@@ -240,19 +328,34 @@ export function Sidebar({ activePage, onNavigate }: SidebarProps) {
         ))}
       </nav>
 
-      <div className="mt-5 rounded-2xl border border-neutral-900 bg-neutral-950/60 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-        <p className="cf-tech-label mb-2 text-[10px] uppercase text-neutral-600">
-          MVP Status
-        </p>
+      <div className={isCollapsed ? "mt-5 px-3" : "mt-5 px-4"}>
+        {isCollapsed ? (
+          <div
+            className="grid size-10 place-items-center rounded-2xl border border-neutral-900 bg-neutral-950/60 text-neutral-500"
+            title={`${appMeta.phase} — v${appMeta.version}`}
+          >
+            <ChevronRight size={15} />
+          </div>
+        ) : (
+          <div className="rounded-2xl border border-neutral-900 bg-neutral-950/60 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                MVP Status
+              </p>
 
-        <p className="text-sm leading-5 text-neutral-300">
-          {appMeta.phase} — {appMeta.phaseTitle}
-        </p>
+              <ChevronLeft size={13} className="text-neutral-700" />
+            </div>
 
-        <p className="cf-tech-label mt-2 text-xs text-neutral-600">
-          v{appMeta.version}
-        </p>
+            <p className="text-sm leading-5 text-neutral-300">
+              {appMeta.phase} — {appMeta.phaseTitle}
+            </p>
+
+            <p className="cf-tech-label mt-2 text-xs text-neutral-600">
+              v{appMeta.version}
+            </p>
+          </div>
+        )}
       </div>
-    </aside>
+    </motion.aside>
   );
 }

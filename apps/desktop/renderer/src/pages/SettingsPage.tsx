@@ -11,6 +11,7 @@ import {
   Keyboard,
   Layers3,
   Loader2,
+  PanelLeft,
   RefreshCw,
   Save,
   Server,
@@ -39,6 +40,7 @@ type SettingsSectionId =
   | "ai"
   | "generation"
   | "composer"
+  | "interface"
   | "shortcuts"
   | "system";
 
@@ -63,6 +65,11 @@ const SETTINGS_SECTIONS: Array<{
       id: "composer",
       label: "Composer",
       icon: WandSparkles
+    },
+    {
+      id: "interface",
+      label: "Interface",
+      icon: PanelLeft
     },
     {
       id: "shortcuts",
@@ -212,6 +219,7 @@ function formatModelSize(size?: number) {
 function withSettingsDefaults(settings: AppSettings): AppSettings {
   return {
     ...settings,
+    sidebarShowDescriptions: settings.sidebarShowDescriptions ?? false,
     composerFileLimits: {
       ...DEFAULT_COMPOSER_FILE_LIMITS,
       ...(settings.composerFileLimits ?? {})
@@ -775,6 +783,79 @@ function ComposerLimitRow({
   );
 }
 
+function ToggleSetting({
+  label,
+  description,
+  checked,
+  onChange
+}: {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (checked: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onChange(!checked)}
+      className={[
+        "group flex w-full items-center justify-between gap-5 rounded-2xl border p-4 text-left transition duration-200",
+        checked
+          ? "border-emerald-400/25 bg-emerald-400/[0.055] hover:border-emerald-400/35 hover:bg-emerald-400/[0.075]"
+          : "border-neutral-900 bg-black/40 hover:border-neutral-700 hover:bg-white/[0.035]"
+      ].join(" ")}
+    >
+      <span className="min-w-0">
+        <span className="flex items-center gap-2 text-sm font-semibold text-white">
+          {label}
+
+          <span
+            className={[
+              "rounded-full border px-2 py-0.5 text-[10px]",
+              checked
+                ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
+                : "border-neutral-800 bg-neutral-950 text-neutral-500"
+            ].join(" ")}
+          >
+            {checked ? "On" : "Off"}
+          </span>
+        </span>
+
+        <span className="mt-1 block text-sm leading-6 text-neutral-500">
+          {description}
+        </span>
+      </span>
+
+      <span
+        className={[
+          "relative h-7 w-12 shrink-0 rounded-full border transition duration-200",
+          checked
+            ? "border-emerald-400/30 bg-emerald-400/15 shadow-[0_0_22px_rgba(52,211,153,0.12)]"
+            : "border-neutral-800 bg-neutral-950"
+        ].join(" ")}
+      >
+        <motion.span
+          className={[
+            "absolute left-1 top-1 grid size-5 place-items-center rounded-full transition duration-200",
+            checked
+              ? "bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.55)]"
+              : "bg-neutral-600"
+          ].join(" ")}
+          initial={false}
+          animate={{ x: checked ? 20 : 0 }}
+          transition={{
+            type: "spring",
+            stiffness: 520,
+            damping: 38,
+            mass: 0.6
+          }}
+          style={{ willChange: "transform" }}
+        />
+      </span>
+    </button>
+  );
+}
+
 export function SettingsPage() {
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("ai");
   const [settings, setSettings] = useState<AppSettings | null>(null);
@@ -883,6 +964,12 @@ export function SettingsPage() {
       setSettings(updatedSettings);
       setSettingsDraft(updatedSettings);
       setNotice("Settings saved.");
+
+      window.dispatchEvent(
+        new CustomEvent("contextforge:settings-updated", {
+          detail: updatedSettings
+        })
+      );
 
       const [status, modelList] = await Promise.all([
         getOllamaStatus(),
@@ -1467,6 +1554,57 @@ export function SettingsPage() {
                       ))}
                     </div>
                   </SettingCard>
+                </>
+              )}
+
+              {activeSection === "interface" && (
+                <>
+                  <SectionHeader
+                    icon={<PanelLeft size={13} />}
+                    label="Interface"
+                    title="Tune the workspace layout and navigation density."
+                    description="Control sidebar behavior and reduce visual noise in the main application shell."
+                  />
+
+                  <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+                    <SettingCard
+                      icon={<PanelLeft size={18} />}
+                      label="Sidebar"
+                      title="Navigation density"
+                      description="Keep the sidebar compact by default, or show extra descriptions when you want more guidance."
+                    >
+                      <div className="space-y-3">
+                        <ToggleSetting
+                          label="Show sidebar descriptions"
+                          description="Display short helper text under each navigation item. Turn this off for a cleaner, more compact sidebar."
+                          checked={settingsDraft?.sidebarShowDescriptions ?? false}
+                          onChange={(checked) =>
+                            updateSettingsDraft({
+                              sidebarShowDescriptions: checked
+                            })
+                          }
+                        />
+                      </div>
+                    </SettingCard>
+
+                    <SettingCard
+                      icon={<Sparkles size={18} />}
+                      label="Layout tip"
+                      title="Collapsible sidebar"
+                      description="The sidebar can be collapsed directly from the navigation panel. That state is saved locally on this device."
+                    >
+                      <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                        <p className="text-sm font-medium text-white">
+                          Recommended setup
+                        </p>
+
+                        <p className="mt-2 text-sm leading-6 text-neutral-500">
+                          Keep descriptions hidden for daily work. Use collapsed mode when you want
+                          more horizontal space for tables, Composer, and generated Task Packs.
+                        </p>
+                      </div>
+                    </SettingCard>
+                  </div>
                 </>
               )}
 

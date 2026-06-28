@@ -1,6 +1,5 @@
 import { useState } from "react";
 import {
-    BrainCircuit,
     ChevronDown,
     ChevronRight,
     FolderOpen,
@@ -11,6 +10,7 @@ import {
 
 import { appMeta } from "../../config/appMeta";
 import { NavigationAssistantModal } from "../modals/NavigationAssistantModal";
+import contextforgeMarkWhite from "../../assets/brand/contextforge-mark-white.png";
 import {
     pageMetaMap,
     type AppPageId
@@ -48,8 +48,13 @@ export function AppTitleBar({
         <>
             <header className="app-drag relative z-50 flex h-12 shrink-0 items-center justify-between border-b border-neutral-900/90 bg-black/85 px-3 shadow-[0_1px_0_rgba(255,255,255,0.03)] backdrop-blur-2xl">
                 <div className="flex min-w-0 items-center gap-3">
-                    <div className="flex size-8 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
-                        <BrainCircuit size={17} />
+                    <div className="flex size-8 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950 shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]">
+                        <img
+                            src={contextforgeMarkWhite}
+                            alt="ContextForge"
+                            draggable={false}
+                            className="size-5 object-contain"
+                        />
                     </div>
 
                     <div className="flex min-w-0 items-center gap-2">
