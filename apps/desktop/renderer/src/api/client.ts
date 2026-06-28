@@ -6,7 +6,9 @@ import type {
   Project,
   TaskPack,
   WorkspaceSearchResponse,
-  ContextComposerPreview
+  ContextComposerPreview,
+  ContextComposerFileSearchResponse,
+  ContextComposerFileSnippetResponse,
 } from "../types";
 
 const API_URL = "http://localhost:4000/api";
@@ -175,4 +177,45 @@ export async function createContextComposerPreview(input: {
   });
 
   return data.preview;
+}
+
+export async function searchContextComposerFiles(input: {
+  projectId: number;
+  query: string;
+  limit?: number;
+  excludePaths?: string[];
+}): Promise<ContextComposerFileSearchResponse> {
+  const data = await request<
+    {
+      ok: true;
+    } & ContextComposerFileSearchResponse
+  >("/context-composer/files", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+
+  return {
+    project: data.project,
+    query: data.query,
+    results: data.results
+  };
+}
+
+export async function readContextComposerFileSnippet(input: {
+  projectId: number;
+  filePath: string;
+}): Promise<ContextComposerFileSnippetResponse> {
+  const data = await request<
+    {
+      ok: true;
+    } & ContextComposerFileSnippetResponse
+  >("/context-composer/snippet", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+
+  return {
+    file: data.file,
+    snippet: data.snippet
+  };
 }

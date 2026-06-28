@@ -326,7 +326,24 @@ function buildFileReferences({
     return references;
 }
 
-function getManualUsageForFile(file: ProjectInventoryFile): SelectedTaskFileUsage {
+function getManualUsageForFile(
+    file: ProjectInventoryFile,
+    context?: {
+        rawTask: string;
+        effectiveTaskArea: string;
+    }
+): SelectedTaskFileUsage {
+    if (
+        context &&
+        shouldUseInspectOnlyForComposerSelection({
+            file,
+            rawTask: context.rawTask,
+            effectiveTaskArea: context.effectiveTaskArea
+        })
+    ) {
+        return "inspect-only";
+    }
+
     if (file.kind === "asset") {
         return "asset-reference";
     }
@@ -342,19 +359,88 @@ function getManualUsageForFile(file: ProjectInventoryFile): SelectedTaskFileUsag
     return "inspect-and-edit";
 }
 
+function normalizeComposerPath(path: string) {
+    return path.replace(/\\/g, "/").toLowerCase();
+}
+
+function hasNoBackendMutationConstraint(task: string) {
+    const normalized = task.toLowerCase();
+
+    return [
+        "do not change backend",
+        "don't change backend",
+        "without changing backend",
+        "keep backend behavior",
+        "backend behavior",
+        "backend unchanged",
+        "do not change api",
+        "don't change api",
+        "keep api",
+        "api unchanged",
+        "не менять backend",
+        "не менять бэк",
+        "не трогать бэк",
+        "не менять api",
+        "не трогать api",
+        "без изменения backend",
+        "без изменения бэка"
+    ].some((phrase) => normalized.includes(phrase));
+}
+
+function isBackendOrApiReferencePath(path: string) {
+    const normalized = normalizeComposerPath(path);
+
+    return (
+        normalized.includes("/server/") ||
+        normalized.includes("/routes/") ||
+        normalized.includes("/controllers/") ||
+        normalized.includes("/services/") ||
+        normalized.includes("/repositories/") ||
+        normalized.includes("/db/") ||
+        normalized.includes("/database/") ||
+        normalized.includes("/api/") ||
+        normalized.startsWith("server/") ||
+        normalized.startsWith("api/") ||
+        normalized.endsWith("/api.ts") ||
+        normalized.endsWith("/api.js") ||
+        normalized.endsWith("/client.ts") ||
+        normalized.endsWith("/client.js")
+    );
+}
+
+function shouldUseInspectOnlyForComposerSelection(input: {
+    file: ProjectInventoryFile;
+    rawTask: string;
+    effectiveTaskArea: string;
+}) {
+    if (input.file.kind !== "source") {
+        return false;
+    }
+
+    if (input.effectiveTaskArea !== "ui") {
+        return false;
+    }
+
+    if (!hasNoBackendMutationConstraint(input.rawTask)) {
+        return false;
+    }
+
+    return isBackendOrApiReferencePath(input.file.path);
+}
+
 function buildManualComposerFileSelection({
     inventory,
     baseSelection,
-    selectedFilePaths
+    selectedFilePaths,
+    rawTask,
+    effectiveTaskArea
 }: {
     inventory: ProjectInventory;
     baseSelection: TaskFileSelection;
-    selectedFilePaths?: string[];
+    selectedFilePaths: string[];
+    rawTask: string;
+    effectiveTaskArea: string;
 }): TaskFileSelection {
-    if (selectedFilePaths === undefined) {
-        return baseSelection;
-    }
-
     const selectedByPath = new Map(
         baseSelection.selectedFiles.map((file) => [
             normalizePath(file.path).toLowerCase(),
@@ -377,11 +463,20 @@ function buildManualComposerFileSelection({
             normalizePath(inventoryFile.path).toLowerCase()
         );
 
+        const usage = getManualUsageForFile(inventoryFile, {
+            rawTask,
+            effectiveTaskArea
+        });
+
         if (existingSelection) {
             manualSelectedFiles.push({
                 ...existingSelection,
                 path: inventoryFile.path,
-                reason: `Manually confirmed in Context Composer. ${existingSelection.reason}`
+                usage,
+                reason:
+                    usage === "inspect-only" && existingSelection.usage !== "inspect-only"
+                        ? `Manually confirmed in Context Composer as reference-only context. ${existingSelection.reason}`
+                        : `Manually confirmed in Context Composer. ${existingSelection.reason}`
             });
 
             continue;
@@ -390,8 +485,11 @@ function buildManualComposerFileSelection({
         manualSelectedFiles.push({
             path: inventoryFile.path,
             kind: inventoryFile.kind,
-            usage: getManualUsageForFile(inventoryFile),
-            reason: "Manually included from Context Composer review.",
+            usage,
+            reason:
+                usage === "inspect-only"
+                    ? "Manually included from Context Composer review as reference-only context."
+                    : "Manually included from Context Composer review.",
             confidence: 0.95
         });
     }
@@ -406,7 +504,7 @@ function buildManualComposerFileSelection({
             ],
             notes: [
                 ...baseSelection.notes,
-                "Manual Composer selection was requested, but no selected paths passed backend validation."
+                "Composer selection was requested, but no selected paths passed backend validation."
             ]
         };
     }
@@ -420,7 +518,7 @@ function buildManualComposerFileSelection({
         ],
         notes: [
             ...baseSelection.notes,
-            `Manual Composer selection applied: ${manualSelectedFiles.length} file(s).`,
+            `Composer confirmed selection applied: ${manualSelectedFiles.length} file(s).`,
             rejectedManualPaths.length > 0
                 ? `Rejected manual Composer path(s): ${rejectedManualPaths.join(", ")}.`
                 : ""
@@ -1027,22 +1125,22 @@ taskPacksRouter.post("/", async (req, res) => {
             taskIntent
         });
 
-        const fileSelection = buildManualComposerFileSelection({
-            inventory,
-            baseSelection: automaticFileSelection,
-            selectedFilePaths: parsed.data.selectedFilePaths
-        });
-
         const manualSelectionRequested = Array.isArray(parsed.data.selectedFilePaths);
 
-        if (manualSelectionRequested && fileSelection.selectedFiles.length === 0) {
-            res.status(400).json({
-                ok: false,
-                message: "No selected Composer files passed backend validation.",
-                rejectedPaths: fileSelection.rejectedModelPaths
-            });
-            return;
-        }
+        const effectiveSelectionArea =
+            "effectiveTaskArea" in automaticFileSelection
+                ? automaticFileSelection.effectiveTaskArea
+                : taskIntent.taskArea;
+
+        const fileSelection = manualSelectionRequested
+            ? buildManualComposerFileSelection({
+                inventory,
+                baseSelection: automaticFileSelection,
+                selectedFilePaths: parsed.data.selectedFilePaths ?? [],
+                rawTask: parsed.data.rawTask,
+                effectiveTaskArea: effectiveSelectionArea
+            })
+            : automaticFileSelection;
 
         const fileReferences = buildFileReferences({
             inventory,

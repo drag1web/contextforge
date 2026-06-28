@@ -78,6 +78,26 @@ export interface ContextComposerPreview {
   notes: string[];
 }
 
+export interface ContextComposerFileSearchResult extends ComposerFileReference {
+  score: number;
+  alreadySelected: boolean;
+}
+
+export interface ContextComposerFileSearchResponse {
+  project: {
+    id: number;
+    name: string;
+    localPath: string;
+  };
+  query: string;
+  results: ContextComposerFileSearchResult[];
+}
+
+export interface ContextComposerFileSnippetResponse {
+  file: ComposerFileReference;
+  snippet: ComposerSnippet | null;
+}
+
 const MAX_SNIPPET_FILES = 6;
 const MAX_SNIPPET_CHARS = 1800;
 const MAX_TEXT_FILE_SIZE_BYTES = 120_000;
@@ -409,5 +429,264 @@ export async function buildContextComposerPreview(input: {
       selectedFiles,
       snippets
     })
+  };
+}
+
+function getUniqueStrings(values: string[]) {
+  return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+}
+
+function normalizeForSearch(value: string) {
+  return normalizePath(value)
+    .toLowerCase()
+    .replace(/[_\-./\\]+/g, " ");
+}
+
+function getSearchTokens(query: string) {
+  return normalizeForSearch(query)
+    .split(/\s+/)
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 2)
+    .slice(0, 12);
+}
+
+function getComposerUsageForFile(file: ProjectInventoryFile): SelectedTaskFileUsage {
+  if (file.kind === "asset") {
+    return "asset-reference";
+  }
+
+  if (file.kind === "config") {
+    return "config-reference";
+  }
+
+  if (file.kind === "docs" || file.kind === "data" || file.kind === "runtime") {
+    return "inspect-only";
+  }
+
+  return "inspect-and-edit";
+}
+
+function getBaseSearchScore(file: ProjectInventoryFile) {
+  if (file.kind === "source") return 42;
+  if (file.kind === "style") return 36;
+  if (file.kind === "config") return 28;
+  if (file.kind === "docs") return 22;
+  if (file.kind === "asset") return 14;
+  if (file.kind === "data") return 8;
+  if (file.kind === "runtime") return 4;
+
+  return 10;
+}
+
+function isNoisySearchPath(relativePath: string) {
+  const normalized = normalizePath(relativePath).toLowerCase();
+
+  return (
+    normalized.includes("/node_modules/") ||
+    normalized.startsWith("node_modules/") ||
+    normalized.includes("/dist/") ||
+    normalized.startsWith("dist/") ||
+    normalized.includes("/build/") ||
+    normalized.startsWith("build/") ||
+    normalized.endsWith("package-lock.json") ||
+    normalized.endsWith("yarn.lock") ||
+    normalized.endsWith("pnpm-lock.yaml")
+  );
+}
+
+function scoreComposerSearchFile(file: ProjectInventoryFile, query: string) {
+  const trimmedQuery = query.trim();
+  const normalizedPath = normalizePath(file.path).toLowerCase();
+  const searchablePath = normalizeForSearch(file.path);
+  const fileName = normalizedPath.split("/").pop() ?? normalizedPath;
+  const tokens = getSearchTokens(trimmedQuery);
+
+  let score = getBaseSearchScore(file);
+
+  if (file.canReadText) {
+    score += 8;
+  }
+
+  if (isNoisySearchPath(file.path)) {
+    score -= 80;
+  }
+
+  if (!trimmedQuery) {
+    return score;
+  }
+
+  const normalizedQuery = normalizeForSearch(trimmedQuery);
+
+  if (normalizedPath.includes(trimmedQuery.toLowerCase())) {
+    score += 80;
+  }
+
+  if (searchablePath.includes(normalizedQuery)) {
+    score += 60;
+  }
+
+  if (fileName.includes(trimmedQuery.toLowerCase())) {
+    score += 70;
+  }
+
+  for (const token of tokens) {
+    if (searchablePath.includes(token)) {
+      score += 18;
+    }
+
+    if (fileName.includes(token)) {
+      score += 24;
+    }
+  }
+
+  return score;
+}
+
+function buildSearchReason(file: ProjectInventoryFile, query: string, alreadySelected: boolean) {
+  if (alreadySelected) {
+    return "Already included in the current Composer review.";
+  }
+
+  if (query.trim()) {
+    return `Matched project inventory search for "${query.trim()}".`;
+  }
+
+  if (file.kind === "source") {
+    return "Source file from project inventory.";
+  }
+
+  if (file.kind === "style") {
+    return "Style file from project inventory.";
+  }
+
+  if (file.kind === "config") {
+    return "Configuration file from project inventory.";
+  }
+
+  return "Project inventory file.";
+}
+
+function toSearchResult({
+  file,
+  query,
+  alreadySelected,
+  score
+}: {
+  file: ProjectInventoryFile;
+  query: string;
+  alreadySelected: boolean;
+  score: number;
+}): ContextComposerFileSearchResult {
+  const confidence = Math.max(0.35, Math.min(0.98, score / 140));
+
+  return {
+    path: file.path,
+    kind: file.kind,
+    usage: getComposerUsageForFile(file),
+    reason: buildSearchReason(file, query, alreadySelected),
+    confidence,
+    canReadText: file.canReadText,
+    sizeBytes: file.sizeBytes,
+    score,
+    alreadySelected
+  };
+}
+
+export async function searchContextComposerFiles(input: {
+  projectId: number;
+  query: string;
+  limit?: number;
+  excludePaths?: string[];
+}): Promise<ContextComposerFileSearchResponse> {
+  const project = await getProjectById(input.projectId);
+
+  if (!project) {
+    throw new Error("Project not found");
+  }
+
+  const inventory = await scanProjectInventory(project.localPath);
+  const limit = Math.min(80, Math.max(5, input.limit ?? 30));
+
+  const excludedPathSet = new Set(
+    getUniqueStrings(input.excludePaths ?? []).map((item) =>
+      normalizePath(item).toLowerCase()
+    )
+  );
+
+  const results = inventory.files
+    .map((file) => {
+      const alreadySelected = excludedPathSet.has(normalizePath(file.path).toLowerCase());
+      const score = scoreComposerSearchFile(file, input.query);
+
+      return toSearchResult({
+        file,
+        query: input.query,
+        alreadySelected,
+        score
+      });
+    })
+    .filter((file) => {
+      if (file.alreadySelected) {
+        return false;
+      }
+
+      if (isNoisySearchPath(file.path)) {
+        return false;
+      }
+
+      return file.score > 0;
+    })
+    .sort((left, right) => {
+      if (right.score !== left.score) {
+        return right.score - left.score;
+      }
+
+      return left.path.localeCompare(right.path);
+    })
+    .slice(0, limit);
+
+  return {
+    project: {
+      id: project.id,
+      name: project.name,
+      localPath: project.localPath
+    },
+    query: input.query,
+    results
+  };
+}
+
+export async function readContextComposerFileSnippet(input: {
+  projectId: number;
+  filePath: string;
+}): Promise<ContextComposerFileSnippetResponse> {
+  const project = await getProjectById(input.projectId);
+
+  if (!project) {
+    throw new Error("Project not found");
+  }
+
+  const inventory = await scanProjectInventory(project.localPath);
+  const inventoryFile = findInventoryFile(inventory, input.filePath);
+
+  if (!inventoryFile) {
+    throw new Error("File not found in project inventory");
+  }
+
+  const file: ComposerFileReference = {
+    path: inventoryFile.path,
+    kind: inventoryFile.kind,
+    usage: getComposerUsageForFile(inventoryFile),
+    reason: "Manually added from Composer file search.",
+    confidence: 0.95,
+    canReadText: inventoryFile.canReadText,
+    sizeBytes: inventoryFile.sizeBytes
+  };
+
+  const snippet = await readFileSnippet(project.localPath, inventoryFile);
+
+  return {
+    file,
+    snippet
   };
 }

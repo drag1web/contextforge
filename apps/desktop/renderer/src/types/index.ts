@@ -183,3 +183,24 @@ export interface ContextComposerPreview {
   };
   notes: string[];
 }
+
+export interface ContextComposerFileSearchResult
+  extends ContextComposerFileReference {
+  score: number;
+  alreadySelected: boolean;
+}
+
+export interface ContextComposerFileSearchResponse {
+  project: {
+    id: number;
+    name: string;
+    localPath: string;
+  };
+  query: string;
+  results: ContextComposerFileSearchResult[];
+}
+
+export interface ContextComposerFileSnippetResponse {
+  file: ContextComposerFileReference;
+  snippet: ContextComposerSnippet | null;
+}
