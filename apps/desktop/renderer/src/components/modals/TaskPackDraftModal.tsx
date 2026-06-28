@@ -19,6 +19,7 @@ interface TaskPackDraftModalProps {
   isLoading: boolean;
   onChange: (draft: TaskPackDraft) => void;
   onClose: () => void;
+  onAnalyzeContext: () => void;
   onGenerate: () => void;
 }
 
@@ -76,6 +77,7 @@ export function TaskPackDraftModal({
   isLoading,
   onChange,
   onClose,
+  onAnalyzeContext,
   onGenerate
 }: TaskPackDraftModalProps) {
   const taskLength = draft.rawTask.trim().length;
@@ -105,6 +107,15 @@ export function TaskPackDraftModal({
           <div className="flex items-center gap-3">
             <Button variant="secondary" onClick={onClose}>
               Cancel
+            </Button>
+
+            <Button
+              variant="secondary"
+              onClick={onAnalyzeContext}
+              disabled={!canGenerate}
+            >
+              <Sparkles size={15} />
+              Analyze Context
             </Button>
 
             <Button

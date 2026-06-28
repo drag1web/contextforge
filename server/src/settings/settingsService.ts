@@ -6,16 +6,29 @@ export interface AppSettings {
   generationMode: "template" | "ollama";
   defaultTargetTool: "codex" | "cursor" | "claude" | "generic";
   defaultTaskType:
-    | "general"
-    | "ui"
-    | "backend"
-    | "fullstack"
-    | "build"
-    | "bugfix"
-    | "refactor"
-    | "docs"
-    | "tests";
+  | "general"
+  | "ui"
+  | "backend"
+  | "fullstack"
+  | "build"
+  | "bugfix"
+  | "refactor"
+  | "docs"
+  | "tests";
   defaultOllamaModel: string | null;
+  composerFileLimits: ComposerFileLimits;
+}
+
+export interface ComposerFileLimits {
+  default: number;
+  ui: number;
+  backend: number;
+  fullstack: number;
+  build: number;
+  bugfix: number;
+  refactor: number;
+  docs: number;
+  tests: number;
 }
 
 const defaultSettings: AppSettings = {
@@ -23,7 +36,18 @@ const defaultSettings: AppSettings = {
   generationMode: "template",
   defaultTargetTool: "codex",
   defaultTaskType: "general",
-  defaultOllamaModel: null
+  defaultOllamaModel: null,
+  composerFileLimits: {
+    default: 8,
+    ui: 7,
+    backend: 8,
+    fullstack: 10,
+    build: 7,
+    bugfix: 7,
+    refactor: 8,
+    docs: 6,
+    tests: 7
+  }
 };
 
 const settingKeyMap = {
@@ -31,7 +55,8 @@ const settingKeyMap = {
   generationMode: "generation_mode",
   defaultTargetTool: "default_target_tool",
   defaultTaskType: "default_task_type",
-  defaultOllamaModel: "default_ollama_model"
+  defaultOllamaModel: "default_ollama_model",
+  composerFileLimits: "composer_file_limits"
 } as const;
 
 export async function getSettingValue<T>(key: string, fallback: T): Promise<T> {
@@ -57,7 +82,11 @@ export async function getAppSettings(): Promise<AppSettings> {
     generationMode: await getSettingValue(settingKeyMap.generationMode, defaultSettings.generationMode),
     defaultTargetTool: await getSettingValue(settingKeyMap.defaultTargetTool, defaultSettings.defaultTargetTool),
     defaultTaskType: await getSettingValue(settingKeyMap.defaultTaskType, defaultSettings.defaultTaskType),
-    defaultOllamaModel: await getSettingValue(settingKeyMap.defaultOllamaModel, defaultSettings.defaultOllamaModel)
+    defaultOllamaModel: await getSettingValue(settingKeyMap.defaultOllamaModel, defaultSettings.defaultOllamaModel),
+    composerFileLimits: await getSettingValue(
+      settingKeyMap.composerFileLimits,
+      defaultSettings.composerFileLimits
+    )
   };
 }
 

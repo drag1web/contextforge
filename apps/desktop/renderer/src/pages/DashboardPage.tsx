@@ -20,6 +20,8 @@ import { SettingsPage } from "./SettingsPage";
 import { PlaceholderPage } from "./PlaceholderPage";
 import { ReportsPage } from "./ReportsPage";
 
+import { ContextComposerModal } from "../components/modals/ContextComposerModal";
+
 import { LoadingOverlay } from "../components/ui/LoadingOverlay";
 
 import { GlobalSearchModal } from "../components/modals/GlobalSearchModal";
@@ -158,6 +160,7 @@ export function DashboardPage() {
           isLoading={dashboard.isLoading}
           onChange={dashboard.setTaskPackDraft}
           onClose={() => dashboard.setTaskPackDraft(null)}
+          onAnalyzeContext={dashboard.handleAnalyzeTaskContext}
           onGenerate={dashboard.handleCreateTaskPack}
         />
       )}
@@ -166,6 +169,15 @@ export function DashboardPage() {
         <GeneratedTaskPackModal
           taskPack={dashboard.generatedTaskPack}
           onClose={() => dashboard.setGeneratedTaskPack(null)}
+        />
+      )}
+
+      {dashboard.contextComposerPreview && (
+        <ContextComposerModal
+          preview={dashboard.contextComposerPreview}
+          isLoading={dashboard.isLoading}
+          onClose={() => dashboard.setContextComposerPreview(null)}
+          onGenerate={dashboard.handleCreateTaskPackFromComposer}
         />
       )}
 

@@ -25,7 +25,11 @@ const createTaskPackSchema = z.object({
     projectId: z.number().int().positive(),
     rawTask: z.string().min(3),
     taskType: z.string().default("general"),
-    targetTool: z.string().default("generic")
+    targetTool: z.string().default("generic"),
+    selectedFilePaths: z
+        .array(z.string().trim().min(1).max(500))
+        .max(48)
+        .optional()
 });
 
 interface ProjectReadinessReport {
@@ -322,6 +326,108 @@ function buildFileReferences({
     return references;
 }
 
+function getManualUsageForFile(file: ProjectInventoryFile): SelectedTaskFileUsage {
+    if (file.kind === "asset") {
+        return "asset-reference";
+    }
+
+    if (file.kind === "config") {
+        return "config-reference";
+    }
+
+    if (file.kind === "docs" || file.kind === "data" || file.kind === "runtime") {
+        return "inspect-only";
+    }
+
+    return "inspect-and-edit";
+}
+
+function buildManualComposerFileSelection({
+    inventory,
+    baseSelection,
+    selectedFilePaths
+}: {
+    inventory: ProjectInventory;
+    baseSelection: TaskFileSelection;
+    selectedFilePaths?: string[];
+}): TaskFileSelection {
+    if (selectedFilePaths === undefined) {
+        return baseSelection;
+    }
+
+    const selectedByPath = new Map(
+        baseSelection.selectedFiles.map((file) => [
+            normalizePath(file.path).toLowerCase(),
+            file
+        ])
+    );
+
+    const rejectedManualPaths: string[] = [];
+    const manualSelectedFiles: TaskFileSelection["selectedFiles"] = [];
+
+    for (const candidatePath of getUniqueStrings(selectedFilePaths.map(normalizePath))) {
+        const inventoryFile = findInventoryFile(inventory, candidatePath);
+
+        if (!inventoryFile) {
+            rejectedManualPaths.push(candidatePath);
+            continue;
+        }
+
+        const existingSelection = selectedByPath.get(
+            normalizePath(inventoryFile.path).toLowerCase()
+        );
+
+        if (existingSelection) {
+            manualSelectedFiles.push({
+                ...existingSelection,
+                path: inventoryFile.path,
+                reason: `Manually confirmed in Context Composer. ${existingSelection.reason}`
+            });
+
+            continue;
+        }
+
+        manualSelectedFiles.push({
+            path: inventoryFile.path,
+            kind: inventoryFile.kind,
+            usage: getManualUsageForFile(inventoryFile),
+            reason: "Manually included from Context Composer review.",
+            confidence: 0.95
+        });
+    }
+
+    if (manualSelectedFiles.length === 0) {
+        return {
+            ...baseSelection,
+            selectedFiles: [],
+            rejectedModelPaths: [
+                ...baseSelection.rejectedModelPaths,
+                ...rejectedManualPaths
+            ],
+            notes: [
+                ...baseSelection.notes,
+                "Manual Composer selection was requested, but no selected paths passed backend validation."
+            ]
+        };
+    }
+
+    return {
+        ...baseSelection,
+        selectedFiles: manualSelectedFiles,
+        rejectedModelPaths: [
+            ...baseSelection.rejectedModelPaths,
+            ...rejectedManualPaths
+        ],
+        notes: [
+            ...baseSelection.notes,
+            `Manual Composer selection applied: ${manualSelectedFiles.length} file(s).`,
+            rejectedManualPaths.length > 0
+                ? `Rejected manual Composer path(s): ${rejectedManualPaths.join(", ")}.`
+                : ""
+        ].filter(Boolean)
+    };
+}
+
 function buildContextNotes({
     inventory,
     taskIntent,
@@ -543,22 +649,22 @@ function buildContextForgeNotesSection(context: UniversalTaskPackContext) {
     const rejectedModelPaths = getUniqueStrings(context.fileSelection.rejectedModelPaths);
     const intent = context.taskIntent
         ? [
-              `- Source: ${context.taskIntent.source}`,
-              `- Task area: ${context.taskIntent.taskArea}`,
-              `- Risk level: ${context.taskIntent.riskLevel}`,
-              `- Confidence: ${context.taskIntent.confidence}`,
-              context.taskIntent.intentTags.length > 0
-                  ? `- Intent tags: ${context.taskIntent.intentTags.join(", ")}`
-                  : null,
-              context.taskIntent.domainTerms.length > 0
-                  ? `- Domain terms: ${context.taskIntent.domainTerms.join(", ")}`
-                  : null,
-              context.taskIntent.fileRoleHints.length > 0
-                  ? `- File role hints: ${context.taskIntent.fileRoleHints.join(", ")}`
-                  : null
-          ]
-              .filter(Boolean)
-              .join("\n")
+            `- Source: ${context.taskIntent.source}`,
+            `- Task area: ${context.taskIntent.taskArea}`,
+            `- Risk level: ${context.taskIntent.riskLevel}`,
+            `- Confidence: ${context.taskIntent.confidence}`,
+            context.taskIntent.intentTags.length > 0
+                ? `- Intent tags: ${context.taskIntent.intentTags.join(", ")}`
+                : null,
+            context.taskIntent.domainTerms.length > 0
+                ? `- Domain terms: ${context.taskIntent.domainTerms.join(", ")}`
+                : null,
+            context.taskIntent.fileRoleHints.length > 0
+                ? `- File role hints: ${context.taskIntent.fileRoleHints.join(", ")}`
+                : null
+        ]
+            .filter(Boolean)
+            .join("\n")
         : "- Task intent analysis was not available.";
 
     const fileSelection = [
@@ -745,11 +851,10 @@ Important:
 - Do not add commentary before or after the document.
 - The first line must be exactly: # AI Task Pack
 - The "## Task Type" section must contain the Effective task area value, not the originally requested task type.
-- ${
-        hasTestScript
+- ${hasTestScript
             ? "The project has a test script. You may include it in verification."
             : "The project has no detected test script. Do not recommend npm run test."
-    }
+        }
 
 Required document structure:
 # AI Task Pack
@@ -769,17 +874,17 @@ Required document structure:
 
 Project metadata:
 ${JSON.stringify(
-        {
-            name: project.name,
-            localPath: project.localPath,
-            packageManager: project.packageManager,
-            detectedStack: project.detectedStack,
-            scripts: project.scripts,
-            readinessScore: project.readinessScore
-        },
-        null,
-        2
-    )}
+            {
+                name: project.name,
+                localPath: project.localPath,
+                packageManager: project.packageManager,
+                detectedStack: project.detectedStack,
+                scripts: project.scripts,
+                readinessScore: project.readinessScore
+            },
+            null,
+            2
+        )}
 
 User task:
 ${rawTask}
@@ -795,21 +900,21 @@ ${targetTool}
 
 Validated task context summary:
 ${JSON.stringify(
-        {
-            relevantFiles: context.relevantFiles,
-            fileReferences: context.fileReferences,
-            taskIntent: context.taskIntent,
-            fileSelection: {
-                source: context.fileSelection.source,
-                usedFallback: context.fileSelection.usedFallback,
-                rejectedModelPaths: context.fileSelection.rejectedModelPaths,
-                notes: context.fileSelection.notes
+            {
+                relevantFiles: context.relevantFiles,
+                fileReferences: context.fileReferences,
+                taskIntent: context.taskIntent,
+                fileSelection: {
+                    source: context.fileSelection.source,
+                    usedFallback: context.fileSelection.usedFallback,
+                    rejectedModelPaths: context.fileSelection.rejectedModelPaths,
+                    notes: context.fileSelection.notes
+                },
+                inventorySummary: context.inventorySummary
             },
-            inventorySummary: context.inventorySummary
-        },
-        null,
-        2
-    )}
+            null,
+            2
+        )}
 
 Template Task Pack:
 ${contextAwareTemplatePrompt}
@@ -914,13 +1019,30 @@ taskPacksRouter.post("/", async (req, res) => {
             projectTree: inventory.files.map((file) => file.path)
         });
 
-        const fileSelection = await selectTaskFiles({
+        const automaticFileSelection = await selectTaskFiles({
             rawTask: parsed.data.rawTask,
             taskType: parsed.data.taskType,
             targetTool: parsed.data.targetTool,
             inventory,
             taskIntent
         });
+
+        const fileSelection = buildManualComposerFileSelection({
+            inventory,
+            baseSelection: automaticFileSelection,
+            selectedFilePaths: parsed.data.selectedFilePaths
+        });
+
+        const manualSelectionRequested = Array.isArray(parsed.data.selectedFilePaths);
+
+        if (manualSelectionRequested && fileSelection.selectedFiles.length === 0) {
+            res.status(400).json({
+                ok: false,
+                message: "No selected Composer files passed backend validation.",
+                rejectedPaths: fileSelection.rejectedModelPaths
+            });
+            return;
+        }
 
         const fileReferences = buildFileReferences({
             inventory,

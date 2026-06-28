@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import {
   addProject,
+  createContextComposerPreview,
   createTaskPack,
   getAgentsPreview,
   getAppSettings,
@@ -10,7 +11,13 @@ import {
   saveAgentsFile
 } from "../api/client";
 import { getAverageReadinessScore } from "../lib/score";
-import type { AgentsPreview, Project, TaskPack, TaskPackDraft } from "../types";
+import type {
+  AgentsPreview,
+  ContextComposerPreview,
+  Project,
+  TaskPack,
+  TaskPackDraft
+} from "../types";
 
 export function useDashboardController() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -24,6 +31,9 @@ export function useDashboardController() {
   const [agentsPreview, setAgentsPreview] = useState<AgentsPreview | null>(null);
   const [taskPackDraft, setTaskPackDraft] = useState<TaskPackDraft | null>(null);
   const [generatedTaskPack, setGeneratedTaskPack] = useState<TaskPack | null>(null);
+
+  const [contextComposerPreview, setContextComposerPreview] =
+    useState<ContextComposerPreview | null>(null);
 
   const readinessScore = getAverageReadinessScore(
     projects.map((project) => project.readinessScore)
@@ -167,6 +177,47 @@ export function useDashboardController() {
     }
   }
 
+  async function generateTaskPackFromDraft(selectedFilePaths?: string[]) {
+    if (!taskPackDraft) {
+      return;
+    }
+
+    try {
+      setIsLoading(true);
+      const settings = await getAppSettings();
+
+      const selectedCount = selectedFilePaths?.length ?? 0;
+
+      setStatusMessage(
+        settings.generationMode === "ollama" && settings.defaultOllamaModel
+          ? selectedCount > 0
+            ? `Generating task pack with ${selectedCount} Composer-selected file(s) and Ollama (${settings.defaultOllamaModel}). This may take 1–2 minutes on CPU...`
+            : `Generating task pack with Ollama (${settings.defaultOllamaModel}). This may take 1–2 minutes on CPU...`
+          : selectedCount > 0
+            ? `Generating task pack with ${selectedCount} Composer-selected file(s) for "${taskPackDraft.projectName}"...`
+            : `Generating task pack for "${taskPackDraft.projectName}"...`
+      );
+
+      const taskPack = await createTaskPack({
+        projectId: taskPackDraft.projectId,
+        rawTask: taskPackDraft.rawTask,
+        taskType: taskPackDraft.taskType,
+        targetTool: taskPackDraft.targetTool,
+        selectedFilePaths
+      });
+
+      await loadTaskPacks();
+      setGeneratedTaskPack(taskPack);
+      setTaskPackDraft(null);
+      setContextComposerPreview(null);
+      setStatusMessage("Task pack generated successfully.");
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : "Unknown error");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function handleCreateTaskPackDraft(project: Project) {
     try {
       setIsLoading(true);
@@ -202,37 +253,42 @@ export function useDashboardController() {
     }
   }
 
-  async function handleCreateTaskPack() {
+  async function handleAnalyzeTaskContext() {
     if (!taskPackDraft) {
       return;
     }
 
     try {
       setIsLoading(true);
-      const settings = await getAppSettings();
+      setStatusMessage(`Analyzing context for "${taskPackDraft.projectName}"...`);
 
-      setStatusMessage(
-        settings.generationMode === "ollama" && settings.defaultOllamaModel
-          ? `Generating task pack with Ollama (${settings.defaultOllamaModel}). This may take 1–2 minutes on CPU...`
-          : `Generating task pack for "${taskPackDraft.projectName}"...`
-      );
-
-      const taskPack = await createTaskPack({
+      const preview = await createContextComposerPreview({
         projectId: taskPackDraft.projectId,
         rawTask: taskPackDraft.rawTask,
         taskType: taskPackDraft.taskType,
         targetTool: taskPackDraft.targetTool
       });
 
-      await loadTaskPacks();
-      setGeneratedTaskPack(taskPack);
-      setTaskPackDraft(null);
-      setStatusMessage("Task pack generated successfully.");
+      setContextComposerPreview(preview);
+      setStatusMessage(`Context preview ready for "${taskPackDraft.projectName}".`);
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : "Unknown error");
     } finally {
       setIsLoading(false);
     }
+  }
+
+  async function handleCreateTaskPack() {
+    await generateTaskPackFromDraft();
+  }
+
+  async function handleCreateTaskPackFromComposer(selectedFilePaths: string[]) {
+    if (selectedFilePaths.length === 0) {
+      setStatusMessage("Select at least one Composer file before generating a Task Pack.");
+      return;
+    }
+
+    await generateTaskPackFromDraft(selectedFilePaths);
   }
 
   function handleToggleProject(projectId: number) {
@@ -255,10 +311,12 @@ export function useDashboardController() {
     agentsPreview,
     taskPackDraft,
     generatedTaskPack,
+    contextComposerPreview,
 
     setAgentsPreview,
     setTaskPackDraft,
     setGeneratedTaskPack,
+    setContextComposerPreview,
 
     handleSelectProject,
     handleRescanProject,
@@ -266,6 +324,8 @@ export function useDashboardController() {
     handleRegenerateAgentsPreview,
     handleSaveAgentsFile,
     handleCreateTaskPackDraft,
+    handleAnalyzeTaskContext,
+    handleCreateTaskPackFromComposer,
     handleCreateTaskPack,
     handleToggleProject
   };

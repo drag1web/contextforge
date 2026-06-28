@@ -41,6 +41,7 @@ interface SelectTaskFilesInput {
     targetTool: string;
     inventory: ProjectInventory;
     taskIntent?: TaskIntentAnalysis;
+    settings?: Awaited<ReturnType<typeof getAppSettings>>;
 }
 
 interface OllamaGenerateResponse {
@@ -93,7 +94,117 @@ function normalizeForCompare(value: string) {
 
 function includesAny(value: string, terms: string[]) {
     const normalized = normalizeForCompare(value);
-    return terms.some((term) => normalized.includes(term));
+
+    return terms.some((term) => normalized.includes(normalizeForCompare(term)));
+}
+
+interface TaskConstraints {
+    noBackendMutation: boolean;
+    noFrontendMutation: boolean;
+    notes: string[];
+}
+
+function getTaskConstraints(input: SelectTaskFilesInput): TaskConstraints {
+    const rawTask = input.rawTask;
+
+    const noBackendMutation = includesAny(rawTask, [
+        "do not change backend",
+        "don't change backend",
+        "do not modify backend",
+        "don't modify backend",
+        "keep backend api unchanged",
+        "backend api unchanged",
+        "keep api unchanged",
+        "api unchanged",
+        "without changing backend",
+        "without backend changes",
+        "frontend only",
+        "front-end only",
+        "ui only",
+        "client only",
+        "do not touch backend",
+        "don't touch backend",
+        "do not edit backend",
+        "don't edit backend",
+        "do not edit api",
+        "don't edit api",
+        "do not edit server",
+        "don't edit server",
+        "не редактировать backend",
+        "не редактируй backend",
+        "не редактировать api",
+        "не редактируй api",
+        "не редактировать бэк",
+        "не редактируй бэк",
+        "не редактировать бэкенд",
+        "не редактируй бэкенд",
+        "не меняй backend",
+        "не менять backend",
+        "не трогай backend",
+        "не трогать backend",
+        "не менять backend api",
+        "не менять api",
+        "не меняй api",
+        "api не менять",
+        "api не трогать",
+        "апи не менять",
+        "апи не трогать",
+        "не менять бэкенд",
+        "не трогать бэкенд",
+        "не трогай бэкенд",
+        "не менять бекенд",
+        "не трогать бекенд",
+        "не трогай бэк",
+        "не трогать бэк",
+        "бэк не трогать",
+        "бэкенд не трогать",
+        "только ui",
+        "только ux",
+        "только фронт",
+        "только frontend",
+        "только визуал",
+        "только интерфейс"
+
+    ]);
+
+    const noFrontendMutation = includesAny(rawTask, [
+        "do not change frontend",
+        "don't change frontend",
+        "do not change ui",
+        "don't change ui",
+        "backend only",
+        "server only",
+        "api only",
+        "without ui changes",
+        "without frontend changes",
+        "не менять frontend",
+        "не трогать frontend",
+        "не менять фронт",
+        "не трогать фронт",
+        "не менять ui",
+        "не трогать ui",
+        "не менять интерфейс",
+        "без изменений ui",
+        "без изменений интерфейса",
+        "только backend",
+        "только бэкенд",
+        "только бекенд",
+        "только api",
+        "только сервер"
+    ]);
+
+    return {
+        noBackendMutation,
+        noFrontendMutation,
+        notes: [
+            noBackendMutation
+                ? "Constraint detected: backend/API files should not be selected as edit targets."
+                : "",
+            noFrontendMutation
+                ? "Constraint detected: UI/frontend files should not be selected as edit targets."
+                : ""
+        ].filter(Boolean)
+    };
 }
 
 function normalizeConfidence(value: unknown) {
@@ -194,6 +305,7 @@ function scoreTaskArea(input: SelectTaskFilesInput) {
         tests: 0,
         general: 0
     };
+    const constraints = getTaskConstraints(input);
 
     const hasApi = includesAny(text, ["api", "апи", "endpoint", "эндпоинт", "route", "маршрут"]);
     const hasAuth = includesAny(text, ["auth", "authorization", "authentication", "login", "session", "token", "cookie", "авторизац", "логин", "сесс", "токен", "куки"]);
@@ -211,6 +323,24 @@ function scoreTaskArea(input: SelectTaskFilesInput) {
 
     if (hasUi && (hasApi || hasServer) && includesAny(text, ["button", "form", "screen", "page", "показывает результат", "кноп", "форма", "экран", "страниц"]) && includesAny(text, ["api", "endpoint", "server", "route", "вызывает сервер", "сервер", "эндпоинт", "маршрут"])) {
         scores.fullstack += 12;
+    }
+
+    if (constraints.noBackendMutation) {
+        scores.backend -= 12;
+        scores.fullstack -= 16;
+
+        if (hasUi) {
+            scores.ui += 7;
+        }
+    }
+
+    if (constraints.noFrontendMutation) {
+        scores.ui -= 12;
+        scores.fullstack -= 12;
+
+        if (hasApi || hasServer) {
+            scores.backend += 7;
+        }
     }
 
     if (input.taskIntent?.taskArea && input.taskIntent.taskArea !== "general") {
@@ -621,6 +751,7 @@ function scorePathTokenMatches(file: ProjectInventoryFile, tokenContext: TokenCo
 
 function scoreFileFallback(file: ProjectInventoryFile, tokenContext: TokenContext, input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode) {
     const filePath = normalizeForCompare(file.path);
+    const constraints = getTaskConstraints(input);
     let score = getKindWeight(file, area, assetMode);
     score += scorePathTokenMatches(file, tokenContext);
 
@@ -658,9 +789,14 @@ function scoreFileFallback(file: ProjectInventoryFile, tokenContext: TokenContex
 
     if (area === "ui") {
         if (file.kind === "style") score += 18;
-        if (filePath.includes("/components/")) score += 8;
-        if (filePath.includes("/pages/") || filePath.includes("/app/")) score += 8;
+        if (filePath.includes("/components/")) score += 12;
+        if (filePath.includes("/pages/") || filePath.includes("/app/")) score += 12;
+        if (isClientUiPath(file.path) && !isClientApiBridgePath(file.path)) score += 18;
         if (isServerSidePath(file.path) && !hasStrongMatch) score -= 45;
+
+        if (constraints.noBackendMutation && (isBackendLeaningPath(file.path) || isClientApiBridgePath(file.path))) {
+            score -= hasStrongMatch ? 35 : 95;
+        }
     }
 
     if (area === "docs") {
@@ -702,6 +838,7 @@ function getAssetCap(assetMode: AssetMode) {
 
 function selectedPriority(file: SelectedTaskFile, input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode) {
     const filePath = normalizeForCompare(file.path);
+    const constraints = getTaskConstraints(input);
     let priority = file.confidence * 100;
 
     if (assetMode === "primary") {
@@ -745,10 +882,71 @@ function selectedPriority(file: SelectedTaskFile, input: SelectTaskFilesInput, a
         if (isServerSidePath(file.path)) priority -= 80;
     }
 
+    if (constraints.noBackendMutation) {
+        if (isBackendLeaningPath(file.path) || isClientApiBridgePath(file.path)) {
+            priority -= 140;
+        }
+
+        if ((file.kind === "style" || isClientUiPath(file.path)) && !isClientApiBridgePath(file.path)) {
+            priority += 70;
+        }
+    }
+
+    if (constraints.noFrontendMutation) {
+        if (isClientUiPath(file.path) && !isClientApiBridgePath(file.path)) {
+            priority -= 120;
+        }
+
+        if (isBackendLeaningPath(file.path)) {
+            priority += 80;
+        }
+    }
+
     if (isLockFilePath(file.path)) priority -= 250;
     if (filePath.endsWith("next-env.d.ts") || filePath.endsWith("vite-env.d.ts")) priority -= 100;
 
     return priority;
+}
+
+function clampComposerLimit(value: unknown, fallback: number) {
+    const limit = Number(value);
+
+    if (!Number.isFinite(limit)) {
+        return fallback;
+    }
+
+    return Math.min(24, Math.max(3, Math.round(limit)));
+}
+
+function getDefaultSelectionLimit(area: EffectiveTaskArea, assetMode: AssetMode) {
+    if (assetMode === "primary") return 7;
+    if (area === "build") return 7;
+    if (area === "docs") return 6;
+    if (area === "backend") return 8;
+    if (area === "fullstack") return 10;
+    if (area === "ui") return 7;
+    if (area === "tests") return 7;
+    if (area === "bugfix") return 7;
+    if (area === "refactor") return 8;
+
+    return 8;
+}
+
+function getSelectionLimitFromSettings(
+    input: SelectTaskFilesInput,
+    area: EffectiveTaskArea,
+    assetMode: AssetMode
+) {
+    const limits = input.settings?.composerFileLimits;
+    const fallback = getDefaultSelectionLimit(area, assetMode);
+
+    if (!limits) {
+        return fallback;
+    }
+
+    const areaLimit = limits[area as keyof typeof limits];
+
+    return clampComposerLimit(areaLimit ?? limits.default, fallback);
 }
 
 function rankAndCapSelection(selectedFiles: SelectedTaskFile[], input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode) {
@@ -779,6 +977,8 @@ function rankAndCapSelection(selectedFiles: SelectedTaskFile[], input: SelectTas
     const assetCap = getAssetCap(assetMode);
     let assetCount = 0;
 
+    const selectionLimit = getSelectionLimitFromSettings(input, area, assetMode);
+
     return sorted
         .filter((file) => {
             if (file.kind !== "asset") return true;
@@ -786,7 +986,7 @@ function rankAndCapSelection(selectedFiles: SelectedTaskFile[], input: SelectTas
             assetCount += 1;
             return true;
         })
-        .slice(0, MAX_SELECTED_FILES);
+        .slice(0, Math.min(MAX_SELECTED_FILES, selectionLimit));
 }
 
 function trimLowValueFallbackCandidates(items: Array<{ file: ProjectInventoryFile; score: number }>, tokenContext: TokenContext, area: EffectiveTaskArea) {
@@ -820,6 +1020,7 @@ function makeSelectedFile(file: ProjectInventoryFile, reason: string, confidence
 
 function canUseSelectedFile(input: SelectTaskFilesInput, file: ProjectInventoryFile, area = getEffectiveTaskArea(input), assetMode = getAssetMode(input)) {
     const taskText = normalizeForCompare(buildTaskText(input));
+    const constraints = getTaskConstraints(input);
 
     if (isSensitiveEnvPath(file.path)) return false;
     if (file.kind === "runtime") return false;
@@ -828,6 +1029,11 @@ function canUseSelectedFile(input: SelectTaskFilesInput, file: ProjectInventoryF
     if (isLockFilePath(file.path) && !includesAny(taskText, ["lock", "package-lock", "pnpm-lock", "yarn.lock"])) return false;
     if (file.kind === "asset" && assetMode === "none") return false;
     if (file.sizeBytes === 0 && !includesAny(input.rawTask, [file.name, file.path])) return false;
+
+    if (area === "ui" && constraints.noBackendMutation) {
+        if (isServerSidePath(file.path)) return false;
+        if (isBackendLeaningPath(file.path) && !isClientUiPath(file.path)) return false;
+    }
 
     if (area === "backend") {
         if (file.kind === "asset" || file.kind === "style") return false;
@@ -843,7 +1049,17 @@ function canUseSelectedFile(input: SelectTaskFilesInput, file: ProjectInventoryF
 }
 
 function isModelFileSemanticallyUseful(file: ProjectInventoryFile, input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode, tokenContext: TokenContext) {
+    const constraints = getTaskConstraints(input);
+
     if (!canUseSelectedFile(input, file, area, assetMode)) return false;
+
+    if (area === "ui" && constraints.noBackendMutation && (isBackendLeaningPath(file.path) || isClientApiBridgePath(file.path))) {
+        return false;
+    }
+
+    if (area === "backend" && constraints.noFrontendMutation && isClientUiPath(file.path) && !isClientApiBridgePath(file.path)) {
+        return false;
+    }
 
     const score = scoreFileFallback(file, tokenContext, input, area, assetMode);
     const explicit = tokenContext.explicitExistingPaths.some((pathValue) => normalizeForCompare(pathValue) === normalizeForCompare(file.path));
@@ -993,6 +1209,7 @@ function buildFallbackSelection(input: SelectTaskFilesInput): TaskFileSelection 
     const assetMode = getAssetMode(input);
     const conflictNote = getConflictNote(input, effectiveTaskArea);
     const tokenContext = buildTokenContext(input);
+    const constraints = getTaskConstraints(input);
     const selected: SelectedTaskFile[] = [];
 
     for (const explicitPath of tokenContext.explicitExistingPaths) {
@@ -1031,7 +1248,9 @@ function buildFallbackSelection(input: SelectTaskFilesInput): TaskFileSelection 
             "Fallback selection is universal and does not rely on project-specific domain rules.",
             `Effective task area: ${effectiveTaskArea}.`,
             `Asset mode: ${assetMode}.`,
+            `Composer file limit for "${effectiveTaskArea}": ${getSelectionLimitFromSettings(input, effectiveTaskArea, assetMode)}.`,
             conflictNote ?? "No task type conflict detected.",
+            ...constraints.notes,
             tokenContext.strongTokens.length > 0
                 ? `Strong fallback tokens: ${tokenContext.strongTokens.slice(0, 18).join(", ")}.`
                 : "No strong fallback tokens were extracted.",
@@ -1079,6 +1298,10 @@ Important:
 - For fullstack tasks, include server/API files, client API bridge files, and the most relevant UI component/page.
 - For backend tasks, prefer server/api/routes/db/services/electron files and avoid client UI files unless they are API bridge files.
 - For UI tasks, prefer page/component/layout/style files and avoid server-only files.
+- If the user says "keep backend API unchanged", "do not change backend", "frontend only", or "UI only", treat backend/API files as protected context and do not select them as edit targets.
+- Mentioning API/backend as a constraint does not automatically make the task backend or fullstack.
+- If backend/API files are protected by the user instruction, prefer UI page/component/layout/style files instead.
+- If the user says "backend only", "API only", or "do not change UI", avoid selecting UI files as edit targets.
 - Avoid package-lock.json, pnpm-lock.yaml, yarn.lock, empty files, generated files, and unrelated source files.
 - Binary files should usually be "asset-reference" or "inspect-only".
 - Style/source files must never use "asset-reference".
@@ -1198,6 +1421,7 @@ function normalizeModelSelection(value: unknown, input: SelectTaskFilesInput, fa
     const effectiveTaskArea = fallback.effectiveTaskArea;
     const assetMode = fallback.assetMode;
     const tokenContext = buildTokenContext(input);
+    const constraints = getTaskConstraints(input);
 
     if (modelFiles.length === 0) {
         return {
@@ -1272,7 +1496,9 @@ function normalizeModelSelection(value: unknown, input: SelectTaskFilesInput, fa
             ...getModelNotes(value),
             `Effective task area: ${effectiveTaskArea}.`,
             `Asset mode: ${assetMode}.`,
+            `Composer file limit for "${effectiveTaskArea}": ${getSelectionLimitFromSettings(input, effectiveTaskArea, assetMode)}.`,
             fallback.conflictNote ?? "No task type conflict detected.",
+            ...constraints.notes,
             semanticRejectedCount > 0
                 ? `Rejected ${semanticRejectedCount} real but semantically weak model-selected path(s).`
                 : "No semantically weak model-selected paths were accepted.",
@@ -1288,8 +1514,13 @@ function normalizeModelSelection(value: unknown, input: SelectTaskFilesInput, fa
 
 export async function selectTaskFiles(input: SelectTaskFilesInput): Promise<TaskFileSelection> {
     const startedAt = Date.now();
-    const fallback = buildFallbackSelection(input);
     const settings = await getAppSettings();
+    const inputWithSettings: SelectTaskFilesInput = {
+        ...input,
+        settings
+    };
+
+    const fallback = buildFallbackSelection(inputWithSettings);
 
     if (settings.generationMode !== "ollama" || !settings.defaultOllamaModel) {
         return { ...fallback, durationMs: getDurationMs(startedAt) };
@@ -1301,7 +1532,7 @@ export async function selectTaskFiles(input: SelectTaskFilesInput): Promise<Task
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
                 model: settings.defaultOllamaModel,
-                prompt: buildSelectorPrompt(input),
+                prompt: buildSelectorPrompt(inputWithSettings),
                 stream: false,
                 format: "json",
                 options: { temperature: 0, num_predict: 1100 }
@@ -1318,7 +1549,7 @@ export async function selectTaskFiles(input: SelectTaskFilesInput): Promise<Task
 
         const data = (await response.json()) as OllamaGenerateResponse;
         const json = extractJsonObject(String(data.response ?? ""));
-        return normalizeModelSelection(json, input, fallback, startedAt);
+        return normalizeModelSelection(json, inputWithSettings, fallback, startedAt);
     } catch (error) {
         return {
             ...fallback,
