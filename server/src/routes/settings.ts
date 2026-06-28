@@ -4,6 +4,18 @@ import { getAppSettings, updateAppSettings } from "../settings/settingsService.j
 
 export const settingsRouter = Router();
 
+const composerFileLimitsSchema = z.object({
+  default: z.number().int().min(3).max(24),
+  ui: z.number().int().min(3).max(24),
+  backend: z.number().int().min(3).max(24),
+  fullstack: z.number().int().min(3).max(24),
+  build: z.number().int().min(3).max(24),
+  bugfix: z.number().int().min(3).max(24),
+  refactor: z.number().int().min(3).max(24),
+  docs: z.number().int().min(3).max(24),
+  tests: z.number().int().min(3).max(24)
+});
+
 const updateSettingsSchema = z.object({
   ollamaUrl: z.string().url().optional(),
   generationMode: z.enum(["template", "ollama"]).optional(),
@@ -11,7 +23,8 @@ const updateSettingsSchema = z.object({
   defaultTaskType: z
     .enum(["general", "ui", "backend", "bugfix", "refactor", "docs", "tests"])
     .optional(),
-  defaultOllamaModel: z.string().nullable().optional()
+  defaultOllamaModel: z.string().nullable().optional(),
+  composerFileLimits: composerFileLimitsSchema.optional()
 });
 
 settingsRouter.get("/", async (_req, res) => {

@@ -101,6 +101,96 @@ function includesAny(value: string, terms: string[]) {
     return terms.some((term) => normalized.includes(term));
 }
 
+function hasNoBackendChangeConstraint(rawTask: string) {
+    return includesAny(rawTask, [
+        "do not change backend",
+        "don't change backend",
+        "do not modify backend",
+        "don't modify backend",
+        "keep backend api unchanged",
+        "backend api unchanged",
+        "keep api unchanged",
+        "api unchanged",
+        "without changing backend",
+        "without backend changes",
+        "frontend only",
+        "front-end only",
+        "ui only",
+        "client only",
+        "do not touch backend",
+        "don't touch backend",
+        "do not edit backend",
+        "don't edit backend",
+        "do not edit api",
+        "don't edit api",
+        "do not edit server",
+        "don't edit server",
+        "не редактировать backend",
+        "не редактируй backend",
+        "не редактировать api",
+        "не редактируй api",
+        "не редактировать бэк",
+        "не редактируй бэк",
+        "не редактировать бэкенд",
+        "не редактируй бэкенд",
+        "не меняй backend",
+        "не менять backend",
+        "не трогай backend",
+        "не трогать backend",
+        "не меняй backend api",
+        "не менять backend api",
+        "не менять api",
+        "не меняй api",
+        "api не менять",
+        "api не трогать",
+        "апи не менять",
+        "апи не трогать",
+        "не менять бэкенд",
+        "не трогать бэкенд",
+        "не трогай бэкенд",
+        "не менять бекенд",
+        "не трогать бекенд",
+        "не трогай бэк",
+        "не трогать бэк",
+        "бэк не трогать",
+        "бэкенд не трогать",
+        "только ui",
+        "только ux",
+        "только фронт",
+        "только frontend",
+        "только визуал",
+        "только интерфейс"
+    ]);
+}
+
+function hasNoFrontendChangeConstraint(rawTask: string) {
+    return includesAny(rawTask, [
+        "do not change frontend",
+        "don't change frontend",
+        "do not change ui",
+        "don't change ui",
+        "backend only",
+        "server only",
+        "api only",
+        "without ui changes",
+        "without frontend changes",
+        "не менять frontend",
+        "не трогать frontend",
+        "не менять фронт",
+        "не трогать фронт",
+        "не менять ui",
+        "не трогать ui",
+        "не менять интерфейс",
+        "без изменений ui",
+        "без изменений интерфейса",
+        "только backend",
+        "только бэкенд",
+        "только бекенд",
+        "только api",
+        "только сервер"
+    ]);
+}
+
 function tokenize(value: string) {
     return normalizeForCompare(value)
         .split(/[^a-zа-яё0-9_.\/-]+/i)
@@ -221,8 +311,40 @@ function scoreTaskMeaning(rawTask: string, taskType: string) {
 
     if (uiAndBackend) scores.fullstack += 12;
 
+    const noBackendChanges = hasNoBackendChangeConstraint(rawTask);
+    const noFrontendChanges = hasNoFrontendChangeConstraint(rawTask);
+
+    if (noBackendChanges) {
+        scores.backend -= 12;
+        scores.fullstack -= 16;
+
+        if (hasUi) {
+            scores.ui += 7;
+        }
+    }
+
+    if (noFrontendChanges) {
+        scores.ui -= 12;
+        scores.fullstack -= 12;
+
+        if (hasApi || hasServer) {
+            scores.backend += 7;
+        }
+    }
+
     const selectedArea = getSelectedTaskTypeArea(taskType);
-    if (selectedArea !== "general") scores[selectedArea] += 1;
+
+    if (selectedArea !== "general") {
+        scores[selectedArea] += 1;
+    }
+
+    if (selectedArea === "ui" && noBackendChanges) {
+        scores.ui += 4;
+    }
+
+    if (selectedArea === "backend" && noFrontendChanges) {
+        scores.backend += 4;
+    }
 
     return scores;
 }
@@ -427,6 +549,9 @@ Rules:
 - If selected task type conflicts with the actual user task, classify by the actual task text.
 - Use "backend" for API, authorization, authentication, session, token, cookie, server, database, endpoint, route, or service tasks.
 - Use "fullstack" when the task needs both UI and backend/API changes.
+- If the user says "keep backend API unchanged", "do not change backend", "frontend only", or "UI only", classify as "ui" unless the task explicitly asks to implement backend behavior.
+- Mentioning API/backend as a constraint does not automatically make the task backend or fullstack.
+- If the user says "backend only", "API only", or "do not change UI", classify as "backend" unless the task explicitly asks to change UI behavior.
 - Use "build" for build, compiler, import, module resolution, tsconfig, vite, next, eslint, or path alias problems.
 - Use "docs" only when the task is actually about README, documentation, setup instructions, or developer guide.
 - Do not invent files, components, services, routes, stores, pages, or assets.

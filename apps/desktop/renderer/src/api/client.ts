@@ -5,7 +5,8 @@ import type {
   OllamaStatus,
   Project,
   TaskPack,
-  WorkspaceSearchResponse
+  WorkspaceSearchResponse,
+  ContextComposerPreview
 } from "../types";
 
 const API_URL = "http://localhost:4000/api";
@@ -106,6 +107,7 @@ export async function createTaskPack(input: {
   rawTask: string;
   taskType: string;
   targetTool: string;
+  selectedFilePaths?: string[];
 }): Promise<TaskPack> {
   const data = await request<{ ok: true; taskPack: TaskPack }>("/task-packs", {
     method: "POST",
@@ -156,4 +158,21 @@ export async function searchWorkspace(query: string): Promise<WorkspaceSearchRes
     query: data.query,
     results: data.results
   };
+}
+
+export async function createContextComposerPreview(input: {
+  projectId: number;
+  rawTask: string;
+  taskType: string;
+  targetTool: string;
+}): Promise<ContextComposerPreview> {
+  const data = await request<{
+    ok: true;
+    preview: ContextComposerPreview;
+  }>("/context-composer/preview", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+
+  return data.preview;
 }

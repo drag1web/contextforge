@@ -80,6 +80,17 @@ export interface AppSettings {
   defaultTargetTool: "codex" | "cursor" | "claude" | "generic";
   defaultTaskType: "general" | "ui" | "backend" | "bugfix" | "refactor" | "docs" | "tests";
   defaultOllamaModel: string | null;
+  composerFileLimits: {
+    default: number;
+    ui: number;
+    backend: number;
+    fullstack: number;
+    build: number;
+    bugfix: number;
+    refactor: number;
+    docs: number;
+    tests: number;
+  };
 }
 
 export interface GenerationMetadata {
@@ -112,4 +123,63 @@ export interface WorkspaceSearchResult {
 export interface WorkspaceSearchResponse {
   query: string;
   results: WorkspaceSearchResult[];
+}
+
+export interface ContextComposerFileReference {
+  path: string;
+  kind: string;
+  usage: string;
+  reason: string;
+  confidence: number;
+  canReadText: boolean;
+  sizeBytes: number;
+}
+
+export interface ContextComposerSnippet {
+  relativePath: string;
+  language: string;
+  content: string;
+  truncated: boolean;
+}
+
+export interface ContextComposerPreview {
+  project: {
+    id: number;
+    name: string;
+    localPath: string;
+    packageManager: string | null;
+    detectedStack: string[];
+    readinessScore: number;
+  };
+  task: {
+    rawTask: string;
+    requestedTaskType: string;
+    effectiveTaskArea: string;
+    targetTool: string;
+  };
+  taskIntent: {
+    source: string;
+    taskArea: string;
+    riskLevel: string;
+    confidence: number;
+    intentTags: string[];
+    domainTerms: string[];
+    fileRoleHints: string[];
+  };
+  fileSelection: {
+    source: string;
+    usedFallback: boolean;
+    durationMs: number;
+    rejectedModelPaths: string[];
+    notes: string[];
+  };
+  selectedFiles: ContextComposerFileReference[];
+  snippets: ContextComposerSnippet[];
+  inventorySummary: {
+    totalFiles: number;
+    scannedFiles: number;
+    truncated: boolean;
+    notes: string[];
+  };
+  notes: string[];
 }
