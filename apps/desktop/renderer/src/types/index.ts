@@ -12,6 +12,83 @@ export interface ReadinessReport {
   issues: string[];
 }
 
+export type TargetTool = "codex" | "cursor" | "claude" | "generic";
+
+export type TemplateTaskType =
+  | "general"
+  | "ui"
+  | "backend"
+  | "fullstack"
+  | "build"
+  | "bugfix"
+  | "refactor"
+  | "docs"
+  | "tests";
+
+export type RuleCategory =
+  | "general"
+  | "ui"
+  | "backend"
+  | "bugfix"
+  | "refactor"
+  | "docs"
+  | "tests"
+  | "assets"
+  | "verification";
+
+export interface PromptTemplate {
+  id: string;
+  name: string;
+  description: string;
+  targetTool: TargetTool;
+  taskType: TemplateTaskType;
+  content: string;
+  isBuiltin: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface RuleItem {
+  id: string;
+  title: string;
+  description: string;
+  category: RuleCategory;
+  content: string;
+  isBuiltin: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface RuleProfile {
+  id: string;
+  name: string;
+  description: string;
+  taskType: TemplateTaskType;
+  enabledRuleIds: string[];
+  customRules: string[];
+  acceptanceCriteriaPresetId?: string | null;
+  isBuiltin: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AcceptanceCriteriaPreset {
+  id: string;
+  name: string;
+  description: string;
+  taskType: TemplateTaskType;
+  criteria: string[];
+  isBuiltin: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface RuleProfilesCatalog {
+  ruleProfiles: RuleProfile[];
+  ruleItems: RuleItem[];
+  acceptanceCriteriaPresets: AcceptanceCriteriaPreset[];
+}
+
 export interface Project {
   id: number;
   name: string;
@@ -24,6 +101,40 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   lastScanAt: string | null;
+}
+
+export interface TaskPackGenerationRecipe {
+  template: {
+    id: string;
+    name: string;
+    targetTool: string;
+    taskType: string;
+    isBuiltin: boolean;
+  } | null;
+  ruleProfile: {
+    id: string;
+    name: string;
+    taskType: string;
+    isBuiltin: boolean;
+  } | null;
+  enabledRules: Array<{
+    id: string;
+    title: string;
+    category: string;
+  }>;
+  customRules: string[];
+  acceptanceCriteriaPreset: {
+    id: string;
+    name: string;
+    taskType: string;
+    isBuiltin: boolean;
+  } | null;
+  acceptanceCriteria: string[];
+  counts: {
+    enabledRules: number;
+    customRules: number;
+    acceptanceCriteria: number;
+  };
 }
 
 export interface TaskPack {
@@ -41,6 +152,7 @@ export interface TaskPack {
   generationUsedFallback?: boolean;
   generationDurationMs?: number | null;
   generationCached?: boolean;
+  generationRecipe?: TaskPackGenerationRecipe | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -58,6 +170,13 @@ export interface TaskPackDraft {
   rawTask: string;
   taskType: string;
   targetTool: string;
+
+  templateId?: string;
+  ruleProfileId?: string;
+  enabledRuleIds?: string[];
+  customRulesText?: string;
+  acceptanceCriteriaPresetId?: string;
+  acceptanceCriteriaText?: string;
 }
 
 export interface OllamaStatus {
@@ -80,6 +199,7 @@ export interface AppSettings {
   defaultTargetTool: "codex" | "cursor" | "claude" | "generic";
   defaultTaskType: "general" | "ui" | "backend" | "bugfix" | "refactor" | "docs" | "tests";
   defaultOllamaModel: string | null;
+  language: "system" | "en" | "ru";
   composerFileLimits: {
     default: number;
     ui: number;

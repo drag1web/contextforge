@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   Bot,
@@ -9,6 +10,7 @@ import {
   Cpu,
   Gauge,
   Keyboard,
+  Languages,
   Layers3,
   Loader2,
   PanelLeft,
@@ -35,6 +37,12 @@ import type { AppSettings, OllamaModel, OllamaStatus } from "../types";
 import { CustomSelect } from "../components/ui/CustomSelect";
 import { appMeta } from "../config/appMeta";
 import { keyboardShortcuts } from "../config/keyboardShortcuts";
+import { TARGET_TOOL_OPTIONS } from "../components/ai/aiToolOptions";
+import {
+  applyAppLanguage,
+  resolveAppLanguage,
+  type AppLanguage
+} from "../i18n";
 
 type SettingsSectionId =
   | "ai"
@@ -49,36 +57,43 @@ type ComposerLimitKey = keyof AppSettings["composerFileLimits"];
 const SETTINGS_SECTIONS: Array<{
   id: SettingsSectionId;
   label: string;
+  labelKey: string;
   icon: LucideIcon;
 }> = [
     {
       id: "ai",
       label: "AI Engine",
+      labelKey: "settings.aiEngine",
       icon: Bot
     },
     {
       id: "generation",
       label: "Generation",
+      labelKey: "settings.generation",
       icon: SlidersHorizontal
     },
     {
       id: "composer",
       label: "Composer",
+      labelKey: "settings.composer",
       icon: WandSparkles
     },
     {
       id: "interface",
       label: "Interface",
+      labelKey: "settings.interface",
       icon: PanelLeft
     },
     {
       id: "shortcuts",
       label: "Shortcuts",
+      labelKey: "settings.shortcuts",
       icon: Keyboard
     },
     {
       id: "system",
       label: "System",
+      labelKey: "settings.system",
       icon: ShieldCheck
     }
   ];
@@ -219,6 +234,7 @@ function formatModelSize(size?: number) {
 function withSettingsDefaults(settings: AppSettings): AppSettings {
   return {
     ...settings,
+    language: settings.language ?? "system",
     sidebarShowDescriptions: settings.sidebarShowDescriptions ?? false,
     composerFileLimits: {
       ...DEFAULT_COMPOSER_FILE_LIMITS,
@@ -497,6 +513,7 @@ function SettingsSidebar({
   hasUnsavedChanges: boolean;
   onChange: (section: SettingsSectionId) => void;
 }) {
+  const { t } = useTranslation();
   const activeIndex = Math.max(
     0,
     SETTINGS_SECTIONS.findIndex((section) => section.id === activeSection)
@@ -510,11 +527,11 @@ function SettingsSidebar({
     <aside className="cf-card sticky top-5 h-fit p-2">
       <div className="mb-2 px-3 py-3">
         <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-          Settings
+          {t("settings.title")}
         </p>
 
         <p className="mt-1 text-sm font-medium text-white">
-          Control Center
+          {t("settings.controlCenter")}
         </p>
       </div>
 
@@ -575,7 +592,7 @@ function SettingsSidebar({
                   isActive ? "text-black" : "text-neutral-400 group-hover:text-white"
                 ].join(" ")}
               >
-                {section.label}
+                {t(section.labelKey)}
               </span>
             </button>
           );
@@ -584,7 +601,7 @@ function SettingsSidebar({
 
       <div className="mt-3 rounded-2xl border border-neutral-900 bg-black/40 p-3">
         <div className="flex items-center justify-between gap-3">
-          <span className="text-xs text-neutral-600">State</span>
+          <span className="text-xs text-neutral-600">{t("settings.state")}</span>
 
           <span
             className={[
@@ -594,7 +611,7 @@ function SettingsSidebar({
                 : "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
             ].join(" ")}
           >
-            {hasUnsavedChanges ? "Unsaved" : "Saved"}
+            {hasUnsavedChanges ? t("common.unsaved") : t("common.saved")}
           </span>
         </div>
       </div>
@@ -857,13 +874,14 @@ function ToggleSetting({
 }
 
 export function SettingsPage() {
+  const { t } = useTranslation();
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("ai");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<AppSettings | null>(null);
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
   const [models, setModels] = useState<OllamaModel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [notice, setNotice] = useState("Settings are ready.");
+  const [notice, setNotice] = useState(() => t("settings.readyNotice"));
 
   const [activeAction, setActiveAction] = useState<"refresh" | "save" | null>(null);
   const [toast, setToast] = useState<{
@@ -878,6 +896,13 @@ export function SettingsPage() {
 
   const composerLimits = settingsDraft?.composerFileLimits ?? DEFAULT_COMPOSER_FILE_LIMITS;
   const activePreset = getActivePreset(composerLimits);
+  const currentLanguage = (settingsDraft?.language ?? "system") as AppLanguage;
+  const resolvedLanguage = resolveAppLanguage(currentLanguage);
+
+  function handleLanguageChange(language: AppLanguage) {
+    updateSettingsDraft({ language });
+    void applyAppLanguage(language);
+  }
 
   function updateSettingsDraft(patch: Partial<AppSettings>) {
     setToast(null);
@@ -922,24 +947,25 @@ export function SettingsPage() {
 
       setSettings(normalizedSettings);
       setSettingsDraft(normalizedSettings);
+      void applyAppLanguage(normalizedSettings.language ?? "system");
       setOllamaStatus(status);
       setModels(modelList);
-      setNotice("Settings loaded.");
+      setNotice(t("settings.loadedNotice"));
 
       setToast({
         type: "success",
-        title: "Settings refreshed",
-        message: "Latest local AI status and application settings were loaded."
+        title: t("settings.refreshedTitle"),
+        message: t("settings.refreshedMessage")
       });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to load settings.";
+        error instanceof Error ? error.message : t("settings.loadFailed");
 
       setNotice(message);
 
       setToast({
         type: "error",
-        title: "Refresh failed",
+        title: t("settings.refreshFailed"),
         message
       });
     } finally {
@@ -963,7 +989,8 @@ export function SettingsPage() {
 
       setSettings(updatedSettings);
       setSettingsDraft(updatedSettings);
-      setNotice("Settings saved.");
+      void applyAppLanguage(updatedSettings.language ?? "system");
+      setNotice(t("settings.savedNotice"));
 
       window.dispatchEvent(
         new CustomEvent("contextforge:settings-updated", {
@@ -981,18 +1008,18 @@ export function SettingsPage() {
 
       setToast({
         type: "success",
-        title: "Settings saved",
-        message: "Your ContextForge preferences were saved successfully."
+        title: t("settings.savedTitle"),
+        message: t("settings.savedMessage")
       });
     } catch (error) {
       const message =
-        error instanceof Error ? error.message : "Failed to save settings.";
+        error instanceof Error ? error.message : t("settings.saveFailedMessage");
 
       setNotice(message);
 
       setToast({
         type: "error",
-        title: "Save failed",
+        title: t("settings.saveFailed"),
         message
       });
     } finally {
@@ -1027,27 +1054,26 @@ export function SettingsPage() {
             <div className="mb-4 flex flex-wrap gap-2">
               <span className="cf-badge">
                 <Settings size={13} />
-                Settings
+                {t("settings.title")}
               </span>
-              <span className="cf-badge">GitHub-style control center</span>
-              <span className="cf-badge">Local-first workflow</span>
+              <span className="cf-badge">{t("settings.heroBadgeGithub")}</span>
+              <span className="cf-badge">{t("settings.heroBadgeLocal")}</span>
             </div>
 
             <h2 className="max-w-4xl text-[34px] font-semibold leading-[1.05] tracking-[-0.05em] text-white">
-              Configure ContextForge as a developer workspace.
+              {t("settings.heroTitle")}
             </h2>
 
             <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-400">
-              Manage local AI, generation defaults, Context Composer limits,
-              keyboard shortcuts and system metadata from one structured place.
+              {t("settings.heroDescription")}
             </p>
           </div>
 
           <div className="flex flex-wrap gap-3">
             <SettingsActionButton
               icon={RefreshCw}
-              label="Refresh"
-              loadingLabel="Refreshing..."
+              label={t("common.refresh")}
+              loadingLabel={t("common.refreshing")}
               loading={activeAction === "refresh"}
               disabled={isLoading}
               variant="secondary"
@@ -1056,8 +1082,8 @@ export function SettingsPage() {
 
             <SettingsActionButton
               icon={hasUnsavedChanges ? Save : Check}
-              label={hasUnsavedChanges ? "Save changes" : "Saved"}
-              loadingLabel="Saving..."
+              label={hasUnsavedChanges ? t("common.saveChanges") : t("common.saved")}
+              loadingLabel={t("common.saving")}
               loading={activeAction === "save"}
               disabled={isLoading || !settingsDraft || !hasUnsavedChanges}
               variant="primary"
@@ -1094,29 +1120,29 @@ export function SettingsPage() {
                 <>
                   <SectionHeader
                     icon={<Bot size={13} />}
-                    label="AI Engine"
-                    title="Connect local models and control Ollama integration."
-                    description="ContextForge can refine AGENTS.md files, Task Packs, intent analysis and file selection through a local Ollama model."
+                    label={t("settings.aiEngine")}
+                    title={t("settings.aiTitle")}
+                    description={t("settings.aiDescription")}
                   />
 
                   <SettingCard
                     icon={<Bot size={18} />}
-                    label="AI engine"
-                    title="Ollama integration"
-                    description="Local model provider used to refine generated AGENTS.md files and Task Packs without sending project context to a cloud service."
+                    label={t("settings.aiEngine")}
+                    title={t("settings.ollamaIntegration")}
+                    description={t("settings.ollamaIntegrationDesc")}
                   >
                     <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
                       <StatusBadge status={ollamaStatus} />
 
                       <span className="text-xs text-neutral-600">
-                        {ollamaStatus?.url ?? settingsDraft?.ollamaUrl ?? "No URL"}
+                        {ollamaStatus?.url ?? settingsDraft?.ollamaUrl ?? t("settings.noUrl")}
                       </span>
                     </div>
 
                     <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(260px,0.7fr)]">
                       <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
                         <label className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                          Ollama URL
+                          {t("settings.ollamaUrl")}
                         </label>
 
                         <input
@@ -1133,11 +1159,11 @@ export function SettingsPage() {
 
                       <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
                         <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                          Status message
+                          {t("settings.statusMessage")}
                         </p>
 
                         <p className="mt-3 text-sm leading-6 text-neutral-300">
-                          {ollamaStatus?.message ?? "Checking Ollama..."}
+                          {ollamaStatus?.message ?? t("settings.checkingOllama")}
                         </p>
                       </div>
                     </div>
@@ -1145,18 +1171,18 @@ export function SettingsPage() {
 
                   <SettingCard
                     icon={<Server size={18} />}
-                    label="Local models"
-                    title="Detected Ollama models"
-                    description="Models available from the configured Ollama instance. Select one as default for Ollama-assisted generation."
+                    label={t("settings.localModels")}
+                    title={t("settings.detectedModels")}
+                    description={t("settings.detectedModelsDesc")}
                   >
                     {models.length === 0 ? (
                       <div className="rounded-2xl border border-neutral-900 bg-black/40 p-5">
                         <p className="text-sm font-medium text-white">
-                          No models detected
+                          {t("settings.noModels")}
                         </p>
 
                         <p className="mt-2 text-sm leading-6 text-neutral-500">
-                          Start Ollama and pull a model first:
+                          {t("settings.pullModelFirst")}
                         </p>
 
                         <pre className="mt-4 overflow-auto rounded-xl border border-neutral-900 bg-black p-4 text-sm text-neutral-300">
@@ -1233,22 +1259,22 @@ export function SettingsPage() {
                 <>
                   <SectionHeader
                     icon={<SlidersHorizontal size={13} />}
-                    label="Generation"
-                    title="Set default generation behavior for AI coding tasks."
-                    description="Choose generation mode, default target tool, task type and default local model for new Task Packs."
+                    label={t("settings.generation")}
+                    title={t("settings.generationTitle")}
+                    description={t("settings.generationDescription")}
                   />
 
                   <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
                     <SettingCard
                       icon={<SlidersHorizontal size={18} />}
-                      label="Generation preferences"
-                      title="Default Task Pack behavior"
-                      description="These defaults are used when opening a new Task Pack draft or running assisted generation."
+                      label={t("settings.generationPreferences")}
+                      title={t("settings.defaultTaskPackBehavior")}
+                      description={t("settings.defaultTaskPackBehaviorDesc")}
                     >
                       <div className="grid gap-4 md:grid-cols-2">
                         <div>
                           <label className="mb-2 block text-sm text-neutral-400">
-                            Generation mode
+                            {t("settings.generationMode")}
                           </label>
 
                           <CustomSelect
@@ -1262,13 +1288,13 @@ export function SettingsPage() {
                             options={[
                               {
                                 value: "template",
-                                label: "Template",
-                                description: "Fast deterministic generation"
+                                label: t("settings.template"),
+                                description: t("settings.templateDesc")
                               },
                               {
                                 value: "ollama",
-                                label: "Ollama-assisted",
-                                description: "Improve prompts with a local model"
+                                label: t("settings.ollamaAssisted"),
+                                description: t("settings.ollamaAssistedDesc")
                               }
                             ]}
                           />
@@ -1276,7 +1302,7 @@ export function SettingsPage() {
 
                         <div>
                           <label className="mb-2 block text-sm text-neutral-400">
-                            Default target AI tool
+                            {t("settings.defaultTargetTool")}
                           </label>
 
                           <CustomSelect
@@ -1287,34 +1313,13 @@ export function SettingsPage() {
                                   value as AppSettings["defaultTargetTool"]
                               })
                             }
-                            options={[
-                              {
-                                value: "codex",
-                                label: "Codex",
-                                description: "OpenAI coding agent workflow"
-                              },
-                              {
-                                value: "cursor",
-                                label: "Cursor",
-                                description: "IDE-first editing workflow"
-                              },
-                              {
-                                value: "claude",
-                                label: "Claude Code",
-                                description: "Architecture-aware coding workflow"
-                              },
-                              {
-                                value: "generic",
-                                label: "Generic AI Agent",
-                                description: "Universal prompt format"
-                              }
-                            ]}
+                            options={TARGET_TOOL_OPTIONS}
                           />
                         </div>
 
                         <div>
                           <label className="mb-2 block text-sm text-neutral-400">
-                            Default task type
+                            {t("settings.defaultTaskType")}
                           </label>
 
                           <CustomSelect
@@ -1367,7 +1372,7 @@ export function SettingsPage() {
 
                         <div>
                           <label className="mb-2 block text-sm text-neutral-400">
-                            Default Ollama model
+                            {t("settings.defaultOllamaModel")}
                           </label>
 
                           <CustomSelect
@@ -1380,8 +1385,8 @@ export function SettingsPage() {
                             options={[
                               {
                                 value: "",
-                                label: "No model selected",
-                                description: "Use template mode only"
+                                label: t("settings.noModelSelected"),
+                                description: t("settings.useTemplateOnly")
                               },
                               ...models.map((model) => ({
                                 value: model.name,
@@ -1396,9 +1401,9 @@ export function SettingsPage() {
 
                     <SettingCard
                       icon={<Sparkles size={18} />}
-                      label="Generation modes"
-                      title="Template vs Ollama"
-                      description="Template mode is stable and deterministic. Ollama-assisted mode uses a local model for smarter refinement."
+                      label={t("settings.generationModes")}
+                      title={t("settings.templateVsOllama")}
+                      description={t("settings.templateVsOllamaDesc")}
                     >
                       <div className="space-y-3">
                         <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4">
@@ -1410,11 +1415,11 @@ export function SettingsPage() {
 
                             <div>
                               <p className="text-sm font-medium text-white">
-                                Template mode
+                                {t("settings.templateMode")}
                               </p>
 
                               <p className="mt-1 text-sm leading-5 text-neutral-500">
-                                Stable fallback. Generates deterministic context and prompts.
+                                {t("settings.templateModeDesc")}
                               </p>
                             </div>
                           </div>
@@ -1436,11 +1441,11 @@ export function SettingsPage() {
 
                             <div>
                               <p className="text-sm font-medium text-white">
-                                Ollama-assisted mode
+                                {t("settings.ollamaMode")}
                               </p>
 
                               <p className="mt-1 text-sm leading-5 text-neutral-500">
-                                Uses local models to refine generated Task Packs.
+                                {t("settings.ollamaModeDesc")}
                               </p>
                             </div>
                           </div>
@@ -1455,16 +1460,16 @@ export function SettingsPage() {
                 <>
                   <SectionHeader
                     icon={<WandSparkles size={13} />}
-                    label="Composer"
-                    title="Control how much context Composer shows before generation."
-                    description="Tune file limits by task area. ContextForge still ranks files by priority first, then cuts the final list by your selected limit."
+                    label={t("settings.composer")}
+                    title={t("settings.composerTitle")}
+                    description={t("settings.composerDescription")}
                   />
 
                   <SettingCard
                     icon={<WandSparkles size={18} />}
                     label="Context Composer"
-                    title="File candidate limits"
-                    description="Choose how many prioritized files should appear in Composer preview for each task area."
+                    title={t("settings.fileCandidateLimits")}
+                    description={t("settings.fileCandidateLimitsDesc")}
                   >
                     <div className="mb-5 grid gap-3 md:grid-cols-3">
                       {COMPOSER_LIMIT_PRESETS.map((preset) => {
@@ -1531,12 +1536,13 @@ export function SettingsPage() {
 
                         <div>
                           <p className="text-sm font-medium text-white">
-                            Current mode: {activePreset?.label ?? "Custom"}
+                            {t("settings.currentMode", {
+                              mode: activePreset?.label ?? t("settings.custom")
+                            })}
                           </p>
 
                           <p className="mt-1 text-sm leading-6 text-neutral-500">
-                            Files are ranked by relevance first. These limits only control
-                            how many top-priority files are shown in Composer preview.
+                            {t("settings.fileLimitsExplanation")}
                           </p>
                         </div>
                       </div>
@@ -1561,46 +1567,122 @@ export function SettingsPage() {
                 <>
                   <SectionHeader
                     icon={<PanelLeft size={13} />}
-                    label="Interface"
-                    title="Tune the workspace layout and navigation density."
-                    description="Control sidebar behavior and reduce visual noise in the main application shell."
+                    label={t("settings.interface")}
+                    title={t("settings.navigationDensity")}
+                    description={t("settings.navigationDensityDescription")}
                   />
 
                   <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-                    <SettingCard
-                      icon={<PanelLeft size={18} />}
-                      label="Sidebar"
-                      title="Navigation density"
-                      description="Keep the sidebar compact by default, or show extra descriptions when you want more guidance."
-                    >
-                      <div className="space-y-3">
-                        <ToggleSetting
-                          label="Show sidebar descriptions"
-                          description="Display short helper text under each navigation item. Turn this off for a cleaner, more compact sidebar."
-                          checked={settingsDraft?.sidebarShowDescriptions ?? false}
-                          onChange={(checked) =>
-                            updateSettingsDraft({
-                              sidebarShowDescriptions: checked
-                            })
-                          }
-                        />
-                      </div>
-                    </SettingCard>
+                    <div className="space-y-5">
+                      <SettingCard
+                        icon={<Languages size={18} />}
+                        label={t("settings.language")}
+                        title={t("settings.languageTitle")}
+                        description={t("settings.languageDescription")}
+                      >
+                        <div className="grid gap-3 md:grid-cols-3">
+                          {[
+                            {
+                              value: "system" as const,
+                              label: t("settings.languageSystem")
+                            },
+                            {
+                              value: "en" as const,
+                              label: t("settings.languageEnglish")
+                            },
+                            {
+                              value: "ru" as const,
+                              label: t("settings.languageRussian")
+                            }
+                          ].map((option) => {
+                            const isActive = currentLanguage === option.value;
+
+                            return (
+                              <button
+                                key={option.value}
+                                type="button"
+                                onClick={() => handleLanguageChange(option.value)}
+                                className={[
+                                  "group relative overflow-hidden rounded-2xl border px-4 py-3 text-left transition duration-200",
+                                  isActive
+                                    ? "border-white bg-white text-black shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
+                                    : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white hover:bg-white hover:text-black"
+                                ].join(" ")}
+                              >
+                                {isActive && (
+                                  <motion.span
+                                    layoutId="settings-language-active"
+                                    className="absolute inset-0 bg-white"
+                                    transition={{
+                                      type: "spring",
+                                      stiffness: 520,
+                                      damping: 42,
+                                      mass: 0.55
+                                    }}
+                                  />
+                                )}
+
+                                <span className="relative z-10 flex items-center justify-between gap-3">
+                                  <span className="font-medium">
+                                    {option.label}
+                                  </span>
+
+                                  <span className="cf-tech-label text-[10px] uppercase opacity-60">
+                                    {option.value === "system"
+                                      ? resolvedLanguage.toUpperCase()
+                                      : option.value.toUpperCase()}
+                                  </span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+
+                        <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                          <p className="text-sm font-medium text-white">
+                            {t("settings.languageCurrent")}: {resolvedLanguage.toUpperCase()}
+                          </p>
+
+                          <p className="mt-1 text-sm leading-6 text-neutral-500">
+                            {t("settings.languageSavedWithSettings")}
+                          </p>
+                        </div>
+                      </SettingCard>
+
+                      <SettingCard
+                        icon={<PanelLeft size={18} />}
+                        label={t("settings.sidebar")}
+                        title={t("settings.navigationDensity")}
+                        description={t("settings.navigationDensityDescription")}
+                      >
+                        <div className="space-y-3">
+                          <ToggleSetting
+                            label={t("settings.showSidebarDescriptions")}
+                            description={t("settings.showSidebarDescriptionsDesc")}
+                            checked={settingsDraft?.sidebarShowDescriptions ?? false}
+                            onChange={(checked) =>
+                              updateSettingsDraft({
+                                sidebarShowDescriptions: checked
+                              })
+                            }
+                          />
+                        </div>
+                      </SettingCard>
+                    </div>
 
                     <SettingCard
                       icon={<Sparkles size={18} />}
-                      label="Layout tip"
-                      title="Collapsible sidebar"
-                      description="The sidebar can be collapsed directly from the navigation panel. That state is saved locally on this device."
+                      label={t("settings.layoutTip")}
+                      title={t("settings.collapsibleSidebar")}
+                      description={t("settings.collapsibleSidebarDesc")}
                     >
                       <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
                         <p className="text-sm font-medium text-white">
-                          Recommended setup
+                          {t("settings.recommendedSetup")}
                         </p>
 
                         <p className="mt-2 text-sm leading-6 text-neutral-500">
-                          Keep descriptions hidden for daily work. Use collapsed mode when you want
-                          more horizontal space for tables, Composer, and generated Task Packs.
+                          {t("settings.recommendedSetupDesc")}
                         </p>
                       </div>
                     </SettingCard>
@@ -1612,16 +1694,16 @@ export function SettingsPage() {
                 <>
                   <SectionHeader
                     icon={<Keyboard size={13} />}
-                    label="Shortcuts"
-                    title="Review current and planned keyboard shortcuts."
-                    description="Shortcuts make ContextForge feel more like a developer tool than a static dashboard."
+                    label={t("settings.shortcuts")}
+                    title={t("settings.shortcutsTitle")}
+                    description={t("settings.shortcutsDescription")}
                   />
 
                   <SettingCard
                     icon={<Keyboard size={18} />}
-                    label="Shortcuts"
-                    title="Keyboard shortcuts"
-                    description="Current and planned shortcuts for faster navigation inside ContextForge."
+                    label={t("settings.shortcuts")}
+                    title={t("settings.keyboardShortcuts")}
+                    description={t("settings.keyboardShortcutsDesc")}
                   >
                     <div className="grid gap-3 md:grid-cols-2">
                       {keyboardShortcuts.map((shortcut) => (
@@ -1659,7 +1741,7 @@ export function SettingsPage() {
                             </span>
 
                             <span className="text-xs text-neutral-700">
-                              {shortcut.enabled ? "Enabled" : "Soon"}
+                              {shortcut.enabled ? t("common.enabled") : t("common.soon")}
                             </span>
                           </div>
                         </div>
@@ -1673,39 +1755,39 @@ export function SettingsPage() {
                 <>
                   <SectionHeader
                     icon={<ShieldCheck size={13} />}
-                    label="System"
-                    title="Inspect application identity and local-first mode."
-                    description="System settings summarize the current application phase, version and product mode."
+                    label={t("settings.system")}
+                    title={t("settings.systemTitle")}
+                    description={t("settings.systemDescription")}
                   />
 
                   <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
                     <SettingCard
-                      icon={<ShieldCheck size={18} />}
-                      label="System"
-                      title="Application metadata"
-                      description="Current build identity and product status."
+                    icon={<ShieldCheck size={18} />}
+                      label={t("settings.system")}
+                      title={t("settings.applicationMetadata")}
+                      description={t("settings.applicationMetadataDesc")}
                     >
                       <div className="grid gap-3 text-sm md:grid-cols-2">
                         <div className="flex items-center justify-between gap-4 rounded-2xl border border-neutral-900 bg-black/40 px-4 py-3">
-                          <span className="text-neutral-500">Name</span>
+                          <span className="text-neutral-500">{t("settings.name")}</span>
                           <span className="font-medium text-white">{appMeta.name}</span>
                         </div>
 
                         <div className="flex items-center justify-between gap-4 rounded-2xl border border-neutral-900 bg-black/40 px-4 py-3">
-                          <span className="text-neutral-500">Version</span>
+                          <span className="text-neutral-500">{t("settings.version")}</span>
                           <span className="font-medium text-white">
                             v{appMeta.version}
                           </span>
                         </div>
 
                         <div className="flex items-center justify-between gap-4 rounded-2xl border border-neutral-900 bg-black/40 px-4 py-3">
-                          <span className="text-neutral-500">Phase</span>
+                          <span className="text-neutral-500">{t("settings.phase")}</span>
                           <span className="font-medium text-white">{appMeta.phase}</span>
                         </div>
 
                         <div className="flex items-center justify-between gap-4 rounded-2xl border border-neutral-900 bg-black/40 px-4 py-3">
-                          <span className="text-neutral-500">Mode</span>
-                          <span className="font-medium text-white">Local-first</span>
+                          <span className="text-neutral-500">{t("settings.mode")}</span>
+                          <span className="font-medium text-white">{t("common.localFirst")}</span>
                         </div>
                       </div>
 
@@ -1716,38 +1798,38 @@ export function SettingsPage() {
 
                     <SettingCard
                       icon={<Sparkles size={18} />}
-                      label="Direction"
-                      title="Product architecture"
-                      description="ContextForge is being shaped as a local AI workflow layer for real developer projects."
+                      label={t("settings.direction")}
+                      title={t("settings.productArchitecture")}
+                      description={t("settings.productArchitectureDesc")}
                     >
                       <div className="space-y-3">
                         <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
                           <p className="text-sm font-medium text-white">
-                            Local-first
+                            {t("common.localFirst")}
                           </p>
 
                           <p className="mt-1 text-sm leading-5 text-neutral-500">
-                            Project context stays on the machine.
+                            {t("settings.localFirstDesc")}
                           </p>
                         </div>
 
                         <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
                           <p className="text-sm font-medium text-white">
-                            Agent-ready
+                            {t("settings.agentReady")}
                           </p>
 
                           <p className="mt-1 text-sm leading-5 text-neutral-500">
-                            Outputs are prepared for Codex, Claude Code, Cursor and generic agents.
+                            {t("settings.agentReadyDesc")}
                           </p>
                         </div>
 
                         <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
                           <p className="text-sm font-medium text-white">
-                            Composer-driven
+                            {t("settings.composerDriven")}
                           </p>
 
                           <p className="mt-1 text-sm leading-5 text-neutral-500">
-                            Task context is analyzed and reviewed before generation.
+                            {t("settings.composerDrivenDesc")}
                           </p>
                         </div>
                       </div>
@@ -1771,9 +1853,9 @@ export function SettingsPage() {
           <SettingsToast
             key="settings-unsaved-toast"
             type="warning"
-            title="Unsaved settings"
-            message="You changed ContextForge preferences but have not saved them yet."
-            actionLabel="Save changes"
+            title={t("settings.unsavedTitle")}
+            message={t("settings.unsavedMessage")}
+            actionLabel={t("common.saveChanges")}
             onAction={handleSaveSettings}
             disabled={isLoading || !settingsDraft}
           />

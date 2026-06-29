@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import { Loader2, Sparkles } from "lucide-react";
 
 import contextforgeMarkWhite from "../assets/brand/contextforge-mark-white.png";
@@ -14,8 +15,9 @@ import { StatusBar } from "../components/ui/StatusBar";
 import { ProjectsSection } from "../components/projects/ProjectsSection";
 
 import { AgentsPreviewModal } from "../components/modals/AgentsPreviewModal";
-import { TaskPackDraftModal } from "../components/modals/TaskPackDraftModal";
-import { GeneratedTaskPackModal } from "../components/modals/GeneratedTaskPackModal";
+import { TaskPackBuilderPage } from "./TaskPackBuilderPage";
+import { TaskPackResultPage } from "./TaskPackResultPage";
+import { TemplatesPage } from "./TemplatesPage";
 
 import { DashboardHomePage } from "./DashboardHomePage";
 
@@ -27,13 +29,14 @@ import { SettingsPage } from "./SettingsPage";
 import { PlaceholderPage } from "./PlaceholderPage";
 import { ReportsPage } from "./ReportsPage";
 
-import { ContextComposerModal } from "../components/modals/ContextComposerModal";
+import { ContextComposerPage } from "./ContextComposerPage";
 
 import { LoadingOverlay } from "../components/ui/LoadingOverlay";
 
 import { GlobalSearchModal } from "../components/modals/GlobalSearchModal";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { appMeta } from "../config/appMeta";
+import i18n, { applyAppLanguage } from "../i18n";
 
 const PAGE_ORDER: AppPageId[] = [
   "dashboard",
@@ -71,6 +74,7 @@ function WelcomeSplashOverlay({
   progress: number;
   status: string;
 }) {
+  const { t } = useTranslation();
   const safeProgress = Math.max(8, Math.min(100, progress));
 
   return (
@@ -173,7 +177,7 @@ function WelcomeSplashOverlay({
           </motion.div>
 
           <div className="mb-4 flex flex-wrap justify-center gap-2">
-            {[appMeta.phase, "Local-first", "Composer ready"].map((badge, index) => (
+            {[appMeta.phase, t("common.localFirst"), t("splash.composerReady")].map((badge, index) => (
               <motion.span
                 key={badge}
                 initial={{ opacity: 0, y: 8, scale: 0.96 }}
@@ -203,7 +207,7 @@ function WelcomeSplashOverlay({
             }}
             className="text-[36px] font-semibold leading-[1.02] tracking-[-0.06em] text-white"
           >
-            Welcome to ContextForge
+            {t("splash.welcome")}
           </motion.h1>
 
           <motion.p
@@ -217,7 +221,7 @@ function WelcomeSplashOverlay({
             }}
             className="mx-auto mt-3 max-w-md text-sm leading-6 text-neutral-500"
           >
-            Preparing your local AI workflow, project context, and Task Pack workspace.
+            {t("splash.description")}
           </motion.p>
 
           <motion.div
@@ -279,7 +283,7 @@ export function DashboardPage() {
   const [minimumSplashDone, setMinimumSplashDone] = useState(false);
   const [shellSettingsReady, setShellSettingsReady] = useState(false);
   const [bootProgress, setBootProgress] = useState(12);
-  const [bootStatus, setBootStatus] = useState("Starting ContextForge");
+  const [bootStatus, setBootStatus] = useState(() => i18n.t("splash.starting"));
 
   useKeyboardShortcuts({
     globalSearch: () => setIsGlobalSearchOpen(true)
@@ -287,17 +291,17 @@ export function DashboardPage() {
 
   const handleNavigate = useCallback(
     (nextPage: AppPageId) => {
-      if (nextPage === activePage) {
-        return;
-      }
-
       const currentIndex = getPageOrderIndex(activePage);
       const nextIndex = getPageOrderIndex(nextPage);
+
+      dashboard.setTaskPackDraft(null);
+      dashboard.setContextComposerPreview(null);
+      dashboard.setGeneratedTaskPack(null);
 
       setPageDirection(nextIndex >= currentIndex ? 1 : -1);
       setActivePage(nextPage);
     },
-    [activePage]
+    [activePage, dashboard]
   );
 
   useEffect(() => {
@@ -306,22 +310,23 @@ export function DashboardPage() {
     async function loadShellSettings() {
       try {
         setBootProgress(24);
-        setBootStatus("Loading interface preferences");
+        setBootStatus(i18n.t("splash.loadingPrefs"));
 
         const settings = await getAppSettings();
 
         if (isMounted) {
           setAppSettings(settings);
+          void applyAppLanguage(settings.language ?? "system");
           setShellSettingsReady(true);
           setBootProgress(48);
-          setBootStatus("Restoring workspace layout");
+          setBootStatus(i18n.t("splash.restoringLayout"));
         }
       } catch {
         if (isMounted) {
           setAppSettings(null);
           setShellSettingsReady(true);
           setBootProgress(48);
-          setBootStatus("Using default interface preferences");
+          setBootStatus(i18n.t("splash.defaultPrefs"));
         }
       }
     }
@@ -331,6 +336,7 @@ export function DashboardPage() {
 
       if (customEvent.detail) {
         setAppSettings(customEvent.detail);
+        void applyAppLanguage(customEvent.detail.language ?? "system");
       }
     }
 
@@ -363,7 +369,7 @@ export function DashboardPage() {
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setBootProgress(100);
-      setBootStatus("Opening workspace");
+      setBootStatus(i18n.t("splash.openingWorkspace"));
       setIsWelcomeVisible(false);
     }, 5200);
 
@@ -383,18 +389,18 @@ export function DashboardPage() {
 
     if (dashboard.isLoading) {
       setBootProgress((current) => Math.max(current, 68));
-      setBootStatus(dashboard.statusMessage || "Loading workspace data");
+      setBootStatus(dashboard.statusMessage || i18n.t("splash.loadingWorkspace"));
       return;
     }
 
     if (!minimumSplashDone) {
       setBootProgress((current) => Math.max(current, 86));
-      setBootStatus("Preparing workspace");
+      setBootStatus(i18n.t("splash.preparingWorkspace"));
       return;
     }
 
     setBootProgress(100);
-    setBootStatus("Workspace ready");
+    setBootStatus(i18n.t("splash.workspaceReady"));
 
     const timeoutId = window.setTimeout(() => {
       setIsWelcomeVisible(false);
@@ -412,11 +418,72 @@ export function DashboardPage() {
   ]);
 
   const content = useMemo(() => {
+    if (dashboard.generatedTaskPack) {
+      return (
+        <TaskPackResultPage
+          taskPack={dashboard.generatedTaskPack}
+          onClose={() => dashboard.setGeneratedTaskPack(null)}
+          onOpenArchive={() => {
+            dashboard.setGeneratedTaskPack(null);
+            handleNavigate("taskPacks");
+          }}
+        />
+      );
+    }
+
+    if (dashboard.contextComposerPreview) {
+      return (
+        <ContextComposerPage
+          preview={dashboard.contextComposerPreview}
+          isLoading={dashboard.isLoading}
+          onClose={() => dashboard.setContextComposerPreview(null)}
+          onGenerate={dashboard.handleCreateTaskPackFromComposer}
+        />
+      );
+    }
+
+    if (dashboard.taskPackDraft) {
+      return (
+        <TaskPackBuilderPage
+          draft={dashboard.taskPackDraft}
+          isLoading={dashboard.isLoading}
+          onChange={dashboard.setTaskPackDraft}
+          onClose={() => dashboard.setTaskPackDraft(null)}
+          onAnalyzeContext={dashboard.handleAnalyzeTaskContext}
+          onGenerate={dashboard.handleCreateTaskPack}
+        />
+      );
+    }
+    if (dashboard.generatedTaskPack) {
+      return (
+        <TaskPackResultPage
+          taskPack={dashboard.generatedTaskPack}
+          onClose={() => dashboard.setGeneratedTaskPack(null)}
+          onOpenArchive={() => {
+            dashboard.setGeneratedTaskPack(null);
+            handleNavigate("taskPacks");
+          }}
+        />
+      );
+    }
+
+    if (dashboard.taskPackDraft) {
+      return (
+        <TaskPackBuilderPage
+          draft={dashboard.taskPackDraft}
+          isLoading={dashboard.isLoading}
+          onChange={dashboard.setTaskPackDraft}
+          onClose={() => dashboard.setTaskPackDraft(null)}
+          onAnalyzeContext={dashboard.handleAnalyzeTaskContext}
+          onGenerate={dashboard.handleCreateTaskPack}
+        />
+      );
+    }
     if (activePage === "dashboard") {
       return (
         <DashboardHomePage
-          projectsCount={dashboard.projects.length}
-          taskPacksCount={dashboard.taskPacks.length}
+          projects={dashboard.projects}
+          taskPacks={dashboard.taskPacks}
           readinessScore={dashboard.readinessScore}
           statusMessage={dashboard.statusMessage}
           isLoading={dashboard.isLoading}
@@ -425,6 +492,10 @@ export function DashboardPage() {
           onOpenContextBuilder={() => handleNavigate("context")}
           onOpenTaskPacks={() => handleNavigate("taskPacks")}
           onOpenSettings={() => handleNavigate("settings")}
+          onRescanProject={dashboard.handleRescanProject}
+          onGenerateAgents={dashboard.handleGenerateAgentsPreview}
+          onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
+          onOpenTaskPack={dashboard.setGeneratedTaskPack}
         />
       );
     }
@@ -491,6 +562,10 @@ export function DashboardPage() {
       );
     }
 
+    if (activePage === "templates") {
+      return <TemplatesPage />;
+    }
+
     if (activePage === "settings") {
       return <SettingsPage />;
     }
@@ -548,33 +623,6 @@ export function DashboardPage() {
             onClose={() => dashboard.setAgentsPreview(null)}
             onSave={dashboard.handleSaveAgentsFile}
             onRegenerate={dashboard.handleRegenerateAgentsPreview}
-          />
-        )}
-
-        {dashboard.taskPackDraft && (
-          <TaskPackDraftModal
-            draft={dashboard.taskPackDraft}
-            isLoading={dashboard.isLoading}
-            onChange={dashboard.setTaskPackDraft}
-            onClose={() => dashboard.setTaskPackDraft(null)}
-            onAnalyzeContext={dashboard.handleAnalyzeTaskContext}
-            onGenerate={dashboard.handleCreateTaskPack}
-          />
-        )}
-
-        {dashboard.generatedTaskPack && (
-          <GeneratedTaskPackModal
-            taskPack={dashboard.generatedTaskPack}
-            onClose={() => dashboard.setGeneratedTaskPack(null)}
-          />
-        )}
-
-        {dashboard.contextComposerPreview && (
-          <ContextComposerModal
-            preview={dashboard.contextComposerPreview}
-            isLoading={dashboard.isLoading}
-            onClose={() => dashboard.setContextComposerPreview(null)}
-            onGenerate={dashboard.handleCreateTaskPackFromComposer}
           />
         )}
 

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import {
   BarChart3,
   Bot,
@@ -33,45 +34,57 @@ export type AppPageId =
 export interface NavigationItem {
   id: AppPageId;
   label: string;
+  labelKey: string;
   description: string;
+  descriptionKey: string;
   icon: LucideIcon;
   status?: "alpha" | "soon" | "planned";
 }
 
 export interface NavigationSection {
   title: string;
+  titleKey: string;
   items: NavigationItem[];
 }
 
 export const navigationSections: NavigationSection[] = [
   {
     title: "Core",
+    titleKey: "nav.core",
     items: [
       {
         id: "dashboard",
         label: "Dashboard",
+        labelKey: "nav.dashboard",
         description: "Welcome screen, product workflow and quick start actions.",
+        descriptionKey: "nav.dashboardDesc",
         icon: LayoutDashboard,
         status: "alpha"
       },
       {
         id: "projects",
         label: "Projects",
+        labelKey: "nav.projects",
         description: "Scanned local repositories, stack signals, readiness reports.",
+        descriptionKey: "nav.projectsDesc",
         icon: FolderKanban,
         status: "alpha"
       },
       {
         id: "context",
         label: "Context Builder",
+        labelKey: "nav.context",
         description: "Generate AGENTS.md-style project context and AI instructions.",
+        descriptionKey: "nav.contextDesc",
         icon: WandSparkles,
         status: "alpha"
       },
       {
         id: "taskPacks",
         label: "Task Packs",
+        labelKey: "nav.taskPacks",
         description: "Searchable archive of generated prompts for coding agents.",
+        descriptionKey: "nav.taskPacksDesc",
         icon: FileText,
         status: "alpha"
       }
@@ -79,32 +92,41 @@ export const navigationSections: NavigationSection[] = [
   },
   {
     title: "AI Workflow",
+    titleKey: "nav.aiWorkflow",
     items: [
       {
         id: "agents",
         label: "Agents",
+        labelKey: "nav.agents",
         description: "Future profiles for Claude, Codex, Cursor, Ollama and custom tools.",
+        descriptionKey: "nav.agentsDesc",
         icon: Bot,
         status: "soon"
       },
       {
         id: "templates",
         label: "Templates",
+        labelKey: "nav.templates",
         description: "Reusable task, prompt and project-context templates.",
+        descriptionKey: "nav.templatesDesc",
         icon: Layers3,
-        status: "planned"
+        status: "alpha"
       },
       {
         id: "integrations",
         label: "Integrations",
+        labelKey: "nav.integrations",
         description: "Future MCP, CLI, export and external agent connections.",
+        descriptionKey: "nav.integrationsDesc",
         icon: PlugZap,
         status: "planned"
       },
       {
         id: "reports",
         label: "Reports",
+        labelKey: "nav.reports",
         description: "Quality analytics for readiness, Task Packs and project history.",
+        descriptionKey: "nav.reportsDesc",
         icon: BarChart3,
         status: "alpha"
       }
@@ -112,11 +134,14 @@ export const navigationSections: NavigationSection[] = [
   },
   {
     title: "System",
+    titleKey: "nav.system",
     items: [
       {
         id: "settings",
         label: "Settings",
+        labelKey: "nav.settings",
         description: "Ollama URL, generation mode, defaults and application preferences.",
+        descriptionKey: "nav.settingsDesc",
         icon: Settings,
         status: "alpha"
       }
@@ -140,17 +165,20 @@ interface SidebarProps {
   onNavigate: (page: AppPageId) => void;
 }
 
-function getStatusLabel(status?: NavigationItem["status"]) {
+function getStatusLabel(
+  status: NavigationItem["status"] | undefined,
+  t: (key: string) => string
+) {
   if (status === "alpha") {
-    return "Alpha";
+    return t("common.alpha");
   }
 
   if (status === "soon") {
-    return "Soon";
+    return t("common.soon");
   }
 
   if (status === "planned") {
-    return "Planned";
+    return t("common.planned");
   }
 
   return null;
@@ -169,6 +197,7 @@ export function Sidebar({
   showDescriptions = false,
   onNavigate
 }: SidebarProps) {
+  const { t } = useTranslation();
   const [isCollapsed, setIsCollapsed] = useState(getInitialCollapsedState);
 
   useEffect(() => {
@@ -198,11 +227,11 @@ export function Sidebar({
         {!isCollapsed && (
           <div className="min-w-0">
             <p className="cf-tech-label text-[10px] uppercase text-neutral-700">
-              Navigation
+              {t("nav.navigation")}
             </p>
 
             <p className="mt-1 truncate text-sm font-medium text-white">
-              Workspace
+              {t("nav.workspace")}
             </p>
           </div>
         )}
@@ -211,8 +240,8 @@ export function Sidebar({
           type="button"
           onClick={() => setIsCollapsed((current) => !current)}
           className="group grid size-9 shrink-0 place-items-center rounded-2xl border border-neutral-900 bg-neutral-950 text-neutral-500 transition hover:border-white hover:bg-white hover:text-black"
-          title={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
-          aria-label={isCollapsed ? "Expand sidebar" : "Collapse sidebar"}
+          title={isCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
+          aria-label={isCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
         >
           {isCollapsed ? (
             <PanelLeftOpen size={15} />
@@ -234,7 +263,7 @@ export function Sidebar({
               <div className="mb-2 h-px bg-neutral-900" />
             ) : (
               <p className="cf-tech-label mb-2 px-2 text-[10px] uppercase text-neutral-700">
-                {section.title}
+                {t(section.titleKey)}
               </p>
             )}
 
@@ -242,14 +271,15 @@ export function Sidebar({
               {section.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = activePage === item.id;
-                const statusLabel = getStatusLabel(item.status);
+                const statusLabel = getStatusLabel(item.status, t);
+                const itemLabel = t(item.labelKey);
 
                 return (
                   <button
                     key={item.id}
                     type="button"
                     onClick={() => onNavigate(item.id)}
-                    title={isCollapsed ? item.label : undefined}
+                    title={isCollapsed ? itemLabel : undefined}
                     className={[
                       "group relative flex w-full items-center overflow-hidden rounded-2xl text-left transition duration-200",
                       isCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
@@ -289,7 +319,7 @@ export function Sidebar({
                       <>
                         <span className="relative z-10 min-w-0 flex-1">
                           <span className="block truncate text-sm font-medium">
-                            {item.label}
+                            {itemLabel}
                           </span>
 
                           {showDescriptions && (
@@ -301,7 +331,9 @@ export function Sidebar({
                                   : "text-neutral-700 group-hover:text-black/55"
                               ].join(" ")}
                             >
-                              {item.status === "alpha" ? "Ready module" : "Future module"}
+                              {item.status === "alpha"
+                                ? t("common.readyModule")
+                                : t("common.futureModule")}
                             </span>
                           )}
                         </span>
@@ -340,7 +372,7 @@ export function Sidebar({
           <div className="rounded-2xl border border-neutral-900 bg-neutral-950/60 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
             <div className="mb-2 flex items-center justify-between gap-3">
               <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                MVP Status
+                {t("nav.mvpStatus")}
               </p>
 
               <ChevronLeft size={13} className="text-neutral-700" />

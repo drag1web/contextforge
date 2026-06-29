@@ -18,6 +18,18 @@ import type {
   TaskPack,
   TaskPackDraft
 } from "../types";
+import i18n from "../i18n";
+
+function parseMultilineRules(value?: string) {
+  return Array.from(
+    new Set(
+      String(value ?? "")
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean)
+    )
+  );
+}
 
 export function useDashboardController() {
   const [projects, setProjects] = useState<Project[]>([]);
@@ -25,7 +37,7 @@ export function useDashboardController() {
   const [expandedProjectId, setExpandedProjectId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState(
-    "Ready to scan your first project."
+    i18n.t("common.statusReady")
   );
 
   const [agentsPreview, setAgentsPreview] = useState<AgentsPreview | null>(null);
@@ -62,15 +74,15 @@ export function useDashboardController() {
 
     try {
       setIsLoading(true);
-      setStatusMessage("Scanning project...");
+      setStatusMessage(i18n.t("common.statusScanningProject"));
 
       const project = await addProject(selectedPath);
 
       await refreshDashboard();
       setExpandedProjectId(project.id);
-      setStatusMessage(`Project "${project.name}" added successfully.`);
+      setStatusMessage(i18n.t("common.statusProjectAdded", { name: project.name }));
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Unknown error");
+      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
     } finally {
       setIsLoading(false);
     }
@@ -79,15 +91,15 @@ export function useDashboardController() {
   async function handleRescanProject(project: Project) {
     try {
       setIsLoading(true);
-      setStatusMessage(`Rescanning "${project.name}"...`);
+      setStatusMessage(i18n.t("common.statusRescanningProject", { name: project.name }));
 
       await rescanProject(project.id);
 
       await refreshDashboard();
       setExpandedProjectId(project.id);
-      setStatusMessage(`Project "${project.name}" rescanned successfully.`);
+      setStatusMessage(i18n.t("common.statusProjectRescanned", { name: project.name }));
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Unknown error");
+      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
     } finally {
       setIsLoading(false);
     }
@@ -100,8 +112,8 @@ export function useDashboardController() {
 
       setStatusMessage(
         settings.generationMode === "ollama" && settings.defaultOllamaModel
-          ? `Generating AGENTS.md with Ollama (${settings.defaultOllamaModel}). This may take 1–2 minutes on CPU...`
-          : `Generating AGENTS.md for "${project.name}"...`
+          ? i18n.t("common.statusGeneratingAgentsOllama", { model: settings.defaultOllamaModel })
+          : i18n.t("common.statusGeneratingAgents", { name: project.name })
       );
 
       const preview = await getAgentsPreview(project.id);
@@ -113,9 +125,9 @@ export function useDashboardController() {
         generation: preview.generation
       });
 
-      setStatusMessage(`AGENTS.md preview generated for "${project.name}".`);
+      setStatusMessage(i18n.t("common.statusAgentsGenerated", { name: project.name }));
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Unknown error");
+      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
     } finally {
       setIsLoading(false);
     }
@@ -133,8 +145,8 @@ export function useDashboardController() {
 
       setStatusMessage(
         settings.generationMode === "ollama" && settings.defaultOllamaModel
-          ? `Regenerating AGENTS.md with Ollama (${settings.defaultOllamaModel}). Cache will be ignored...`
-          : `Regenerating AGENTS.md for "${agentsPreview.projectName}"...`
+          ? i18n.t("common.statusRegeneratingAgentsOllama", { model: settings.defaultOllamaModel })
+          : i18n.t("common.statusRegeneratingAgents", { name: agentsPreview.projectName })
       );
 
       const preview = await getAgentsPreview(agentsPreview.projectId, {
@@ -148,9 +160,9 @@ export function useDashboardController() {
         generation: preview.generation
       });
 
-      setStatusMessage(`AGENTS.md regenerated for "${agentsPreview.projectName}".`);
+      setStatusMessage(i18n.t("common.statusAgentsRegenerated", { name: agentsPreview.projectName }));
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Unknown error");
+      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
     } finally {
       setIsLoading(false);
     }
@@ -163,15 +175,15 @@ export function useDashboardController() {
 
     try {
       setIsLoading(true);
-      setStatusMessage(`Saving AGENTS.md for "${agentsPreview.projectName}"...`);
+      setStatusMessage(i18n.t("common.statusSavingAgents", { name: agentsPreview.projectName }));
 
       await saveAgentsFile(agentsPreview.projectId, agentsPreview.markdown);
 
       await refreshDashboard();
-      setStatusMessage(`AGENTS.md saved to project "${agentsPreview.projectName}".`);
+      setStatusMessage(i18n.t("common.statusAgentsSaved", { name: agentsPreview.projectName }));
       setAgentsPreview(null);
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Unknown error");
+      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
     } finally {
       setIsLoading(false);
     }
@@ -191,11 +203,21 @@ export function useDashboardController() {
       setStatusMessage(
         settings.generationMode === "ollama" && settings.defaultOllamaModel
           ? selectedCount > 0
-            ? `Generating task pack with ${selectedCount} Composer-selected file(s) and Ollama (${settings.defaultOllamaModel}). This may take 1–2 minutes on CPU...`
-            : `Generating task pack with Ollama (${settings.defaultOllamaModel}). This may take 1–2 minutes on CPU...`
+            ? i18n.t("common.statusGeneratingTaskPackOllamaFiles", {
+              count: selectedCount,
+              model: settings.defaultOllamaModel
+            })
+            : i18n.t("common.statusGeneratingTaskPackOllama", {
+              model: settings.defaultOllamaModel
+            })
           : selectedCount > 0
-            ? `Generating task pack with ${selectedCount} Composer-selected file(s) for "${taskPackDraft.projectName}"...`
-            : `Generating task pack for "${taskPackDraft.projectName}"...`
+            ? i18n.t("common.statusGeneratingTaskPackFiles", {
+              count: selectedCount,
+              name: taskPackDraft.projectName
+            })
+            : i18n.t("common.statusGeneratingTaskPack", {
+              name: taskPackDraft.projectName
+            })
       );
 
       const taskPack = await createTaskPack({
@@ -203,16 +225,24 @@ export function useDashboardController() {
         rawTask: taskPackDraft.rawTask,
         taskType: taskPackDraft.taskType,
         targetTool: taskPackDraft.targetTool,
-        selectedFilePaths
+        selectedFilePaths,
+
+        templateId: taskPackDraft.templateId || undefined,
+        ruleProfileId: taskPackDraft.ruleProfileId || undefined,
+        enabledRuleIds: taskPackDraft.enabledRuleIds,
+        customRules: parseMultilineRules(taskPackDraft.customRulesText),
+        acceptanceCriteriaPresetId:
+          taskPackDraft.acceptanceCriteriaPresetId || undefined,
+        acceptanceCriteria: parseMultilineRules(taskPackDraft.acceptanceCriteriaText)
       });
 
       await loadTaskPacks();
       setGeneratedTaskPack(taskPack);
       setTaskPackDraft(null);
       setContextComposerPreview(null);
-      setStatusMessage("Task pack generated successfully.");
+      setStatusMessage(i18n.t("common.statusTaskPackGenerated"));
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Unknown error");
+      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
     } finally {
       setIsLoading(false);
     }
@@ -221,7 +251,7 @@ export function useDashboardController() {
   async function handleCreateTaskPackDraft(project: Project) {
     try {
       setIsLoading(true);
-      setStatusMessage(`Loading task pack defaults for "${project.name}"...`);
+      setStatusMessage(i18n.t("common.statusLoadingTaskDefaults", { name: project.name }));
 
       const settings = await getAppSettings();
 
@@ -230,23 +260,29 @@ export function useDashboardController() {
         projectName: project.name,
         rawTask: "",
         taskType: settings.defaultTaskType,
-        targetTool: settings.defaultTargetTool
+        targetTool: settings.defaultTargetTool,
+        enabledRuleIds: [],
+        customRulesText: "",
+        acceptanceCriteriaText: ""
       });
 
-      setStatusMessage(`Task pack draft opened for "${project.name}".`);
+      setStatusMessage(i18n.t("common.statusTaskDraftOpened", { name: project.name }));
     } catch (error) {
       setTaskPackDraft({
         projectId: project.id,
         projectName: project.name,
         rawTask: "",
         taskType: "general",
-        targetTool: "codex"
+        targetTool: "codex",
+        enabledRuleIds: [],
+        customRulesText: "",
+        acceptanceCriteriaText: ""
       });
 
       setStatusMessage(
         error instanceof Error
-          ? `Settings unavailable. Using default task pack values. ${error.message}`
-          : "Settings unavailable. Using default task pack values."
+          ? `${i18n.t("common.statusSettingsUnavailable")} ${error.message}`
+          : i18n.t("common.statusSettingsUnavailable")
       );
     } finally {
       setIsLoading(false);
@@ -260,7 +296,7 @@ export function useDashboardController() {
 
     try {
       setIsLoading(true);
-      setStatusMessage(`Analyzing context for "${taskPackDraft.projectName}"...`);
+      setStatusMessage(i18n.t("common.statusAnalyzingContext", { name: taskPackDraft.projectName }));
 
       const preview = await createContextComposerPreview({
         projectId: taskPackDraft.projectId,
@@ -270,9 +306,9 @@ export function useDashboardController() {
       });
 
       setContextComposerPreview(preview);
-      setStatusMessage(`Context preview ready for "${taskPackDraft.projectName}".`);
+      setStatusMessage(i18n.t("common.statusContextReady", { name: taskPackDraft.projectName }));
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : "Unknown error");
+      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
     } finally {
       setIsLoading(false);
     }
@@ -284,7 +320,7 @@ export function useDashboardController() {
 
   async function handleCreateTaskPackFromComposer(selectedFilePaths: string[]) {
     if (selectedFilePaths.length === 0) {
-      setStatusMessage("Select at least one Composer file before generating a Task Pack.");
+      setStatusMessage(i18n.t("common.statusSelectComposerFile"));
       return;
     }
 
@@ -297,7 +333,7 @@ export function useDashboardController() {
 
   useEffect(() => {
     refreshDashboard().catch(() => {
-      setStatusMessage("Failed to load initial data.");
+      setStatusMessage(i18n.t("common.statusInitialLoadFailed"));
     });
   }, []);
 

@@ -1,17 +1,24 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronDown } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode
+} from "react";
 import { createPortal } from "react-dom";
 
 export interface SelectOption<TValue extends string = string> {
   value: TValue;
   label: string;
   description?: string;
+  icon?: ReactNode;
   disabled?: boolean;
 }
 
 interface CustomSelectProps<TValue extends string = string> {
-  value: TValue;
+  value: TValue | string;
   options: SelectOption<TValue>[];
   onChange: (value: TValue) => void;
   placeholder?: string;
@@ -28,6 +35,7 @@ interface SelectPosition {
 
 const MENU_VERTICAL_OFFSET = 8;
 const MENU_MAX_HEIGHT = 320;
+const VIEWPORT_PADDING = 12;
 
 export function CustomSelect<TValue extends string = string>({
   value,
@@ -62,17 +70,24 @@ export function CustomSelect<TValue extends string = string>({
     const estimatedHeight = Math.min(MENU_MAX_HEIGHT, options.length * 62 + 8);
 
     const shouldOpenUp =
-      rect.bottom + MENU_VERTICAL_OFFSET + estimatedHeight > window.innerHeight;
+      rect.bottom + MENU_VERTICAL_OFFSET + estimatedHeight >
+      window.innerHeight - VIEWPORT_PADDING;
+
+    const width = Math.max(rect.width, 220);
+    const left = Math.min(
+      window.innerWidth - width - VIEWPORT_PADDING,
+      Math.max(VIEWPORT_PADDING, rect.left)
+    );
 
     setPosition({
       top: shouldOpenUp
-        ? Math.max(12, rect.top - estimatedHeight - MENU_VERTICAL_OFFSET)
+        ? Math.max(
+            VIEWPORT_PADDING,
+            rect.top - estimatedHeight - MENU_VERTICAL_OFFSET
+          )
         : rect.bottom + MENU_VERTICAL_OFFSET,
-      left: Math.min(
-        window.innerWidth - rect.width - 12,
-        Math.max(12, rect.left)
-      ),
-      width: rect.width,
+      left,
+      width,
       openUp: shouldOpenUp
     });
   }
@@ -97,6 +112,15 @@ export function CustomSelect<TValue extends string = string>({
     }
 
     openSelect();
+  }
+
+  function handleSelect(option: SelectOption<TValue>) {
+    if (option.disabled) {
+      return;
+    }
+
+    onChange(option.value);
+    closeSelect();
   }
 
   useEffect(() => {
@@ -145,8 +169,24 @@ export function CustomSelect<TValue extends string = string>({
           className
         ].join(" ")}
       >
-        <span className="block min-w-0 truncate font-medium">
-          {selectedOption?.label ?? placeholder}
+        <span className="flex min-w-0 items-center gap-3">
+          {selectedOption?.icon && (
+            <span className="shrink-0">
+              {selectedOption.icon}
+            </span>
+          )}
+
+          <span className="block min-w-0">
+            <span className="block truncate font-medium">
+              {selectedOption?.label ?? placeholder}
+            </span>
+
+            {selectedOption?.description && (
+              <span className="mt-0.5 block truncate text-[11px] text-neutral-600">
+                {selectedOption.description}
+              </span>
+            )}
+          </span>
         </span>
 
         <ChevronDown
@@ -211,14 +251,7 @@ export function CustomSelect<TValue extends string = string>({
                         key={option.value}
                         type="button"
                         disabled={option.disabled}
-                        onClick={() => {
-                          if (option.disabled) {
-                            return;
-                          }
-
-                          onChange(option.value);
-                          closeSelect();
-                        }}
+                        onClick={() => handleSelect(option)}
                         className={[
                           "group flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition",
                           isSelected
@@ -229,23 +262,31 @@ export function CustomSelect<TValue extends string = string>({
                             : ""
                         ].join(" ")}
                       >
-                        <span className="min-w-0">
-                          <span className="block truncate text-sm font-medium">
-                            {option.label}
-                          </span>
-
-                          {option.description && (
-                            <span
-                              className={[
-                                "mt-0.5 block line-clamp-2 text-xs leading-5",
-                                isSelected
-                                  ? "text-black/60"
-                                  : "text-neutral-600 group-hover:text-neutral-400"
-                              ].join(" ")}
-                            >
-                              {option.description}
+                        <span className="flex min-w-0 items-start gap-3">
+                          {option.icon && (
+                            <span className="mt-0.5 shrink-0">
+                              {option.icon}
                             </span>
                           )}
+
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">
+                              {option.label}
+                            </span>
+
+                            {option.description && (
+                              <span
+                                className={[
+                                  "mt-0.5 block line-clamp-2 text-xs leading-5",
+                                  isSelected
+                                    ? "text-black/60"
+                                    : "text-neutral-600 group-hover:text-neutral-400"
+                                ].join(" ")}
+                              >
+                                {option.description}
+                              </span>
+                            )}
+                          </span>
                         </span>
 
                         {isSelected && (

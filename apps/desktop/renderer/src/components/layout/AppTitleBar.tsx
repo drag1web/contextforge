@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { useTranslation } from "react-i18next";
 import {
     ChevronDown,
     ChevronRight,
@@ -41,8 +42,10 @@ export function AppTitleBar({
     onAddProject,
     onNavigate
 }: AppTitleBarProps) {
+    const { t } = useTranslation();
     const [isNavigationOpen, setIsNavigationOpen] = useState(false);
     const currentPage = pageMetaMap[activePage] ?? pageMetaMap.dashboard;
+    const currentPageLabel = t(currentPage.labelKey);
 
     return (
         <>
@@ -73,12 +76,12 @@ export function AppTitleBar({
                     onClick={() => setIsNavigationOpen(true)}
                     disabled={!onNavigate}
                     className="app-no-drag group absolute left-1/2 top-1/2 hidden h-7 -translate-x-1/2 -translate-y-1/2 items-center gap-1.5 rounded-full border border-white/10 bg-white/[0.035] px-2.5 text-[11px] text-neutral-500 shadow-[0_0_20px_rgba(255,255,255,0.035),inset_0_1px_0_rgba(255,255,255,0.04)] transition duration-200 hover:border-white hover:bg-white hover:text-black hover:shadow-[0_12px_34px_rgba(255,255,255,0.12)] disabled:pointer-events-none disabled:opacity-60 lg:flex"
-                    title="Open navigation assistant"
+                    title={t("titlebar.openNavigationAssistant")}
                 >
                     <span className="transition group-hover:text-black/55">ContextForge</span>
                     <ChevronRight size={11} className="text-neutral-700 transition group-hover:text-black/40" />
                     <span className="font-medium text-neutral-200 transition group-hover:text-black">
-                        {currentPage.label}
+                        {currentPageLabel}
                     </span>
                     <ChevronDown size={11} className="text-neutral-700 transition group-hover:text-black/45" />
                 </button>
@@ -92,20 +95,20 @@ export function AppTitleBar({
                             className="mr-2 hidden h-8 items-center gap-2 rounded-full bg-white px-3.5 text-xs font-medium text-black shadow-[0_12px_32px_rgba(255,255,255,0.10)] transition hover:bg-neutral-200 disabled:cursor-not-allowed disabled:opacity-60 md:inline-flex"
                         >
                             <FolderOpen size={14} />
-                            {isLoading ? "Scanning..." : "Add project"}
+                            {isLoading ? t("common.scanning") : t("common.addProject")}
                         </button>
                     )}
 
                     <div className="mr-2 hidden items-center gap-2 rounded-full border border-white/15 bg-white/[0.04] px-3 py-1 text-[11px] text-white shadow-[0_0_24px_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.06)] xl:flex">
                         <span className="size-1.5 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.9)]" />
-                        AI workflow ready
+                        {t("titlebar.aiWorkflowReady")}
                     </div>
 
                     <button
                         type="button"
                         onClick={minimizeWindow}
                         className="grid size-8 place-items-center rounded-lg text-neutral-500 transition hover:bg-neutral-900 hover:text-white"
-                        aria-label="Minimize window"
+                        aria-label={t("titlebar.minimizeWindow")}
                     >
                         <Minus size={15} />
                     </button>
@@ -114,7 +117,7 @@ export function AppTitleBar({
                         type="button"
                         onClick={toggleMaximizeWindow}
                         className="grid size-8 place-items-center rounded-lg text-neutral-500 transition hover:bg-neutral-900 hover:text-white"
-                        aria-label="Maximize window"
+                        aria-label={t("titlebar.maximizeWindow")}
                     >
                         <Maximize2 size={14} />
                     </button>
@@ -123,7 +126,7 @@ export function AppTitleBar({
                         type="button"
                         onClick={closeWindow}
                         className="grid size-8 place-items-center rounded-lg text-neutral-500 transition hover:bg-red-500/15 hover:text-red-300"
-                        aria-label="Close window"
+                        aria-label={t("titlebar.closeWindow")}
                     >
                         <X size={15} />
                     </button>

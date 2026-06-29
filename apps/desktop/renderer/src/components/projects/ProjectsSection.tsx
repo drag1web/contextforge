@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   FolderOpen,
@@ -87,6 +88,9 @@ const PROJECT_CARD_TRANSITION = {
   ease: [0.16, 1, 0.3, 1]
 } as const;
 
+void readinessOptions;
+void sortOptions;
+
 function normalize(value: unknown) {
   return String(value ?? "").toLowerCase();
 }
@@ -167,11 +171,62 @@ export function ProjectsSection({
   onGenerateAgents,
   onCreateTaskPack
 }: ProjectsSectionProps) {
+  const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [readinessFilter, setReadinessFilter] = useState<ReadinessFilter>("all");
   const [stackFilter, setStackFilter] = useState("all");
   const [packageFilter, setPackageFilter] = useState("all");
   const [sortMode, setSortMode] = useState<SortMode>("lastScan");
+  const localizedReadinessOptions = useMemo<SegmentedFilterOption<ReadinessFilter>[]>(
+    () => [
+      {
+        value: "all",
+        label: t("projectsPage.all"),
+        description: t("projectsPage.everyProject")
+      },
+      {
+        value: "low",
+        label: t("projectsPage.low"),
+        description: t("projectsPage.below50")
+      },
+      {
+        value: "medium",
+        label: t("projectsPage.medium"),
+        description: t("projectsPage.range50")
+      },
+      {
+        value: "high",
+        label: t("projectsPage.high"),
+        description: t("projectsPage.range80")
+      }
+    ],
+    [t]
+  );
+  const localizedSortOptions = useMemo<SelectOption<SortMode>[]>(
+    () => [
+      {
+        value: "lastScan",
+        label: t("projectsPage.latestScan"),
+        description: t("projectsPage.latestScanDesc")
+      },
+      {
+        value: "readinessLow",
+        label: t("projectsPage.readinessLowFirst"),
+        description: t("projectsPage.readinessLowFirstDesc")
+      },
+      {
+        value: "readinessHigh",
+        label: t("projectsPage.readinessHighFirst"),
+        description: t("projectsPage.readinessHighFirstDesc")
+      },
+      {
+        value: "name",
+        label: t("projectsPage.name"),
+        description: t("projectsPage.nameDesc")
+      }
+    ],
+    [t]
+  );
 
   const stackOptions: SelectOption<string>[] = useMemo(() => {
     const stacks = [
@@ -183,20 +238,20 @@ export function ProjectsSection({
     return [
       {
         value: "all",
-        label: "All stacks",
-        description: "React, Electron, Node, TypeScript..."
+        label: t("projectsPage.allStacks"),
+        description: t("projectsPage.stackDescription")
       },
       ...stacks.map((stack) => ({
         value: stack,
         label: stack,
-        description: "Detected stack signal"
+        description: t("projectsPage.detectedStackSignal")
       }))
     ];
-  }, [projects]);
+  }, [projects, t]);
 
   const packageOptions: SelectOption<string>[] = useMemo(() => {
     const packageManagers = [
-      ...new Set(projects.map((project) => project.packageManager ?? "Unknown"))
+      ...new Set(projects.map((project) => project.packageManager ?? t("common.unknown")))
     ]
       .filter(Boolean)
       .sort();
@@ -204,16 +259,16 @@ export function ProjectsSection({
     return [
       {
         value: "all",
-        label: "All package managers",
-        description: "npm, pnpm, yarn, bun, unknown..."
+        label: t("projectsPage.allPackageManagers"),
+        description: t("projectsPage.packageDescription")
       },
       ...packageManagers.map((manager) => ({
         value: manager,
         label: manager,
-        description: "Detected package manager"
+        description: t("projectsPage.detectedPackageManager")
       }))
     ];
-  }, [projects]);
+  }, [projects, t]);
 
   const filteredProjects = useMemo(() => {
     const normalizedQuery = normalize(query).trim();
@@ -247,7 +302,7 @@ export function ProjectsSection({
 
         const matchesPackage =
           packageFilter === "all" ||
-          (project.packageManager ?? "Unknown") === packageFilter;
+          (project.packageManager ?? t("common.unknown")) === packageFilter;
 
         return matchesQuery && matchesReadiness && matchesStack && matchesPackage;
       })
@@ -266,11 +321,12 @@ export function ProjectsSection({
 
         return getDateValue(b) - getDateValue(a);
       });
-  }, [packageFilter, projects, query, readinessFilter, sortMode, stackFilter]);
+  }, [packageFilter, projects, query, readinessFilter, sortMode, stackFilter, t]);
 
   const averageReadiness = getAverageReadiness(projects);
   const lowReadinessCount = projects.filter((project) => project.readinessScore < 50).length;
   const topStack = getTopStack(projects);
+  const topStackLabel = topStack === "â€”" || topStack === "—" ? t("labels.noValue") : topStack;
 
   const hasActiveFilters =
     query.trim().length > 0 ||
@@ -294,11 +350,10 @@ export function ProjectsSection({
           <FolderOpen size={22} />
         </div>
 
-        <h5 className="text-base font-medium text-white">No projects yet</h5>
+        <h5 className="text-base font-medium text-white">{t("projectsPage.noProjects")}</h5>
 
         <p className="mt-2 max-w-md text-sm leading-6 text-neutral-500">
-          Add your first local project to scan its structure, detect stack,
-          and prepare it for AI agents.
+          {t("projectsPage.noProjectsDescription")}
         </p>
 
         <Button
@@ -308,7 +363,7 @@ export function ProjectsSection({
           className="mt-6"
         >
           <FolderOpen size={16} />
-          Select folder
+          {t("projectsPage.selectFolder")}
         </Button>
       </section>
     );
@@ -320,49 +375,48 @@ export function ProjectsSection({
         <div className="mb-4 flex flex-wrap gap-2">
           <span className="cf-badge">
             <FolderOpen size={13} />
-            Project Operations
+            {t("projectsPage.operations")}
           </span>
-          <span className="cf-badge">Local repositories</span>
-          <span className="cf-badge">AI readiness</span>
+          <span className="cf-badge">{t("projectsPage.localRepositories")}</span>
+          <span className="cf-badge">{t("projectsPage.aiReadiness")}</span>
         </div>
 
         <h2 className="max-w-4xl text-[34px] font-semibold leading-[1.05] tracking-[-0.05em] text-white">
-          Manage scanned projects and prepare them for AI coding agents.
+          {t("projectsPage.title")}
         </h2>
 
         <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-400">
-          Search repositories, review readiness, rescan project structure, generate AGENTS.md,
-          and create Task Packs from one place.
+          {t("projectsPage.description")}
         </p>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-4">
         <MetricCard
           icon={<FolderOpen size={18} />}
-          label="Projects"
+          label={t("projectsPage.projects")}
           value={projects.length}
-          caption="scanned repositories"
+          caption={t("projectsPage.scannedRepositories")}
         />
 
         <MetricCard
           icon={<Gauge size={18} />}
-          label="Avg readiness"
+          label={t("projectsPage.avgReadiness")}
           value={averageReadiness ?? "—"}
-          caption="average AI score"
+          caption={t("projectsPage.averageAiScore")}
         />
 
         <MetricCard
           icon={<AlertTriangle size={18} />}
-          label="Need attention"
+          label={t("projectsPage.needAttention")}
           value={lowReadinessCount}
-          caption="below 50/100"
+          caption={t("projectsPage.belowScore")}
         />
 
         <MetricCard
           icon={<Layers3 size={18} />}
-          label="Top stack"
-          value={topStack}
-          caption="most detected stack"
+          label={t("projectsPage.topStack")}
+          value={topStackLabel}
+          caption={t("projectsPage.mostDetectedStack")}
         />
       </div>
 
@@ -370,7 +424,7 @@ export function ProjectsSection({
         <div className="mb-5 flex min-h-9 flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <SlidersHorizontal size={15} className="text-neutral-500" />
-            <h3 className="text-sm font-semibold text-white">Project filters</h3>
+            <h3 className="text-sm font-semibold text-white">{t("projectsPage.filters")}</h3>
           </div>
 
           <motion.span
@@ -380,7 +434,7 @@ export function ProjectsSection({
             transition={{ duration: 0.16 }}
             className="cf-badge ml-auto"
           >
-            {filteredProjects.length} results
+            {t("projectsPage.results", { count: filteredProjects.length })}
           </motion.span>
 
           <button
@@ -398,7 +452,7 @@ export function ProjectsSection({
             ].join(" ")}
           >
             <X size={13} />
-            Clear filters
+            {t("projectsPage.clearFilters")}
           </button>
         </div>
 
@@ -411,7 +465,7 @@ export function ProjectsSection({
           <input
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search by project name, path, stack, package manager..."
+            placeholder={t("projectsPage.searchPlaceholder")}
             className="h-12 w-full rounded-2xl border border-neutral-900 bg-black/45 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-neutral-700 hover:border-neutral-800 focus:border-white/40 focus:bg-black/70 focus:ring-4 focus:ring-white/5"
           />
         </div>
@@ -419,7 +473,7 @@ export function ProjectsSection({
         <div className="grid gap-3 xl:grid-cols-[minmax(360px,1.35fr)_repeat(3,minmax(0,1fr))]">
           <SegmentedFilter
             value={readinessFilter}
-            options={readinessOptions}
+            options={localizedReadinessOptions}
             onChange={(value) => setReadinessFilter(value as ReadinessFilter)}
           />
 
@@ -437,7 +491,7 @@ export function ProjectsSection({
 
           <CustomSelect
             value={sortMode}
-            options={sortOptions}
+            options={localizedSortOptions}
             onChange={(value) => setSortMode(value as SortMode)}
           />
         </div>
@@ -457,10 +511,10 @@ export function ProjectsSection({
               <Search size={22} />
             </div>
 
-            <h5 className="text-base font-medium text-white">No matching projects</h5>
+            <h5 className="text-base font-medium text-white">{t("projectsPage.noMatching")}</h5>
 
             <p className="mt-2 max-w-md text-sm leading-6 text-neutral-500">
-              Try changing the search query or clearing one of the filters.
+              {t("projectsPage.noMatchingDescription")}
             </p>
           </motion.div>
         ) : (

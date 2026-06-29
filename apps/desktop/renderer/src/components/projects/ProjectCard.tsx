@@ -1,4 +1,5 @@
 import { motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
   ChevronUp,
@@ -23,18 +24,18 @@ interface ProjectCardProps {
   onCreateTaskPack: () => void | Promise<void>;
 }
 
-function formatDate(value: string | null) {
+function formatDate(value: string | null, neverLabel: string) {
   if (!value) {
-    return "Never";
+    return neverLabel;
   }
 
   return new Date(value).toLocaleString();
 }
 
-function getReadinessLabel(score: number) {
-  if (score >= 80) return "Ready";
-  if (score >= 50) return "Needs polish";
-  return "Needs attention";
+function getReadinessLabel(score: number, t: (key: string) => string) {
+  if (score >= 80) return t("projectsPage.ready");
+  if (score >= 50) return t("projectsPage.needsPolish");
+  return t("projectsPage.needsAttentionStatus");
 }
 
 function getReadinessTone(score: number) {
@@ -62,7 +63,9 @@ export function ProjectCard({
   onGenerateAgents,
   onCreateTaskPack
 }: ProjectCardProps) {
+  const { t } = useTranslation();
   const issuesCount = project.readinessReport.issues.length;
+  const readinessLabel = getReadinessLabel(project.readinessScore, t);
 
   return (
     <article className="cf-card cf-card-menu p-5">
@@ -80,7 +83,7 @@ export function ProjectCard({
                 </h5>
 
                 <span className="cf-badge">
-                  {getReadinessLabel(project.readinessScore)}
+                  {readinessLabel}
                 </span>
               </div>
 
@@ -91,7 +94,7 @@ export function ProjectCard({
           </div>
 
           <div className="mb-4 flex flex-wrap gap-2">
-            {(project.detectedStack.length > 0 ? project.detectedStack : ["Unknown stack"]).map((item) => (
+            {(project.detectedStack.length > 0 ? project.detectedStack : [t("common.unknownStack")]).map((item) => (
               <span key={item} className="cf-badge">
                 {item}
               </span>
@@ -99,18 +102,20 @@ export function ProjectCard({
 
             <span className="cf-badge">
               <Package size={12} />
-              {project.packageManager ?? "Unknown"}
+              {project.packageManager ?? t("common.unknown")}
             </span>
 
             <span className="cf-badge">
-              Last scan: {formatDate(project.lastScanAt)}
+              {t("projectsPage.lastScan", {
+                date: formatDate(project.lastScanAt, t("projectsPage.never"))
+              })}
             </span>
           </div>
 
           <div className="grid gap-3 md:grid-cols-3">
             <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
               <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                Readiness
+                {t("projectsPage.readiness")}
               </p>
               <p className="cf-display-font mt-1 text-2xl font-semibold text-white">
                 {project.readinessScore}/100
@@ -119,7 +124,7 @@ export function ProjectCard({
 
             <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
               <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                Checks
+                {t("projectsPage.checks")}
               </p>
               <p className="cf-display-font mt-1 text-2xl font-semibold text-white">
                 {project.readinessReport.checks.length}
@@ -128,7 +133,7 @@ export function ProjectCard({
 
             <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
               <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                Issues
+                {t("projectsPage.issues")}
               </p>
               <p className="cf-display-font mt-1 text-2xl font-semibold text-white">
                 {issuesCount}
@@ -141,11 +146,11 @@ export function ProjectCard({
           <div className="mb-4 flex items-start justify-between gap-3">
             <div>
               <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                AI readiness
+                {t("projectsPage.aiReadiness")}
               </p>
 
               <p className="mt-1 text-sm font-medium text-white">
-                {getReadinessLabel(project.readinessScore)}
+                {readinessLabel}
               </p>
             </div>
 
@@ -171,7 +176,7 @@ export function ProjectCard({
               className="justify-center rounded-xl"
             >
               <WandSparkles size={15} />
-              Create Task Pack
+              {t("projectsPage.createTaskPack")}
             </Button>
 
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-1 2xl:grid-cols-2">
@@ -192,7 +197,7 @@ export function ProjectCard({
                 className="justify-center rounded-xl"
               >
                 <RefreshCw size={15} />
-                Rescan
+                {t("projectsPage.rescan")}
               </Button>
             </div>
 
@@ -200,10 +205,10 @@ export function ProjectCard({
               type="button"
               onClick={onToggleReport}
               className="cf-invert-action mt-1 flex h-9 items-center justify-center gap-2 rounded-xl px-3 text-sm"
-              title={isExpanded ? "Hide readiness report" : "Show readiness report"}
+              title={isExpanded ? t("projectsPage.hideReportTitle") : t("projectsPage.showReportTitle")}
             >
               {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-              {isExpanded ? "Hide report" : "Show report"}
+              {isExpanded ? t("projectsPage.hideReport") : t("projectsPage.showReport")}
             </button>
           </div>
         </aside>

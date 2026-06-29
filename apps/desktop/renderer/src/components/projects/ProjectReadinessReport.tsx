@@ -1,4 +1,5 @@
 import { CheckCircle2, XCircle } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import type { ReadinessReport } from "../../types";
 
 interface ProjectReadinessReportProps {
@@ -6,6 +7,7 @@ interface ProjectReadinessReportProps {
 }
 
 export function ProjectReadinessReport({ report }: ProjectReadinessReportProps) {
+  const { t } = useTranslation();
   const passedChecks = report.checks.filter((check) => check.passed).length;
 
   return (
@@ -13,18 +15,21 @@ export function ProjectReadinessReport({ report }: ProjectReadinessReportProps) 
       <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
         <div>
           <p className="cf-tech-label mb-1 text-[10px] uppercase text-neutral-600">
-            Readiness report
+            {t("projectsPage.report")}
           </p>
 
           <p className="text-sm text-neutral-500">
-            {passedChecks} of {report.checks.length} checks passed.
+            {t("projectsPage.checksPassed", {
+              passed: passedChecks,
+              total: report.checks.length
+            })}
           </p>
         </div>
 
         <span className="cf-badge">
           {report.issues.length > 0
-            ? `${report.issues.length} issues`
-            : "No major issues"}
+            ? t("projectsPage.issuesCount", { count: report.issues.length })
+            : t("projectsPage.noMajorIssues")}
         </span>
       </div>
 
@@ -53,7 +58,7 @@ export function ProjectReadinessReport({ report }: ProjectReadinessReportProps) 
                 </div>
 
                 <p className="mt-1 text-sm leading-5 text-neutral-500">
-                  {check.passed ? check.message : "Missing or not detected."}
+                  {check.passed ? check.message : t("projectsPage.missing")}
                 </p>
               </div>
             </div>
@@ -64,7 +69,7 @@ export function ProjectReadinessReport({ report }: ProjectReadinessReportProps) 
       {report.issues.length > 0 && (
         <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/40 p-4">
           <p className="cf-tech-label mb-3 text-[10px] uppercase text-neutral-600">
-            Recommended improvements
+            {t("projectsPage.recommendedImprovements")}
           </p>
 
           <ul className="space-y-2">
