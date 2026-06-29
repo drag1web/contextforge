@@ -236,6 +236,7 @@ function withSettingsDefaults(settings: AppSettings): AppSettings {
     ...settings,
     language: settings.language ?? "system",
     sidebarShowDescriptions: settings.sidebarShowDescriptions ?? false,
+    contextQualityMode: settings.contextQualityMode ?? "balanced",
     composerFileLimits: {
       ...DEFAULT_COMPOSER_FILE_LIMITS,
       ...(settings.composerFileLimits ?? {})
@@ -1347,6 +1348,16 @@ export function SettingsPage() {
                                 description: "API, database, server logic"
                               },
                               {
+                                value: "fullstack",
+                                label: "Fullstack",
+                                description: "Client + API/server work"
+                              },
+                              {
+                                value: "build",
+                                label: "Build / Config",
+                                description: "Build, imports, config and tooling"
+                              },
+                              {
                                 value: "bugfix",
                                 label: "Bugfix",
                                 description: "Find and fix a problem"
@@ -1464,6 +1475,68 @@ export function SettingsPage() {
                     title={t("settings.composerTitle")}
                     description={t("settings.composerDescription")}
                   />
+
+
+                  <SettingCard
+                    icon={<ShieldCheck size={18} />}
+                    label="Context safety"
+                    title="Context blocking mode"
+                    description="Control when ContextForge should stop automatic prompt generation and ask for manual file review."
+                  >
+                    <div className="grid gap-3 md:grid-cols-3">
+                      {[
+                        {
+                          value: "advisory" as const,
+                          label: "Warn only",
+                          caption: "Fastest. Never blocks automatic Task Packs; weak context is shown as warnings."
+                        },
+                        {
+                          value: "balanced" as const,
+                          label: "Balanced",
+                          caption: "Recommended. Blocks only clearly unsafe context, allows plausible fallback selections."
+                        },
+                        {
+                          value: "strict" as const,
+                          label: "Strict",
+                          caption: "Most careful. Blocks low-confidence selections more often."
+                        }
+                      ].map((option) => {
+                        const isActive = (settingsDraft?.contextQualityMode ?? "balanced") === option.value;
+
+                        return (
+                          <button
+                            key={option.value}
+                            type="button"
+                            onClick={() => updateSettingsDraft({ contextQualityMode: option.value })}
+                            className={[
+                              "group rounded-2xl border p-4 text-left transition duration-200",
+                              isActive
+                                ? "border-white bg-white text-black shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
+                                : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white hover:bg-white hover:text-black hover:shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
+                            ].join(" ")}
+                          >
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <span
+                                className={[
+                                  "grid size-9 place-items-center rounded-xl border transition",
+                                  isActive
+                                    ? "border-black/10 bg-black/5 text-black"
+                                    : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black"
+                                ].join(" ")}
+                              >
+                                <ShieldCheck size={15} />
+                              </span>
+
+                              {isActive && <CheckCircle2 size={16} className="text-black" />}
+                            </div>
+
+                            <p className={["text-sm font-semibold transition", isActive ? "text-black" : "text-white group-hover:text-black"].join(" ")}>{option.label}</p>
+                            <p className={["mt-1 text-xs leading-5 transition", isActive ? "text-black/55" : "text-neutral-600 group-hover:text-black/55"].join(" ")}>{option.caption}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </SettingCard>
 
                   <SettingCard
                     icon={<WandSparkles size={18} />}

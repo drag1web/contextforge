@@ -212,6 +212,7 @@ function FileCandidateCard({
   file,
   isSelected,
   isManual,
+  manualLabel = "Manually reviewed",
   isCopied,
   onToggle,
   onCopy,
@@ -220,6 +221,7 @@ function FileCandidateCard({
   file: ContextComposerFileReference;
   isSelected: boolean;
   isManual: boolean;
+  manualLabel?: string;
   isCopied: boolean;
   onToggle: () => void;
   onCopy: () => void;
@@ -262,7 +264,7 @@ function FileCandidateCard({
 
             {isManual && (
               <span className="shrink-0 rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] text-white">
-                Added manually
+                {manualLabel}
               </span>
             )}
           </div>
@@ -370,19 +372,27 @@ export function ContextComposerPage({
     [preview.selectedFiles]
   );
 
+  const isBlockedReview = preview.selectionQuality.status === "blocked";
+  const initialSelectedPaths = useMemo(
+    () => (isBlockedReview ? [] : recommendedPaths),
+    [isBlockedReview, recommendedPaths]
+  );
+  const initialFileSearchMessage = isBlockedReview
+    ? "Automatic file selection was blocked. Search and add the real page/component/service files manually."
+    : "Search project files to add more context.";
+
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [extraFiles, setExtraFiles] = useState<ContextComposerFileReference[]>([]);
   const [extraSnippets, setExtraSnippets] = useState<ContextComposerSnippet[]>([]);
   const [isFileSearchOpen, setIsFileSearchOpen] = useState(false);
-  const [fileSearchQuery, setFileSearchQuery] = useState("");
+  const [fileSearchQuery, setFileSearchQuery] = useState(isBlockedReview ? preview.task.rawTask : "");
   const [fileSearchResults, setFileSearchResults] = useState<
     ContextComposerFileSearchResult[]
   >([]);
   const [isSearchingFiles, setIsSearchingFiles] = useState(false);
-  const [fileSearchMessage, setFileSearchMessage] = useState(
-    "Search project files to add more context."
-  );
-  const [selectedPaths, setSelectedPaths] = useState<string[]>(recommendedPaths);
+  const [fileSearchMessage, setFileSearchMessage] = useState(initialFileSearchMessage);
+  const [selectedPaths, setSelectedPaths] = useState<string[]>(initialSelectedPaths);
+  const [confirmedRecommendedPaths, setConfirmedRecommendedPaths] = useState<string[]>([]);
   const [activeSnippetPath, setActiveSnippetPath] = useState<string | null>(
     preview.snippets[0]?.relativePath ?? null
   );
@@ -392,15 +402,35 @@ export function ContextComposerPage({
     return new Set(extraFiles.map((file) => normalizeFileKey(file.path)));
   }, [extraFiles]);
 
+  const suggestedFiles = useMemo(() => {
+    return mergeFilesByPath((preview.suggestedFileGroups ?? []).flatMap((group) => group.files));
+  }, [preview.suggestedFileGroups]);
+
+  const suggestedPathSet = useMemo(() => {
+    return new Set(suggestedFiles.map((file) => normalizeFileKey(file.path)));
+  }, [suggestedFiles]);
+
+  const confirmedRecommendedPathSet = useMemo(() => {
+    return new Set(confirmedRecommendedPaths.map(normalizeFileKey));
+  }, [confirmedRecommendedPaths]);
+
   const fileCandidates = useMemo(() => {
-    return mergeFilesByPath([...preview.selectedFiles, ...extraFiles]);
-  }, [preview.selectedFiles, extraFiles]);
+    return mergeFilesByPath([...suggestedFiles, ...preview.selectedFiles, ...extraFiles]);
+  }, [preview.selectedFiles, extraFiles, suggestedFiles]);
+
+  const suggestedCandidateFiles = useMemo(() => {
+    return fileCandidates.filter((file) => {
+      const key = normalizeFileKey(file.path);
+      return suggestedPathSet.has(key) && !manualPathSet.has(key);
+    });
+  }, [fileCandidates, manualPathSet, suggestedPathSet]);
 
   const recommendedFiles = useMemo(() => {
-    return fileCandidates.filter(
-      (file) => !manualPathSet.has(normalizeFileKey(file.path))
-    );
-  }, [fileCandidates, manualPathSet]);
+    return fileCandidates.filter((file) => {
+      const key = normalizeFileKey(file.path);
+      return !manualPathSet.has(key) && !suggestedPathSet.has(key);
+    });
+  }, [fileCandidates, manualPathSet, suggestedPathSet]);
 
   const manuallyAddedFiles = useMemo(() => {
     return fileCandidates.filter((file) =>
@@ -419,14 +449,15 @@ export function ContextComposerPage({
   useEffect(() => {
     setExtraFiles([]);
     setExtraSnippets([]);
-    setFileSearchQuery("");
+    setFileSearchQuery(isBlockedReview ? preview.task.rawTask : "");
     setFileSearchResults([]);
-    setFileSearchMessage("Search project files to add more context.");
-    setIsFileSearchOpen(false);
-    setIsDetailsOpen(false);
-    setSelectedPaths(recommendedPaths);
-    setActiveSnippetPath(preview.snippets[0]?.relativePath ?? null);
-  }, [preview, recommendedPaths]);
+    setFileSearchMessage(initialFileSearchMessage);
+    setIsFileSearchOpen(isBlockedReview);
+    setIsDetailsOpen(isBlockedReview);
+    setConfirmedRecommendedPaths([]);
+    setSelectedPaths(initialSelectedPaths);
+    setActiveSnippetPath(isBlockedReview ? null : preview.snippets[0]?.relativePath ?? null);
+  }, [initialFileSearchMessage, initialSelectedPaths, isBlockedReview, preview]);
 
   const selectedPathSet = useMemo(() => {
     return new Set(selectedPaths);
@@ -443,10 +474,18 @@ export function ContextComposerPage({
   }, [snippetCandidates, selectedPathSet]);
 
   const selectedManualFiles = useMemo(() => {
-    return selectedFiles.filter((file) =>
-      manualPathSet.has(normalizeFileKey(file.path))
-    );
-  }, [selectedFiles, manualPathSet]);
+    return selectedFiles.filter((file) => {
+      const key = normalizeFileKey(file.path);
+      return manualPathSet.has(key) || confirmedRecommendedPathSet.has(key);
+    });
+  }, [confirmedRecommendedPathSet, selectedFiles, manualPathSet]);
+
+  const selectedWeakAutoFiles = useMemo(() => {
+    return selectedFiles.filter((file) => {
+      const key = normalizeFileKey(file.path);
+      return !manualPathSet.has(key) && !confirmedRecommendedPathSet.has(key);
+    });
+  }, [confirmedRecommendedPathSet, selectedFiles, manualPathSet]);
 
   const activeSnippet =
     selectedSnippets.find((snippet) => snippet.relativePath === activeSnippetPath) ??
@@ -454,7 +493,10 @@ export function ContextComposerPage({
     null;
 
   const finalWarnings = useMemo(() => {
-    const warnings: string[] = [];
+    const warnings: string[] = [
+      ...preview.selectionQuality.blockingReasons,
+      ...preview.selectionQuality.warnings
+    ];
     const selectedStyleCount = selectedFiles.filter(
       (file) => file.kind === "style"
     ).length;
@@ -465,6 +507,14 @@ export function ContextComposerPage({
 
     if (selectedPaths.length === 0) {
       warnings.push("No files are included. Select at least one file before generation.");
+    }
+
+    if (isBlockedReview && selectedPaths.length > 0 && selectedManualFiles.length === 0) {
+      warnings.push("Blocked review mode is active. Include at least one manually added or manually reviewed file before generating.");
+    }
+
+    if (isBlockedReview && selectedWeakAutoFiles.length > 0) {
+      warnings.push("Weak auto-selected files are still included without manual review. Clear them or click Include on files you explicitly want to confirm.");
     }
 
     if (selectedPaths.length > 0 && selectedSnippets.length === 0) {
@@ -493,11 +543,16 @@ export function ContextComposerPage({
 
     return warnings;
   }, [
+    preview.selectionQuality.blockingReasons,
+    preview.selectionQuality.warnings,
     preview.task.effectiveTaskArea,
     preview.task.rawTask,
+    isBlockedReview,
     selectedFiles,
+    selectedManualFiles.length,
     selectedPaths.length,
-    selectedSnippets.length
+    selectedSnippets.length,
+    selectedWeakAutoFiles.length
   ]);
 
   useEffect(() => {
@@ -569,6 +624,11 @@ export function ContextComposerPage({
       setSelectedPaths((current) =>
         current.includes(result.path) ? current : [...current, result.path]
       );
+      if (isBlockedReview) {
+        setConfirmedRecommendedPaths((current) =>
+          current.includes(result.path) ? current : [...current, result.path]
+        );
+      }
       return;
     }
 
@@ -605,7 +665,7 @@ export function ContextComposerPage({
       // Non-readable files can still be included as references.
     }
 
-    setFileSearchQuery("");
+    setFileSearchQuery(isBlockedReview ? preview.task.rawTask : "");
     setFileSearchResults([]);
     setFileSearchMessage(`Added ${result.path}.`);
   }
@@ -622,17 +682,55 @@ export function ContextComposerPage({
     setSelectedPaths((current) =>
       current.filter((item) => normalizeFileKey(item) !== key)
     );
+    setConfirmedRecommendedPaths((current) =>
+      current.filter((item) => normalizeFileKey(item) !== key)
+    );
     setFileSearchMessage(`Removed ${path}.`);
   }
 
   function togglePath(path: string) {
     setSelectedPaths((current) => {
       if (current.includes(path)) {
+        if (isBlockedReview) {
+          setConfirmedRecommendedPaths((confirmed) =>
+            confirmed.filter((item) => normalizeFileKey(item) !== normalizeFileKey(path))
+          );
+        }
         return current.filter((item) => item !== path);
+      }
+
+      if (isBlockedReview && !manualPathSet.has(normalizeFileKey(path))) {
+        setConfirmedRecommendedPaths((confirmed) =>
+          confirmed.includes(path) ? confirmed : [...confirmed, path]
+        );
       }
 
       return [...current, path];
     });
+  }
+
+  function selectRecommendedPaths() {
+    setSelectedPaths(recommendedPaths);
+    if (isBlockedReview) {
+      setConfirmedRecommendedPaths(recommendedPaths);
+    }
+  }
+
+  function selectAllPaths() {
+    const allPaths = fileCandidates.map((file) => file.path);
+    setSelectedPaths(allPaths);
+    if (isBlockedReview) {
+      setConfirmedRecommendedPaths(
+        fileCandidates
+          .filter((file) => !manualPathSet.has(normalizeFileKey(file.path)))
+          .map((file) => file.path)
+      );
+    }
+  }
+
+  function clearSelectedPaths() {
+    setSelectedPaths([]);
+    setConfirmedRecommendedPaths([]);
   }
 
   async function copyPath(path: string) {
@@ -678,16 +776,72 @@ export function ContextComposerPage({
             <Button
               variant="primary"
               onClick={() => onGenerate(selectedPaths)}
-              disabled={isLoading || selectedPaths.length === 0}
+              disabled={
+                isLoading ||
+                selectedPaths.length === 0 ||
+                (isBlockedReview && selectedManualFiles.length === 0)
+              }
             >
               <WandSparkles size={15} />
-              {isLoading ? "Generating..." : "Generate from selected"}
+              {isLoading ? "Generating..." : isBlockedReview ? "Generate reviewed context" : "Generate from selected"}
             </Button>
           </div>
         </div>
       </div>
 
-      <div className="grid gap-3 md:grid-cols-4">
+      {preview.selectionQuality.status !== "ready" && (
+        <div
+          className={[
+            "rounded-[1.15rem] border p-4",
+            preview.selectionQuality.status === "blocked"
+              ? "border-red-400/25 bg-red-400/10"
+              : "border-amber-300/20 bg-amber-300/10"
+          ].join(" ")}
+        >
+          <div className="flex items-start gap-3">
+            <div className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-xl border border-white/10 bg-black/30 text-white">
+              <AlertTriangle size={15} />
+            </div>
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-white">
+                Context quality: {preview.selectionQuality.status} · {preview.selectionQuality.score}/100
+              </p>
+              <p className="mt-1 text-xs leading-5 text-neutral-400">
+                ContextForge is not fully confident in the automatic file selection. Review the files, add the real page/component/service if needed, then generate from selected.
+              </p>
+              {isBlockedReview && (
+                <p className="mt-1 text-xs leading-5 text-red-100/80">
+                  Blocked mode: weak auto-selected files are shown for reference only and are not included until you explicitly include them. Manually added files are included automatically.
+                </p>
+              )}
+              <div className="mt-3 space-y-1">
+                {[...preview.selectionQuality.blockingReasons, ...preview.selectionQuality.warnings].slice(0, 4).map((item) => (
+                  <p key={item} className="text-xs leading-5 text-neutral-300">
+                    • {item}
+                  </p>
+                ))}
+              </div>
+
+              {(preview.clarifyingQuestions ?? []).length > 0 && (
+                <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
+                    Clarify before generating
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {(preview.clarifyingQuestions ?? []).map((item) => (
+                      <p key={item} className="text-xs leading-5 text-neutral-300">
+                        • {item}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-3 md:grid-cols-5">
         <StatCard
           icon={<MousePointer2 size={15} />}
           label="Included"
@@ -715,6 +869,13 @@ export function ContextComposerPage({
           value={formatPercent(preview.taskIntent.confidence)}
           caption={preview.taskIntent.source}
         />
+
+        <StatCard
+          icon={<ShieldCheck size={15} />}
+          label="Quality"
+          value={`${preview.selectionQuality.score}/100`}
+          caption={preview.selectionQuality.status}
+        />
       </div>
 
       <div className="grid min-h-[720px] gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
@@ -738,21 +899,23 @@ export function ContextComposerPage({
           <div className="mb-3 flex shrink-0 flex-wrap gap-2">
             <ComposerActionButton
               icon={<RotateCcw size={13} />}
-              label="Recommended"
-              onClick={() => setSelectedPaths(recommendedPaths)}
+              label={isBlockedReview ? "Confirm auto" : "Recommended"}
+              danger={isBlockedReview}
+              onClick={selectRecommendedPaths}
             />
 
             <ComposerActionButton
               icon={<CheckCircle2 size={13} />}
-              label="Select all"
-              onClick={() => setSelectedPaths(fileCandidates.map((file) => file.path))}
+              label={isBlockedReview ? "Confirm all" : "Select all"}
+              danger={isBlockedReview}
+              onClick={selectAllPaths}
             />
 
             <ComposerActionButton
               icon={<XCircle size={13} />}
-              label="Clear"
+              label={isBlockedReview ? "Clear weak" : "Clear"}
               danger
-              onClick={() => setSelectedPaths([])}
+              onClick={clearSelectedPaths}
             />
 
             <ComposerActionButton
@@ -762,6 +925,12 @@ export function ContextComposerPage({
               onClick={() => setIsFileSearchOpen((current) => !current)}
             />
           </div>
+
+          {isBlockedReview && (
+            <div className="mb-3 rounded-2xl border border-red-400/15 bg-red-400/5 px-3 py-2 text-xs leading-5 text-red-100/75">
+              Auto-selection is intentionally cleared. Add the real file through search, or explicitly include recommended files you have reviewed.
+            </div>
+          )}
 
           <AnimatePresence initial={false}>
             {isFileSearchOpen && (
@@ -833,8 +1002,39 @@ export function ContextComposerPage({
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
             <FileCandidateSection
+              title="Suggested target files"
+              caption="Task-aware candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real target files first."
+              count={suggestedCandidateFiles.length}
+              emptyText="No target suggestions were produced. Use search to find the real file."
+            >
+              <AnimatePresence initial={false}>
+                {suggestedCandidateFiles.map((file) => {
+                  const isCopied = copiedPath === file.path;
+                  const isSelected = selectedPathSet.has(file.path);
+
+                  return (
+                    <FileCandidateCard
+                      key={file.path}
+                      file={file}
+                      isSelected={isSelected}
+                      isManual={confirmedRecommendedPathSet.has(normalizeFileKey(file.path))}
+                      manualLabel="Reviewed"
+                      isCopied={isCopied}
+                      onToggle={() => togglePath(file.path)}
+                      onCopy={() => copyPath(file.path)}
+                    />
+                  );
+                })}
+              </AnimatePresence>
+            </FileCandidateSection>
+
+            <FileCandidateSection
               title="Recommended context"
-              caption="Selected by ContextForge from project inventory."
+              caption={
+                isBlockedReview
+                  ? "Auto-selected files are reference-only until you explicitly include them."
+                  : "Selected by ContextForge from project inventory."
+              }
               count={recommendedFiles.length}
               emptyText="No recommended files were selected."
             >
@@ -848,7 +1048,8 @@ export function ContextComposerPage({
                       key={file.path}
                       file={file}
                       isSelected={isSelected}
-                      isManual={false}
+                      isManual={confirmedRecommendedPathSet.has(normalizeFileKey(file.path))}
+                      manualLabel="Reviewed"
                       isCopied={isCopied}
                       onToggle={() => togglePath(file.path)}
                       onCopy={() => copyPath(file.path)}
@@ -875,6 +1076,7 @@ export function ContextComposerPage({
                       file={file}
                       isSelected={isSelected}
                       isManual
+                      manualLabel="Added manually"
                       isCopied={isCopied}
                       onToggle={() => togglePath(file.path)}
                       onCopy={() => copyPath(file.path)}
@@ -1204,6 +1406,17 @@ export function ContextComposerPage({
                             <p
                               key={item}
                               className="truncate rounded-xl border border-red-400/10 bg-black/30 px-3 py-2 text-xs text-red-200/80"
+                            >
+                              {item}
+                            </p>
+                          ))}
+                        </div>
+                      ) : preview.selectionQuality.status !== "ready" ? (
+                        <div className="max-h-[150px] space-y-2 overflow-y-auto pr-1">
+                          {[...preview.selectionQuality.blockingReasons, ...preview.selectionQuality.warnings].map((item) => (
+                            <p
+                              key={item}
+                              className="rounded-xl border border-white/10 bg-black/30 px-3 py-2 text-xs leading-5 text-neutral-400"
                             >
                               {item}
                             </p>

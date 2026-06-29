@@ -3,8 +3,12 @@ import path from "node:path";
 import { Router } from "express";
 import { z } from "zod";
 
-import { pool } from "../db/pool.js";
-import { buildTaskPackPrompt } from "../prompt/taskPackBuilder.js";
+import { storage } from "../storage/index.js";
+import { getAppSettings } from "../settings/settingsService.js";
+import {
+    buildTaskPackRulesTemplatePrompt,
+    RulesServiceError
+} from "../rules/rulesService.js";
 import { generateWithConfiguredOllama } from "../ollama/ollamaService.js";
 import { analyzeTaskIntent, type TaskIntentAnalysis } from "../ollama/taskIntentAnalyzer.js";
 import {
@@ -18,6 +22,10 @@ import {
     type ProjectInventoryFile,
     type ProjectInventoryFileKind
 } from "../scanner/projectInventoryScanner.js";
+import {
+    evaluateContextSelectionQuality,
+    type ContextSelectionQuality
+} from "../selection/contextQuality.js";
 
 export const taskPacksRouter = Router();
 
@@ -29,6 +37,22 @@ const createTaskPackSchema = z.object({
     selectedFilePaths: z
         .array(z.string().trim().min(1).max(500))
         .max(48)
+        .optional(),
+
+    templateId: z.string().trim().min(1).max(180).optional(),
+    ruleProfileId: z.string().trim().min(1).max(180).optional(),
+    enabledRuleIds: z
+        .array(z.string().trim().min(1).max(180))
+        .max(80)
+        .optional(),
+    customRules: z
+        .array(z.string().trim().min(1).max(700))
+        .max(20)
+        .optional(),
+    acceptanceCriteriaPresetId: z.string().trim().min(1).max(180).optional(),
+    acceptanceCriteria: z
+        .array(z.string().trim().min(1).max(700))
+        .max(30)
         .optional()
 });
 
@@ -73,6 +97,7 @@ interface UniversalTaskPackContext {
     fileReferences: TaskContextFileReference[];
     taskIntent?: TaskIntentAnalysis;
     fileSelection: TaskFileSelection;
+    selectionQuality: ContextSelectionQuality;
     inventorySummary: {
         totalFiles: number;
         scannedFiles: number;
@@ -80,6 +105,40 @@ interface UniversalTaskPackContext {
         notes: string[];
     };
     notes: string[];
+}
+
+interface TaskPackGenerationRecipe {
+    template: {
+        id: string;
+        name: string;
+        targetTool: string;
+        taskType: string;
+        isBuiltin: boolean;
+    } | null;
+    ruleProfile: {
+        id: string;
+        name: string;
+        taskType: string;
+        isBuiltin: boolean;
+    } | null;
+    enabledRules: Array<{
+        id: string;
+        title: string;
+        category: string;
+    }>;
+    customRules: string[];
+    acceptanceCriteriaPreset: {
+        id: string;
+        name: string;
+        taskType: string;
+        isBuiltin: boolean;
+    } | null;
+    acceptanceCriteria: string[];
+    counts: {
+        enabledRules: number;
+        customRules: number;
+        acceptanceCriteria: number;
+    };
 }
 
 const MAX_SNIPPET_FILES = 5;
@@ -91,6 +150,16 @@ const PROTECTED_SECTION_TITLES = new Set([
     "Code Context Snippets",
     "Non-Text / Asset References",
     "ContextForge Assisted Notes"
+]);
+
+const STRUCTURAL_SECTION_TITLES = new Set([
+    "Agent Instructions",
+    "Constraints",
+    "Known AI-Readiness Issues",
+    "Acceptance Criteria",
+    "Verification",
+    "Expected Final Response",
+    "ContextForge Rules & Criteria"
 ]);
 
 const LANGUAGE_BY_EXTENSION: Record<string, string> = {
@@ -529,11 +598,13 @@ function buildManualComposerFileSelection({
 function buildContextNotes({
     inventory,
     taskIntent,
-    fileSelection
+    fileSelection,
+    selectionQuality
 }: {
     inventory: ProjectInventory;
     taskIntent?: TaskIntentAnalysis;
     fileSelection: TaskFileSelection;
+    selectionQuality: ContextSelectionQuality;
 }) {
     const notes: string[] = [];
     const uniqueRejectedModelPaths = getUniqueStrings(fileSelection.rejectedModelPaths);
@@ -567,6 +638,13 @@ function buildContextNotes({
     notes.push(
         `File selection source: ${fileSelection.source}; selected files: ${fileSelection.selectedFiles.length}.`
     );
+    notes.push(`Context quality: ${selectionQuality.status}; score: ${selectionQuality.score}/100.`);
+    if (selectionQuality.blockingReasons.length > 0) {
+        notes.push(`Context blocking reason(s): ${selectionQuality.blockingReasons.join("; ")}.`);
+    }
+    if (selectionQuality.warnings.length > 0) {
+        notes.push(`Context warning(s): ${selectionQuality.warnings.join("; ")}.`);
+    }
 
     if (uniqueRejectedModelPaths.length > 0) {
         notes.push(
@@ -599,6 +677,7 @@ function buildUniversalTaskPackContext({
     inventory,
     taskIntent,
     fileSelection,
+    selectionQuality,
     fileSnippets,
     fileReferences
 }: {
@@ -606,6 +685,7 @@ function buildUniversalTaskPackContext({
     inventory: ProjectInventory;
     taskIntent?: TaskIntentAnalysis;
     fileSelection: TaskFileSelection;
+    selectionQuality: ContextSelectionQuality;
     fileSnippets: TaskContextSnippet[];
     fileReferences: TaskContextFileReference[];
 }): UniversalTaskPackContext {
@@ -621,6 +701,7 @@ function buildUniversalTaskPackContext({
         fileReferences,
         taskIntent,
         fileSelection,
+        selectionQuality,
         inventorySummary: {
             totalFiles: inventory.totalFiles,
             scannedFiles: inventory.scannedFiles,
@@ -630,7 +711,8 @@ function buildUniversalTaskPackContext({
         notes: buildContextNotes({
             inventory,
             taskIntent,
-            fileSelection
+            fileSelection,
+            selectionQuality
         })
     };
 }
@@ -765,6 +847,18 @@ function buildContextForgeNotesSection(context: UniversalTaskPackContext) {
             .join("\n")
         : "- Task intent analysis was not available.";
 
+    const quality = [
+        `- Status: ${context.selectionQuality.status}`,
+        `- Score: ${context.selectionQuality.score}/100`,
+        context.selectionQuality.requiredManualReview ? "- Manual review required: yes" : "- Manual review required: no",
+        context.selectionQuality.blockingReasons.length > 0
+            ? `- Blocking reasons: ${context.selectionQuality.blockingReasons.join("; ")}`
+            : "- Blocking reasons: none",
+        context.selectionQuality.warnings.length > 0
+            ? `- Warnings: ${context.selectionQuality.warnings.join("; ")}`
+            : "- Warnings: none"
+    ].join("\n");
+
     const fileSelection = [
         `- Source: ${context.fileSelection.source}`,
         `- Used fallback: ${context.fileSelection.usedFallback ? "yes" : "no"}`,
@@ -829,6 +923,35 @@ function normalizeSectionTitle(value: string) {
     return value.trim().replace(/\s+/g, " ");
 }
 
+function getSecondLevelHeadings(markdown: string) {
+    return markdown
+        .split(/\r?\n/)
+        .map((line) => line.match(/^##\s+(.+?)\s*$/)?.[1])
+        .filter((value): value is string => Boolean(value))
+        .map(normalizeSectionTitle);
+}
+
+function hasAllRequiredTemplateSections(candidate: string, fallbackPrompt: string) {
+    const candidateHeadings = new Set(getSecondLevelHeadings(candidate));
+    const fallbackHeadings = getSecondLevelHeadings(fallbackPrompt);
+
+    return fallbackHeadings.every((heading) => {
+        if (PROTECTED_SECTION_TITLES.has(heading)) {
+            return true;
+        }
+
+        return candidateHeadings.has(heading);
+    });
+}
+
+function hasAllStructuralSections(candidate: string) {
+    const candidateHeadings = new Set(getSecondLevelHeadings(candidate));
+
+    return Array.from(STRUCTURAL_SECTION_TITLES).every((heading) =>
+        candidateHeadings.has(heading)
+    );
+}
+
 function removeProtectedSections(markdown: string) {
     const lines = markdown.split(/\r?\n/);
     const output: string[] = [];
@@ -880,6 +1003,13 @@ function ensureHeading(markdown: string) {
     }
 
     return `# AI Task Pack\n\n${trimmed}`;
+}
+
+function normalizeMarkdownSeparators(markdown: string) {
+    return markdown
+        .replace(/\n(?:\s*---\s*\n){2,}/g, "\n\n---\n\n")
+        .replace(/\n{4,}/g, "\n\n\n")
+        .trim();
 }
 
 function restoreProtectedSections(
@@ -939,16 +1069,25 @@ Important:
 - Do not rewrite or summarize code snippets.
 - Do not replace snippets with placeholder comments.
 - Do not remove file candidates selected by ContextForge.
-- Protected sections are backend-generated and will be restored after your generation:
+- Protected context sections are backend-generated and will be restored after your generation:
   - Relevant File Candidates
   - Code Context Snippets
   - Non-Text / Asset References
   - ContextForge Assisted Notes
+- Rules, criteria and custom template sections are strict ContextForge contract sections.
+- Preserve all section headings from the Template Task Pack.
+- Do not remove, rename, summarize, or paraphrase:
+  - Agent Instructions
+  - Constraints
+  - Acceptance Criteria
+  - Verification
+  - Expected Final Response
+  - ContextForge Rules & Criteria
 - Output Markdown only.
 - Do not wrap the answer in code fences.
 - Do not add commentary before or after the document.
 - The first line must be exactly: # AI Task Pack
-- The "## Task Type" section must contain the Effective task area value, not the originally requested task type.
+- The "## Task Type" section must preserve the user-selected/requested task type. Mention the inferred area separately in ContextForge Assisted Notes only.
 - ${hasTestScript
             ? "The project has a test script. You may include it in verification."
             : "The project has no detected test script. Do not recommend npm run test."
@@ -966,6 +1105,7 @@ Required document structure:
 ## Constraints
 ## Known AI-Readiness Issues
 ## Acceptance Criteria
+## ContextForge Rules & Criteria
 ## Verification
 ## ContextForge Assisted Notes
 ## Expected Final Response
@@ -1008,6 +1148,7 @@ ${JSON.stringify(
                     rejectedModelPaths: context.fileSelection.rejectedModelPaths,
                     notes: context.fileSelection.notes
                 },
+                selectionQuality: context.selectionQuality,
                 inventorySummary: context.inventorySummary
             },
             null,
@@ -1030,57 +1171,77 @@ function postProcessGeneratedTaskPack(
 
     const withHeading = ensureHeading(candidate);
     const withEffectiveTaskType = normalizeTaskTypeSection(withHeading, context);
+    const restored = restoreProtectedSections(withEffectiveTaskType, context);
 
-    return restoreProtectedSections(withEffectiveTaskType, context);
+    if (
+        !hasAllRequiredTemplateSections(restored, fallbackPrompt) ||
+        !hasAllStructuralSections(restored)
+    ) {
+        return normalizeMarkdownSeparators(
+            normalizeTaskTypeSection(
+                restoreProtectedSections(fallbackPrompt, context),
+                context
+            )
+        );
+    }
+
+    return normalizeMarkdownSeparators(restored);
 }
 
 async function getProjectById(projectId: number): Promise<ProjectRow | null> {
-    const projectResult = await pool.query(
-        `
-        SELECT
-          id,
-          name,
-          local_path AS "localPath",
-          package_manager AS "packageManager",
-          detected_stack AS "detectedStack",
-          scripts,
-          readiness_score AS "readinessScore",
-          readiness_report AS "readinessReport"
-        FROM projects
-        WHERE id = $1;
-        `,
-        [projectId]
-    );
+    return storage.getProjectById(projectId);
+}
 
-    return projectResult.rows[0] ?? null;
+function buildGenerationRecipeMetadata(
+    recipe: Awaited<ReturnType<typeof buildTaskPackRulesTemplatePrompt>>["recipe"]
+): TaskPackGenerationRecipe {
+    return {
+        template: recipe.template
+            ? {
+                id: recipe.template.id,
+                name: recipe.template.name,
+                targetTool: recipe.template.targetTool,
+                taskType: recipe.template.taskType,
+                isBuiltin: recipe.template.isBuiltin
+            }
+            : null,
+        ruleProfile: recipe.profile
+            ? {
+                id: recipe.profile.id,
+                name: recipe.profile.name,
+                taskType: recipe.profile.taskType,
+                isBuiltin: recipe.profile.isBuiltin
+            }
+            : null,
+        enabledRules: recipe.ruleItems.map((rule) => ({
+            id: rule.id,
+            title: rule.title,
+            category: rule.category
+        })),
+        customRules: recipe.customRules,
+        acceptanceCriteriaPreset: recipe.acceptanceCriteriaPreset
+            ? {
+                id: recipe.acceptanceCriteriaPreset.id,
+                name: recipe.acceptanceCriteriaPreset.name,
+                taskType: recipe.acceptanceCriteriaPreset.taskType,
+                isBuiltin: recipe.acceptanceCriteriaPreset.isBuiltin
+            }
+            : null,
+        acceptanceCriteria: recipe.acceptanceCriteria,
+        counts: {
+            enabledRules: recipe.ruleItems.length,
+            customRules: recipe.customRules.length,
+            acceptanceCriteria: recipe.acceptanceCriteria.length
+        }
+    };
 }
 
 taskPacksRouter.get("/", async (_req, res) => {
-    const result = await pool.query(`
-        SELECT
-          tp.id,
-          tp.project_id AS "projectId",
-          p.name AS "projectName",
-          tp.title,
-          tp.raw_task AS "rawTask",
-          tp.task_type AS "taskType",
-          tp.target_tool AS "targetTool",
-          tp.generated_prompt AS "generatedPrompt",
-          tp.generation_mode AS "generationMode",
-          tp.generation_model AS "generationModel",
-          tp.generation_message AS "generationMessage",
-          tp.generation_used_fallback AS "generationUsedFallback",
-          tp.generation_duration_ms AS "generationDurationMs",
-          tp.created_at AS "createdAt",
-          tp.updated_at AS "updatedAt"
-        FROM task_packs tp
-        JOIN projects p ON p.id = tp.project_id
-        ORDER BY tp.created_at DESC;
-    `);
+    const taskPacks = await storage.listTaskPacks();
 
     res.json({
         ok: true,
-        taskPacks: result.rows
+        taskPacks
     });
 });
 
@@ -1108,6 +1269,7 @@ taskPacksRouter.post("/", async (req, res) => {
         }
 
         const inventory = await scanProjectInventory(project.localPath);
+        const settings = await getAppSettings();
 
         const taskIntent = await analyzeTaskIntent({
             rawTask: parsed.data.rawTask,
@@ -1147,6 +1309,28 @@ taskPacksRouter.post("/", async (req, res) => {
             fileSelection
         });
 
+        const selectionQuality = evaluateContextSelectionQuality({
+            rawTask: parsed.data.rawTask,
+            requestedTaskType: parsed.data.taskType,
+            effectiveTaskArea: effectiveSelectionArea,
+            inventory,
+            fileSelection,
+            manualSelectionConfirmed: manualSelectionRequested,
+            contextQualityMode: settings.contextQualityMode
+        });
+
+        const shouldBlockAutomaticGeneration = settings.contextQualityMode !== "advisory" && selectionQuality.status === "blocked" && !manualSelectionRequested;
+
+        if (shouldBlockAutomaticGeneration) {
+            res.status(422).json({
+                ok: false,
+                code: "CONTEXT_SELECTION_BLOCKED",
+                message: "ContextForge could not select safe/relevant files automatically. Review files in Context Composer and generate from the confirmed selection.",
+                selectionQuality
+            });
+            return;
+        }
+
         const fileSnippets = await buildSelectedFileSnippets({
             projectRoot: project.localPath,
             inventory,
@@ -1158,6 +1342,7 @@ taskPacksRouter.post("/", async (req, res) => {
             inventory,
             taskIntent,
             fileSelection,
+            selectionQuality,
             fileSnippets,
             fileReferences
         });
@@ -1167,19 +1352,23 @@ taskPacksRouter.post("/", async (req, res) => {
             readinessReport: project.readinessReport ?? { issues: [] }
         };
 
-        const effectiveTaskType =
-            "effectiveTaskArea" in fileSelection
-                ? fileSelection.effectiveTaskArea
-                : taskIntent.taskArea !== "general"
-                    ? taskIntent.taskArea
-                    : parsed.data.taskType;
+        const effectiveTaskType = parsed.data.taskType;
 
-        const templatePrompt = buildTaskPackPrompt({
+        const taskPackTemplate = await buildTaskPackRulesTemplatePrompt({
             project: projectForPrompt,
             rawTask: parsed.data.rawTask,
-            taskType: effectiveTaskType,
-            targetTool: parsed.data.targetTool
+            taskType: parsed.data.taskType,
+            targetTool: parsed.data.targetTool,
+            templateId: parsed.data.templateId,
+            ruleProfileId: parsed.data.ruleProfileId,
+            enabledRuleIds: parsed.data.enabledRuleIds,
+            customRules: parsed.data.customRules,
+            acceptanceCriteriaPresetId: parsed.data.acceptanceCriteriaPresetId,
+            acceptanceCriteria: parsed.data.acceptanceCriteria
         });
+
+        const templatePrompt = taskPackTemplate.prompt;
+        const generationRecipe = buildGenerationRecipeMetadata(taskPackTemplate.recipe);
 
         const contextAwareTemplatePrompt = buildContextAwareTemplatePrompt(
             templatePrompt,
@@ -1208,62 +1397,38 @@ taskPacksRouter.post("/", async (req, res) => {
 
         const title = createTitle(parsed.data.rawTask);
 
-        const result = await pool.query(
-            `
-            INSERT INTO task_packs (
-              project_id,
-              title,
-              raw_task,
-              task_type,
-              target_tool,
-              generated_prompt,
-              generation_mode,
-              generation_model,
-              generation_message,
-              generation_used_fallback,
-              generation_duration_ms
-            )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
-            RETURNING
-              id,
-              project_id AS "projectId",
-              title,
-              raw_task AS "rawTask",
-              task_type AS "taskType",
-              target_tool AS "targetTool",
-              generated_prompt AS "generatedPrompt",
-              generation_mode AS "generationMode",
-              generation_model AS "generationModel",
-              generation_message AS "generationMessage",
-              generation_used_fallback AS "generationUsedFallback",
-              generation_duration_ms AS "generationDurationMs",
-              created_at AS "createdAt",
-              updated_at AS "updatedAt";
-            `,
-            [
-                project.id,
-                title,
-                parsed.data.rawTask,
-                effectiveTaskType,
-                parsed.data.targetTool,
-                generatedPrompt,
-                generation.mode,
-                generation.model,
-                generation.message,
-                generation.usedFallback,
-                generation.durationMs
-            ]
-        );
+        const taskPack = await storage.createTaskPack({
+            projectId: project.id,
+            title,
+            rawTask: parsed.data.rawTask,
+            taskType: effectiveTaskType,
+            targetTool: parsed.data.targetTool,
+            generatedPrompt,
+            generationMode: generation.mode,
+            generationModel: generation.model,
+            generationMessage: generation.message,
+            generationUsedFallback: generation.usedFallback,
+            generationDurationMs: generation.durationMs,
+            generationRecipe
+        });
 
         res.json({
             ok: true,
             taskPack: {
-                ...result.rows[0],
+                ...taskPack,
                 projectName: project.name
             }
         });
     } catch (error) {
         console.error("Failed to create task pack:", error);
+
+        if (error instanceof RulesServiceError) {
+            res.status(error.statusCode).json({
+                ok: false,
+                message: error.message
+            });
+            return;
+        }
 
         res.status(500).json({
             ok: false,

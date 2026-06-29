@@ -197,7 +197,7 @@ export interface AppSettings {
   ollamaUrl: string;
   generationMode: "template" | "ollama";
   defaultTargetTool: "codex" | "cursor" | "claude" | "generic";
-  defaultTaskType: "general" | "ui" | "backend" | "bugfix" | "refactor" | "docs" | "tests";
+  defaultTaskType: "general" | "ui" | "backend" | "fullstack" | "build" | "bugfix" | "refactor" | "docs" | "tests";
   defaultOllamaModel: string | null;
   language: "system" | "en" | "ru";
   composerFileLimits: {
@@ -211,6 +211,7 @@ export interface AppSettings {
     docs: number;
     tests: number;
   };
+  contextQualityMode: "advisory" | "balanced" | "strict";
   sidebarShowDescriptions: boolean;
 }
 
@@ -256,6 +257,15 @@ export interface ContextComposerFileReference {
   sizeBytes: number;
 }
 
+
+export interface ContextSelectionQuality {
+  status: "ready" | "warning" | "blocked";
+  score: number;
+  warnings: string[];
+  blockingReasons: string[];
+  requiredManualReview: boolean;
+}
+
 export interface ContextComposerSnippet {
   relativePath: string;
   language: string;
@@ -294,7 +304,10 @@ export interface ContextComposerPreview {
     rejectedModelPaths: string[];
     notes: string[];
   };
+  selectionQuality: ContextSelectionQuality;
   selectedFiles: ContextComposerFileReference[];
+  suggestedFileGroups?: ContextComposerSuggestedFileGroup[];
+  clarifyingQuestions?: string[];
   snippets: ContextComposerSnippet[];
   inventorySummary: {
     totalFiles: number;
@@ -319,6 +332,13 @@ export interface ContextComposerFileSearchResponse {
   };
   query: string;
   results: ContextComposerFileSearchResult[];
+}
+
+export interface ContextComposerSuggestedFileGroup {
+  id: string;
+  title: string;
+  caption: string;
+  files: ContextComposerFileReference[];
 }
 
 export interface ContextComposerFileSnippetResponse {

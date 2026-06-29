@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import {
+  ApiRequestError,
   addProject,
   createContextComposerPreview,
   createTaskPack,
@@ -29,6 +30,39 @@ function parseMultilineRules(value?: string) {
         .filter(Boolean)
     )
   );
+}
+
+
+function getBlockedContextMessage(error: ApiRequestError) {
+  const data = error.data;
+
+  if (!data || typeof data !== "object") {
+    return error.message;
+  }
+
+  const selectionQuality = (data as {
+    selectionQuality?: {
+      blockingReasons?: unknown;
+      warnings?: unknown;
+      score?: unknown;
+    };
+  }).selectionQuality;
+
+  const reasons = Array.isArray(selectionQuality?.blockingReasons)
+    ? selectionQuality.blockingReasons.map(String).filter(Boolean)
+    : [];
+
+  const warnings = Array.isArray(selectionQuality?.warnings)
+    ? selectionQuality.warnings.map(String).filter(Boolean)
+    : [];
+
+  const firstReason = reasons[0] ?? warnings[0];
+  const score = Number(selectionQuality?.score);
+  const scorePart = Number.isFinite(score) ? ` Context score: ${score}/100.` : "";
+
+  return firstReason
+    ? `Context needs manual review. ${firstReason}${scorePart}`
+    : error.message;
 }
 
 export function useDashboardController() {
@@ -242,7 +276,31 @@ export function useDashboardController() {
       setContextComposerPreview(null);
       setStatusMessage(i18n.t("common.statusTaskPackGenerated"));
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
+      if (
+        error instanceof ApiRequestError &&
+        error.code === "CONTEXT_SELECTION_BLOCKED" &&
+        !selectedFilePaths
+      ) {
+        try {
+          const preview = await createContextComposerPreview({
+            projectId: taskPackDraft.projectId,
+            rawTask: taskPackDraft.rawTask,
+            taskType: taskPackDraft.taskType,
+            targetTool: taskPackDraft.targetTool
+          });
+
+          setContextComposerPreview(preview);
+          setStatusMessage(getBlockedContextMessage(error));
+        } catch (previewError) {
+          setStatusMessage(
+            previewError instanceof Error
+              ? `${getBlockedContextMessage(error)} ${previewError.message}`
+              : getBlockedContextMessage(error)
+          );
+        }
+      } else {
+        setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
+      }
     } finally {
       setIsLoading(false);
     }

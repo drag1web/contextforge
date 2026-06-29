@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { pool } from "../db/pool.js";
+import { storage } from "../storage/index.js";
 
 export type WorkspaceSearchResultType = "project" | "taskPack" | "file";
 
@@ -158,90 +158,61 @@ function createSnippet(content: string, query: string) {
 }
 
 async function getProjectsForSearch(): Promise<ProjectRow[]> {
-  const result = await pool.query(`
-    SELECT
-      id,
-      name,
-      local_path AS "localPath",
-      package_manager AS "packageManager",
-      detected_stack AS "detectedStack",
-      readiness_score AS "readinessScore"
-    FROM projects
-    ORDER BY updated_at DESC
-    LIMIT $1;
-  `, [MAX_PROJECTS_FOR_FILE_SEARCH]);
-
-  return result.rows;
+  const projects = await storage.listProjects();
+  return projects.slice(0, MAX_PROJECTS_FOR_FILE_SEARCH);
 }
 
 async function searchProjectRows(query: string): Promise<WorkspaceSearchResult[]> {
-  const likeQuery = `%${query}%`;
+  const normalizedQuery = normalize(query);
+  const projects = await storage.listProjects();
 
-  const result = await pool.query(`
-    SELECT
-      id,
-      name,
-      local_path AS "localPath",
-      package_manager AS "packageManager",
-      detected_stack AS "detectedStack",
-      readiness_score AS "readinessScore"
-    FROM projects
-    WHERE
-      name ILIKE $1 OR
-      local_path ILIKE $1 OR
-      package_manager ILIKE $1 OR
-      detected_stack::text ILIKE $1
-    ORDER BY updated_at DESC
-    LIMIT $2;
-  `, [likeQuery, MAX_DB_RESULTS]);
-
-  return result.rows.map((project: ProjectRow) => ({
-    id: `project-${project.id}`,
-    type: "project",
-    title: project.name,
-    subtitle: `${project.localPath} · AI ${project.readinessScore}/100`,
-    projectId: project.id,
-    projectName: project.name,
-    score: 80
-  }));
+  return projects
+    .filter((project) =>
+      [
+        project.name,
+        project.localPath,
+        project.packageManager,
+        project.detectedStack.join(" ")
+      ].some((value) => normalize(value).includes(normalizedQuery))
+    )
+    .slice(0, MAX_DB_RESULTS)
+    .map((project) => ({
+      id: `project-${project.id}`,
+      type: "project",
+      title: project.name,
+      subtitle: `${project.localPath} · AI ${project.readinessScore}/100`,
+      projectId: project.id,
+      projectName: project.name,
+      score: 80
+    }));
 }
 
 async function searchTaskPackRows(query: string): Promise<WorkspaceSearchResult[]> {
-  const likeQuery = `%${query}%`;
+  const normalizedQuery = normalize(query);
+  const taskPacks = await storage.listTaskPacks();
 
-  const result = await pool.query(`
-    SELECT
-      tp.id,
-      tp.project_id AS "projectId",
-      p.name AS "projectName",
-      tp.title,
-      tp.raw_task AS "rawTask",
-      tp.task_type AS "taskType",
-      tp.target_tool AS "targetTool",
-      tp.generation_mode AS "generationMode"
-    FROM task_packs tp
-    JOIN projects p ON p.id = tp.project_id
-    WHERE
-      tp.title ILIKE $1 OR
-      tp.raw_task ILIKE $1 OR
-      tp.generated_prompt ILIKE $1 OR
-      tp.task_type ILIKE $1 OR
-      tp.target_tool ILIKE $1 OR
-      p.name ILIKE $1
-    ORDER BY tp.created_at DESC
-    LIMIT $2;
-  `, [likeQuery, MAX_DB_RESULTS]);
-
-  return result.rows.map((taskPack) => ({
-    id: `task-pack-${taskPack.id}`,
-    type: "taskPack",
-    title: taskPack.title,
-    subtitle: `${taskPack.projectName} · ${taskPack.taskType} · ${taskPack.targetTool}`,
-    projectId: taskPack.projectId,
-    projectName: taskPack.projectName,
-    taskPackId: taskPack.id,
-    score: 70
-  }));
+  return taskPacks
+    .filter((taskPack) =>
+      [
+        taskPack.title,
+        taskPack.rawTask,
+        taskPack.generatedPrompt,
+        taskPack.taskType,
+        taskPack.targetTool,
+        taskPack.projectName
+      ].some((value) => normalize(value).includes(normalizedQuery))
+    )
+    .slice(0, MAX_DB_RESULTS)
+    .map((taskPack) => ({
+      id: `task-pack-${taskPack.id}`,
+      type: "taskPack",
+      title: taskPack.title,
+      subtitle: `${taskPack.projectName ?? "Project"} · ${taskPack.taskType} · ${taskPack.targetTool}`,
+      projectId: taskPack.projectId,
+      projectName: taskPack.projectName,
+      taskPackId: taskPack.id,
+      score: 70
+    }));
 }
 
 async function collectSearchableFiles(projectRoot: string) {

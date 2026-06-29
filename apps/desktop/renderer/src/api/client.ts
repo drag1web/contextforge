@@ -18,6 +18,23 @@ import type {
 
 const API_URL = "http://localhost:4000/api";
 
+export class ApiRequestError extends Error {
+  status: number;
+  code?: string;
+  data: unknown;
+
+  constructor(message: string, status: number, data: unknown) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.data = data;
+    this.code =
+      data && typeof data === "object" && "code" in data
+        ? String((data as { code?: unknown }).code ?? "")
+        : undefined;
+  }
+}
+
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${url}`, {
     headers: {
@@ -30,7 +47,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const data = await response.json();
 
   if (!data.ok) {
-    throw new Error(data.message ?? "Request failed");
+    throw new ApiRequestError(data.message ?? "Request failed", response.status, data);
   }
 
   return data;

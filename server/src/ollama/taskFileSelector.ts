@@ -1,4 +1,5 @@
 import { getAppSettings } from "../settings/settingsService.js";
+import { resolveExplicitFileMentions } from "../selection/explicitFileMentions.js";
 import type {
     ProjectInventory,
     ProjectInventoryFile,
@@ -53,6 +54,7 @@ interface TokenContext {
     broadTokens: string[];
     explicitExistingPaths: string[];
     explicitMissingPaths: string[];
+    routeMentions: string[];
 }
 
 const MAX_SELECTED_FILES = 14;
@@ -101,7 +103,165 @@ function includesAny(value: string, terms: string[]) {
 interface TaskConstraints {
     noBackendMutation: boolean;
     noFrontendMutation: boolean;
+    onlyExplicitFiles: boolean;
+    protectOtherPages: boolean;
+    protectedFileTerms: string[];
     notes: string[];
+}
+
+
+function uniqueNormalizedTokens(values: string[]) {
+    const seen = new Set<string>();
+    const out: string[] = [];
+
+    for (const value of values) {
+        const token = normalizeForCompare(value).replace(/^[^a-zа-яё0-9]+|[^a-zа-яё0-9]+$/gi, "");
+        if (!token || token.length < 3 || seen.has(token)) continue;
+        seen.add(token);
+        out.push(token);
+    }
+
+    return out;
+}
+
+const NEGATIVE_CONSTRAINT_STOP_WORDS = new Set([
+    "не", "no", "not", "do", "dont", "don't", "менять", "меняй", "трогать", "трогай", "редактировать", "редактируй",
+    "изменять", "изменяй", "modify", "change", "touch", "edit", "without", "keep", "and", "or", "the", "a", "an", "site", "page",
+    "сайт", "сайта", "эту", "это", "там", "вот", "как", "или", "и", "а", "но", "при", "для", "по", "на", "остальные", "остальных",
+    "страницы", "страниц", "файлы", "файл", "others", "other", "rest"
+]);
+
+function getNegativeConstraintPhrases(rawTask: string) {
+    const text = normalizeForCompare(rawTask).replace(/[—–]/g, " — ");
+    const phrases: string[] = [];
+
+    const cleanPhrase = (value: string) => value
+        .replace(/\s+/g, " ")
+        .replace(/^(?:в|in|into|к|to)\s+/i, "")
+        .replace(/\b(?:не\s+(?:меняй|менять|трогай|трогать|лезь|лезть|редактируй|редактировать|изменяй|изменять)|do\s+not|don't|dont|without|keep)\b.*$/i, "")
+        .split(/[.!?\n—]/)[0]
+        .trim();
+
+    const afterNegativeRegexes = [
+        /(?:не\s+(?:менять|меняй|трогать|трогай|лезь|лезть|редактировать|редактируй|изменять|изменяй))\s+(?:в\s+|к\s+)?([^.!?\n—]{1,120})/gi,
+        /(?:do\s+not|don't|dont)\s+(?:change|touch|edit|modify)\s+([^.!?\n—]{1,120})/gi,
+        /(?:without\s+(?:changing|touching|editing|modifying))\s+([^.!?\n—]{1,120})/gi,
+        /(?:keep)\s+([^.!?\n—]{1,90})\s+(?:unchanged|intact)/gi
+    ];
+
+    // Handles natural Russian order: "шапку, футер и контакты не трогать".
+    // Keep only the last clause before the negation so positive task text earlier in the sentence
+    // does not become protected by accident.
+    const beforeNegativeRegexes = [
+        /([^.!?\n—]{1,160})\s+не\s+(?:менять|трогать|редактировать|изменять)/gi,
+        /([^.!?\n—]{1,160})\s+(?:do\s+not|don't|dont)\s+(?:change|touch|edit|modify)/gi
+    ];
+
+    for (const regex of afterNegativeRegexes) {
+        for (const match of text.matchAll(regex)) {
+            const cleaned = cleanPhrase(match[1] ?? "");
+            if (cleaned) phrases.push(cleaned);
+        }
+    }
+
+    for (const regex of beforeNegativeRegexes) {
+        for (const match of text.matchAll(regex)) {
+            const raw = String(match[1] ?? "");
+            const clause = raw.split(/[.;!?\n—]/).pop()?.trim() ?? raw.trim();
+            const afterBut = clause.split(/\b(?:но|but|however)\b/gi).pop()?.trim() ?? clause;
+            // Skip positive task clauses such as "improve navigation and do not change other files".
+            if (/(?:улучш|сдел|замен|добав|реализ|подключ|исправ|передел|improve|make|replace|add|implement|connect|fix|change)/i.test(afterBut)) continue;
+            const cleaned = cleanPhrase(afterBut);
+            if (cleaned) phrases.push(cleaned);
+        }
+    }
+
+    return uniqueStrings(phrases).slice(0, 12);
+}
+
+function getPositiveTaskText(rawTask: string) {
+    let text = rawTask;
+
+    for (const phrase of getNegativeConstraintPhrases(rawTask)) {
+        if (!phrase) continue;
+        const escaped = phrase.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+        text = text.replace(new RegExp(escaped, "gi"), " ");
+    }
+
+    // Also remove common trailing "only do X" constraint tails from target scoring.
+    text = text.replace(/(?:но|but)\s+(?:не\s+)?(?:меняй|трогай|лезь|change|touch|edit)[^.!?\n—]{0,160}/gi, " ");
+    return text.replace(/\s+/g, " ").trim();
+}
+
+function extractNegativeConstraintTerms(rawTask: string) {
+    const chunks = getNegativeConstraintPhrases(rawTask);
+
+    const tokens = uniqueNormalizedTokens(chunks.flatMap((chunk) => chunk.split(/[^a-zа-яё0-9_.\/-]+/i)))
+        .filter((token) => !NEGATIVE_CONSTRAINT_STOP_WORDS.has(token))
+        .filter((token) => token.length <= 32)
+        .slice(0, 24);
+
+    const expanded = new Set(tokens);
+    for (const token of tokens) {
+        // Universal UI/website vocabulary, not business-domain project rules.
+        if (token.startsWith("шап") || token === "header") ["header", "nav", "navigation", "navbar", "topbar"].forEach((item) => expanded.add(item));
+        if (token.startsWith("фут") || token.startsWith("footer")) ["footer", "foot"].forEach((item) => expanded.add(item));
+        if (token.startsWith("контакт") || token.startsWith("contact")) ["contact", "contacts", "контакт", "контакты"].forEach((item) => expanded.add(item));
+        if (token.startsWith("достав") || token.startsWith("deliver")) ["delivery", "deliver", "достав", "доставка"].forEach((item) => expanded.add(item));
+        if (token.startsWith("роут") || token.startsWith("route")) ["route", "routes", "routing", "роут", "роуты"].forEach((item) => expanded.add(item));
+        if (token.startsWith("таблиц") || token.startsWith("table")) ["table", "tables", "таблица", "таблицы"].forEach((item) => expanded.add(item));
+        if (token.startsWith("ридми") || token === "readme") ["readme", "readme.md", "docs"].forEach((item) => expanded.add(item));
+        if (token === "api" || token === "апи") ["api", "endpoint", "service"].forEach((item) => expanded.add(item));
+        if (token.startsWith("юрид") || token.startsWith("legal")) ["policy", "privacy", "consent", "terms", "legal"].forEach((item) => expanded.add(item));
+        if (token.startsWith("стил") || token === "style" || token === "styles") ["style", "styles", "css", "стил"].forEach((item) => expanded.add(item));
+    }
+
+    return Array.from(expanded);
+}
+
+function mentionsOnlyExplicitFiles(rawTask: string) {
+    return includesAny(rawTask, [
+        "не менять остальные файлы",
+        "не меняй остальные файлы",
+        "не трогать остальные файлы",
+        "не трогай остальные файлы",
+        "остальные файлы не трогать",
+        "остальные файлы не менять",
+        "другие файлы не трогать",
+        "другие файлы не менять",
+        "только этот файл",
+        "только этот компонент",
+        "only this file",
+        "this file only",
+        "do not change other files",
+        "don't change other files",
+        "do not touch other files",
+        "don't touch other files",
+        "leave other files alone"
+    ]);
+}
+
+function mentionsOtherPagesProtected(rawTask: string) {
+    return includesAny(rawTask, [
+        "не менять остальные страницы",
+        "не меняй остальные страницы",
+        "не трогать остальные страницы",
+        "не трогай остальные страницы",
+        "остальные страницы не трогать",
+        "остальные страницы не менять",
+        "другие страницы не трогать",
+        "другие страницы не менять",
+        "остальные страницы",
+        "другие страницы",
+        "юридические страницы не трогать",
+        "юридические страницы не менять",
+        "do not change other pages",
+        "don't change other pages",
+        "do not touch other pages",
+        "don't touch other pages",
+        "other pages",
+        "legal pages"
+    ]);
 }
 
 function getTaskConstraints(input: SelectTaskFilesInput): TaskConstraints {
@@ -193,15 +353,31 @@ function getTaskConstraints(input: SelectTaskFilesInput): TaskConstraints {
         "только сервер"
     ]);
 
+    const onlyExplicitFiles = mentionsOnlyExplicitFiles(rawTask);
+    const protectOtherPages = mentionsOtherPagesProtected(rawTask);
+    const protectedFileTerms = extractNegativeConstraintTerms(rawTask);
+
     return {
         noBackendMutation,
         noFrontendMutation,
+        onlyExplicitFiles,
+        protectOtherPages,
+        protectedFileTerms,
         notes: [
             noBackendMutation
                 ? "Constraint detected: backend/API files should not be selected as edit targets."
                 : "",
             noFrontendMutation
                 ? "Constraint detected: UI/frontend files should not be selected as edit targets."
+                : "",
+            onlyExplicitFiles
+                ? "Constraint detected: user asked not to change other files; explicit file mentions are treated as the edit boundary."
+                : "",
+            protectOtherPages
+                ? "Constraint detected: user asked not to change other pages; unrelated page/layout files are protected."
+                : "",
+            protectedFileTerms.length > 0
+                ? `Constraint detected: protected terms from task: ${protectedFileTerms.slice(0, 10).join(", ")}.`
                 : ""
         ].filter(Boolean)
     };
@@ -246,7 +422,7 @@ function uniqueStrings(values: string[]) {
 
 function buildTaskText(input: SelectTaskFilesInput) {
     return [
-        input.rawTask,
+        getPositiveTaskText(input.rawTask),
         input.taskType,
         input.targetTool,
         input.taskIntent?.taskArea ?? "",
@@ -288,7 +464,7 @@ function getSelectedTaskTypeArea(taskType: string): EffectiveTaskArea {
 
 function scoreTaskArea(input: SelectTaskFilesInput) {
     const text = normalizeForCompare([
-        input.rawTask,
+        getPositiveTaskText(input.rawTask),
         input.taskIntent?.taskArea ?? "",
         ...(input.taskIntent?.intentTags ?? []),
         ...(input.taskIntent?.fileRoleHints ?? [])
@@ -306,6 +482,14 @@ function scoreTaskArea(input: SelectTaskFilesInput) {
         general: 0
     };
     const constraints = getTaskConstraints(input);
+    const hasImplementationAction = includesAny(text, [
+        "implement", "connect", "integrate", "wire", "hook up", "create", "add feature", "build feature",
+        "replace", "render", "show", "display", "fetch", "call", "change", "edit", "modify",
+        "реализ", "подключ", "интегр", "добав", "созд", "замен", "вывести", "показ", "получ", "запрос", "измен", "передел"
+    ]);
+    const docsAsSecondaryDeliverable = hasImplementationAction && includesAny(text, [
+        "readme", "docs", "documentation", "guide", "manual", "документац", "ридми", "инструкц", "дальнейшей разработки"
+    ]);
 
     const hasApi = includesAny(text, ["api", "апи", "endpoint", "эндпоинт", "route", "маршрут"]);
     const hasAuth = includesAny(text, ["auth", "authorization", "authentication", "login", "session", "token", "cookie", "авторизац", "логин", "сесс", "токен", "куки"]);
@@ -315,8 +499,26 @@ function scoreTaskArea(input: SelectTaskFilesInput) {
     if (hasApi || hasAuth || hasServer) scores.backend += 5;
     if (hasApi && hasAuth) scores.backend += 8;
     if (hasUi) scores.ui += 5;
+
+    const positiveExplicitResolution = resolveExplicitFileMentions(getPositiveTaskText(input.rawTask), input.inventory);
+    const positiveExplicitFiles = positiveExplicitResolution.existingPaths
+        .map((pathValue) => findInventoryFile(input.inventory, pathValue))
+        .filter(Boolean) as ProjectInventoryFile[];
+    if (positiveExplicitFiles.some((file) => isClientUiPath(file.path))) scores.ui += 12;
+    if (positiveExplicitFiles.some((file) => isBackendLeaningPath(file.path) || isClientApiBridgePath(file.path))) scores.backend += 8;
+    if (extractRouteMentions(input.rawTask).length > 0 || includesAny(getPositiveTaskText(input.rawTask), ["на странице", "страница", "page", "route"])) scores.ui += 7;
+
+    if (hasImplementationAction) {
+        scores.general += 2;
+        if (hasApi || hasServer || hasAuth) scores.backend += 8;
+        if (hasUi) scores.ui += 6;
+        if ((hasApi || hasServer || hasAuth) && (hasUi || includesAny(text, ["interface", "ui", "frontend", "компонент", "интерфейс", "экран", "страниц", "программ"]))) {
+            scores.fullstack += 11;
+        }
+    }
     if (includesAny(text, ["build", "npm run build", "compile", "compilation", "bundl", "import", "imports", "module not found", "resolve", "alias", "tsconfig", "vite", "next build", "eslint", "typecheck", "typescript", "сборк", "билд", "компиляц", "импорт", "импортами", "путями", "алиас", "модул"])) scores.build += 9;
-    if (includesAny(text, ["readme", "docs", "documentation", "guide", "manual", "instructions", "how to run", "setup", "onboarding", "документац", "ридми", "инструкц", "запуск", "запуска", "разработчик", "команды"])) scores.docs += 8;
+    if (includesAny(text, ["readme", "docs", "documentation", "guide", "manual", "instructions", "how to run", "setup", "onboarding", "документац", "ридми", "инструкц", "запуск", "запуска", "разработчик", "команды"])) scores.docs += docsAsSecondaryDeliverable ? 2 : 8;
+    if (docsAsSecondaryDeliverable) scores.docs -= 4;
     if (includesAny(text, ["test", "tests", "unit", "e2e", "spec", "coverage", "jest", "vitest", "playwright", "тест", "тесты", "покрытие"])) scores.tests += 7;
     if (includesAny(text, ["bug", "fix", "broken", "error", "crash", "fails", "not working", "ошибка", "баг", "слом", "падает", "не работает", "краш", "исправь", "почини"])) scores.bugfix += 3;
     if (includesAny(text, ["refactor", "cleanup", "restructure", "рефактор", "почисти", "не меняй логику", "не меняй бизнес-логику"])) scores.refactor += 3;
@@ -348,7 +550,7 @@ function scoreTaskArea(input: SelectTaskFilesInput) {
     }
 
     const selectedArea = getSelectedTaskTypeArea(input.taskType);
-    if (selectedArea !== "general") scores[selectedArea] += 1;
+    if (selectedArea !== "general") scores[selectedArea] += 4;
 
     return scores;
 }
@@ -367,7 +569,7 @@ function getConflictNote(input: SelectTaskFilesInput, effectiveTaskArea: Effecti
 }
 
 function getAssetMode(input: SelectTaskFilesInput): AssetMode {
-    const taskText = normalizeForCompare([input.rawTask, ...(input.taskIntent?.intentTags ?? []), ...(input.taskIntent?.fileRoleHints ?? [])].join(" "));
+    const taskText = normalizeForCompare([getPositiveTaskText(input.rawTask), ...(input.taskIntent?.intentTags ?? []), ...(input.taskIntent?.fileRoleHints ?? [])].join(" "));
     const hasAssetIntent = includesAny(taskText, [
         "image", "picture", "photo", "asset", "logo", "icon", "favicon", "background", "wallpaper",
         "screenshot", "media", "banner", "cover", "artwork", "replace-image", "asset-change",
@@ -395,27 +597,23 @@ function buildSemanticTokens(input: SelectTaskFilesInput) {
     const text = normalizeForCompare(buildTaskText(input));
     const tokens = new Set<string>();
 
-    addSemanticTokenIfIncludes(tokens, text, ["библиотек", "library"], ["library", "libraries", "collection", "collections"]);
-    addSemanticTokenIfIncludes(tokens, text, ["коллекц", "collection"], ["collection", "collections"]);
+    // Universal technical/UI meanings only. Business-domain words are not hardcoded here;
+    // they are taken dynamically from the user's task and real inventory textHints.
+    addSemanticTokenIfIncludes(tokens, text, ["таблиц", "table"], ["table", "row", "rows", "grid"]);
+    addSemanticTokenIfIncludes(tokens, text, ["спис", "list"], ["list", "items", "item", "row", "rows"]);
     addSemanticTokenIfIncludes(tokens, text, ["каталог", "catalog"], ["catalog", "catalogue", "list", "grid"]);
-    addSemanticTokenIfIncludes(tokens, text, ["жанр", "genre"], ["genre", "genres", "category", "categories"]);
     addSemanticTokenIfIncludes(tokens, text, ["фильтр", "filter"], ["filter", "filters", "controls", "select", "dropdown"]);
     addSemanticTokenIfIncludes(tokens, text, ["поиск", "search"], ["search", "query"]);
     addSemanticTokenIfIncludes(tokens, text, ["сорт", "sort"], ["sort", "sorting", "order"]);
-    addSemanticTokenIfIncludes(tokens, text, ["игра", "игр", "game"], ["game", "games"]);
-    addSemanticTokenIfIncludes(tokens, text, ["калькулятор", "calculator", "roi"], ["calculator", "calc", "roi"]);
-    addSemanticTokenIfIncludes(tokens, text, ["расчет", "расчёт", "calculation"], ["calculation", "calculate", "calculator"]);
     addSemanticTokenIfIncludes(tokens, text, ["модал", "modal", "dialog"], ["modal", "dialog"]);
     addSemanticTokenIfIncludes(tokens, text, ["форма", "form", "input", "focus", "фокус"], ["form", "input", "field", "focus"]);
     addSemanticTokenIfIncludes(tokens, text, ["навигац", "navigation", "navbar"], ["nav", "navigation", "navbar", "topbar", "header", "menu"]);
     addSemanticTokenIfIncludes(tokens, text, ["кноп", "button"], ["button", "buttons", "actions"]);
     addSemanticTokenIfIncludes(tokens, text, ["главн", "homepage", "landing"], ["home", "homepage", "landing"]);
     addSemanticTokenIfIncludes(tokens, text, ["карточ", "card"], ["card", "cards", "item"]);
-    addSemanticTokenIfIncludes(tokens, text, ["товар", "product"], ["product", "products", "item", "items"]);
-    addSemanticTokenIfIncludes(tokens, text, ["активац", "activation", "activate"], ["activation", "activate", "license", "key"]);
-    addSemanticTokenIfIncludes(tokens, text, ["ключ", "key"], ["key", "license"]);
-    addSemanticTokenIfIncludes(tokens, text, ["покуп", "оплат", "purchase", "payment", "checkout"], ["purchase", "payment", "checkout", "order"]);
-    addSemanticTokenIfIncludes(tokens, text, ["клиент", "client"], ["client", "customer", "user"]);
+    addSemanticTokenIfIncludes(tokens, text, ["api", "апи", "endpoint", "route", "service", "интегр", "подключ"], ["api", "client", "service", "services", "route", "routes"]);
+    addSemanticTokenIfIncludes(tokens, text, ["server", "backend", "бэкенд", "бекенд", "сервер"], ["server", "backend", "api", "route", "service"]);
+    addSemanticTokenIfIncludes(tokens, text, ["database", "db", "schema", "база", "бд"], ["db", "database", "schema", "repository"]);
     addSemanticTokenIfIncludes(tokens, text, ["логотип", "лого", "logo"], ["logo", "brand"]);
     addSemanticTokenIfIncludes(tokens, text, ["favicon"], ["favicon", "icon"]);
     addSemanticTokenIfIncludes(tokens, text, ["картин", "изображ", "image", "picture", "photo"], ["image", "img", "picture", "photo", "asset", "assets"]);
@@ -427,23 +625,40 @@ function buildSemanticTokens(input: SelectTaskFilesInput) {
     return Array.from(tokens);
 }
 
-function extractPathLikeTokens(rawTask: string) {
-    return rawTask.match(/[\w.@()\-]+(?:[\\/][\w.@()\-]+)+(?:\.[a-zA-Z0-9]+)?/g) ?? [];
+function extractRouteMentions(rawTask: string) {
+    const positiveText = getPositiveTaskText(rawTask);
+    const routeRegex = /(?:^|[\s"'`(\[])(\/[a-zа-яё0-9_@()\[\]-]+(?:\/[a-zа-яё0-9_@()\[\]-]+)*)(?=$|[\s"'`),.;:!?\]])/gi;
+    const routes: string[] = [];
+
+    for (const match of positiveText.matchAll(routeRegex)) {
+        const route = normalizePath(match[1] ?? "").toLowerCase();
+        if (!route || route.includes("//")) continue;
+        if (/\.[a-z0-9]+$/i.test(route)) continue;
+        routes.push(route);
+    }
+
+    return uniqueStrings(routes).slice(0, 8);
+}
+
+function getRouteMentionSegments(routeMentions: string[]) {
+    return uniqueStrings(routeMentions.flatMap((route) => tokenize(route).filter((token) => !BROAD_PATH_TOKENS.has(token))));
 }
 
 function buildTokenContext(input: SelectTaskFilesInput): TokenContext {
-    const explicitPathTokens = extractPathLikeTokens(input.rawTask).map(normalizePath);
-    const inventoryPathSet = new Set(input.inventory.files.map((file) => normalizeForCompare(file.path)));
-    const explicitExistingPaths = explicitPathTokens.filter((pathValue) => inventoryPathSet.has(normalizeForCompare(pathValue)));
-    const explicitMissingPaths = explicitPathTokens.filter((pathValue) => !inventoryPathSet.has(normalizeForCompare(pathValue)));
+    const positiveTaskText = getPositiveTaskText(input.rawTask);
+    const explicitResolution = resolveExplicitFileMentions(positiveTaskText, input.inventory);
+    const explicitExistingPaths = explicitResolution.existingPaths;
+    const explicitMissingPaths = explicitResolution.missingPaths;
+    const routeMentions = extractRouteMentions(input.rawTask);
+    const routeSegments = getRouteMentionSegments(routeMentions);
 
-    const rawTokens = tokenize(input.rawTask);
+    const rawTokens = tokenize(positiveTaskText);
     const semanticTokens = buildSemanticTokens(input);
     const intentTokens = tokenize([
         ...(input.taskIntent?.domainTerms ?? []),
         ...(input.taskIntent?.mentionedEntities ?? []),
         ...(input.taskIntent?.recommendedSearchTerms ?? [])
-    ].join(" "));
+    ].join(" ")).filter((token) => !extractNegativeConstraintTerms(input.rawTask).includes(token));
     const roleTokens = tokenize([
         input.taskType,
         input.targetTool,
@@ -452,7 +667,7 @@ function buildTokenContext(input: SelectTaskFilesInput): TokenContext {
         ...(input.taskIntent?.fileRoleHints ?? [])
     ].join(" "));
 
-    const strongTokens = uniqueStrings([...rawTokens, ...semanticTokens, ...intentTokens]).filter((token) => {
+    const strongTokens = uniqueStrings([...rawTokens, ...semanticTokens, ...intentTokens, ...routeSegments]).filter((token) => {
         if (WEAK_TASK_TOKENS.has(token)) return false;
         if (token.includes("/") || token.includes("\\")) return false;
         if (BROAD_PATH_TOKENS.has(token) && !semanticTokens.includes(token)) return false;
@@ -460,9 +675,8 @@ function buildTokenContext(input: SelectTaskFilesInput): TokenContext {
     });
 
     const broadTokens = uniqueStrings(roleTokens).filter((token) => !strongTokens.includes(token));
-    return { strongTokens, broadTokens, explicitExistingPaths, explicitMissingPaths };
+    return { strongTokens, broadTokens, explicitExistingPaths, explicitMissingPaths, routeMentions };
 }
-
 function getPathSegments(pathValue: string) {
     return tokenize(pathValue);
 }
@@ -495,10 +709,15 @@ function isClientUiPath(pathValue: string) {
     if (filePath.includes("/pages/") || filePath.startsWith("src/pages/")) return true;
     if (filePath.includes("/ui/") || filePath.includes("/styles/") || filePath.includes("/style/")) return true;
 
-    if (["app.tsx", "app.jsx", "main.tsx", "main.jsx"].includes(fileName)) return true;
+    if (["app.tsx", "app.jsx", "app.js", "app.mjs", "main.tsx", "main.jsx", "main.js", "index.tsx", "index.jsx", "index.js"].includes(fileName)) return true;
 
-    // Treat Next/React app-router files as UI, but do not classify arbitrary backend files under src/app/* as UI.
+    // Treat Next/React app-router files as UI when they are route shell files or TSX/JSX helpers colocated with a route.
+    // API route files are excluded by backend checks elsewhere.
     if (filePath.startsWith("src/app/") && ["page.tsx", "page.jsx", "layout.tsx", "layout.jsx", "template.tsx", "template.jsx", "loading.tsx", "loading.jsx", "error.tsx", "error.jsx"].includes(fileName)) {
+        return true;
+    }
+
+    if (filePath.startsWith("src/app/") && (fileName.endsWith(".tsx") || fileName.endsWith(".jsx")) && !filePath.includes("/api/") && !fileName.startsWith("route.")) {
         return true;
     }
 
@@ -575,15 +794,12 @@ function isLikelyFullstackUiActionFile(file: ProjectInventoryFile, input: Select
     if (!isFrontendUiSourceFile(file)) return false;
 
     const taskText = normalizeForCompare(buildTaskText(input));
-    const filePath = normalizeForCompare(file.path);
+    const fileText = getFileSearchText(file);
 
-    const licenseTask = includesAny(taskText, ["license", "licenses", "лиценз", "ключ"]);
-    if (licenseTask && includesAny(filePath, ["license", "licenses", "licence", "licences", "registry", "реестр"])) return true;
+    const actionTask = includesAny(taskText, ["button", "кноп", "action", "endpoint", "server", "api", "result", "результат", "show", "display", "render", "вывод", "показ"]);
+    if (actionTask && includesAny(fileText, ["page", "pages", "component", "components", "actions", "button", "menu", "row", "table", "list", "detail", "card", "form", "modal", "api", "fetch", "axios"])) return true;
 
-    const actionTask = includesAny(taskText, ["button", "кноп", "action", "endpoint", "server", "api", "result", "результат"]);
-    if (actionTask && includesAny(filePath, ["page", "pages", "component", "components", "row", "menu", "table", "list", "detail", "card", "form", "modal", "license", "registry"])) return true;
-
-    return includesAny(filePath, ["app.tsx", "app.jsx", "page.tsx", "page.jsx", "screen", "view"]);
+    return includesAny(normalizeForCompare(file.path), ["app.tsx", "app.jsx", "page.tsx", "page.jsx", "screen", "view"]);
 }
 
 function scoreFullstackUiSourceCandidate(file: ProjectInventoryFile, input: SelectTaskFilesInput) {
@@ -600,17 +816,12 @@ function scoreFullstackUiSourceCandidate(file: ProjectInventoryFile, input: Sele
     if (filePath.startsWith("src/components/") || filePath.includes("/components/")) score += 35;
     if (["app.tsx", "app.jsx"].includes(fileName)) score += 28;
 
-    if (includesAny(taskText, ["license", "licenses", "лиценз", "ключ"])) {
-        if (includesAny(filePath, ["license", "licenses", "licence", "licences", "registry", "реестр"])) score += 85;
-        if (includesAny(filePath, ["run", "runs", "check", "checks", "monitor", "registry", "table", "row", "detail"])) score += 20;
-    }
-
     if (includesAny(taskText, ["button", "кноп", "action", "endpoint", "server", "api", "result", "результат", "показывает"])) {
         if (includesAny(filePath, ["page", "pages", "component", "components", "actions", "button", "menu", "row", "table", "detail", "card", "form", "modal"])) score += 45;
     }
 
     const tokenContext = buildTokenContext(input);
-    score += getStrongTokenMatchCount(file.path, tokenContext.strongTokens) * 18;
+    score += getStrongTokenMatchCountForFile(file, tokenContext.strongTokens) * 18;
 
     if (file.sizeBytes === 0) score -= 80;
     if (file.isLikelyGenerated) score -= 100;
@@ -730,20 +941,198 @@ function getKindWeight(file: ProjectInventoryFile, area: EffectiveTaskArea, asse
     return 0;
 }
 
+function getFileSearchParts(file: ProjectInventoryFile) {
+    return [
+        file.path,
+        file.name,
+        file.extension,
+        file.kind,
+        file.role,
+        file.routePath ?? "",
+        ...(file.imports ?? []),
+        ...(file.exports ?? []),
+        ...(file.symbols ?? []),
+        ...(file.textHints ?? []),
+        file.contentPreview ?? ""
+    ];
+}
+
+function getFileSearchText(file: ProjectInventoryFile) {
+    return normalizeForCompare(getFileSearchParts(file).join(" "));
+}
+
+
+function normalizedTermMatches(text: string, term: string) {
+    const normalizedTerm = normalizeForCompare(term);
+    if (!normalizedTerm || normalizedTerm.length < 3) return false;
+    if (text.includes(normalizedTerm)) return true;
+
+    // Light stemming for human wording in Russian/English without hardcoding project domains.
+    const stem = normalizedTerm.length >= 6 ? normalizedTerm.slice(0, 5) : normalizedTerm;
+    return stem.length >= 4 && text.includes(stem);
+}
+
+function isRouteOrPageLikeFile(file: ProjectInventoryFile) {
+    const filePath = normalizeForCompare(file.path);
+    const fileName = filePath.split("/").pop() ?? filePath;
+    return filePath.includes("/pages/")
+        || filePath.startsWith("src/pages/")
+        || filePath.startsWith("pages/")
+        || filePath.startsWith("src/app/")
+        || fileName === "page.tsx"
+        || fileName === "page.jsx"
+        || fileName === "layout.tsx"
+        || fileName === "layout.jsx";
+}
+
+function isGlobalStyleFile(file: ProjectInventoryFile) {
+    const filePath = normalizeForCompare(file.path);
+    return file.kind === "style" && (
+        filePath.endsWith("globals.css")
+        || filePath.endsWith("global.css")
+        || filePath.endsWith("index.css")
+        || filePath.endsWith("app.css")
+    );
+}
+
+function isGlobalStyleRelevantForTask(input: SelectTaskFilesInput) {
+    const text = normalizeForCompare(getPositiveTaskText(input.rawTask));
+    return includesAny(text, [
+        "global style", "global styles", "globals.css", "index.css", "app.css", "theme", "tokens", "entire app", "whole site", "all pages",
+        "глобальные стили", "общие стили", "тема", "токены", "весь сайт", "всё приложение", "все страницы"
+    ]);
+}
+
+function getRouteMatchScore(file: ProjectInventoryFile, routeMentions: string[]) {
+    if (routeMentions.length === 0) return 0;
+
+    const filePath = normalizeForCompare(file.path);
+    const routePath = normalizeForCompare(file.routePath ?? "");
+    const fileText = getFileSearchText(file);
+    let score = 0;
+
+    for (const route of routeMentions) {
+        const normalizedRoute = normalizeForCompare(route).replace(/^\/+|\/+$/g, "");
+        if (!normalizedRoute) continue;
+        const routeParts = normalizedRoute.split("/").filter(Boolean);
+        const routeTail = routeParts[routeParts.length - 1] ?? normalizedRoute;
+        const routeFolderNeedle = `/${routeTail}/`;
+
+        if (routePath === `/${normalizedRoute}` || routePath.endsWith(`/${normalizedRoute}`)) score = Math.max(score, 130);
+        if (filePath.includes(`/${normalizedRoute}/`) || filePath.endsWith(`/${normalizedRoute}/page.tsx`) || filePath.endsWith(`/${normalizedRoute}/page.jsx`)) score = Math.max(score, 122);
+        if (filePath.includes(routeFolderNeedle) && (filePath.endsWith(".tsx") || filePath.endsWith(".jsx") || filePath.endsWith(".ts") || filePath.endsWith(".js"))) score = Math.max(score, 112);
+        if (filePath.includes(routeFolderNeedle)) score = Math.max(score, 88);
+        if (routeTail.length >= 3 && (filePath.includes(routeTail) || fileText.includes(routeTail))) score = Math.max(score, 46);
+    }
+
+    return score;
+}
+
+function isRouteAwarePrimaryCandidate(file: ProjectInventoryFile, tokenContext: TokenContext) {
+    return getRouteMatchScore(file, tokenContext.routeMentions) >= 88;
+}
+
+function isImplementationIntentText(rawTask: string) {
+    return includesAny(rawTask, [
+        "implement", "connect", "integrate", "wire", "hook up", "create", "add feature", "build feature", "replace", "render", "show", "display", "fetch", "call", "change", "edit", "modify",
+        "реализ", "подключ", "интегр", "добав", "созд", "замен", "вывести", "показ", "получ", "запрос", "измен", "передел"
+    ]);
+}
+
+function isSecondaryDocumentationMention(file: ProjectInventoryFile, input: SelectTaskFilesInput, area: EffectiveTaskArea) {
+    const filePath = normalizeForCompare(file.path);
+    const isDocsFile = file.kind === "docs" || filePath.endsWith("readme.md") || filePath.includes("/docs/");
+    if (!isDocsFile) return false;
+    if (area === "docs") return false;
+
+    const positiveTaskText = getPositiveTaskText(input.rawTask);
+    return isImplementationIntentText(positiveTaskText) && includesAny(positiveTaskText, [
+        "readme", "docs", "documentation", "guide", "manual", "документац", "ридми", "инструкц", "дальнейшей разработки"
+    ]);
+}
+
+function isExplicitFilePath(file: ProjectInventoryFile, tokenContext: TokenContext) {
+    return tokenContext.explicitExistingPaths.some((pathValue) => normalizeForCompare(pathValue) === normalizeForCompare(file.path));
+}
+
+function hasProtectedTermMatch(file: ProjectInventoryFile, constraints: TaskConstraints) {
+    if (constraints.protectedFileTerms.length === 0) return false;
+    const fileText = getFileSearchText(file);
+    return constraints.protectedFileTerms.some((term) => normalizedTermMatches(fileText, term));
+}
+
+function isProtectedByUserConstraint(file: ProjectInventoryFile, input: SelectTaskFilesInput, area: EffectiveTaskArea, tokenContext = buildTokenContext(input)) {
+    const constraints = getTaskConstraints(input);
+    const explicit = isExplicitFilePath(file, tokenContext);
+    if (explicit) return false;
+
+    if (constraints.onlyExplicitFiles && tokenContext.explicitExistingPaths.length > 0) {
+        return true;
+    }
+
+    if (hasProtectedTermMatch(file, constraints)) {
+        return true;
+    }
+
+    if (constraints.protectOtherPages) {
+        const strongMatches = getStrongTokenMatchCountForFile(file, tokenContext.strongTokens);
+        if (isRouteOrPageLikeFile(file) && strongMatches === 0) return true;
+        if (isGlobalStyleFile(file) && area === "ui") return true;
+    }
+
+    return false;
+}
+
+function hasExplicitPrimaryTarget(input: SelectTaskFilesInput, area: EffectiveTaskArea) {
+    const tokenContext = buildTokenContext(input);
+    return tokenContext.explicitExistingPaths.some((pathValue) => {
+        const file = findInventoryFile(input.inventory, pathValue);
+        return Boolean(file && !isSecondaryDocumentationMention(file, input, area));
+    });
+}
+
+function isSpecificPageOrFileTask(input: SelectTaskFilesInput, area: EffectiveTaskArea) {
+    const text = normalizeForCompare(input.rawTask);
+    if (hasExplicitPrimaryTarget(input, area)) return true;
+    if (includesAny(text, ["в файле", "in file", "в компоненте", "in component", "на странице", "on page", "странице с", "page with"])) return true;
+    if (mentionsOtherPagesProtected(input.rawTask) || mentionsOnlyExplicitFiles(input.rawTask)) return true;
+    return false;
+}
+
+function getStrongTokenMatchCountForFile(file: ProjectInventoryFile, strongTokens: string[]) {
+    const fileText = getFileSearchText(file);
+    const pathSegments = tokenize(file.path);
+    let count = 0;
+
+    for (const token of strongTokens) {
+        if (pathSegments.includes(token) || fileText.includes(token)) count += 1;
+    }
+
+    return count;
+}
+
+function hasAnyStrongMatchForFile(file: ProjectInventoryFile, strongTokens: string[]) {
+    return getStrongTokenMatchCountForFile(file, strongTokens) > 0;
+}
+
 function scorePathTokenMatches(file: ProjectInventoryFile, tokenContext: TokenContext) {
     const filePath = normalizeForCompare(file.path);
+    const fileText = getFileSearchText(file);
     const pathSegments = tokenize(file.path);
     let score = 0;
 
     for (const token of tokenContext.strongTokens) {
-        if (pathSegments.includes(token)) score += 38;
-        else if (filePath.includes(token)) score += 24;
+        if (pathSegments.includes(token)) score += 42;
+        else if (filePath.includes(token)) score += 30;
+        else if ((file.textHints ?? []).some((hint) => normalizeForCompare(hint) === token)) score += 26;
+        else if (fileText.includes(token)) score += 14;
     }
 
     for (const token of tokenContext.broadTokens) {
         if (BROAD_PATH_TOKENS.has(token)) continue;
         if (pathSegments.includes(token)) score += 8;
-        else if (filePath.includes(token)) score += 4;
+        else if (filePath.includes(token)) score += 5;
+        else if (fileText.includes(token)) score += 2;
     }
 
     return score;
@@ -754,8 +1143,10 @@ function scoreFileFallback(file: ProjectInventoryFile, tokenContext: TokenContex
     const constraints = getTaskConstraints(input);
     let score = getKindWeight(file, area, assetMode);
     score += scorePathTokenMatches(file, tokenContext);
+    const routeScore = getRouteMatchScore(file, tokenContext.routeMentions);
+    score += routeScore;
 
-    const strongMatchCount = getStrongTokenMatchCount(file.path, tokenContext.strongTokens);
+    const strongMatchCount = getStrongTokenMatchCountForFile(file, tokenContext.strongTokens);
     const hasStrongTokens = tokenContext.strongTokens.length > 0;
     const hasStrongMatch = strongMatchCount > 0;
 
@@ -767,6 +1158,10 @@ function scoreFileFallback(file: ProjectInventoryFile, tokenContext: TokenContex
     if (isGeneratedDoNotEditPath(file.path)) score -= 18;
     if (file.kind === "runtime") score -= 60;
     if (file.sizeBytes === 0) score -= 35;
+
+    if (isGlobalStyleFile(file) && isSpecificPageOrFileTask(input, area) && !isGlobalStyleRelevantForTask(input)) {
+        score -= 85;
+    }
 
     if (area === "backend") {
         if (isBackendLeaningPath(file.path)) score += 48;
@@ -841,6 +1236,15 @@ function selectedPriority(file: SelectedTaskFile, input: SelectTaskFilesInput, a
     const constraints = getTaskConstraints(input);
     let priority = file.confidence * 100;
 
+    if (file.reason.toLowerCase().includes("explicitly mentioned")) {
+        priority += 1000;
+    }
+
+    const tokenContextForPriority = buildTokenContext(input);
+    const routeScore = getRouteMatchScore({ path: file.path, kind: file.kind, sizeBytes: 1, canReadText: true, isLikelyGenerated: false, extension: "", depth: 0, name: file.path.split("/").pop() ?? file.path } as ProjectInventoryFile, tokenContextForPriority.routeMentions);
+    if (routeScore >= 88) priority += 190;
+    else if (routeScore > 0) priority += 55;
+
     if (assetMode === "primary") {
         if (file.kind === "asset") priority += 140;
         if (includesAny(filePath, ["logo", "favicon", "icon", "brand"])) priority += 55;
@@ -877,8 +1281,8 @@ function selectedPriority(file: SelectedTaskFile, input: SelectTaskFilesInput, a
     }
 
     if (area === "ui") {
-        if (file.kind === "style") priority += 90;
-        if (isClientUiPath(file.path)) priority += 60;
+        if (file.kind === "style") priority += isGlobalStyleFile({ path: file.path, kind: file.kind } as ProjectInventoryFile) && isSpecificPageOrFileTask(input, area) && !isGlobalStyleRelevantForTask(input) ? -35 : 58;
+        if (isClientUiPath(file.path)) priority += 72;
         if (isServerSidePath(file.path)) priority -= 80;
     }
 
@@ -949,6 +1353,31 @@ function getSelectionLimitFromSettings(
     return clampComposerLimit(areaLimit ?? limits.default, fallback);
 }
 
+
+function getContextAwareSelectionLimit(input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode) {
+    const configuredLimit = getSelectionLimitFromSettings(input, area, assetMode);
+    const tokenContext = buildTokenContext(input);
+    const constraints = getTaskConstraints(input);
+    const explicitPrimaryCount = tokenContext.explicitExistingPaths.filter((pathValue) => {
+        const file = findInventoryFile(input.inventory, pathValue);
+        return Boolean(file && !isSecondaryDocumentationMention(file, input, area));
+    }).length;
+
+    if (constraints.onlyExplicitFiles && explicitPrimaryCount > 0) {
+        return Math.max(1, explicitPrimaryCount);
+    }
+
+    if (explicitPrimaryCount > 0) {
+        return Math.min(configuredLimit, Math.max(explicitPrimaryCount + 2, 3));
+    }
+
+    if (isSpecificPageOrFileTask(input, area)) {
+        return Math.min(configuredLimit, constraints.protectOtherPages ? 5 : 7);
+    }
+
+    return configuredLimit;
+}
+
 function rankAndCapSelection(selectedFiles: SelectedTaskFile[], input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode) {
     const seen = new Set<string>();
     const deduped = selectedFiles.filter((file) => {
@@ -977,7 +1406,7 @@ function rankAndCapSelection(selectedFiles: SelectedTaskFile[], input: SelectTas
     const assetCap = getAssetCap(assetMode);
     let assetCount = 0;
 
-    const selectionLimit = getSelectionLimitFromSettings(input, area, assetMode);
+    const selectionLimit = getContextAwareSelectionLimit(input, area, assetMode);
 
     return sorted
         .filter((file) => {
@@ -995,8 +1424,9 @@ function trimLowValueFallbackCandidates(items: Array<{ file: ProjectInventoryFil
     const dynamicThreshold = Math.max(area === "docs" || area === "build" ? 28 : 38, Math.floor(maxScore * 0.5));
 
     const trimmed = items.filter((item) => {
+        if (isRouteAwarePrimaryCandidate(item.file, tokenContext)) return true;
         if (item.score >= dynamicThreshold) return true;
-        if (tokenContext.strongTokens.length > 0 && hasAnyStrongMatch(item.file.path, tokenContext.strongTokens) && item.score >= 32) return true;
+        if (tokenContext.strongTokens.length > 0 && hasAnyStrongMatchForFile(item.file, tokenContext.strongTokens) && item.score >= 32) return true;
         return false;
     });
 
@@ -1022,6 +1452,7 @@ function canUseSelectedFile(input: SelectTaskFilesInput, file: ProjectInventoryF
     const taskText = normalizeForCompare(buildTaskText(input));
     const constraints = getTaskConstraints(input);
 
+    if (isProtectedByUserConstraint(file, input, area)) return false;
     if (isSensitiveEnvPath(file.path)) return false;
     if (file.kind === "runtime") return false;
     if (file.isLikelyGenerated) return false;
@@ -1160,7 +1591,7 @@ function ensureHelpfulCoverage(selected: SelectedTaskFile[], input: SelectTaskFi
         addBestMatchingFile(selected, input, area, assetMode, (file) => isAssetReferenceControllerPath(file.path), "Added because logo/favicon usage is often controlled by app entry, shell, layout, manifest, or HTML files.", 0.72);
     }
 
-    if ((area === "ui" || area === "fullstack") && wantsRedesign && !hasStyle) {
+    if ((area === "ui" || area === "fullstack") && wantsRedesign && !hasStyle && (!isSpecificPageOrFileTask(input, area) || isGlobalStyleRelevantForTask(input))) {
         addBestMatchingFile(selected, input, area, assetMode, (file) => file.kind === "style", "Added to cover visual styling for the requested UI change.", 0.72);
     }
 
@@ -1203,6 +1634,25 @@ function ensureHelpfulCoverage(selected: SelectedTaskFile[], input: SelectTaskFi
     return rankAndCapSelection(selected, input, area, assetMode);
 }
 
+function getRouteAwareSeedFiles(input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode, tokenContext: TokenContext, selected: SelectedTaskFile[]) {
+    if (tokenContext.routeMentions.length === 0) return [];
+
+    const seen = new Set(selected.map((file) => normalizeForCompare(file.path)));
+    const candidates = input.inventory.files
+        .filter((file) => !seen.has(normalizeForCompare(file.path)))
+        .filter((file) => canUseSelectedFile(input, file, area, assetMode))
+        .map((file) => ({ file, score: getRouteMatchScore(file, tokenContext.routeMentions) + scoreFileFallback(file, tokenContext, input, area, assetMode) * 0.25 }))
+        .filter((item) => item.score >= 70)
+        .sort((a, b) => b.score - a.score)
+        .slice(0, isSpecificPageOrFileTask(input, area) ? 3 : 5);
+
+    return candidates.map((item) => makeSelectedFile(
+        item.file,
+        "Selected by route-aware inventory matching from a route/page mention in the task.",
+        Math.min(0.9, Math.max(0.72, item.score / 180))
+    ));
+}
+
 function buildFallbackSelection(input: SelectTaskFilesInput): TaskFileSelection {
     const startedAt = Date.now();
     const effectiveTaskArea = getEffectiveTaskArea(input);
@@ -1215,8 +1665,48 @@ function buildFallbackSelection(input: SelectTaskFilesInput): TaskFileSelection 
     for (const explicitPath of tokenContext.explicitExistingPaths) {
         const inventoryFile = findInventoryFile(input.inventory, explicitPath);
         if (inventoryFile && canUseSelectedFile(input, inventoryFile, effectiveTaskArea, assetMode)) {
-            selected.push(makeSelectedFile(inventoryFile, "Explicitly mentioned by the user and validated against the real project inventory.", 0.95));
+            const secondaryDocs = isSecondaryDocumentationMention(inventoryFile, input, effectiveTaskArea);
+            selected.push(makeSelectedFile(
+                inventoryFile,
+                secondaryDocs
+                    ? "Mentioned as a secondary documentation deliverable; include as reference after source/API context."
+                    : "Explicitly mentioned by the user and validated against the real project inventory.",
+                secondaryDocs ? 0.72 : 0.95,
+                secondaryDocs ? "inspect-only" : defaultUsageForFile(inventoryFile)
+            ));
         }
+    }
+
+
+    for (const routeFile of getRouteAwareSeedFiles(input, effectiveTaskArea, assetMode, tokenContext, selected)) {
+        selected.push(routeFile);
+    }
+
+    if (constraints.onlyExplicitFiles && selected.length > 0) {
+        const finalSelectedFiles = rankAndCapSelection(selected, input, effectiveTaskArea, assetMode);
+
+        return {
+            selectedFiles: finalSelectedFiles,
+            rejectedModelPaths: tokenContext.explicitMissingPaths,
+            source: "fallback",
+            usedFallback: true,
+            durationMs: getDurationMs(startedAt),
+            effectiveTaskArea,
+            assetMode,
+            conflictNote,
+            notes: [
+                "Fallback file selection was used.",
+                "Fallback selection is universal and does not rely on project-specific domain rules.",
+                "User constrained the task to explicit file(s), so ContextForge did not add unrelated fallback files.",
+                `Effective task area: ${effectiveTaskArea}.`,
+                `Asset mode: ${assetMode}.`,
+                conflictNote ?? "No task type conflict detected.",
+                ...constraints.notes,
+                tokenContext.explicitMissingPaths.length > 0
+                    ? `Explicit path(s) mentioned by the user but not found in inventory: ${tokenContext.explicitMissingPaths.join(", ")}.`
+                    : "No missing explicit user paths detected."
+            ]
+        };
     }
 
     const scored = getScoredCandidates(input, effectiveTaskArea, assetMode, tokenContext, selected);
@@ -1265,10 +1755,17 @@ function compactInventoryForPrompt(inventory: ProjectInventory) {
     return inventory.files.slice(0, MAX_INVENTORY_FILES_FOR_PROMPT).map((file) => ({
         path: file.path,
         kind: file.kind,
+        role: file.role,
+        routePath: file.routePath,
         extension: file.extension,
         sizeBytes: file.sizeBytes,
         canReadText: file.canReadText,
-        isLikelyGenerated: file.isLikelyGenerated
+        isLikelyGenerated: file.isLikelyGenerated,
+        imports: file.imports.slice(0, 8),
+        exports: file.exports.slice(0, 8),
+        symbols: file.symbols.slice(0, 12),
+        textHints: file.textHints.slice(0, 14),
+        contentPreview: file.contentPreview
     }));
 }
 
@@ -1288,13 +1785,13 @@ Important:
 - You are not generating code changes.
 - Select only paths that exist in the provided inventory.
 - Never invent file paths, components, services, handlers, stores, pages, or assets.
-- The selected task type is only a hint. The inferred task area is "${effectiveTaskArea}".
+- The selected task type is the user's requested workflow. The inferred task area is "${effectiveTaskArea}". If they conflict, select files that make the conflict visible instead of silently switching to docs/config only.
 - Asset mode is "${assetMode}".
 - If asset mode is "none", do not select assets.
 - If asset mode is "mixed", select mostly source/style files and at most 1-2 highly relevant assets.
 - If asset mode is "primary", select matching real assets such as logo, favicon, icons, images, or files under public/assets, plus source/style files that reference them.
 - For build/config tasks, prefer package.json, framework config, TypeScript config, lint config, entry/layout/page/route files that may cause build/import failures.
-- For docs tasks, prefer README/docs/package/config files. Avoid unrelated source files.
+- For docs tasks, prefer README/docs/package/config files. Avoid unrelated source files. If README/docs is only a secondary deliverable for an implementation task, include README as reference but still select real source files for the main implementation.
 - For fullstack tasks, include server/API files, client API bridge files, and the most relevant UI component/page.
 - For backend tasks, prefer server/api/routes/db/services/electron files and avoid client UI files unless they are API bridge files.
 - For UI tasks, prefer page/component/layout/style files and avoid server-only files.
@@ -1305,6 +1802,7 @@ Important:
 - Avoid package-lock.json, pnpm-lock.yaml, yarn.lock, empty files, generated files, and unrelated source files.
 - Binary files should usually be "asset-reference" or "inspect-only".
 - Style/source files must never use "asset-reference".
+- Use inventory role, routePath, imports, exports, symbols, textHints, and contentPreview to understand files dynamically. Do not rely on project-specific assumptions.
 - Keep the selection focused and reviewable. Usually select 4 to 12 files.
 - Return strict JSON only. No Markdown. No code fences.
 
@@ -1352,13 +1850,99 @@ ${JSON.stringify(compactInventory, null, 2)}
 `.trim();
 }
 
+function cleanupJsonCandidate(value: string) {
+    return value
+        .replace(/^```(?:json)?/i, "")
+        .replace(/```$/i, "")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|\s)\/\/.*$/gm, "$1")
+        .replace(/,\s*([}\]])/g, "$1")
+        .trim();
+}
+
+function parseJsonCandidate(value: string) {
+    const candidate = cleanupJsonCandidate(value);
+    try { return JSON.parse(candidate); } catch { return null; }
+}
+
+function extractBalancedJsonFragments(value: string) {
+    const fragments: string[] = [];
+    const openers = new Set(["{", "["]);
+    const closerFor: Record<string, string> = { "{": "}", "[": "]" };
+
+    for (let start = 0; start < value.length; start += 1) {
+        const opener = value[start];
+        if (!openers.has(opener)) continue;
+
+        const expectedClosers = [closerFor[opener]];
+        let inString = false;
+        let quote = "";
+        let escaped = false;
+
+        for (let index = start + 1; index < value.length; index += 1) {
+            const char = value[index];
+
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+
+                if (char === "\\") {
+                    escaped = true;
+                    continue;
+                }
+
+                if (char === quote) {
+                    inString = false;
+                    quote = "";
+                }
+
+                continue;
+            }
+
+            if (char === '"') {
+                inString = true;
+                quote = char;
+                continue;
+            }
+
+            if (openers.has(char)) {
+                expectedClosers.push(closerFor[char]);
+                continue;
+            }
+
+            const expected = expectedClosers[expectedClosers.length - 1];
+            if (char === expected) {
+                expectedClosers.pop();
+                if (expectedClosers.length === 0) {
+                    fragments.push(value.slice(start, index + 1));
+                    break;
+                }
+            }
+        }
+    }
+
+    return fragments;
+}
+
 function extractJsonObject(value: string) {
     const trimmed = value.trim();
-    try { return JSON.parse(trimmed); } catch { /* continue */ }
-    const firstBrace = trimmed.indexOf("{");
-    const lastBrace = trimmed.lastIndexOf("}");
-    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) return null;
-    try { return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1)); } catch { return null; }
+    const direct = parseJsonCandidate(trimmed);
+    if (direct) return direct;
+
+    const fenced = [...trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)]
+        .map((match) => match[1])
+        .map(parseJsonCandidate)
+        .find(Boolean);
+    if (fenced) return fenced;
+
+    for (const fragment of extractBalancedJsonFragments(trimmed)) {
+        const parsed = parseJsonCandidate(fragment);
+        if (parsed) return parsed;
+    }
+
+    return null;
 }
 
 function getModelFileItems(value: unknown): unknown[] {

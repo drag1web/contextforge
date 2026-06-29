@@ -2,7 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Router } from "express";
 import { z } from "zod";
-import { pool } from "../db/pool.js";
+import { storage } from "../storage/index.js";
 import { scanProject } from "../scanner/projectScanner.js";
 import { buildAgentsMarkdown } from "../context/agentsBuilder.js";
 import { generateWithConfiguredOllama } from "../ollama/ollamaService.js";
@@ -19,97 +19,20 @@ const saveAgentsSchema = z.object({
 });
 
 async function getProjectById(projectId: number) {
-  const result = await pool.query(
-    `
-    ${selectProjectsSql()}
-    WHERE id = $1;
-    `,
-    [projectId]
-  );
-
-  return result.rows[0] ?? null;
-}
-
-function selectProjectsSql() {
-  return `
-    SELECT
-      id,
-      name,
-      local_path AS "localPath",
-      package_manager AS "packageManager",
-      detected_stack AS "detectedStack",
-      scripts,
-      readiness_score AS "readinessScore",
-      readiness_report AS "readinessReport",
-      created_at AS "createdAt",
-      updated_at AS "updatedAt",
-      last_scan_at AS "lastScanAt"
-    FROM projects
-  `;
+  return storage.getProjectById(projectId);
 }
 
 async function upsertScannedProject(localPath: string) {
   const scannedProject = await scanProject(localPath);
-
-  const result = await pool.query(
-    `
-    INSERT INTO projects (
-      name,
-      local_path,
-      package_manager,
-      detected_stack,
-      scripts,
-      readiness_score,
-      readiness_report,
-      last_scan_at
-    )
-    VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-    ON CONFLICT (local_path)
-    DO UPDATE SET
-      name = EXCLUDED.name,
-      package_manager = EXCLUDED.package_manager,
-      detected_stack = EXCLUDED.detected_stack,
-      scripts = EXCLUDED.scripts,
-      readiness_score = EXCLUDED.readiness_score,
-      readiness_report = EXCLUDED.readiness_report,
-      updated_at = NOW(),
-      last_scan_at = NOW()
-    RETURNING
-      id,
-      name,
-      local_path AS "localPath",
-      package_manager AS "packageManager",
-      detected_stack AS "detectedStack",
-      scripts,
-      readiness_score AS "readinessScore",
-      readiness_report AS "readinessReport",
-      created_at AS "createdAt",
-      updated_at AS "updatedAt",
-      last_scan_at AS "lastScanAt";
-    `,
-    [
-      scannedProject.name,
-      scannedProject.localPath,
-      scannedProject.packageManager,
-      JSON.stringify(scannedProject.detectedStack),
-      JSON.stringify(scannedProject.scripts),
-      scannedProject.readinessScore,
-      JSON.stringify(scannedProject.readinessReport)
-    ]
-  );
-
-  return result.rows[0];
+  return storage.upsertScannedProject(scannedProject);
 }
 
 projectsRouter.get("/", async (_req, res) => {
-  const result = await pool.query(`
-    ${selectProjectsSql()}
-    ORDER BY updated_at DESC;
-  `);
+  const projects = await storage.listProjects();
 
   res.json({
     ok: true,
-    projects: result.rows
+    projects
   });
 });
 
@@ -155,16 +78,9 @@ projectsRouter.post("/:id/rescan", async (req, res) => {
   }
 
   try {
-    const existingProject = await pool.query(
-      `
-      SELECT id, local_path AS "localPath"
-      FROM projects
-      WHERE id = $1;
-      `,
-      [projectId]
-    );
+    const existingProject = await getProjectById(projectId);
 
-    if (existingProject.rowCount === 0) {
+    if (!existingProject) {
       res.status(404).json({
         ok: false,
         message: "Project not found"
@@ -172,7 +88,7 @@ projectsRouter.post("/:id/rescan", async (req, res) => {
       return;
     }
 
-    const project = await upsertScannedProject(existingProject.rows[0].localPath);
+    const project = await upsertScannedProject(existingProject.localPath);
 
     res.json({
       ok: true,

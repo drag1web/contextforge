@@ -21,10 +21,12 @@ const updateSettingsSchema = z.object({
   generationMode: z.enum(["template", "ollama"]).optional(),
   defaultTargetTool: z.enum(["codex", "cursor", "claude", "generic"]).optional(),
   defaultTaskType: z
-    .enum(["general", "ui", "backend", "bugfix", "refactor", "docs", "tests"])
+    .enum(["general", "ui", "backend", "fullstack", "build", "bugfix", "refactor", "docs", "tests"])
     .optional(),
   defaultOllamaModel: z.string().nullable().optional(),
+  language: z.enum(["system", "en", "ru"]).optional(),
   composerFileLimits: composerFileLimitsSchema.optional(),
+  contextQualityMode: z.enum(["advisory", "balanced", "strict"]).optional(),
   sidebarShowDescriptions: z.boolean().optional()
 });
 

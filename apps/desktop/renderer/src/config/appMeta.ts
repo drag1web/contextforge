@@ -1,6 +1,6 @@
 export const appMeta = {
   name: "ContextForge",
-  version: "0.5.0-alpha",
+  version: "0.5.2-alpha",
   phase: "Phase 0.5 — Rules & Templates",
   phaseTitle: "AI Readiness & Composer",
   description:

@@ -1,5 +1,5 @@
 import { config } from "../config/index.js";
-import { pool } from "../db/pool.js";
+import { storage } from "../storage/index.js";
 
 export interface AppSettings {
   ollamaUrl: string;
@@ -16,9 +16,13 @@ export interface AppSettings {
   | "docs"
   | "tests";
   defaultOllamaModel: string | null;
+  language: "system" | "en" | "ru";
   composerFileLimits: ComposerFileLimits;
+  contextQualityMode: ContextQualityMode;
   sidebarShowDescriptions: boolean;
 }
+
+export type ContextQualityMode = "advisory" | "balanced" | "strict";
 
 export interface ComposerFileLimits {
   default: number;
@@ -38,6 +42,7 @@ const defaultSettings: AppSettings = {
   defaultTargetTool: "codex",
   defaultTaskType: "general",
   defaultOllamaModel: null,
+  language: "system",
   composerFileLimits: {
     default: 8,
     ui: 7,
@@ -49,6 +54,7 @@ const defaultSettings: AppSettings = {
     docs: 6,
     tests: 7
   },
+  contextQualityMode: "balanced",
   sidebarShowDescriptions: false
 };
 
@@ -58,25 +64,14 @@ const settingKeyMap = {
   defaultTargetTool: "default_target_tool",
   defaultTaskType: "default_task_type",
   defaultOllamaModel: "default_ollama_model",
+  language: "language",
   composerFileLimits: "composer_file_limits",
+  contextQualityMode: "context_quality_mode",
   sidebarShowDescriptions: "sidebar_show_descriptions"
 } as const;
 
 export async function getSettingValue<T>(key: string, fallback: T): Promise<T> {
-  const result = await pool.query(
-    `
-    SELECT value
-    FROM app_settings
-    WHERE key = $1;
-    `,
-    [key]
-  );
-
-  if (result.rowCount === 0) {
-    return fallback;
-  }
-
-  return result.rows[0].value as T;
+  return storage.getSettingValue(key, fallback);
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
@@ -86,9 +81,14 @@ export async function getAppSettings(): Promise<AppSettings> {
     defaultTargetTool: await getSettingValue(settingKeyMap.defaultTargetTool, defaultSettings.defaultTargetTool),
     defaultTaskType: await getSettingValue(settingKeyMap.defaultTaskType, defaultSettings.defaultTaskType),
     defaultOllamaModel: await getSettingValue(settingKeyMap.defaultOllamaModel, defaultSettings.defaultOllamaModel),
+    language: await getSettingValue(settingKeyMap.language, defaultSettings.language),
     composerFileLimits: await getSettingValue(
       settingKeyMap.composerFileLimits,
       defaultSettings.composerFileLimits
+    ),
+    contextQualityMode: await getSettingValue(
+      settingKeyMap.contextQualityMode,
+      defaultSettings.contextQualityMode
     ),
     sidebarShowDescriptions: await getSettingValue(
       settingKeyMap.sidebarShowDescriptions,
@@ -105,17 +105,7 @@ export async function updateAppSettings(input: Partial<AppSettings>) {
   for (const [key, value] of entries) {
     const databaseKey = settingKeyMap[key];
 
-    await pool.query(
-      `
-      INSERT INTO app_settings (key, value, updated_at)
-      VALUES ($1, $2::jsonb, NOW())
-      ON CONFLICT (key)
-      DO UPDATE SET
-        value = EXCLUDED.value,
-        updated_at = NOW();
-      `,
-      [databaseKey, JSON.stringify(value)]
-    );
+    await storage.setSettingValue(databaseKey, value);
   }
 
   return getAppSettings();
