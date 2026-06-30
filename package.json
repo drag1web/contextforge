@@ -15,6 +15,7 @@
     "dev:renderer": "npm run dev -w @contextforge/renderer",
     "dev:electron": "wait-on tcp:5173 tcp:4000 && cross-env ELECTRON_RENDERER_URL=http://localhost:5173 electron apps/desktop/electron/main.cjs",
     "build": "npm run build -w @contextforge/renderer && npm run build -w @contextforge/server",
+    "test:selector": "npm run test:selector -w @contextforge/server",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres"

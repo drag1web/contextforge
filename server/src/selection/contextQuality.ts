@@ -227,9 +227,10 @@ function getPositiveTaskTextForExplicitMentions(rawTask: string) {
     for (const regex of beforeRegexes) {
         for (const match of normalized.matchAll(regex)) {
             const raw = String(match[1] ?? "");
-            const phrase = (raw.split(/[.;!?\n—]/).pop() ?? raw).split(/\b(?:но|but|however)\b/gi).pop()?.trim() ?? "";
+            const phrase = (raw.split(/[.;!?\n—]/).pop() ?? raw).split(/(?:^|\s)(?:но|but|however)(?:\s|$)/gi).pop()?.trim() ?? "";
             // Skip positive task clauses such as "improve navigation and do not change other files".
-            if (/(?:улучш|сдел|замен|добав|реализ|подключ|исправ|передел|improve|make|replace|add|implement|connect|fix|change)\b/i.test(phrase)) continue;
+            if (/(?:улучш|сдел|замен|добав|реализ|подключ|исправ|передел)/i.test(phrase)
+                || /\b(?:improve|make|replace|add|implement|connect|fix|change)\b/i.test(phrase)) continue;
             if (phrase) phrases.push(phrase);
         }
     }

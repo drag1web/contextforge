@@ -1002,10 +1002,18 @@ export function ContextComposerPage({
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
             <FileCandidateSection
-              title="Suggested target files"
-              caption="Task-aware candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real target files first."
+              title={isBlockedReview ? "Weak file suggestions" : "Suggested target files"}
+              caption={
+                isBlockedReview
+                  ? "Automatic selection was blocked. These are search hints only; include a file only after you confirm it is the real target."
+                  : "Task-aware candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real target files first."
+              }
               count={suggestedCandidateFiles.length}
-              emptyText="No target suggestions were produced. Use search to find the real file."
+              emptyText={
+                isBlockedReview
+                  ? "No weak suggestions were produced. Use search to find the real file."
+                  : "No target suggestions were produced. Use search to find the real file."
+              }
             >
               <AnimatePresence initial={false}>
                 {suggestedCandidateFiles.map((file) => {
@@ -1349,6 +1357,33 @@ export function ContextComposerPage({
                             {preview.taskIntent.source}
                           </span>
                         </div>
+
+                        {preview.taskIntent.structuredIntent && (
+                          <div className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
+                            <div className="flex items-center justify-between gap-3">
+                              <span className="text-neutral-600">Structured</span>
+                              <span className="font-medium text-white">
+                                {preview.taskIntent.structuredIntent.allowedEditScope}
+                              </span>
+                            </div>
+
+                            <div className="mt-2 space-y-1">
+                              {preview.taskIntent.structuredIntent.primaryTargets.slice(0, 3).map((target) => (
+                                <p
+                                  key={`${target.kind}:${target.path ?? target.routePath ?? target.value}`}
+                                  className="break-words text-[11px] leading-4 text-neutral-500"
+                                >
+                                  {target.kind}: {target.path ?? target.routePath ?? target.value}
+                                </p>
+                              ))}
+                              {preview.taskIntent.structuredIntent.primaryTargets.length === 0 && (
+                                <p className="text-[11px] leading-4 text-neutral-600">
+                                  no primary target
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        )}
                       </div>
                     </article>
 

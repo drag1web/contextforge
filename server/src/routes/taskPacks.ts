@@ -270,14 +270,14 @@ function inventoryHasBackendRouteFiles(inventory: ProjectInventory) {
 }
 
 function normalizeTaskTypeSection(markdown: string, context: UniversalTaskPackContext) {
-    const effectiveTaskArea = String(context.effectiveTaskArea || context.taskType || "general").trim() || "general";
+    const requestedTaskType = String(context.taskType || "general").trim() || "general";
     const taskTypeSectionPattern = /(## Task Type\s*\n+)([\s\S]*?)(\n+## Task\s*\n)/;
 
     if (!taskTypeSectionPattern.test(markdown)) {
         return markdown;
     }
 
-    return markdown.replace(taskTypeSectionPattern, `$1${effectiveTaskArea}$3`);
+    return markdown.replace(taskTypeSectionPattern, `$1${requestedTaskType}$3`);
 }
 
 function shouldReadSnippet(file: ProjectInventoryFile) {
@@ -621,6 +621,12 @@ function buildContextNotes({
         notes.push(
             `Task intent source: ${taskIntent.source}; area: ${taskIntent.taskArea}; confidence: ${taskIntent.confidence}.`
         );
+
+        if (taskIntent.structuredIntent) {
+            notes.push(
+                `Structured intent: ${taskIntent.structuredIntent.primaryTargets.length} primary target(s); edit scope ${taskIntent.structuredIntent.allowedEditScope}.`
+            );
+        }
     }
 
     if ("effectiveTaskArea" in fileSelection) {
@@ -841,6 +847,12 @@ function buildContextForgeNotesSection(context: UniversalTaskPackContext) {
                 : null,
             context.taskIntent.fileRoleHints.length > 0
                 ? `- File role hints: ${context.taskIntent.fileRoleHints.join(", ")}`
+                : null,
+            context.taskIntent.structuredIntent
+                ? `- Structured targets: ${context.taskIntent.structuredIntent.primaryTargets.map((target) => `${target.kind}:${target.path ?? target.routePath ?? target.value}`).join(", ") || "none"}`
+                : null,
+            context.taskIntent.structuredIntent
+                ? `- Edit scope: ${context.taskIntent.structuredIntent.allowedEditScope}`
                 : null
         ]
             .filter(Boolean)

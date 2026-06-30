@@ -12,6 +12,46 @@ export type TaskArea =
     | "general";
 
 export type TaskRiskLevel = "low" | "medium" | "high";
+export type StructuredIntentTargetKind =
+    | "explicit_file"
+    | "route"
+    | "page"
+    | "component"
+    | "symbol"
+    | "entity"
+    | "service"
+    | "config"
+    | "docs"
+    | "asset"
+    | "unknown";
+
+export type StructuredIntentAllowedEditScope =
+    | "explicit_targets_only"
+    | "target_with_supporting_context"
+    | "broad_but_safe"
+    | "unknown";
+
+export interface StructuredIntentTarget {
+    kind: StructuredIntentTargetKind;
+    value: string;
+    path?: string;
+    routePath?: string;
+    name?: string;
+    confidence: number;
+    evidence: string;
+}
+
+export interface StructuredTaskIntent {
+    schemaVersion: 1;
+    primaryTargets: StructuredIntentTarget[];
+    positiveActions: string[];
+    protectedScopes: string[];
+    allowedEditScope: StructuredIntentAllowedEditScope;
+    needsStyles: boolean | null;
+    needsBackend: boolean | null;
+    ambiguities: string[];
+    modelNotes: string[];
+}
 
 export interface TaskIntentAnalysis {
     taskArea: TaskArea;
@@ -23,6 +63,7 @@ export interface TaskIntentAnalysis {
     riskLevel: TaskRiskLevel;
     confidence: number;
     notes: string[];
+    structuredIntent: StructuredTaskIntent;
     source: "ollama" | "fallback";
     durationMs: number;
 }
@@ -58,6 +99,27 @@ const ALLOWED_TASK_AREAS: TaskArea[] = [
     "docs",
     "tests",
     "general"
+];
+
+const ALLOWED_STRUCTURED_TARGET_KINDS: StructuredIntentTargetKind[] = [
+    "explicit_file",
+    "route",
+    "page",
+    "component",
+    "symbol",
+    "entity",
+    "service",
+    "config",
+    "docs",
+    "asset",
+    "unknown"
+];
+
+const ALLOWED_EDIT_SCOPES: StructuredIntentAllowedEditScope[] = [
+    "explicit_targets_only",
+    "target_with_supporting_context",
+    "broad_but_safe",
+    "unknown"
 ];
 
 const STOP_WORDS = new Set([
@@ -101,8 +163,29 @@ function includesAny(value: string, terms: string[]) {
     return terms.some((term) => normalized.includes(term));
 }
 
+function matchesAny(value: string, patterns: RegExp[]) {
+    const normalized = normalizeForCompare(value);
+    return patterns.some((pattern) => pattern.test(normalized));
+}
+
+function hasRuntimeNoBackendConstraint(rawTask: string) {
+    return matchesAny(rawTask, [
+        /\b(?:backend|api|server|auth|authorization|authentication|session|token|cookie|database|db)\b[^.!?\n]{0,120}\b(?:do\s+not|don't|dont)\s+(?:touch|change|edit|modify)\b/i,
+        /\b(?:do\s+not|don't|dont)\s+(?:touch|change|edit|modify)\b[^.!?\n]{0,120}\b(?:backend|api|server|auth|authorization|authentication|session|token|cookie|database|db)\b/i,
+        /(?:\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0430\u043f\u0438|api|\u0441\u0435\u0440\u0432\u0435\u0440|\u0430\u0432\u0442\u043e\u0440\u0438\u0437\u0430\u0446|\u0430\u0443\u0442\u0435\u043d\u0442\u0438\u0444|\u0441\u0435\u0441\u0441|\u0442\u043e\u043a\u0435\u043d|\u043a\u0443\u043a\u0438|\u0431\u0430\u0437\u0430|\u0431\u0434)[^.!?\n]{0,120}\u043d\u0435\s+(?:\u0442\u0440\u043e\u0433\u0430\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u043c\u0435\u043d\u044f\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c)/i,
+        /\u043d\u0435\s+(?:\u0442\u0440\u043e\u0433\u0430\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u043c\u0435\u043d\u044f\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c)[^.!?\n]{0,120}(?:\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0430\u043f\u0438|api|\u0441\u0435\u0440\u0432\u0435\u0440|\u0430\u0432\u0442\u043e\u0440\u0438\u0437\u0430\u0446|\u0430\u0443\u0442\u0435\u043d\u0442\u0438\u0444|\u0441\u0435\u0441\u0441|\u0442\u043e\u043a\u0435\u043d|\u043a\u0443\u043a\u0438|\u0431\u0430\u0437\u0430|\u0431\u0434)/i
+    ]);
+}
+
+function hasRuntimeUiSurfaceTerm(rawTask: string) {
+    return matchesAny(rawTask, [
+        /\b(?:ui|ux|frontend|front-end|screen|page|layout|visual|design|style|css|button|form|input|modal|card|navigation|nav|navbar|header|topbar|menu|theme|account)\b/i,
+        /(?:\u044d\u043a\u0440\u0430\u043d|\u0441\u0442\u0440\u0430\u043d\u0438\u0446|\u0432\u0438\u0437\u0443\u0430\u043b|\u0434\u0438\u0437\u0430\u0439\u043d|\u0432\u043d\u0435\u0448\u043d|\u0441\u0442\u0438\u043b|\u043a\u043d\u043e\u043f|\u0444\u043e\u0440\u043c|\u043f\u043e\u043b\u0435|\u043c\u043e\u0434\u0430\u043b|\u043a\u0430\u0440\u0442\u043e\u0447|\u043d\u0430\u0432\u0438\u0433\u0430\u0446|\u0448\u0430\u043f\u043a|\u0432\u0435\u0440\u0445\u043d\u0435\u0435\s+\u043c\u0435\u043d\u044e|\u043f\u0435\u0440\u0435\u043a\u043b\u044e\u0447\u0430\u0442\u0435\u043b\u044c\s+\u0442\u0435\u043c|\u043a\u043d\u043e\u043f\u043a\u0430\s+\u0430\u043a\u043a\u0430\u0443\u043d\u0442|\u0435\u0434\u0435\u0442\s+\u0432\u043f\u0440\u0430\u0432\u043e)/i
+    ]);
+}
+
 function hasNoBackendChangeConstraint(rawTask: string) {
-    return includesAny(rawTask, [
+    return hasRuntimeNoBackendConstraint(rawTask) || includesAny(rawTask, [
         "do not change backend",
         "don't change backend",
         "do not modify backend",
@@ -240,6 +323,147 @@ function normalizeConfidence(value: unknown, fallback = 0.5) {
         : fallback;
 }
 
+function normalizeTargetKind(value: unknown): StructuredIntentTargetKind {
+    const normalized = normalizeForCompare(String(value ?? ""));
+    return ALLOWED_STRUCTURED_TARGET_KINDS.includes(normalized as StructuredIntentTargetKind)
+        ? (normalized as StructuredIntentTargetKind)
+        : "unknown";
+}
+
+function normalizeAllowedEditScope(value: unknown, fallback: StructuredIntentAllowedEditScope): StructuredIntentAllowedEditScope {
+    const normalized = normalizeForCompare(String(value ?? ""));
+    return ALLOWED_EDIT_SCOPES.includes(normalized as StructuredIntentAllowedEditScope)
+        ? (normalized as StructuredIntentAllowedEditScope)
+        : fallback;
+}
+
+function normalizeNullableBoolean(value: unknown, fallback: boolean | null = null) {
+    if (typeof value === "boolean") return value;
+    if (typeof value === "string") {
+        const normalized = normalizeForCompare(value);
+        if (["true", "yes", "1"].includes(normalized)) return true;
+        if (["false", "no", "0"].includes(normalized)) return false;
+    }
+    return fallback;
+}
+
+function normalizeShortString(value: unknown, fallback = "") {
+    return String(value ?? fallback).trim().replace(/\s+/g, " ").slice(0, 220);
+}
+
+function projectHasPath(projectTree: string[], pathValue: string) {
+    const normalized = normalizeForCompare(pathValue);
+    return projectTree.some((projectPath) => normalizeForCompare(projectPath) === normalized);
+}
+
+function pathAppearsInProject(projectTree: string[], pathValue: string) {
+    const normalized = normalizeForCompare(pathValue);
+    if (!normalized) return false;
+    return projectTree.some((projectPath) => {
+        const comparable = normalizeForCompare(projectPath);
+        return comparable === normalized || comparable.endsWith(`/${normalized}`) || normalized.endsWith(`/${comparable}`);
+    });
+}
+
+function extractPathMentionsFromTask(rawTask: string) {
+    const mentions: string[] = [];
+    const extensions = "ts|tsx|js|jsx|mjs|cjs|css|scss|sass|less|html|json|md|mdx|txt|yml|yaml|toml|sql|prisma|graphql|gql|xml|svg";
+    const pathChars = "A-Za-z0-9_ .@()\\[\\]{}+~$!#%&=,;:'`^-";
+    const slashPathRegex = new RegExp(
+        `(?:^|[\\s(\\[{'"\`])((?:[A-Za-z]:)?[${pathChars}]+(?:[\\\\/][${pathChars}]+)+\\.(?:${extensions}))(?=$|[\\s)\\]}'"\`,;:!?])`,
+        "gi"
+    );
+    const fileNameRegex = new RegExp(`\\b([A-Za-z0-9_@()\\[\\].-]+\\.(?:${extensions}))\\b`, "gi");
+
+    for (const match of rawTask.matchAll(slashPathRegex)) {
+        if (match[1]) mentions.push(normalizePath(match[1]));
+    }
+
+    for (const match of rawTask.matchAll(fileNameRegex)) {
+        if (match[1]) mentions.push(normalizePath(match[1]));
+    }
+
+    return Array.from(new Set(mentions)).filter(Boolean).slice(0, 12);
+}
+
+function getExistingExplicitPathTargets(rawTask: string, projectTree: string[]): StructuredIntentTarget[] {
+    const targets: StructuredIntentTarget[] = [];
+
+    for (const mention of extractPathMentionsFromTask(rawTask)) {
+        const matchedPath = projectTree.find((projectPath) => {
+            const comparable = normalizeForCompare(projectPath);
+            const normalizedMention = normalizeForCompare(mention);
+            return comparable === normalizedMention || comparable.endsWith(`/${normalizedMention}`) || normalizedMention.endsWith(`/${comparable}`);
+        });
+
+        if (!matchedPath) continue;
+        targets.push({
+            kind: "explicit_file",
+            value: matchedPath,
+            path: matchedPath,
+            confidence: 0.98,
+            evidence: "The user explicitly mentioned this real project path."
+        });
+    }
+
+    return targets;
+}
+
+function mentionsOnlyExplicitScope(rawTask: string) {
+    return includesAny(rawTask, [
+        "do not change other files",
+        "don't change other files",
+        "do not touch other files",
+        "don't touch other files",
+        "only this file",
+        "this file only",
+        "не менять остальные файлы",
+        "не меняй остальные файлы",
+        "не трогать остальные файлы",
+        "не трогай остальные файлы",
+        "остальные файлы не трогать",
+        "остальные файлы не менять",
+        "только этот файл"
+    ]);
+}
+
+function inferFallbackProtectedScopes(rawTask: string) {
+    const scopes = new Set<string>();
+    if (mentionsOnlyExplicitScope(rawTask)) scopes.add("other files");
+    if (hasNoBackendChangeConstraint(rawTask)) scopes.add("backend/api");
+    if (hasNoFrontendChangeConstraint(rawTask)) scopes.add("frontend/ui");
+    return Array.from(scopes);
+}
+
+function getDefaultStructuredIntent({
+    rawTask,
+    taskArea,
+    projectTree
+}: {
+    rawTask: string;
+    taskArea: TaskArea;
+    projectTree: string[];
+}): StructuredTaskIntent {
+    const primaryTargets = getExistingExplicitPathTargets(rawTask, projectTree);
+    const protectedScopes = inferFallbackProtectedScopes(rawTask);
+
+    return {
+        schemaVersion: 1,
+        primaryTargets,
+        positiveActions: normalizeStringArray([rawTask]).slice(0, 3),
+        protectedScopes,
+        allowedEditScope: primaryTargets.length > 0 && mentionsOnlyExplicitScope(rawTask)
+            ? "explicit_targets_only"
+            : primaryTargets.length > 0
+                ? "target_with_supporting_context"
+                : "unknown",
+        needsStyles: taskArea === "ui" ? null : false,
+        needsBackend: taskArea === "backend" || taskArea === "fullstack" ? true : hasNoBackendChangeConstraint(rawTask) ? false : null,
+        ambiguities: primaryTargets.length === 0 ? ["No explicit inventory path was found in the task text."] : [],
+        modelNotes: ["Fallback structured intent was inferred from task text and project paths."]
+    };
+}
+
 function emptyScores(): AreaScores {
     return {
         ui: 0,
@@ -283,7 +507,7 @@ function scoreTaskMeaning(rawTask: string, taskType: string) {
     const hasApi = includesAny(text, ["api", "апи", "endpoint", "эндпоинт", "route", "маршрут"]);
     const hasAuth = includesAny(text, ["auth", "authorization", "authentication", "login", "session", "token", "cookie", "авторизац", "аутентиф", "логин", "сесс", "токен", "куки"]);
     const hasServer = includesAny(text, ["server", "backend", "database", "db", "service", "controller", "webhook", "сервер", "серверный", "бэкенд", "бекенд", "база", "бд", "сервис"]);
-    const hasUi = includesAny(text, ["ui", "ux", "screen", "page", "layout", "visual", "design", "style", "css", "button", "form", "input", "focus", "modal", "card", "navigation", "header", "frontend", "component", "экран", "страниц", "визуал", "дизайн", "внешний вид", "кноп", "форма", "пол", "фокус", "модал", "карточ", "навигац", "шапк", "дороже", "чище", "деревян", "дефолт"]);
+    const hasUi = hasRuntimeUiSurfaceTerm(rawTask) || includesAny(text, ["ui", "ux", "screen", "page", "layout", "visual", "design", "style", "css", "button", "form", "input", "focus", "modal", "card", "navigation", "header", "frontend", "component", "экран", "страниц", "визуал", "дизайн", "внешний вид", "кноп", "форма", "пол", "фокус", "модал", "карточ", "навигац", "шапк", "дороже", "чище", "деревян", "дефолт"]);
     const hasBuild = includesAny(text, ["build", "npm run build", "pnpm build", "yarn build", "compile", "compilation", "bundl", "import", "imports", "module not found", "resolve", "alias", "path alias", "tsconfig", "vite", "next build", "eslint", "typecheck", "typescript", "сборк", "билд", "компиляц", "импорт", "импортами", "путями", "алиас", "модул", "ошибка с импортами"]);
     const hasDocs = includesAny(text, ["readme", "docs", "documentation", "guide", "manual", "instructions", "how to run", "setup", "onboarding", "документац", "ридми", "инструкц", "запуск", "запуска", "разработчик", "нового разработчика", "описание", "команды"]);
 
@@ -346,6 +570,12 @@ function scoreTaskMeaning(rawTask: string, taskType: string) {
         scores.backend += 4;
     }
 
+    if (noBackendChanges && hasUi) {
+        scores.ui += 10;
+        scores.backend -= 10;
+        scores.fullstack -= 8;
+    }
+
     return scores;
 }
 
@@ -401,11 +631,183 @@ function groundRecommendedSearchTerms(terms: string[], projectTree: string[]) {
     return terms.filter((term) => projectTree.some((projectPath) => normalizeForCompare(projectPath).includes(normalizeForCompare(term)))).slice(0, 24);
 }
 
+function taskMentionsPath(rawTask: string, filePath: string) {
+    const task = normalizeForCompare(rawTask);
+    const pathValue = normalizeForCompare(filePath);
+    const fileName = pathValue.split("/").pop() ?? pathValue;
+    const baseName = fileName.replace(/\.[^.]+$/, "");
+
+    return task.includes(pathValue) || task.includes(fileName) || (baseName.length >= 4 && task.includes(baseName));
+}
+
+function meaningfulTaskTokens(rawTask: string) {
+    return new Set(
+        tokenize(rawTask)
+            .map((token) => token.replace(/\.[a-z0-9]+$/i, ""))
+            .filter((token) => token.length >= 4)
+            .filter((token) => !STOP_WORDS.has(token))
+            .filter((token) => !GENERIC_DOMAIN_WORDS.has(token))
+    );
+}
+
+function hasMeaningfulTaskOverlap(candidateText: string, rawTask: string) {
+    const taskTokens = meaningfulTaskTokens(rawTask);
+    if (taskTokens.size === 0) {
+        return false;
+    }
+
+    const candidateTokens = tokenize(candidateText)
+        .map((token) => token.replace(/\.[a-z0-9]+$/i, ""))
+        .filter((token) => token.length >= 4)
+        .filter((token) => !STOP_WORDS.has(token))
+        .filter((token) => !GENERIC_DOMAIN_WORDS.has(token));
+
+    return candidateTokens.some((token) => taskTokens.has(token));
+}
+
+function getStructuredObject(data: Record<string, unknown>) {
+    const structured = data.structuredIntent ?? data.structured ?? data.intent;
+    return structured && typeof structured === "object" && !Array.isArray(structured)
+        ? structured as Record<string, unknown>
+        : data;
+}
+
+function normalizeStructuredTarget(value: unknown, rawTask: string, projectTree: string[]): StructuredIntentTarget | null {
+    if (!value || typeof value !== "object") {
+        if (typeof value === "string" && value.trim()) {
+            return {
+                kind: pathAppearsInProject(projectTree, value) ? "explicit_file" : "entity",
+                value: normalizeShortString(value),
+                path: pathAppearsInProject(projectTree, value) ? normalizePath(value) : undefined,
+                confidence: 0.58,
+                evidence: "Model returned a string target."
+            };
+        }
+        return null;
+    }
+
+    const row = value as Record<string, unknown>;
+    const rawPath = normalizeShortString(row.path ?? row.file ?? row.filePath ?? row.relativePath);
+    const rawRoute = normalizeShortString(row.routePath ?? row.route);
+    const rawValue = normalizeShortString(row.value ?? row.name ?? row.target ?? row.label ?? rawPath ?? rawRoute);
+    const kind = rawPath ? "explicit_file" : normalizeTargetKind(row.kind ?? row.type);
+    const confidence = normalizeConfidence(row.confidence, 0.62);
+    const evidence = normalizeShortString(row.evidence ?? row.reason, "Model identified this target from the task.");
+
+    if (!rawValue && !rawPath && !rawRoute) return null;
+
+    if (rawPath && !pathAppearsInProject(projectTree, rawPath)) {
+        return null;
+    }
+
+    if (
+        rawPath &&
+        !taskMentionsPath(rawTask, rawPath) &&
+        !hasMeaningfulTaskOverlap([rawValue, rawRoute, normalizeShortString(row.name), evidence].join(" "), rawTask)
+    ) {
+        return null;
+    }
+
+    const groundedValue =
+        rawPath ||
+        rawRoute ||
+        (termAppearsInTaskOrProject(rawValue, rawTask, projectTree) ? rawValue : "");
+
+    if (!groundedValue) return null;
+
+    return {
+        kind,
+        value: groundedValue,
+        path: rawPath || undefined,
+        routePath: rawRoute || undefined,
+        name: normalizeShortString(row.name) || undefined,
+        confidence,
+        evidence
+    };
+}
+
+function normalizeStructuredTargets(value: unknown, rawTask: string, projectTree: string[]) {
+    const rawTargets = Array.isArray(value) ? value : [];
+    const seen = new Set<string>();
+    const targets: StructuredIntentTarget[] = [];
+
+    for (const item of rawTargets) {
+        const target = normalizeStructuredTarget(item, rawTask, projectTree);
+        if (!target) continue;
+
+        const key = normalizeForCompare([target.kind, target.path, target.routePath, target.value].filter(Boolean).join(":"));
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        targets.push(target);
+    }
+
+    return targets.slice(0, 8);
+}
+
+function mergeStructuredTargets(...groups: StructuredIntentTarget[][]) {
+    const seen = new Set<string>();
+    const targets: StructuredIntentTarget[] = [];
+
+    for (const group of groups) {
+        for (const target of group) {
+            const key = normalizeForCompare([target.kind, target.path, target.routePath, target.value].filter(Boolean).join(":"));
+            if (!key || seen.has(key)) continue;
+            seen.add(key);
+            targets.push(target);
+        }
+    }
+
+    return targets
+        .sort((a, b) => b.confidence - a.confidence)
+        .slice(0, 10);
+}
+
+function normalizeStructuredIntent(
+    data: Record<string, unknown>,
+    fallback: StructuredTaskIntent,
+    rawTask: string,
+    projectTree: string[]
+): StructuredTaskIntent {
+    const structured = getStructuredObject(data);
+    const modelTargets = normalizeStructuredTargets(
+        structured.primaryTargets ?? structured.targets ?? structured.targetFiles ?? structured.relevantTargets,
+        rawTask,
+        projectTree
+    );
+    const fallbackTargets = getExistingExplicitPathTargets(rawTask, projectTree);
+    const allowedEditScope = normalizeAllowedEditScope(structured.allowedEditScope ?? structured.editScope, fallback.allowedEditScope);
+    const protectedScopes = mergeUniqueStrings(
+        fallback.protectedScopes,
+        normalizeStringArray(structured.protectedScopes ?? structured.constraints ?? structured.doNotTouch)
+    );
+
+    return {
+        schemaVersion: 1,
+        primaryTargets: mergeStructuredTargets(fallbackTargets, modelTargets, fallback.primaryTargets),
+        positiveActions: mergeUniqueStrings(
+            normalizeStringArray(structured.positiveActions ?? structured.actions),
+            fallback.positiveActions
+        ).slice(0, 12),
+        protectedScopes,
+        allowedEditScope,
+        needsStyles: normalizeNullableBoolean(structured.needsStyles, fallback.needsStyles),
+        needsBackend: normalizeNullableBoolean(structured.needsBackend, fallback.needsBackend),
+        ambiguities: mergeUniqueStrings(
+            fallback.ambiguities,
+            normalizeStringArray(structured.ambiguities ?? structured.questions)
+        ).slice(0, 12),
+        modelNotes: mergeUniqueStrings(
+            normalizeStringArray(structured.modelNotes ?? structured.notes),
+            fallback.modelNotes
+        ).slice(0, 12)
+    };
+}
+
 function addIfTaskMatches(task: string, terms: string[], onMatch: () => void) {
     if (includesAny(task, terms)) onMatch();
 }
 
-function buildFallbackIntent({ rawTask, taskType }: Pick<AnalyzeTaskIntentInput, "rawTask" | "taskType">): TaskIntentAnalysis {
+function buildFallbackIntent({ rawTask, taskType, projectTree = [] }: Pick<AnalyzeTaskIntentInput, "rawTask" | "taskType"> & { projectTree?: string[] }): TaskIntentAnalysis {
     const startedAt = Date.now();
     const task = rawTask.toLowerCase();
     const scores = scoreTaskMeaning(rawTask, taskType);
@@ -470,6 +872,12 @@ function buildFallbackIntent({ rawTask, taskType }: Pick<AnalyzeTaskIntentInput,
         intentTags.add("bugfix"); fileRoleHints.add("test");
     });
 
+    const structuredIntent = getDefaultStructuredIntent({
+        rawTask,
+        taskArea: best.area,
+        projectTree
+    });
+
     return {
         taskArea: best.area,
         intentTags: Array.from(intentTags),
@@ -480,18 +888,105 @@ function buildFallbackIntent({ rawTask, taskType }: Pick<AnalyzeTaskIntentInput,
         riskLevel: getFallbackRiskLevel(best.area, rawTask),
         confidence: getFallbackConfidence(best.area, best.score),
         notes,
+        structuredIntent,
         source: "fallback",
         durationMs: getDurationMs(startedAt)
     };
 }
 
+function cleanupJsonCandidate(value: string) {
+    return value
+        .replace(/^```(?:json)?/i, "")
+        .replace(/```$/i, "")
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/(^|\s)\/\/.*$/gm, "$1")
+        .replace(/,\s*([}\]])/g, "$1")
+        .trim();
+}
+
+function parseJsonCandidate(value: string) {
+    const candidate = cleanupJsonCandidate(value);
+    try { return JSON.parse(candidate); } catch { return null; }
+}
+
+function extractBalancedJsonFragments(value: string) {
+    const fragments: string[] = [];
+    const openers = new Set(["{", "["]);
+    const closerFor: Record<string, string> = { "{": "}", "[": "]" };
+
+    for (let start = 0; start < value.length; start += 1) {
+        const opener = value[start];
+        if (!openers.has(opener)) continue;
+
+        const expectedClosers = [closerFor[opener]];
+        let inString = false;
+        let quote = "";
+        let escaped = false;
+
+        for (let index = start + 1; index < value.length; index += 1) {
+            const char = value[index];
+
+            if (inString) {
+                if (escaped) {
+                    escaped = false;
+                    continue;
+                }
+
+                if (char === "\\") {
+                    escaped = true;
+                    continue;
+                }
+
+                if (char === quote) {
+                    inString = false;
+                    quote = "";
+                }
+
+                continue;
+            }
+
+            if (char === '"') {
+                inString = true;
+                quote = char;
+                continue;
+            }
+
+            if (openers.has(char)) {
+                expectedClosers.push(closerFor[char]);
+                continue;
+            }
+
+            const expected = expectedClosers[expectedClosers.length - 1];
+            if (char === expected) {
+                expectedClosers.pop();
+                if (expectedClosers.length === 0) {
+                    fragments.push(value.slice(start, index + 1));
+                    break;
+                }
+            }
+        }
+    }
+
+    return fragments;
+}
+
 function extractJsonObject(value: string) {
     const trimmed = value.trim();
-    try { return JSON.parse(trimmed); } catch { /* continue */ }
-    const firstBrace = trimmed.indexOf("{");
-    const lastBrace = trimmed.lastIndexOf("}");
-    if (firstBrace === -1 || lastBrace === -1 || lastBrace <= firstBrace) return null;
-    try { return JSON.parse(trimmed.slice(firstBrace, lastBrace + 1)); } catch { return null; }
+    const direct = parseJsonCandidate(trimmed);
+    if (direct && typeof direct === "object" && !Array.isArray(direct)) return direct;
+
+    const fenced = [...trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)]
+        .map((match) => match[1])
+        .map(parseJsonCandidate)
+        .find((item) => item && typeof item === "object" && !Array.isArray(item));
+    if (fenced) return fenced;
+
+    for (const fragment of extractBalancedJsonFragments(trimmed)) {
+        const parsed = parseJsonCandidate(fragment);
+        if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
+    }
+
+    return null;
 }
 
 function normalizeIntentResult(value: unknown, fallback: TaskIntentAnalysis, rawTask: string, projectTree: string[]): TaskIntentAnalysis {
@@ -516,6 +1011,7 @@ function normalizeIntentResult(value: unknown, fallback: TaskIntentAnalysis, raw
     const mergedMentionedEntities = mergeUniqueStrings(fallback.mentionedEntities, normalizeStringArray(data.mentionedEntities));
     const mergedRecommendedSearchTerms = mergeUniqueStrings(fallback.recommendedSearchTerms, normalizeStringArray(data.recommendedSearchTerms));
     const groundedRecommendedSearchTerms = groundRecommendedSearchTerms(mergedRecommendedSearchTerms, projectTree);
+    const structuredIntent = normalizeStructuredIntent(data, fallback.structuredIntent, rawTask, projectTree);
 
     return {
         taskArea: finalTaskArea,
@@ -526,12 +1022,18 @@ function normalizeIntentResult(value: unknown, fallback: TaskIntentAnalysis, raw
         recommendedSearchTerms: groundedRecommendedSearchTerms.length > 0 ? groundedRecommendedSearchTerms : fallback.recommendedSearchTerms,
         riskLevel: normalizeRiskLevel(data.riskLevel, fallback.riskLevel),
         confidence: Math.max(fallback.confidence, modelConfidence),
+        structuredIntent,
         notes: mergeUniqueStrings(
             normalizeStringArray(data.notes),
             fallback.notes,
-            [trustFallbackArea && modelTaskArea !== fallback.taskArea
+            [
+                structuredIntent.primaryTargets.length > 0
+                    ? `Structured intent contains ${structuredIntent.primaryTargets.length} validated primary target(s).`
+                    : "Structured intent did not contain validated primary targets.",
+                trustFallbackArea && modelTaskArea !== fallback.taskArea
                 ? `Model taskArea "${modelTaskArea}" was overridden by stronger task-text inference "${fallback.taskArea}".`
-                : "Ollama intent was merged with grounded fallback analysis."]
+                : "Ollama intent was merged with grounded fallback analysis."
+            ]
         ),
         source: "ollama",
         durationMs: fallback.durationMs
@@ -559,6 +1061,13 @@ Rules:
 - Do not put generic words like page, screen, button, style, component, api, build, server into domainTerms.
 - fileRoleHints should use generic roles: page, component, layout, style, api, route, service, state, store, model, schema, test, docs, config, asset, entry.
 - recommendedSearchTerms must be short fragments grounded in the project tree.
+- structuredIntent is the important part: extract what the user wants changed, what must not be changed, and the primary target(s).
+- primaryTargets must be grounded in user text or the project tree. Prefer explicit_file targets when the user names a file path.
+- For vague page/feature requests, use kind "page", "route", "component", "symbol", or "entity" with a short target value that appears in the task or project tree.
+- Do not copy placeholder values from this schema. Use only real paths, routes, symbols, and evidence from the user task or project tree.
+- protectedScopes should capture constraints such as "backend/api", "frontend/ui", "other files", "styles", "tests", named pages, named features, or business logic.
+- allowedEditScope should be "explicit_targets_only" when the user names exact files and says not to change other files; otherwise use "target_with_supporting_context" or "broad_but_safe".
+- needsBackend and needsStyles can be true, false, or null when uncertain.
 - Empty arrays are better than guessed values.
 
 Allowed taskArea values:
@@ -577,6 +1086,27 @@ Return JSON shape:
   "recommendedSearchTerms": [],
   "riskLevel": "medium",
   "confidence": 0.8,
+  "structuredIntent": {
+    "schemaVersion": 1,
+    "primaryTargets": [
+      {
+        "kind": "explicit_file",
+        "value": "<real target from task or project tree>",
+        "path": "<real/relative/path.ext or null>",
+        "routePath": "<real route path or null>",
+        "name": "<real symbol/page/component name or null>",
+        "confidence": 0.98,
+        "evidence": "<short evidence from user task or inventory>"
+      }
+    ],
+    "positiveActions": ["fix navigation"],
+    "protectedScopes": ["other files"],
+    "allowedEditScope": "explicit_targets_only",
+    "needsStyles": null,
+    "needsBackend": false,
+    "ambiguities": [],
+    "modelNotes": []
+  },
   "notes": []
 }
 
@@ -604,9 +1134,87 @@ ${projectTree.slice(0, 240).join("\n")}
 `.trim();
 }
 
+function buildIntentRepairPrompt(rawResponse: string) {
+    return `
+Repair this model response into strict JSON only. No Markdown. No code fences.
+
+Keep only fields that match this schema:
+{
+  "taskArea": "ui|backend|fullstack|build|bugfix|refactor|docs|tests|general",
+  "intentTags": [],
+  "domainTerms": [],
+  "mentionedEntities": [],
+  "fileRoleHints": [],
+  "recommendedSearchTerms": [],
+  "riskLevel": "low|medium|high",
+  "confidence": 0.8,
+  "structuredIntent": {
+    "schemaVersion": 1,
+    "primaryTargets": [],
+    "positiveActions": [],
+    "protectedScopes": [],
+    "allowedEditScope": "explicit_targets_only|target_with_supporting_context|broad_but_safe|unknown",
+    "needsStyles": null,
+    "needsBackend": null,
+    "ambiguities": [],
+    "modelNotes": []
+  },
+  "notes": []
+}
+
+Invalid response:
+${rawResponse.slice(0, 6000)}
+`.trim();
+}
+
+async function requestOllamaJson({
+    ollamaUrl,
+    model,
+    prompt,
+    numPredict
+}: {
+    ollamaUrl: string;
+    model: string;
+    prompt: string;
+    numPredict: number;
+}) {
+    const response = await fetch(`${ollamaUrl.replace(/\/$/, "")}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            model,
+            prompt,
+            stream: false,
+            format: "json",
+            options: { temperature: 0, num_predict: numPredict }
+        })
+    });
+
+    if (!response.ok) {
+        return {
+            ok: false as const,
+            status: response.status,
+            raw: ""
+        };
+    }
+
+    const data = (await response.json()) as OllamaGenerateResponse;
+    const raw = String(data.response ?? "");
+    return {
+        ok: true as const,
+        status: response.status,
+        raw,
+        json: extractJsonObject(raw)
+    };
+}
+
 export async function analyzeTaskIntent(input: AnalyzeTaskIntentInput): Promise<TaskIntentAnalysis> {
     const startedAt = Date.now();
-    const fallback = buildFallbackIntent(input);
+    const fallback = buildFallbackIntent({
+        rawTask: input.rawTask,
+        taskType: input.taskType,
+        projectTree: input.projectTree ?? []
+    });
     const settings = await getAppSettings();
 
     if (settings.generationMode !== "ollama" || !settings.defaultOllamaModel) {
@@ -614,34 +1222,45 @@ export async function analyzeTaskIntent(input: AnalyzeTaskIntentInput): Promise<
     }
 
     try {
-        const response = await fetch(`${settings.ollamaUrl.replace(/\/$/, "")}/api/generate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                model: settings.defaultOllamaModel,
-                prompt: buildIntentPrompt(input),
-                stream: false,
-                format: "json",
-                options: { temperature: 0, num_predict: 700 }
-            })
+        const firstAttempt = await requestOllamaJson({
+            ollamaUrl: settings.ollamaUrl,
+            model: settings.defaultOllamaModel,
+            prompt: buildIntentPrompt(input),
+            numPredict: 1000
         });
 
-        if (!response.ok) {
+        if (!firstAttempt.ok) {
             return {
                 ...fallback,
                 durationMs: getDurationMs(startedAt),
-                notes: [...fallback.notes, `Ollama intent analyzer responded with status ${response.status}.`]
+                notes: [...fallback.notes, `Ollama intent analyzer responded with status ${firstAttempt.status}.`]
             };
         }
 
-        const data = (await response.json()) as OllamaGenerateResponse;
-        const json = extractJsonObject(String(data.response ?? ""));
+        let json = firstAttempt.json;
+        const repairNotes: string[] = [];
+        if (!json) {
+            const repairAttempt = await requestOllamaJson({
+                ollamaUrl: settings.ollamaUrl,
+                model: settings.defaultOllamaModel,
+                prompt: buildIntentRepairPrompt(firstAttempt.raw),
+                numPredict: 900
+            });
+
+            if (repairAttempt.ok && repairAttempt.json) {
+                json = repairAttempt.json;
+                repairNotes.push("Ollama intent JSON was repaired after an invalid first response.");
+            } else {
+                repairNotes.push("Ollama intent analyzer returned invalid JSON and repair did not produce valid JSON.");
+            }
+        }
+
         const normalized = normalizeIntentResult(json, fallback, input.rawTask, input.projectTree ?? []);
 
         return {
             ...normalized,
             durationMs: getDurationMs(startedAt),
-            notes: normalized.notes.length > 0 ? normalized.notes : ["Ollama intent analysis completed."]
+            notes: [...repairNotes, ...(normalized.notes.length > 0 ? normalized.notes : ["Ollama intent analysis completed."])]
         };
     } catch (error) {
         return {

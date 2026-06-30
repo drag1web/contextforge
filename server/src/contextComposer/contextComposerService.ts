@@ -318,6 +318,12 @@ function buildComposerNotes({
     `Task intent source: ${taskIntent.source}; area: ${taskIntent.taskArea}; risk: ${taskIntent.riskLevel}; confidence: ${taskIntent.confidence}.`
   );
 
+  if (taskIntent.structuredIntent) {
+    notes.push(
+      `Structured intent: ${taskIntent.structuredIntent.primaryTargets.length} primary target(s); edit scope ${taskIntent.structuredIntent.allowedEditScope}.`
+    );
+  }
+
   notes.push(
     `File selection source: ${fileSelection.source}; selected files: ${selectedFiles.length}; snippets: ${snippets.length}.`
   );
@@ -429,7 +435,8 @@ export async function buildContextComposerPreview(input: {
     rawTask: input.rawTask,
     taskIntent,
     effectiveTaskArea,
-    selectedFiles
+    selectedFiles,
+    selectionQuality
   });
 
   const clarifyingQuestions = buildClarifyingQuestions({
@@ -701,23 +708,27 @@ function buildSuggestedFileGroups({
   rawTask,
   taskIntent,
   effectiveTaskArea,
-  selectedFiles
+  selectedFiles,
+  selectionQuality
 }: {
   inventory: ProjectInventory;
   rawTask: string;
   taskIntent: TaskIntentAnalysis;
   effectiveTaskArea: string;
   selectedFiles: ComposerFileReference[];
+  selectionQuality: ContextSelectionQuality;
 }): ContextComposerSuggestedFileGroup[] {
   const selectedPathSet = new Set(selectedFiles.map((file) => normalizePath(file.path).toLowerCase()));
+  const weakManualReviewMode = selectionQuality.status === "blocked" && selectedFiles.length === 0;
   const taskTokens = getTaskMeaningTokens({ rawTask, taskIntent });
   const scored = inventory.files
     .filter((file) => file.kind !== "asset" && file.kind !== "runtime" && file.kind !== "data")
+    .filter((file) => canShowComposerCandidateForTask(file, rawTask, taskIntent))
     .map((file) => ({ file, score: scoreInventoryFileAgainstTask(file, taskTokens, effectiveTaskArea) }))
     .filter((item) => item.score > 30)
     .sort((a, b) => b.score - a.score || a.file.path.localeCompare(b.file.path));
 
-  const makeGroupFiles = (items: Array<{ file: ProjectInventoryFile; score: number }>, reason: string, limit: number) => {
+  const makeGroupFiles = (items: Array<{ file: ProjectInventoryFile; score: number }>, reason: string, limit: number, weak = false) => {
     const seen = new Set<string>();
     return items
       .filter((item) => {
@@ -732,7 +743,9 @@ function buildSuggestedFileGroups({
         selectedPathSet.has(normalizePath(item.file.path).toLowerCase())
           ? `${reason} Also selected by the automatic selector.`
           : reason,
-        Math.max(0.45, Math.min(0.96, item.score / 130))
+        weak
+          ? Math.max(0.35, Math.min(0.62, item.score / 180))
+          : Math.max(0.45, Math.min(0.96, item.score / 130))
       ));
   };
 
@@ -748,6 +761,27 @@ function buildSuggestedFileGroups({
   const referenceItems = scored.filter(({ file }) => file.kind === "docs" || file.kind === "config" || file.role === "layout" || file.role === "app-entry");
 
   const groups: ContextComposerSuggestedFileGroup[] = [];
+
+  if (weakManualReviewMode) {
+    const weakFiles = makeGroupFiles(
+      targetItems.length > 0 ? targetItems : scored,
+      "Weak manual-review suggestion from inventory ranking. Not auto-selected; include only after confirming this is the real target file.",
+      6,
+      true
+    );
+
+    if (weakFiles.length > 0) {
+      groups.push({
+        id: "weak-manual-review-candidates",
+        title: "Weak manual-review candidates",
+        caption: "Automatic selection was blocked. These files are only search hints, not confirmed targets.",
+        files: weakFiles
+      });
+    }
+
+    return groups;
+  }
+
   const likelyFiles = makeGroupFiles(targetItems.length > 0 ? targetItems : scored, "Suggested by task-aware inventory ranking using real file paths, roles, symbols, text hints, and content preview.", 8);
 
   if (likelyFiles.length > 0) {
@@ -848,6 +882,62 @@ function isNoisySearchPath(relativePath: string) {
     normalized.endsWith("yarn.lock") ||
     normalized.endsWith("pnpm-lock.yaml")
   );
+}
+
+function queryLooksLikeExplicitPath(query: string) {
+  const normalized = normalizePath(query).toLowerCase().trim();
+  return normalized.includes("/") || normalized.includes("\\") || /\.[a-z0-9]{1,8}$/i.test(normalized);
+}
+
+function hasComposerProtectedBackendConstraint(rawTask: string, taskIntent?: TaskIntentAnalysis) {
+  const text = normalizeForSearch([
+    rawTask,
+    taskIntent?.taskArea ?? "",
+    ...(taskIntent?.intentTags ?? []),
+    ...(taskIntent?.domainTerms ?? []),
+    ...(taskIntent?.fileRoleHints ?? []),
+    ...(taskIntent?.structuredIntent?.protectedScopes ?? [])
+  ].join(" "));
+
+  const mentionsBackendSurface = /\b(api|endpoint|request|requests|fetch|server|backend|auth|session|token|database|db)\b/i.test(text);
+  const protectsSurface = /\b(do not|don't|dont|without|not|avoid|keep|preserve)\b/i.test(text)
+    || /(?:не|нельзя|без|сохрани|оставь|не\s+меня|не\s+трог)/i.test(text);
+
+  return (mentionsBackendSurface && protectsSurface)
+    || (taskIntent?.structuredIntent?.needsBackend === false && mentionsBackendSurface);
+}
+
+function isComposerBackendOrApiFile(file: ProjectInventoryFile) {
+  const normalized = normalizePath(file.path).toLowerCase();
+  const identity = normalizeForSearch([
+    file.path,
+    file.name,
+    file.role,
+    ...(file.symbols ?? []),
+    ...(file.exports ?? []),
+    ...(file.textHints ?? [])
+  ].join(" "));
+
+  return ["api-route", "client-api", "service", "repository", "db-schema", "server-entry"].includes(file.role)
+    || normalized.startsWith("server/")
+    || normalized.includes("/server/")
+    || normalized.startsWith("backend/")
+    || normalized.includes("/backend/")
+    || normalized.startsWith("api/")
+    || normalized.includes("/api/")
+    || normalized.startsWith("src/api/")
+    || normalized.includes("/src/api/")
+    || normalized.includes("/routes/")
+    || normalized.includes("/services/")
+    || normalized.endsWith("/api.ts")
+    || normalized.endsWith("/api.js")
+    || /\b(auth|session|token|cookie|database|db)\b/i.test(identity);
+}
+
+function canShowComposerCandidateForTask(file: ProjectInventoryFile, rawTask: string, taskIntent?: TaskIntentAnalysis, allowExplicitPath = false) {
+  if (!hasComposerProtectedBackendConstraint(rawTask, taskIntent)) return true;
+  if (allowExplicitPath) return true;
+  return !isComposerBackendOrApiFile(file);
 }
 
 function scoreComposerSearchFile(file: ProjectInventoryFile, query: string) {
@@ -992,6 +1082,7 @@ export async function searchContextComposerFiles(input: {
   );
 
   const results = inventory.files
+    .filter((file) => canShowComposerCandidateForTask(file, input.query, undefined, queryLooksLikeExplicitPath(input.query)))
     .map((file) => {
       const alreadySelected = excludedPathSet.has(normalizePath(file.path).toLowerCase());
       const score = scoreComposerSearchFile(file, input.query);

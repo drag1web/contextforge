@@ -280,7 +280,8 @@ function canReadTextFile(fileName: string) {
     const lowerName = fileName.toLowerCase();
     const extension = getExtension(lowerName);
 
-    if (lowerName === ".env" || lowerName.endsWith(".env.example")) return true;
+    if (lowerName === ".env" || (lowerName.startsWith(".env.") && !lowerName.includes("example"))) return false;
+    if (lowerName.endsWith(".env.example") || lowerName === "env.example") return true;
 
     return TEXT_EXTENSIONS.has(extension);
 }
@@ -427,6 +428,39 @@ function tokenizeHints(value: string) {
         .filter((token) => !/^\d+$/.test(token));
 }
 
+
+function stripJsxText(value: string) {
+    return value
+        .replace(/<[^>]+>/g, " ")
+        .replace(/[{}()[\]`$]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function extractPageSemanticHints(content: string) {
+    const hints: string[] = [];
+    const add = (value: string | undefined) => {
+        const cleaned = stripJsxText(String(value ?? ""));
+        if (cleaned.length >= 3 && cleaned.length <= 260) hints.push(cleaned);
+    };
+
+    const stringPropertyPatterns = [
+        /\btitle\s*:\s*["'`]([^"'`]{3,220})["'`]/gi,
+        /\bdescription\s*:\s*["'`]([^"'`]{3,260})["'`]/gi,
+        /\baria-label\s*=\s*["'`]([^"'`]{3,160})["'`]/gi,
+        /\b(?:label|heading|subtitle)\s*:\s*["'`]([^"'`]{3,180})["'`]/gi
+    ];
+
+    for (const pattern of stringPropertyPatterns) {
+        for (const match of content.matchAll(pattern)) add(match[1]);
+    }
+
+    const headingPattern = /<h[1-3][^>]*>([\s\S]{0,260}?)<\/h[1-3]>/gi;
+    for (const match of content.matchAll(headingPattern)) add(match[1]);
+
+    return getUniqueStrings(hints, 24);
+}
+
 function getTopHints(parts: string[]) {
     const counts = new Map<string, number>();
     for (const token of tokenizeHints(parts.join(" "))) {
@@ -448,6 +482,12 @@ function getContentPreview(content: string) {
         .slice(0, MAX_CONTENT_PREVIEW_CHARS);
 }
 
+function redactSensitiveText(content: string) {
+    return content
+        .replace(/\b([A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASS|API_KEY|PRIVATE_KEY|DATABASE_URL|CLIENT_SECRET|ACCESS_KEY)[A-Z0-9_]*)\s*[:=]\s*["'`]?[^\s"',`}]+/gi, "$1=<redacted>")
+        .replace(/\b(postgres(?:ql)?:\/\/)[^\s@]+@[^\s"')`]+/gi, "$1<redacted>@<host>");
+}
+
 async function analyzeTextFile(absolutePath: string, relativePath: string, sizeBytes: number, canReadText: boolean) {
     if (!canReadText || sizeBytes <= 0 || sizeBytes > MAX_ANALYZED_TEXT_BYTES) {
         return {
@@ -460,7 +500,7 @@ async function analyzeTextFile(absolutePath: string, relativePath: string, sizeB
     }
 
     try {
-        const content = await fs.readFile(absolutePath, "utf8");
+        const content = redactSensitiveText(await fs.readFile(absolutePath, "utf8"));
         const imports = getUniqueStrings([
             ...extractMatches(content, /import[\s\S]{0,120}?from\s+["']([^"']+)["']/g, 24),
             ...extractMatches(content, /import\s*\(\s*["']([^"']+)["']\s*\)/g, 12),
@@ -476,7 +516,17 @@ async function analyzeTextFile(absolutePath: string, relativePath: string, sizeB
             ...extractMatches(content, /const\s+([A-Za-z0-9_$]+)\s*=/g, 24),
             ...exports
         ], 40);
-        const textHints = getTopHints([relativePath, imports.join(" "), exports.join(" "), symbols.join(" "), content.slice(0, 12_000)]);
+        const pageSemanticHints = extractPageSemanticHints(content);
+        const textHints = getTopHints([
+            relativePath,
+            imports.join(" "),
+            exports.join(" "),
+            symbols.join(" "),
+            pageSemanticHints.join(" "),
+            pageSemanticHints.join(" "),
+            pageSemanticHints.join(" "),
+            content.slice(0, 12_000)
+        ]);
 
         return {
             imports,

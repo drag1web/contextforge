@@ -1158,6 +1158,33 @@ export function ContextComposerModal({
                               {preview.taskIntent.source}
                             </span>
                           </div>
+
+                          {preview.taskIntent.structuredIntent && (
+                            <div className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
+                              <div className="flex items-center justify-between gap-3">
+                                <span className="text-neutral-600">Structured</span>
+                                <span className="font-medium text-white">
+                                  {preview.taskIntent.structuredIntent.allowedEditScope}
+                                </span>
+                              </div>
+
+                              <div className="mt-2 space-y-1">
+                                {preview.taskIntent.structuredIntent.primaryTargets.slice(0, 3).map((target) => (
+                                  <p
+                                    key={`${target.kind}:${target.path ?? target.routePath ?? target.value}`}
+                                    className="break-words text-[11px] leading-4 text-neutral-500"
+                                  >
+                                    {target.kind}: {target.path ?? target.routePath ?? target.value}
+                                  </p>
+                                ))}
+                                {preview.taskIntent.structuredIntent.primaryTargets.length === 0 && (
+                                  <p className="text-[11px] leading-4 text-neutral-600">
+                                    no primary target
+                                  </p>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </article>
 

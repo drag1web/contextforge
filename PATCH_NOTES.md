@@ -1,129 +1,112 @@
-# ContextForge v0.5.2 — Negative Route Cleanup Patch
+# ContextForge v0.5.2 — Page Semantic Targets Patch
 
 ## Goal
 
-Improve file selection without adding project-specific domain rules.
+Improve route/page file selection for natural language tasks without adding project-specific or business-domain hardcoding.
 
-This patch does **not** hardcode known projects such as metall-perm, cyberteam-frontend, License Monitor, GameHub, Faceit, Steam, or portfolio projects.
-It does **not** map a business/domain word to a concrete file path.
-
-The changes are universal and inventory-driven:
-
-- parse user constraints from the task text;
-- separate positive target text from negative "do not touch" clauses;
-- validate every selected file against the real inventory;
-- infer route/page candidates from real route files and route metadata;
-- avoid SEO/system files unless the task is explicitly about SEO/metadata.
+This patch keeps the universal ContextForge rule: the scanner and selector use real project inventory, file structure, page metadata/headings/text hints, imports, and user constraints. No rules are tied to `metall-perm`, `cyberteam`, or any known project.
 
 ## What changed
 
-### 1. Stronger negative constraints
+### 1. Page semantic target matching
 
-Examples now handled better:
+ContextForge now gives concrete page files higher priority when the user's task describes a page/section/screen in natural language.
 
-- `API-запросы не менять`
-- `логику загрузки, удаления и остальные компоненты не менять`
-- `не трогай каталог, шапку, футер, контакты, юридические страницы и глобальные стили`
+The selector can match page targets using real evidence from inventory:
 
-Protected terms are expanded through generic technical vocabulary only:
+- route path and path segments;
+- file role and filename;
+- symbols and exports;
+- scanner text hints;
+- page-level metadata/title/description;
+- visible headings such as `h1`, `h2`, `h3`;
+- page-local text snippets.
 
-- API/request/fetch/axios;
-- component/shared/ui;
-- table/list/grid/catalog;
-- header/nav/footer/contact/legal/style/global.
+Example target behavior:
 
-Matching protected files are removed from editable candidates unless the file was explicitly selected as the user's positive target.
+- task mentions a page with requisites/details → a real page file whose headings/metadata contain matching text is selected first;
+- task mentions services page → a real services page is selected before generic UI primitives.
 
-### 2. Natural route/page resolver
+### 2. Scanner extracts stronger page hints
 
-ContextForge can now infer route/page candidates from natural wording, not only explicit `/route` mentions.
+`projectInventoryScanner.ts` now extracts page-level semantic hints from readable source files:
 
-Examples:
+- `title: "..."`;
+- `description: "..."`;
+- `aria-label`, `label`, `heading`, `subtitle`-style values;
+- JSX headings: `<h1>`, `<h2>`, `<h3>`.
 
-- `раздел про доставку`
-- `страница настроек`
-- `страница пользователя`
+These hints are boosted into `textHints` so fallback selection can use them even when Ollama returns invalid or empty JSON.
 
-The resolver scores real inventory route/page files using:
+### 3. Concrete page target beats broad UI fallback
 
-- `routePath`;
-- path segments;
-- file role (`page`);
-- text hints/content preview;
-- a small generic multilingual website/app section vocabulary.
+When a concrete page target is found, broad fallback candidates are skipped for specific page/file tasks.
 
-It does not hardcode concrete project files.
+This prevents generic files like these from becoming primary edit targets just because the task is UI-related:
 
-### 3. Route-scoped noise cleanup
+- `Button.tsx`;
+- `Input.tsx`;
+- `Textarea.tsx`;
+- broad form/lead components;
+- app shell/entrypoint files.
 
-When the task is route/page-specific, unrelated page/global/component candidates are filtered unless they match:
+Relevant imported local files may still be included as supporting context. Generic UI primitives remain `inspect-only`; route-local page components or imports that clearly match the requested page scope may be marked `inspect-and-edit`.
 
-- explicit user file mention;
-- route match;
-- strong positive task tokens;
-- secondary docs deliverable.
+### 4. Safer protected constraint handling
 
-This prevents generic `Button.tsx`, unrelated catalog components, global styles, and random page files from being selected just because they have plausible technical roles.
+Protected constraints now distinguish stable file identity from random text/links inside a page.
 
-### 4. SEO/system file penalty
+A page is not rejected just because it contains a link to a protected page such as contacts, policy, consent, or delivery. Stable identity signals are used for protection checks:
 
-Files like these are excluded/penalized for normal UI/general tasks:
+- path;
+- filename;
+- role;
+- routePath.
 
-- `robots.ts`
-- `sitemap.ts`
-- `manifest.*`
-- `metadata.*`
+This avoids false exclusions of the correct page target.
 
-They are still allowed when the positive task asks for SEO, sitemap, robots, metadata, indexing, or build/config work.
+### 5. Page target guardrails
 
-### 5. Explicit-file tasks stay narrow
+The selector now avoids treating these as concrete page targets for normal page/UI tasks:
 
-When the user explicitly names a file and protects other logic/components, ContextForge avoids adding low-value docs/data candidates unless docs are a positive secondary deliverable.
+- root proxy page unless the task is clearly about home/landing/main page;
+- API route files such as `route.ts` or files under `/app/api/`;
+- layout/app-shell/global/SEO files when the task says not to touch them.
 
-## Local verification performed
+## Verification
 
-- Ran server TypeScript build:
+Ran:
 
 ```bash
 npm run build -w @contextforge/server
+npm run test:selector -w @contextforge/server
+npm run build
 ```
 
-- Ran selector smoke checks with synthetic inventories for:
+Result: TypeScript build and selector smoke tests passed.
 
-1. `src/components/UsersTable.js` + `API-запросы не менять`
-   - selected only `src/components/UsersTable.js` as edit target;
-   - did not select `src/api/api.js`.
+Smoke checks on the uploaded metall site inventory:
 
-2. `раздел про доставку` + protected catalog/header/footer/contacts/legal/global styles
-   - selected the delivery page route as edit target;
-   - did not select catalog component, globals, robots, sitemap, contacts, or legal pages.
+- task about the requisites page selected `src/app/(site)/requisites/page.tsx` first;
+- task about the services page selected `src/app/(site)/services/page.tsx` first;
+- generic UI components were included only as `inspect-only` references when imported by the selected page;
+- forbidden pages/layout/globals/SEO files were not selected as edit targets.
 
-## Recommended real tests
+Additional local smoke coverage now checks:
 
-### Test 1 — cyberteam-frontend
+- semantic page target selection;
+- route-local imported components can remain editable when they match the selected page scope;
+- Header/navigation tasks prioritize the concrete component over broad global CSS;
+- explicit Russian file tasks such as `В файле src/components/Header.tsx ... не менять остальные файлы` keep the named file selected and do not enter blocked review mode;
+- Russian `но ... не трогать` constraints protect only the trailing forbidden clause instead of swallowing the positive page target;
+- protected API terms do not select API files as editable UI targets;
+- `.env` files are not read into inventory, while `.env.example` remains readable with sensitive values redacted.
 
-```text
-Нужно в src/components/UsersTable.js аккуратно улучшить внешний вид формы добавления пользователя: сделать поля и кнопку визуально ровнее, добавить нормальные отступы и чтобы блок не выглядел как черновик. Логику загрузки, удаления, API-запросы и остальные компоненты не менять.
-```
+## Files changed
 
-Expected:
-
-- `src/components/UsersTable.js` first;
-- no `src/api/api.js` as `inspect-and-edit`;
-- no unrelated tables/components;
-- not blocked.
-
-### Test 2 — metall-perm
-
-```text
-На сайте металлки в разделе про доставку текст и блоки выглядят слишком сухо и неубедительно. Надо сделать страницу понятнее для клиента: чуть лучше структура, акценты, визуально приятнее, но не трогай каталог стали, шапку, футер, контакты, юридические страницы и глобальные стили.
-```
-
-Expected:
-
-- delivery page route first;
-- no `SteelCompact.tsx`;
-- no `globals.css`;
-- no `robots.ts` / `sitemap.ts`;
-- no header/layout/contacts/legal page files;
-- not blocked.
+- `server/src/ollama/taskFileSelector.ts`
+- `server/src/scanner/projectInventoryScanner.ts`
+- `server/src/selection/contextQuality.ts`
+- `server/src/ollama/taskFileSelector.smoke.ts`
+- `server/package.json`
+- `package.json`

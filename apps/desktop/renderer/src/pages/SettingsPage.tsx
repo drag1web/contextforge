@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import {
-  AlertTriangle,
   Bot,
+  ChevronDown,
   Check,
   CheckCircle2,
   Circle,
@@ -50,15 +50,19 @@ type SettingsSectionId =
   | "composer"
   | "interface"
   | "shortcuts"
-  | "system";
+  | "system"
+  | "privacy"
+  | "storage"
+  | "updates";
 
 type ComposerLimitKey = keyof AppSettings["composerFileLimits"];
 
 const SETTINGS_SECTIONS: Array<{
   id: SettingsSectionId;
   label: string;
-  labelKey: string;
+  labelKey?: string;
   icon: LucideIcon;
+  status?: "soon";
 }> = [
     {
       id: "ai",
@@ -91,12 +95,104 @@ const SETTINGS_SECTIONS: Array<{
       icon: Keyboard
     },
     {
+      id: "privacy",
+      label: "Privacy",
+      icon: ShieldCheck,
+      status: "soon"
+    },
+    {
+      id: "storage",
+      label: "Storage",
+      icon: Server,
+      status: "soon"
+    },
+    {
+      id: "updates",
+      label: "Updates",
+      icon: RefreshCw,
+      status: "soon"
+    },
+    {
       id: "system",
       label: "System",
       labelKey: "settings.system",
       icon: ShieldCheck
     }
   ];
+
+function getSettingsSectionLabel(section: (typeof SETTINGS_SECTIONS)[number], t: (key: string, options?: Record<string, unknown>) => string) {
+  return section.labelKey ? t(section.labelKey) : section.label;
+}
+
+const SETTINGS_PLACEHOLDERS: Record<Exclude<SettingsSectionId, "ai" | "generation" | "composer" | "interface" | "shortcuts" | "system">, {
+  label: string;
+  title: string;
+  description: string;
+  cards: Array<{
+    label: string;
+    title: string;
+    description: string;
+    points: string[];
+  }>;
+}> = {
+  privacy: {
+    label: "Security",
+    title: "Privacy and safety controls",
+    description: "Future controls for sensitive files, secret handling, and safe local project scanning.",
+    cards: [
+      {
+        label: "Planned",
+        title: "Secret-aware scanning",
+        description: "Guard rails for .env files, tokens, private keys, and generated local databases.",
+        points: ["Sensitive file review", "Redaction rules", "Local-only safety notes"]
+      },
+      {
+        label: "Planned",
+        title: "Project trust levels",
+        description: "Per-project policies for how much context may be scanned and included in Task Packs.",
+        points: ["Strict project mode", "Allowed folders", "Forbidden patterns"]
+      }
+    ]
+  },
+  storage: {
+    label: "Workspace",
+    title: "Storage and cache settings",
+    description: "Future controls for inventory cache, generated Task Pack history, and workspace cleanup.",
+    cards: [
+      {
+        label: "Planned",
+        title: "Inventory cache",
+        description: "Speed up repeated generations by reusing file metadata and only rescanning changed files.",
+        points: ["File hash cache", "Project metadata cache", "Manual cache reset"]
+      },
+      {
+        label: "Planned",
+        title: "Task Pack history",
+        description: "Manage saved generations, exported prompts, and review history from one place.",
+        points: ["Retention controls", "Export cleanup", "Local database tools"]
+      }
+    ]
+  },
+  updates: {
+    label: "Product",
+    title: "Updates and release channel",
+    description: "Future controls for version checks, release notes, and update behavior.",
+    cards: [
+      {
+        label: "Planned",
+        title: "Release channel",
+        description: "Choose between stable, beta, and local developer builds when auto-update arrives.",
+        points: ["Stable channel", "Beta builds", "Manual update check"]
+      },
+      {
+        label: "Planned",
+        title: "Release notes",
+        description: "Show what changed in the current version and what is planned next.",
+        points: ["Core fixes", "UI polish", "Known limitations"]
+      }
+    ]
+  }
+};
 
 const DEFAULT_COMPOSER_FILE_LIMITS: AppSettings["composerFileLimits"] = {
   default: 8,
@@ -280,19 +376,65 @@ function SettingCard({
   label,
   title,
   description,
-  children
+  children,
+  defaultOpen = true
 }: {
   icon: ReactNode;
   label: string;
   title: string;
   description: string;
   children?: ReactNode;
+  defaultOpen?: boolean;
 }) {
+  const hasContent = Boolean(children);
+  const storageKey = useMemo(
+    () =>
+      `contextforge:settings-card:${label}:${title}`
+        .toLowerCase()
+        .replace(/[^a-z0-9а-яё:_-]+/gi, "-"),
+    [label, title]
+  );
+  const [isOpen, setIsOpen] = useState(() => {
+    if (typeof window === "undefined") {
+      return defaultOpen;
+    }
+
+    try {
+      const stored = window.localStorage.getItem(storageKey);
+      if (stored === "open") {
+        return true;
+      }
+      if (stored === "closed") {
+        return false;
+      }
+    } catch {
+      // Keep settings usable if localStorage is unavailable.
+    }
+
+    return defaultOpen;
+  });
+
+  function toggleOpen() {
+    setIsOpen((current) => {
+      const next = !current;
+
+      if (typeof window !== "undefined") {
+        try {
+          window.localStorage.setItem(storageKey, next ? "open" : "closed");
+        } catch {
+          // Ignore persistence errors; the visual state still updates.
+        }
+      }
+
+      return next;
+    });
+  }
+
   return (
-    <article className="cf-card p-5">
-      <div className="mb-5 flex items-start justify-between gap-5">
+    <article className="cf-card settings-collapsible-card group/card self-start p-0 text-render-crisp">
+      <div className="flex w-full items-start justify-between gap-5 p-5 text-left transition duration-200">
         <div className="min-w-0">
-          <div className="mb-3 flex size-10 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-200">
+          <div className="mb-3 flex size-10 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-200 transition duration-200 group-hover/card:border-white/15 group-hover/card:text-white">
             {icon}
           </div>
 
@@ -308,9 +450,44 @@ function SettingCard({
             {description}
           </p>
         </div>
+
+        {hasContent && (
+          <button
+            type="button"
+            onClick={toggleOpen}
+            aria-expanded={isOpen}
+            aria-label={isOpen ? `Collapse ${title}` : `Expand ${title}`}
+            className="mt-1 grid size-9 shrink-0 place-items-center rounded-2xl border border-neutral-900 bg-black/35 text-neutral-500 transition duration-200 hover:border-white/20 hover:bg-white/[0.06] hover:text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-white/20"
+          >
+            <motion.span
+              initial={false}
+              animate={{ rotate: isOpen ? 180 : 0 }}
+              transition={{ type: "spring", stiffness: 520, damping: 36, mass: 0.6 }}
+              style={{ willChange: "transform" }}
+            >
+              <ChevronDown size={16} />
+            </motion.span>
+          </button>
+        )}
       </div>
 
-      {children}
+      <AnimatePresence initial={false}>
+        {hasContent && isOpen && (
+          <motion.div
+            key="content"
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+            className="overflow-hidden"
+            style={{ willChange: "height, opacity" }}
+          >
+            <div className="px-5 pb-5">
+              {children}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </article>
   );
 }
@@ -428,80 +605,6 @@ function SettingsActionButton({
   );
 }
 
-function SettingsToast({
-  type,
-  title,
-  message,
-  actionLabel,
-  onAction,
-  disabled
-}: {
-  type: "warning" | "success" | "error";
-  title: string;
-  message: string;
-  actionLabel?: string;
-  onAction?: () => void;
-  disabled?: boolean;
-}) {
-  const Icon =
-    type === "success"
-      ? CheckCircle2
-      : type === "error"
-        ? XCircle
-        : AlertTriangle;
-
-  return (
-    <motion.div
-      initial={{ opacity: 0, y: 18, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: 12, scale: 0.98 }}
-      transition={{
-        type: "spring",
-        stiffness: 420,
-        damping: 34,
-        mass: 0.7
-      }}
-      className="fixed bottom-6 right-7 z-50 w-[360px] overflow-hidden rounded-[1.35rem] border border-white/10 bg-neutral-950/95 p-4 shadow-[0_24px_70px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.055)] backdrop-blur-xl"
-    >
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.012)_45%,rgba(255,255,255,0.004))]" />
-
-      <div className="relative z-10 flex items-start gap-3">
-        <span
-          className={[
-            "grid size-10 shrink-0 place-items-center rounded-2xl border",
-            type === "success"
-              ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
-              : type === "error"
-                ? "border-red-400/25 bg-red-400/10 text-red-300"
-                : "border-white/15 bg-white/10 text-white"
-          ].join(" ")}
-        >
-          <Icon size={17} />
-        </span>
-
-        <div className="min-w-0 flex-1">
-          <p className="text-sm font-semibold text-white">{title}</p>
-
-          <p className="mt-1 text-sm leading-5 text-neutral-500">
-            {message}
-          </p>
-
-          {actionLabel && onAction && (
-            <button
-              type="button"
-              onClick={onAction}
-              disabled={disabled}
-              className="cf-invert-action mt-3 inline-flex h-8 items-center rounded-full px-3 text-xs disabled:pointer-events-none disabled:opacity-50"
-            >
-              {actionLabel}
-            </button>
-          )}
-        </div>
-      </div>
-    </motion.div>
-  );
-}
-
 const SETTINGS_NAV_ITEM_HEIGHT = 44;
 const SETTINGS_NAV_ITEM_GAP = 4;
 
@@ -525,7 +628,7 @@ function SettingsSidebar({
     (SETTINGS_SECTIONS.length - 1) * SETTINGS_NAV_ITEM_GAP;
 
   return (
-    <aside className="cf-card sticky top-5 h-fit p-2">
+    <aside className="settings-control-panel sticky top-5 h-fit overflow-hidden rounded-[1.6rem] border border-neutral-900 p-2 text-render-crisp">
       <div className="mb-2 px-3 py-3">
         <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
           {t("settings.title")}
@@ -542,7 +645,7 @@ function SettingsSidebar({
       >
         <motion.span
           aria-hidden="true"
-          className="absolute left-0 right-0 top-0 rounded-2xl bg-white shadow-[0_14px_34px_rgba(255,255,255,0.12)]"
+          className="settings-nav-active-glow"
           style={{
             height: SETTINGS_NAV_ITEM_HEIGHT,
             willChange: "transform"
@@ -555,7 +658,28 @@ function SettingsSidebar({
           }}
           transition={{
             type: "spring",
-            stiffness: 520,
+            stiffness: 500,
+            damping: 42,
+            mass: 0.55
+          }}
+        />
+
+        <motion.span
+          aria-hidden="true"
+          className="settings-nav-active-pill"
+          style={{
+            height: SETTINGS_NAV_ITEM_HEIGHT,
+            willChange: "transform"
+          }}
+          initial={false}
+          animate={{
+            y:
+              activeIndex *
+              (SETTINGS_NAV_ITEM_HEIGHT + SETTINGS_NAV_ITEM_GAP)
+          }}
+          transition={{
+            type: "spring",
+            stiffness: 500,
             damping: 42,
             mass: 0.55
           }}
@@ -593,8 +717,21 @@ function SettingsSidebar({
                   isActive ? "text-black" : "text-neutral-400 group-hover:text-white"
                 ].join(" ")}
               >
-                {t(section.labelKey)}
+                {getSettingsSectionLabel(section, t)}
               </span>
+
+              {section.status === "soon" && (
+                <span
+                  className={[
+                    "ml-auto shrink-0 rounded-full border px-2 py-0.5 text-[10px] leading-none transition-colors duration-150",
+                    isActive
+                      ? "border-black/10 bg-black/5 text-black/70"
+                      : "border-neutral-800 bg-black/35 text-neutral-600 group-hover:border-white/15 group-hover:text-neutral-300"
+                  ].join(" ")}
+                >
+                  Soon
+                </span>
+              )}
             </button>
           );
         })}
@@ -874,6 +1011,52 @@ function ToggleSetting({
   );
 }
 
+function PlaceholderSettingsPanel({
+  sectionId
+}: {
+  sectionId: Exclude<SettingsSectionId, "ai" | "generation" | "composer" | "interface" | "shortcuts" | "system">;
+}) {
+  const config = SETTINGS_PLACEHOLDERS[sectionId];
+
+  return (
+    <>
+      <SectionHeader
+        icon={<Sparkles size={13} />}
+        label={config.label}
+        title={config.title}
+        description={config.description}
+      />
+
+      <div className="grid items-start gap-5 xl:grid-cols-2">
+        {config.cards.map((card) => (
+          <SettingCard
+            key={card.title}
+            icon={<Sparkles size={18} />}
+            label={card.label}
+            title={card.title}
+            description={card.description}
+            defaultOpen={false}
+          >
+            <div className="grid gap-3">
+              {card.points.map((point) => (
+                <div
+                  key={point}
+                  className="settings-inner-surface flex items-center justify-between gap-4 rounded-2xl border px-4 py-3"
+                >
+                  <span className="text-sm text-neutral-300">{point}</span>
+                  <span className="rounded-full border border-neutral-800 bg-black/35 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-neutral-600">
+                    Planned
+                  </span>
+                </div>
+              ))}
+            </div>
+          </SettingCard>
+        ))}
+      </div>
+    </>
+  );
+}
+
 export function SettingsPage() {
   const { t } = useTranslation();
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("ai");
@@ -882,14 +1065,7 @@ export function SettingsPage() {
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
   const [models, setModels] = useState<OllamaModel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
-  const [notice, setNotice] = useState(() => t("settings.readyNotice"));
-
   const [activeAction, setActiveAction] = useState<"refresh" | "save" | null>(null);
-  const [toast, setToast] = useState<{
-    type: "success" | "error";
-    title: string;
-    message: string;
-  } | null>(null);
 
   const hasUnsavedChanges = useMemo(() => {
     return !isSameSettings(settings, settingsDraft);
@@ -906,8 +1082,6 @@ export function SettingsPage() {
   }
 
   function updateSettingsDraft(patch: Partial<AppSettings>) {
-    setToast(null);
-
     setSettingsDraft((current) => {
       if (!current) {
         return current;
@@ -951,24 +1125,9 @@ export function SettingsPage() {
       void applyAppLanguage(normalizedSettings.language ?? "system");
       setOllamaStatus(status);
       setModels(modelList);
-      setNotice(t("settings.loadedNotice"));
 
-      setToast({
-        type: "success",
-        title: t("settings.refreshedTitle"),
-        message: t("settings.refreshedMessage")
-      });
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : t("settings.loadFailed");
-
-      setNotice(message);
-
-      setToast({
-        type: "error",
-        title: t("settings.refreshFailed"),
-        message
-      });
+      console.error("Failed to refresh settings", error);
     } finally {
       setIsLoading(false);
       setActiveAction(null);
@@ -991,8 +1150,6 @@ export function SettingsPage() {
       setSettings(updatedSettings);
       setSettingsDraft(updatedSettings);
       void applyAppLanguage(updatedSettings.language ?? "system");
-      setNotice(t("settings.savedNotice"));
-
       window.dispatchEvent(
         new CustomEvent("contextforge:settings-updated", {
           detail: updatedSettings
@@ -1007,22 +1164,9 @@ export function SettingsPage() {
       setOllamaStatus(status);
       setModels(modelList);
 
-      setToast({
-        type: "success",
-        title: t("settings.savedTitle"),
-        message: t("settings.savedMessage")
-      });
+
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : t("settings.saveFailedMessage");
-
-      setNotice(message);
-
-      setToast({
-        type: "error",
-        title: t("settings.saveFailed"),
-        message
-      });
+      console.error("Failed to save settings", error);
     } finally {
       setIsLoading(false);
       setActiveAction(null);
@@ -1033,22 +1177,9 @@ export function SettingsPage() {
     loadOllamaInfo();
   }, []);
 
-  useEffect(() => {
-    if (!toast) {
-      return;
-    }
-
-    const timeoutId = window.setTimeout(() => {
-      setToast(null);
-    }, 2400);
-
-    return () => {
-      window.clearTimeout(timeoutId);
-    };
-  }, [toast]);
 
   return (
-    <section className="space-y-5">
+    <section className="settings-page space-y-5 text-render-crisp">
       <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012)_48%,rgba(255,255,255,0.006))] p-6 shadow-[0_16px_52px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.045)]">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div className="min-w-0">
@@ -1095,9 +1226,6 @@ export function SettingsPage() {
         </div>
       </div>
 
-      <div className="rounded-2xl border border-neutral-900 bg-black/45 px-4 py-3 text-sm text-neutral-400">
-        {notice}
-      </div>
 
       <div className="grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
         <SettingsSidebar
@@ -1115,7 +1243,7 @@ export function SettingsPage() {
               exit={{ opacity: 0, y: -6 }}
               transition={PAGE_TRANSITION}
               className="space-y-5"
-              style={{ willChange: "opacity, transform" }}
+              style={{ willChange: "opacity" }}
             >
               {activeSection === "ai" && (
                 <>
@@ -1265,7 +1393,7 @@ export function SettingsPage() {
                     description={t("settings.generationDescription")}
                   />
 
-                  <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+                  <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
                     <SettingCard
                       icon={<SlidersHorizontal size={18} />}
                       label={t("settings.generationPreferences")}
@@ -1645,7 +1773,7 @@ export function SettingsPage() {
                     description={t("settings.navigationDensityDescription")}
                   />
 
-                  <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+                  <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
                     <div className="space-y-5">
                       <SettingCard
                         icon={<Languages size={18} />}
@@ -1824,6 +1952,10 @@ export function SettingsPage() {
                 </>
               )}
 
+              {(activeSection === "privacy" || activeSection === "storage" || activeSection === "updates") && (
+                <PlaceholderSettingsPanel sectionId={activeSection} />
+              )}
+
               {activeSection === "system" && (
                 <>
                   <SectionHeader
@@ -1833,7 +1965,7 @@ export function SettingsPage() {
                     description={t("settings.systemDescription")}
                   />
 
-                  <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+                  <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
                     <SettingCard
                     icon={<ShieldCheck size={18} />}
                       label={t("settings.system")}
@@ -1914,33 +2046,6 @@ export function SettingsPage() {
           </AnimatePresence>
         </div>
       </div>
-      <AnimatePresence>
-        {toast?.type === "error" ? (
-          <SettingsToast
-            key="settings-error-toast"
-            type="error"
-            title={toast.title}
-            message={toast.message}
-          />
-        ) : hasUnsavedChanges ? (
-          <SettingsToast
-            key="settings-unsaved-toast"
-            type="warning"
-            title={t("settings.unsavedTitle")}
-            message={t("settings.unsavedMessage")}
-            actionLabel={t("common.saveChanges")}
-            onAction={handleSaveSettings}
-            disabled={isLoading || !settingsDraft}
-          />
-        ) : toast?.type === "success" ? (
-          <SettingsToast
-            key="settings-success-toast"
-            type="success"
-            title={toast.title}
-            message={toast.message}
-          />
-        ) : null}
-      </AnimatePresence>
     </section>
   );
 }

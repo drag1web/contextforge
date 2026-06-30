@@ -7,6 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
+    "test:selector": "tsx src/ollama/taskFileSelector.smoke.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {

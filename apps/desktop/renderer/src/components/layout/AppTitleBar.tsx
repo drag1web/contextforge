@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
+import { motion } from "framer-motion";
 import {
     ChevronDown,
     ChevronRight,
@@ -99,10 +100,42 @@ export function AppTitleBar({
                         </button>
                     )}
 
-                    <div className="mr-2 hidden items-center gap-2 rounded-full border border-white/15 bg-white/[0.04] px-3 py-1 text-[11px] text-white shadow-[0_0_24px_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.06)] xl:flex">
-                        <span className="size-1.5 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.9)]" />
-                        {t("titlebar.aiWorkflowReady")}
-                    </div>
+                    <motion.div
+                        className="mr-2 hidden items-center gap-2 overflow-hidden rounded-full border border-white/15 bg-white/[0.04] px-3 py-1 text-[11px] text-white shadow-[0_0_24px_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.06)] xl:flex"
+                        animate={{
+                            boxShadow: [
+                                "0 0 20px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.06)",
+                                "0 0 34px rgba(255,255,255,0.14), inset 0 1px 0 rgba(255,255,255,0.10)",
+                                "0 0 20px rgba(255,255,255,0.06), inset 0 1px 0 rgba(255,255,255,0.06)"
+                            ]
+                        }}
+                        transition={{
+                            duration: 3.6,
+                            repeat: Infinity,
+                            ease: "easeInOut"
+                        }}
+                    >
+                        <span className="relative grid size-3 place-items-center">
+                            <motion.span
+                                className="absolute size-3 rounded-full border border-white/35"
+                                animate={{ scale: [0.75, 1.75], opacity: [0.5, 0] }}
+                                transition={{ duration: 1.8, repeat: Infinity, ease: "easeOut" }}
+                            />
+                            <motion.span
+                                className="size-1.5 rounded-full bg-white shadow-[0_0_12px_rgba(255,255,255,0.9)]"
+                                animate={{ scale: [1, 1.22, 1], opacity: [0.9, 1, 0.9] }}
+                                transition={{ duration: 1.8, repeat: Infinity, ease: "easeInOut" }}
+                            />
+                        </span>
+                        <span className="relative">
+                            {t("titlebar.aiWorkflowReady")}
+                            <motion.span
+                                className="pointer-events-none absolute -bottom-1 left-0 h-px w-full bg-gradient-to-r from-transparent via-white/55 to-transparent"
+                                animate={{ x: ["-110%", "110%"], opacity: [0, 1, 0] }}
+                                transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut", repeatDelay: 0.7 }}
+                            />
+                        </span>
+                    </motion.div>
 
                     <button
                         type="button"

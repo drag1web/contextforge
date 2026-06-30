@@ -296,6 +296,25 @@ export interface ContextComposerPreview {
     intentTags: string[];
     domainTerms: string[];
     fileRoleHints: string[];
+    structuredIntent?: {
+      schemaVersion: 1;
+      primaryTargets: Array<{
+        kind: string;
+        value: string;
+        path?: string;
+        routePath?: string;
+        name?: string;
+        confidence: number;
+        evidence: string;
+      }>;
+      positiveActions: string[];
+      protectedScopes: string[];
+      allowedEditScope: string;
+      needsStyles: boolean | null;
+      needsBackend: boolean | null;
+      ambiguities: string[];
+      modelNotes: string[];
+    };
   };
   fileSelection: {
     source: string;
