@@ -170,7 +170,7 @@ function getNegativeConstraintPhrases(rawTask: string) {
             const clause = raw.split(/[.;!?\n—]/).pop()?.trim() ?? raw.trim();
             const afterBut = clause.split(/\b(?:но|but|however)\b/gi).pop()?.trim() ?? clause;
             // Skip positive task clauses such as "improve navigation and do not change other files".
-            if (/(?:улучш|сдел|замен|добав|реализ|подключ|исправ|передел|improve|make|replace|add|implement|connect|fix|change)/i.test(afterBut)) continue;
+            if (/(?:улучш|сдел|замен|добав|реализ|подключ|исправ|передел|improve|make|replace|add|implement|connect|fix|change)\b/i.test(afterBut)) continue;
             const cleaned = cleanPhrase(afterBut);
             if (cleaned) phrases.push(cleaned);
         }
@@ -203,15 +203,16 @@ function extractNegativeConstraintTerms(rawTask: string) {
 
     const expanded = new Set(tokens);
     for (const token of tokens) {
-        // Universal UI/website vocabulary, not business-domain project rules.
+        // Universal technical/UI vocabulary, not business-domain project rules.
         if (token.startsWith("шап") || token === "header") ["header", "nav", "navigation", "navbar", "topbar"].forEach((item) => expanded.add(item));
         if (token.startsWith("фут") || token.startsWith("footer")) ["footer", "foot"].forEach((item) => expanded.add(item));
         if (token.startsWith("контакт") || token.startsWith("contact")) ["contact", "contacts", "контакт", "контакты"].forEach((item) => expanded.add(item));
-        if (token.startsWith("достав") || token.startsWith("deliver")) ["delivery", "deliver", "достав", "доставка"].forEach((item) => expanded.add(item));
+        if (token.startsWith("достав") || token.startsWith("deliver")) ["delivery", "deliver", "shipping", "достав", "доставка"].forEach((item) => expanded.add(item));
         if (token.startsWith("роут") || token.startsWith("route")) ["route", "routes", "routing", "роут", "роуты"].forEach((item) => expanded.add(item));
         if (token.startsWith("таблиц") || token.startsWith("table")) ["table", "tables", "таблица", "таблицы"].forEach((item) => expanded.add(item));
         if (token.startsWith("ридми") || token === "readme") ["readme", "readme.md", "docs"].forEach((item) => expanded.add(item));
         if (token === "api" || token === "апи") ["api", "endpoint", "service"].forEach((item) => expanded.add(item));
+        if (token.startsWith("запрос") || token.startsWith("request")) ["api", "request", "requests", "fetch", "axios"].forEach((item) => expanded.add(item));
         if (token.startsWith("юрид") || token.startsWith("legal")) ["policy", "privacy", "consent", "terms", "legal"].forEach((item) => expanded.add(item));
         if (token.startsWith("стил") || token === "style" || token === "styles") ["style", "styles", "css", "стил"].forEach((item) => expanded.add(item));
     }
@@ -266,8 +267,13 @@ function mentionsOtherPagesProtected(rawTask: string) {
 
 function getTaskConstraints(input: SelectTaskFilesInput): TaskConstraints {
     const rawTask = input.rawTask;
+    const protectedFileTerms = uniqueStrings([
+        ...extractNegativeConstraintTerms(rawTask),
+        ...extractProtectedRouteTermsFromInventory(rawTask, input.inventory)
+    ]);
+    const hasProtectedApiTerms = protectedFileTerms.some((term) => ["api", "endpoint", "service", "request", "requests", "fetch", "axios"].includes(normalizeForCompare(term)));
 
-    const noBackendMutation = includesAny(rawTask, [
+    const noBackendMutation = hasProtectedApiTerms || includesAny(rawTask, [
         "do not change backend",
         "don't change backend",
         "do not modify backend",
@@ -355,7 +361,6 @@ function getTaskConstraints(input: SelectTaskFilesInput): TaskConstraints {
 
     const onlyExplicitFiles = mentionsOnlyExplicitFiles(rawTask);
     const protectOtherPages = mentionsOtherPagesProtected(rawTask);
-    const protectedFileTerms = extractNegativeConstraintTerms(rawTask);
 
     return {
         noBackendMutation,
@@ -506,7 +511,8 @@ function scoreTaskArea(input: SelectTaskFilesInput) {
         .filter(Boolean) as ProjectInventoryFile[];
     if (positiveExplicitFiles.some((file) => isClientUiPath(file.path))) scores.ui += 12;
     if (positiveExplicitFiles.some((file) => isBackendLeaningPath(file.path) || isClientApiBridgePath(file.path))) scores.backend += 8;
-    if (extractRouteMentions(input.rawTask).length > 0 || includesAny(getPositiveTaskText(input.rawTask), ["на странице", "страница", "page", "route"])) scores.ui += 7;
+    const explicitRouteMentions = extractRouteMentions(input.rawTask);
+    if (explicitRouteMentions.length > 0 || extractNaturalRouteMentions(input, explicitRouteMentions).length > 0 || includesAny(getPositiveTaskText(input.rawTask), ["на странице", "страница", "page", "route"])) scores.ui += 7;
 
     if (hasImplementationAction) {
         scores.general += 2;
@@ -644,12 +650,172 @@ function getRouteMentionSegments(routeMentions: string[]) {
     return uniqueStrings(routeMentions.flatMap((route) => tokenize(route).filter((token) => !BROAD_PATH_TOKENS.has(token))));
 }
 
+interface InventoryRouteCandidate {
+    route: string;
+    routeSegments: string[];
+    evidenceTokens: string[];
+    hasPageFile: boolean;
+}
+
+function normalizeRouteValue(route: string) {
+    const normalized = normalizePath(route).toLowerCase().trim();
+    if (!normalized || normalized === "/") return normalized || "/";
+    return `/${normalized.replace(/^\/+|\/+$/g, "")}`.replace(/\/+/g, "/");
+}
+
+function getRouteSegmentsFromRoute(route: string) {
+    return tokenize(route)
+        .map((token) => token.replace(/^:/, ""))
+        .filter((token) => token.length >= 3 && !BROAD_PATH_TOKENS.has(token));
+}
+
+function extractHrefRouteEvidence(text: string) {
+    const rows: Array<{ route: string; evidence: string }> = [];
+    const patterns = [
+        /\b(?:href|to)\s*[:=]\s*["'`]((?:\/[a-zа-яё0-9_@()[\]:.-]+)+)["'`]/gi,
+        /<a[^>]+href=["'`]((?:\/[a-zа-яё0-9_@()[\]:.-]+)+)["'`][^>]*>([\s\S]{0,120}?)<\/a>/gi,
+        /<Link[^>]+href=["'`]((?:\/[a-zа-яё0-9_@()[\]:.-]+)+)["'`][^>]*>([\s\S]{0,160}?)<\/Link>/gi
+    ];
+
+    for (const pattern of patterns) {
+        for (const match of text.matchAll(pattern)) {
+            const route = normalizeRouteValue(match[1] ?? "");
+            if (!route || route.includes("//") || /\.[a-z0-9]+$/i.test(route)) continue;
+            const start = Math.max(0, (match.index ?? 0) - 90);
+            const end = Math.min(text.length, (match.index ?? 0) + String(match[0] ?? "").length + 90);
+            rows.push({ route, evidence: `${text.slice(start, end)} ${match[2] ?? ""}` });
+        }
+    }
+
+    return rows;
+}
+
+function addRouteCandidate(
+    map: Map<string, InventoryRouteCandidate>,
+    routeValue: string,
+    evidenceParts: string[],
+    hasPageFile = false
+) {
+    const route = normalizeRouteValue(routeValue);
+    if (!route || route.includes("//") || /\.[a-z0-9]+$/i.test(route)) return;
+
+    const current = map.get(route) ?? {
+        route,
+        routeSegments: getRouteSegmentsFromRoute(route),
+        evidenceTokens: [],
+        hasPageFile: false
+    };
+
+    current.hasPageFile = current.hasPageFile || hasPageFile;
+    current.evidenceTokens = uniqueStrings([
+        ...current.evidenceTokens,
+        ...tokenize(evidenceParts.join(" ")).filter((token) => token.length >= 3 && !NEGATIVE_CONSTRAINT_STOP_WORDS.has(token))
+    ]).slice(0, 80);
+
+    map.set(route, current);
+}
+
+function getInventoryRouteCandidates(inventory: ProjectInventory) {
+    const map = new Map<string, InventoryRouteCandidate>();
+
+    for (const file of inventory.files) {
+        const fileEvidence = [
+            file.path,
+            file.name,
+            file.role,
+            file.routePath ?? "",
+            ...(file.symbols ?? []),
+            ...(file.exports ?? []),
+            ...(file.textHints ?? [])
+        ];
+
+        if (file.routePath) {
+            addRouteCandidate(map, file.routePath, fileEvidence, file.role === "page" || file.name.toLowerCase().startsWith("page."));
+        }
+
+        const content = [file.contentPreview ?? "", ...(file.textHints ?? [])].join(" ");
+        for (const row of extractHrefRouteEvidence(content)) {
+            addRouteCandidate(map, row.route, [row.evidence, file.path, file.name], false);
+        }
+    }
+
+    return Array.from(map.values()).filter((candidate) => candidate.route !== "/");
+}
+
+function routeCandidateMatchesTask(candidate: InventoryRouteCandidate, taskTokens: string[]) {
+    let score = 0;
+
+    for (const token of taskTokens) {
+        if (candidate.routeSegments.some((segment) => normalizedTermMatches(segment, token) || normalizedTermMatches(token, segment))) {
+            score += 44;
+            continue;
+        }
+
+        if (candidate.evidenceTokens.some((evidence) => normalizedTermMatches(evidence, token) || normalizedTermMatches(token, evidence))) {
+            score += 18;
+        }
+    }
+
+    if (candidate.hasPageFile && score > 0) score += 18;
+    return score;
+}
+
+function extractNaturalRouteMentions(input: SelectTaskFilesInput, explicitRoutes: string[]) {
+    const positiveText = getPositiveTaskText(input.rawTask);
+    const taskTokens = uniqueStrings(tokenize([
+        positiveText,
+        ...(input.taskIntent?.domainTerms ?? []),
+        ...(input.taskIntent?.mentionedEntities ?? []),
+        ...(input.taskIntent?.recommendedSearchTerms ?? [])
+    ].join(" ")))
+        .filter((token) => !WEAK_TASK_TOKENS.has(token))
+        .filter((token) => !BROAD_PATH_TOKENS.has(token));
+
+    if (taskTokens.length === 0) return [];
+
+    const hasPageLanguage = includesAny(positiveText, [
+        "страниц", "раздел", "route", "page", "screen", "экран", "вкладк", "секци"
+    ]);
+
+    const existing = new Set(explicitRoutes.map(normalizeRouteValue));
+
+    return getInventoryRouteCandidates(input.inventory)
+        .filter((candidate) => !existing.has(candidate.route))
+        .map((candidate) => ({ candidate, score: routeCandidateMatchesTask(candidate, taskTokens) + (hasPageLanguage ? 10 : 0) }))
+        .filter((row) => row.score >= 28)
+        .sort((a, b) => b.score - a.score)
+        .map((row) => row.candidate.route)
+        .slice(0, 5);
+}
+
+function extractProtectedRouteTermsFromInventory(rawTask: string, inventory: ProjectInventory) {
+    const negativeTokens = uniqueStrings(tokenize(getNegativeConstraintPhrases(rawTask).join(" ")))
+        .filter((token) => !NEGATIVE_CONSTRAINT_STOP_WORDS.has(token));
+
+    if (negativeTokens.length === 0) return [];
+
+    const terms = new Set<string>();
+    for (const candidate of getInventoryRouteCandidates(inventory)) {
+        const score = routeCandidateMatchesTask(candidate, negativeTokens);
+        if (score < 18) continue;
+
+        for (const segment of candidate.routeSegments) terms.add(segment);
+        terms.add(candidate.route.replace(/^\//, ""));
+    }
+
+    return Array.from(terms).filter(Boolean);
+}
+
 function buildTokenContext(input: SelectTaskFilesInput): TokenContext {
     const positiveTaskText = getPositiveTaskText(input.rawTask);
     const explicitResolution = resolveExplicitFileMentions(positiveTaskText, input.inventory);
     const explicitExistingPaths = explicitResolution.existingPaths;
     const explicitMissingPaths = explicitResolution.missingPaths;
-    const routeMentions = extractRouteMentions(input.rawTask);
+    const explicitRouteMentions = extractRouteMentions(input.rawTask);
+    const routeMentions = uniqueStrings([
+        ...explicitRouteMentions,
+        ...extractNaturalRouteMentions(input, explicitRouteMentions)
+    ]);
     const routeSegments = getRouteMentionSegments(routeMentions);
 
     const rawTokens = tokenize(positiveTaskText);
@@ -995,6 +1161,69 @@ function isGlobalStyleFile(file: ProjectInventoryFile) {
     );
 }
 
+function isSystemSeoFile(file: ProjectInventoryFile) {
+    const filePath = normalizeForCompare(file.path);
+    const fileName = filePath.split("/").pop() ?? filePath;
+    return fileName === "robots.ts"
+        || fileName === "robots.js"
+        || fileName === "sitemap.ts"
+        || fileName === "sitemap.js"
+        || fileName === "manifest.json"
+        || fileName === "site.webmanifest"
+        || fileName.startsWith("manifest.")
+        || fileName.startsWith("metadata.");
+}
+
+function isSystemSeoRelevantForTask(input: SelectTaskFilesInput) {
+    const text = normalizeForCompare(getPositiveTaskText(input.rawTask));
+    return includesAny(text, [
+        "seo", "sitemap", "robots", "metadata", "manifest", "indexing", "canonical", "open graph", "opengraph",
+        "сео", "индексац", "робот", "сайтмап", "карта сайта", "метадан", "мета-тег", "og image", "canonical"
+    ]);
+}
+
+function hasProtectedShellOrGlobalTerms(constraints: TaskConstraints) {
+    return constraints.protectedFileTerms.some((term) => {
+        const normalized = normalizeForCompare(term);
+        return [
+            "header", "nav", "navigation", "navbar", "topbar", "шап",
+            "footer", "foot", "фут",
+            "layout", "shell", "root", "global", "globals", "глобаль",
+            "seo", "robots", "sitemap", "metadata", "manifest", "сео"
+        ].some((needle) => normalized.includes(needle));
+    });
+}
+
+function isAppShellOrEntrypointFile(file: ProjectInventoryFile) {
+    const filePath = normalizeForCompare(file.path);
+    const fileName = filePath.split("/").pop() ?? filePath;
+
+    return fileName === "layout.tsx"
+        || fileName === "layout.jsx"
+        || fileName === "layout.ts"
+        || fileName === "layout.js"
+        || filePath === "src/index.js"
+        || filePath === "src/index.tsx"
+        || filePath === "src/main.js"
+        || filePath === "src/main.tsx"
+        || filePath === "src/app.js"
+        || filePath === "src/app.jsx"
+        || filePath === "src/app.tsx"
+        || filePath === "app/layout.tsx"
+        || filePath === "app/layout.jsx";
+}
+
+function isGenericSharedUiPrimitive(file: ProjectInventoryFile) {
+    const filePath = normalizeForCompare(file.path);
+    const fileName = filePath.split("/").pop() ?? filePath;
+
+    if (!filePath.includes("/ui/") && !filePath.includes("/shared/")) return false;
+    return [
+        "button", "input", "textarea", "select", "checkbox", "radio", "toast",
+        "dropdown", "modal", "dialog", "popover", "tooltip", "card"
+    ].some((part) => fileName.includes(part));
+}
+
 function isGlobalStyleRelevantForTask(input: SelectTaskFilesInput) {
     const text = normalizeForCompare(getPositiveTaskText(input.rawTask));
     return includesAny(text, [
@@ -1032,6 +1261,43 @@ function isRouteAwarePrimaryCandidate(file: ProjectInventoryFile, tokenContext: 
     return getRouteMatchScore(file, tokenContext.routeMentions) >= 88;
 }
 
+function isRouteScopedTask(input: SelectTaskFilesInput, area: EffectiveTaskArea, tokenContext: TokenContext) {
+    return tokenContext.routeMentions.length > 0 && isSpecificPageOrFileTask(input, area);
+}
+
+function isDirectRoutePageMatch(file: ProjectInventoryFile, routeMentions: string[]) {
+    if (routeMentions.length === 0) return false;
+
+    const filePath = normalizeForCompare(file.path);
+    const routePath = normalizeForCompare(file.routePath ?? "");
+    const fileName = filePath.split("/").pop() ?? filePath;
+    const pageLike = file.role === "page" || ["page.tsx", "page.jsx", "page.ts", "page.js"].includes(fileName);
+
+    if (!pageLike) return false;
+
+    for (const route of routeMentions) {
+        const normalizedRoute = normalizeForCompare(route).replace(/^\/+|\/+$/g, "");
+        if (!normalizedRoute) continue;
+
+        if (routePath === `/${normalizedRoute}` || routePath.endsWith(`/${normalizedRoute}`)) return true;
+        if (filePath.endsWith(`/${normalizedRoute}/page.tsx`)
+            || filePath.endsWith(`/${normalizedRoute}/page.jsx`)
+            || filePath.endsWith(`/${normalizedRoute}/page.ts`)
+            || filePath.endsWith(`/${normalizedRoute}/page.js`)) return true;
+    }
+
+    return false;
+}
+
+function isWithinRequestedRouteScope(file: ProjectInventoryFile, tokenContext: TokenContext) {
+    const score = getRouteMatchScore(file, tokenContext.routeMentions);
+    if (isDirectRoutePageMatch(file, tokenContext.routeMentions)) return true;
+
+    // For specific page/route tasks, avoid broad UI primitives or app shell files
+    // that only mention the route in content. Route scope should be path/route metadata driven.
+    return score >= 88 && !isGenericSharedUiPrimitive(file) && !isAppShellOrEntrypointFile(file);
+}
+
 function isImplementationIntentText(rawTask: string) {
     return includesAny(rawTask, [
         "implement", "connect", "integrate", "wire", "hook up", "create", "add feature", "build feature", "replace", "render", "show", "display", "fetch", "call", "change", "edit", "modify",
@@ -1055,9 +1321,26 @@ function isExplicitFilePath(file: ProjectInventoryFile, tokenContext: TokenConte
     return tokenContext.explicitExistingPaths.some((pathValue) => normalizeForCompare(pathValue) === normalizeForCompare(file.path));
 }
 
+function getFileConstraintText(file: ProjectInventoryFile) {
+    // Constraints should identify protected files/routes by stable inventory metadata.
+    // Do not use full contentPreview here: a delivery page may link to contacts/catalog,
+    // but that does not mean the delivery page itself is forbidden.
+    return normalizeForCompare([
+        file.path,
+        file.name,
+        file.extension,
+        file.kind,
+        file.role,
+        file.routePath ?? "",
+        ...(file.imports ?? []),
+        ...(file.exports ?? []),
+        ...(file.symbols ?? [])
+    ].join(" "));
+}
+
 function hasProtectedTermMatch(file: ProjectInventoryFile, constraints: TaskConstraints) {
     if (constraints.protectedFileTerms.length === 0) return false;
-    const fileText = getFileSearchText(file);
+    const fileText = getFileConstraintText(file);
     return constraints.protectedFileTerms.some((term) => normalizedTermMatches(fileText, term));
 }
 
@@ -1071,6 +1354,15 @@ function isProtectedByUserConstraint(file: ProjectInventoryFile, input: SelectTa
     }
 
     if (hasProtectedTermMatch(file, constraints)) {
+        return true;
+    }
+
+    if (hasProtectedShellOrGlobalTerms(constraints) && isAppShellOrEntrypointFile(file)) {
+        return true;
+    }
+
+    if (constraints.protectedFileTerms.some((term) => ["style", "styles", "css", "стил", "global", "globals", "глобаль"].includes(normalizeForCompare(term)))
+        && isGlobalStyleFile(file)) {
         return true;
     }
 
@@ -1094,7 +1386,11 @@ function hasExplicitPrimaryTarget(input: SelectTaskFilesInput, area: EffectiveTa
 function isSpecificPageOrFileTask(input: SelectTaskFilesInput, area: EffectiveTaskArea) {
     const text = normalizeForCompare(input.rawTask);
     if (hasExplicitPrimaryTarget(input, area)) return true;
-    if (includesAny(text, ["в файле", "in file", "в компоненте", "in component", "на странице", "on page", "странице с", "page with"])) return true;
+    if (includesAny(text, [
+        "в файле", "in file", "в компоненте", "in component",
+        "на странице", "on page", "странице с", "page with",
+        "раздел", "section", "screen", "экран", "вкладк"
+    ])) return true;
     if (mentionsOtherPagesProtected(input.rawTask) || mentionsOnlyExplicitFiles(input.rawTask)) return true;
     return false;
 }
@@ -1154,6 +1450,7 @@ function scoreFileFallback(file: ProjectInventoryFile, tokenContext: TokenContex
     if (strongMatchCount >= 3) score += 20;
     if (file.canReadText) score += 5;
     if (file.depth <= 3) score += 4;
+    if (isSystemSeoFile(file) && !isSystemSeoRelevantForTask(input)) score -= 120;
     if (file.isLikelyGenerated) score -= 35;
     if (isGeneratedDoNotEditPath(file.path)) score -= 18;
     if (file.kind === "runtime") score -= 60;
@@ -1242,8 +1539,14 @@ function selectedPriority(file: SelectedTaskFile, input: SelectTaskFilesInput, a
 
     const tokenContextForPriority = buildTokenContext(input);
     const routeScore = getRouteMatchScore({ path: file.path, kind: file.kind, sizeBytes: 1, canReadText: true, isLikelyGenerated: false, extension: "", depth: 0, name: file.path.split("/").pop() ?? file.path } as ProjectInventoryFile, tokenContextForPriority.routeMentions);
-    if (routeScore >= 88) priority += 190;
-    else if (routeScore > 0) priority += 55;
+    if (isDirectRoutePageMatch({ path: file.path, kind: file.kind, sizeBytes: 1, canReadText: true, isLikelyGenerated: false, extension: "", depth: 0, name: file.path.split("/").pop() ?? file.path } as ProjectInventoryFile, tokenContextForPriority.routeMentions)) priority += 420;
+    else if (routeScore >= 88) priority += 190;
+    else if (routeScore > 0) priority += 35;
+
+    if (isRouteScopedTask(input, area, tokenContextForPriority)) {
+        if (isAppShellOrEntrypointFile({ path: file.path, kind: file.kind } as ProjectInventoryFile)) priority -= 260;
+        if (isGenericSharedUiPrimitive({ path: file.path, kind: file.kind } as ProjectInventoryFile)) priority -= 120;
+    }
 
     if (assetMode === "primary") {
         if (file.kind === "asset") priority += 140;
@@ -1454,6 +1757,7 @@ function canUseSelectedFile(input: SelectTaskFilesInput, file: ProjectInventoryF
 
     if (isProtectedByUserConstraint(file, input, area)) return false;
     if (isSensitiveEnvPath(file.path)) return false;
+    if (isSystemSeoFile(file) && !isSystemSeoRelevantForTask(input)) return false;
     if (file.kind === "runtime") return false;
     if (file.isLikelyGenerated) return false;
     if (isGeneratedDoNotEditPath(file.path) && area !== "build") return false;
@@ -1532,9 +1836,11 @@ function isModelFileSemanticallyUseful(file: ProjectInventoryFile, input: Select
 
 function getScoredCandidates(input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode, tokenContext: TokenContext, selected: SelectedTaskFile[]) {
     const seen = new Set(selected.map((file) => normalizeForCompare(file.path)));
+    const routeScoped = isRouteScopedTask(input, area, tokenContext);
 
     return input.inventory.files
         .filter((file) => !seen.has(normalizeForCompare(file.path)) && canUseSelectedFile(input, file, area, assetMode))
+        .filter((file) => !routeScoped || isWithinRequestedRouteScope(file, tokenContext))
         .map((file) => ({ file, score: scoreFileFallback(file, tokenContext, input, area, assetMode) }))
         .filter((item) => item.score > 0)
         .sort((a, b) => b.score - a.score);
@@ -1638,18 +1944,35 @@ function getRouteAwareSeedFiles(input: SelectTaskFilesInput, area: EffectiveTask
     if (tokenContext.routeMentions.length === 0) return [];
 
     const seen = new Set(selected.map((file) => normalizeForCompare(file.path)));
-    const candidates = input.inventory.files
+    const available = input.inventory.files
         .filter((file) => !seen.has(normalizeForCompare(file.path)))
-        .filter((file) => canUseSelectedFile(input, file, area, assetMode))
+        .filter((file) => canUseSelectedFile(input, file, area, assetMode));
+
+    const directPageCandidates = available
+        .filter((file) => isDirectRoutePageMatch(file, tokenContext.routeMentions))
+        .map((file) => ({ file, score: getRouteMatchScore(file, tokenContext.routeMentions) + scoreFileFallback(file, tokenContext, input, area, assetMode) * 0.2 }))
+        .sort((a, b) => b.score - a.score);
+
+    if (directPageCandidates.length > 0) {
+        return directPageCandidates.slice(0, 2).map((item) => makeSelectedFile(
+            item.file,
+            "Selected as the concrete route/page target matched from the task and real project inventory.",
+            Math.min(0.95, Math.max(0.84, item.score / 180))
+        ));
+    }
+
+    const candidates = available
         .map((file) => ({ file, score: getRouteMatchScore(file, tokenContext.routeMentions) + scoreFileFallback(file, tokenContext, input, area, assetMode) * 0.25 }))
-        .filter((item) => item.score >= 70)
+        .filter((item) => item.score >= 88)
+        .filter((item) => !isGenericSharedUiPrimitive(item.file) && !isAppShellOrEntrypointFile(item.file))
         .sort((a, b) => b.score - a.score)
-        .slice(0, isSpecificPageOrFileTask(input, area) ? 3 : 5);
+        .slice(0, isSpecificPageOrFileTask(input, area) ? 2 : 4);
 
     return candidates.map((item) => makeSelectedFile(
         item.file,
         "Selected by route-aware inventory matching from a route/page mention in the task.",
-        Math.min(0.9, Math.max(0.72, item.score / 180))
+        Math.min(0.9, Math.max(0.72, item.score / 180)),
+        isSpecificPageOrFileTask(input, area) ? "inspect-only" : defaultUsageForFile(item.file)
     ));
 }
 
@@ -1698,6 +2021,37 @@ function buildFallbackSelection(input: SelectTaskFilesInput): TaskFileSelection 
                 "Fallback file selection was used.",
                 "Fallback selection is universal and does not rely on project-specific domain rules.",
                 "User constrained the task to explicit file(s), so ContextForge did not add unrelated fallback files.",
+                `Effective task area: ${effectiveTaskArea}.`,
+                `Asset mode: ${assetMode}.`,
+                conflictNote ?? "No task type conflict detected.",
+                ...constraints.notes,
+                tokenContext.explicitMissingPaths.length > 0
+                    ? `Explicit path(s) mentioned by the user but not found in inventory: ${tokenContext.explicitMissingPaths.join(", ")}.`
+                    : "No missing explicit user paths detected."
+            ]
+        };
+    }
+
+    const explicitPrimaryFiles = tokenContext.explicitExistingPaths
+        .map((pathValue) => findInventoryFile(input.inventory, pathValue))
+        .filter((file): file is ProjectInventoryFile => Boolean(file && !isSecondaryDocumentationMention(file, input, effectiveTaskArea)));
+
+    if (explicitPrimaryFiles.length > 0 && isSpecificPageOrFileTask(input, effectiveTaskArea)) {
+        const finalSelectedFiles = ensureHelpfulCoverage(selected, input, effectiveTaskArea, assetMode);
+
+        return {
+            selectedFiles: finalSelectedFiles,
+            rejectedModelPaths: tokenContext.explicitMissingPaths,
+            source: "fallback",
+            usedFallback: true,
+            durationMs: getDurationMs(startedAt),
+            effectiveTaskArea,
+            assetMode,
+            conflictNote,
+            notes: [
+                "Fallback file selection was used.",
+                "Fallback selection is universal and does not rely on project-specific domain rules.",
+                "Explicit primary file target detected; broad fallback candidates were skipped to keep the edit scope narrow.",
                 `Effective task area: ${effectiveTaskArea}.`,
                 `Asset mode: ${assetMode}.`,
                 conflictNote ?? "No task type conflict detected.",
