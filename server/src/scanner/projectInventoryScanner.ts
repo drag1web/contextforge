@@ -13,11 +13,41 @@ export type ProjectInventoryFileKind =
     | "runtime"
     | "unknown";
 
+export type ProjectInventoryFileRole =
+    | "app-entry"
+    | "page"
+    | "layout"
+    | "component"
+    | "ui-component"
+    | "api-route"
+    | "client-api"
+    | "server-entry"
+    | "service"
+    | "repository"
+    | "db-schema"
+    | "store"
+    | "hook"
+    | "style"
+    | "config"
+    | "docs"
+    | "test"
+    | "asset"
+    | "data"
+    | "runtime"
+    | "unknown";
+
 export interface ProjectInventoryFile {
     path: string;
     name: string;
     extension: string;
     kind: ProjectInventoryFileKind;
+    role: ProjectInventoryFileRole;
+    routePath?: string;
+    imports: string[];
+    exports: string[];
+    symbols: string[];
+    textHints: string[];
+    contentPreview?: string;
     sizeBytes: number;
     depth: number;
     canReadText: boolean;
@@ -207,8 +237,20 @@ const DOC_FILE_NAMES = new Set([
     "changelog.md"
 ]);
 
+const HINT_STOP_WORDS = new Set([
+    "the", "and", "for", "from", "this", "that", "with", "without", "const", "let", "var",
+    "function", "return", "export", "default", "import", "type", "interface", "class", "extends",
+    "props", "children", "string", "number", "boolean", "object", "array", "null", "undefined",
+    "true", "false", "async", "await", "new", "set", "get", "use", "src", "app", "page",
+    "component", "components", "style", "styles", "index", "main", "div", "span", "className",
+    "это", "как", "что", "для", "или", "если", "надо", "нужно", "чтобы", "когда", "где",
+    "при", "под", "над", "без", "его", "она", "они", "оно", "мне", "тебе", "тут", "все", "всё"
+]);
+
 const MAX_FILES = 800;
 const MAX_DEPTH = 7;
+const MAX_ANALYZED_TEXT_BYTES = 80_000;
+const MAX_CONTENT_PREVIEW_CHARS = 360;
 
 function normalizePath(value: string) {
     return value.replace(/\\/g, "/");
@@ -238,7 +280,8 @@ function canReadTextFile(fileName: string) {
     const lowerName = fileName.toLowerCase();
     const extension = getExtension(lowerName);
 
-    if (lowerName === ".env" || lowerName.endsWith(".env.example")) return true;
+    if (lowerName === ".env" || (lowerName.startsWith(".env.") && !lowerName.includes("example"))) return false;
+    if (lowerName.endsWith(".env.example") || lowerName === "env.example") return true;
 
     return TEXT_EXTENSIONS.has(extension);
 }
@@ -285,6 +328,61 @@ function getFileKind(relativePath: string): ProjectInventoryFileKind {
     return "unknown";
 }
 
+function classifyFileRole(relativePath: string, kind: ProjectInventoryFileKind): ProjectInventoryFileRole {
+    const normalized = normalizePath(relativePath).toLowerCase();
+    const fileName = normalized.split("/").pop() ?? normalized;
+
+    if (kind === "docs") return "docs";
+    if (kind === "style") return "style";
+    if (kind === "config") return "config";
+    if (kind === "test") return "test";
+    if (kind === "asset") return "asset";
+    if (kind === "data") return "data";
+    if (kind === "runtime") return "runtime";
+
+    if (normalized.startsWith("app/api/") || normalized.includes("/app/api/") || normalized.startsWith("pages/api/") || normalized.includes("/pages/api/") || fileName === "route.ts" || fileName === "route.js") return "api-route";
+    if (normalized.includes("/routes/") || normalized.startsWith("routes/") || normalized.includes("/controllers/") || normalized.startsWith("controllers/")) return "api-route";
+    if (normalized.includes("/db/") || normalized.includes("/database/") || normalized.includes("/schema/") || normalized.endsWith("schema.prisma") || normalized.endsWith("schema.sql")) return "db-schema";
+    if (normalized.includes("/repositories/") || normalized.includes("/repository/")) return "repository";
+    if (normalized.includes("/services/") || normalized.includes("/service/")) return normalized.includes("api") ? "client-api" : "service";
+    if (normalized.endsWith("/api.ts") || normalized.endsWith("/api.js") || normalized.includes("/api/client") || normalized.includes("/client/api")) return "client-api";
+    if (normalized.includes("/store/") || normalized.includes("/stores/")) return "store";
+    if (normalized.includes("/hooks/") || /^use[A-Z]/.test(fileName)) return "hook";
+    if (fileName === "server.ts" || fileName === "server.js" || normalized.startsWith("server/index.")) return "server-entry";
+    if (["app.tsx", "app.jsx", "main.tsx", "main.jsx", "index.tsx", "index.jsx"].includes(fileName)) return "app-entry";
+    if (["page.tsx", "page.jsx", "page.ts", "page.js"].includes(fileName) || normalized.includes("/pages/")) return "page";
+    if (["layout.tsx", "layout.jsx", "layout.ts", "layout.js", "template.tsx", "template.jsx"].includes(fileName)) return "layout";
+    if (normalized.includes("/components/ui/") || normalized.includes("/ui/")) return "ui-component";
+    if (normalized.includes("/components/") || /^[A-Z]/.test(path.basename(fileName, path.extname(fileName)))) return "component";
+    if ((normalized.startsWith("src/app/") || normalized.includes("/src/app/") || normalized.startsWith("app/") || normalized.includes("/app/")) && [".tsx", ".jsx"].includes(path.extname(fileName))) return "component";
+
+    return kind === "source" ? "unknown" : kind;
+}
+
+function inferRoutePath(relativePath: string) {
+    const normalized = normalizePath(relativePath);
+    const lower = normalized.toLowerCase();
+    const fileName = lower.split("/").pop() ?? lower;
+
+    if (!["page.tsx", "page.jsx", "page.ts", "page.js", "route.ts", "route.js"].includes(fileName)) {
+        return undefined;
+    }
+
+    const parts = normalized.split("/");
+    const appIndex = parts.findIndex((part) => part === "app");
+    const pagesIndex = parts.findIndex((part) => part === "pages");
+    const startIndex = appIndex >= 0 ? appIndex + 1 : pagesIndex >= 0 ? pagesIndex + 1 : -1;
+
+    if (startIndex < 0) return undefined;
+
+    const routeParts = parts
+        .slice(startIndex, -1)
+        .filter((part) => !part.startsWith("(") && !part.startsWith("_") && part !== "index")
+        .map((part) => part.replace(/^\[(.+?)\]$/, ":$1"));
+
+    return `/${routeParts.join("/")}`.replace(/\/+/g, "/") || "/";
+}
+
 function shouldSkipDirectory(directoryName: string) {
     return IGNORED_DIRECTORIES.has(directoryName.toLowerCase());
 }
@@ -302,6 +400,149 @@ async function getFileSize(absolutePath: string) {
         return stat.size;
     } catch {
         return 0;
+    }
+}
+
+function getUniqueStrings(values: string[], limit: number) {
+    return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean))).slice(0, limit);
+}
+
+function extractMatches(content: string, regex: RegExp, limit: number) {
+    const values: string[] = [];
+    for (const match of content.matchAll(regex)) {
+        const value = match[1]?.trim();
+        if (value) values.push(value);
+        if (values.length >= limit) break;
+    }
+    return getUniqueStrings(values, limit);
+}
+
+function tokenizeHints(value: string) {
+    return value
+        .replace(/([a-z])([A-Z])/g, "$1 $2")
+        .toLowerCase()
+        .split(/[^a-zа-яё0-9]+/i)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 3 && token.length <= 32)
+        .filter((token) => !HINT_STOP_WORDS.has(token))
+        .filter((token) => !/^\d+$/.test(token));
+}
+
+
+function stripJsxText(value: string) {
+    return value
+        .replace(/<[^>]+>/g, " ")
+        .replace(/[{}()[\]`$]/g, " ")
+        .replace(/\s+/g, " ")
+        .trim();
+}
+
+function extractPageSemanticHints(content: string) {
+    const hints: string[] = [];
+    const add = (value: string | undefined) => {
+        const cleaned = stripJsxText(String(value ?? ""));
+        if (cleaned.length >= 3 && cleaned.length <= 260) hints.push(cleaned);
+    };
+
+    const stringPropertyPatterns = [
+        /\btitle\s*:\s*["'`]([^"'`]{3,220})["'`]/gi,
+        /\bdescription\s*:\s*["'`]([^"'`]{3,260})["'`]/gi,
+        /\baria-label\s*=\s*["'`]([^"'`]{3,160})["'`]/gi,
+        /\b(?:label|heading|subtitle)\s*:\s*["'`]([^"'`]{3,180})["'`]/gi
+    ];
+
+    for (const pattern of stringPropertyPatterns) {
+        for (const match of content.matchAll(pattern)) add(match[1]);
+    }
+
+    const headingPattern = /<h[1-3][^>]*>([\s\S]{0,260}?)<\/h[1-3]>/gi;
+    for (const match of content.matchAll(headingPattern)) add(match[1]);
+
+    return getUniqueStrings(hints, 24);
+}
+
+function getTopHints(parts: string[]) {
+    const counts = new Map<string, number>();
+    for (const token of tokenizeHints(parts.join(" "))) {
+        counts.set(token, (counts.get(token) ?? 0) + 1);
+    }
+
+    return Array.from(counts.entries())
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .map(([token]) => token)
+        .slice(0, 18);
+}
+
+function getContentPreview(content: string) {
+    return content
+        .replace(/\/\*[\s\S]*?\*\//g, " ")
+        .replace(/\/\/.*$/gm, " ")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, MAX_CONTENT_PREVIEW_CHARS);
+}
+
+function redactSensitiveText(content: string) {
+    return content
+        .replace(/\b([A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASS|API_KEY|PRIVATE_KEY|DATABASE_URL|CLIENT_SECRET|ACCESS_KEY)[A-Z0-9_]*)\s*[:=]\s*["'`]?[^\s"',`}]+/gi, "$1=<redacted>")
+        .replace(/\b(postgres(?:ql)?:\/\/)[^\s@]+@[^\s"')`]+/gi, "$1<redacted>@<host>");
+}
+
+async function analyzeTextFile(absolutePath: string, relativePath: string, sizeBytes: number, canReadText: boolean) {
+    if (!canReadText || sizeBytes <= 0 || sizeBytes > MAX_ANALYZED_TEXT_BYTES) {
+        return {
+            imports: [],
+            exports: [],
+            symbols: [],
+            textHints: getTopHints([relativePath]),
+            contentPreview: undefined
+        };
+    }
+
+    try {
+        const content = redactSensitiveText(await fs.readFile(absolutePath, "utf8"));
+        const imports = getUniqueStrings([
+            ...extractMatches(content, /import[\s\S]{0,120}?from\s+["']([^"']+)["']/g, 24),
+            ...extractMatches(content, /import\s*\(\s*["']([^"']+)["']\s*\)/g, 12),
+            ...extractMatches(content, /require\s*\(\s*["']([^"']+)["']\s*\)/g, 12)
+        ], 32);
+        const exports = getUniqueStrings([
+            ...extractMatches(content, /export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|var|interface|type|enum)\s+([A-Za-z0-9_$]+)/g, 24),
+            ...extractMatches(content, /export\s*\{([^}]+)\}/g, 12)
+                .flatMap((value) => value.split(",").map((item) => item.trim().split(/\s+as\s+/i)[0]))
+        ], 32);
+        const symbols = getUniqueStrings([
+            ...extractMatches(content, /(?:function|class|interface|type|enum)\s+([A-Za-z0-9_$]+)/g, 24),
+            ...extractMatches(content, /const\s+([A-Za-z0-9_$]+)\s*=/g, 24),
+            ...exports
+        ], 40);
+        const pageSemanticHints = extractPageSemanticHints(content);
+        const textHints = getTopHints([
+            relativePath,
+            imports.join(" "),
+            exports.join(" "),
+            symbols.join(" "),
+            pageSemanticHints.join(" "),
+            pageSemanticHints.join(" "),
+            pageSemanticHints.join(" "),
+            content.slice(0, 12_000)
+        ]);
+
+        return {
+            imports,
+            exports,
+            symbols,
+            textHints,
+            contentPreview: getContentPreview(content)
+        };
+    } catch {
+        return {
+            imports: [],
+            exports: [],
+            symbols: [],
+            textHints: getTopHints([relativePath]),
+            contentPreview: undefined
+        };
     }
 }
 
@@ -351,15 +592,25 @@ export async function scanProjectInventory(rootPath: string): Promise<ProjectInv
             const sizeBytes = await getFileSize(absolutePath);
             const name = entry.name;
             const extension = getExtension(name);
+            const kind = getFileKind(relativePath);
+            const canReadText = canReadTextFile(name);
+            const textAnalysis = await analyzeTextFile(absolutePath, relativePath, sizeBytes, canReadText);
 
             files.push({
                 path: relativePath,
                 name,
                 extension,
-                kind: getFileKind(relativePath),
+                kind,
+                role: classifyFileRole(relativePath, kind),
+                routePath: inferRoutePath(relativePath),
+                imports: textAnalysis.imports,
+                exports: textAnalysis.exports,
+                symbols: textAnalysis.symbols,
+                textHints: textAnalysis.textHints,
+                contentPreview: textAnalysis.contentPreview,
                 sizeBytes,
                 depth: getDepth(relativePath),
-                canReadText: canReadTextFile(name),
+                canReadText,
                 isLikelyGenerated: isGeneratedPath(relativePath)
             });
         }
@@ -373,6 +624,8 @@ export async function scanProjectInventory(rootPath: string): Promise<ProjectInv
     if (files.some((file) => file.kind === "style")) notes.push("Style files were detected.");
     if (files.some((file) => file.kind === "config")) notes.push("Config files were detected.");
     if (files.some((file) => file.kind === "docs")) notes.push("Documentation files were detected.");
+    if (files.some((file) => file.textHints.length > 0)) notes.push("Inventory includes dynamic text hints extracted from real file names and readable file contents.");
+    if (files.some((file) => file.role !== "unknown")) notes.push("Inventory includes generic technical file roles inferred from paths and framework conventions.");
 
     return {
         rootPath,

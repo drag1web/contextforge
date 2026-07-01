@@ -309,7 +309,7 @@ function App() {
           <p className="mb-2 text-[11px] uppercase tracking-[0.22em] text-neutral-600">
             MVP Status
           </p>
-          <p className="text-sm text-neutral-300">Phase 0.1 — Project Scanner</p>
+          <p className="text-sm text-neutral-300">Phase 0.5 — Rules & Templates</p>
         </div>
       </aside>
 

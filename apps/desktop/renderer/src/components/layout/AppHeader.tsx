@@ -1,4 +1,5 @@
 import { FolderOpen } from "lucide-react";
+import { useTranslation } from "react-i18next";
 import { Button } from "../ui/Button";
 
 interface AppHeaderProps {
@@ -14,6 +15,8 @@ export function AppHeader({
   isLoading,
   onAddProject
 }: AppHeaderProps) {
+  const { t } = useTranslation();
+
   return (
     <header className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-900 px-7">
       <div className="min-w-0">
@@ -30,7 +33,7 @@ export function AppHeader({
         className="min-h-9 px-4 text-sm"
       >
         <FolderOpen size={15} />
-        {isLoading ? "Scanning..." : "Add project"}
+        {isLoading ? t("common.scanning") : t("common.addProject")}
       </Button>
     </header>
   );

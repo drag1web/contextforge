@@ -1,0 +1,19 @@
+{
+  "version": 1,
+  "templates": [
+    {
+      "id": "custom.template.e537acc9-432e-41b6-8c5d-0863872f4cd2",
+      "name": "Codex · general Copy",
+      "description": "Built-in general template for Codex.",
+      "targetTool": "codex",
+      "taskType": "general",
+      "content": "# AI Task Pack\n\n## Target Tool\n\n{{targetToolLabel}}\n\n## Task Type\n\n{{taskType}}\n\n## Task\n\n{{rawTask}}\n\n## Project Context\n\n- Project: {{projectName}}\n- Package manager: {{packageManager}}\n- Detected stack: {{detectedStack}}\n- Readiness score: {{readinessScore}}\n\nProject metadata:\n\n```json\n{{projectMetadataJson}}\n```\n\n## Agent Instructions\n\nUse a concise implementation plan, make focused edits, and keep the final response review-friendly.\n\nHandle the task with the smallest practical set of changes. Avoid unrelated restructuring.\n\nBefore editing:\n\n- Inspect the relevant file candidates and snippets provided by ContextForge.\n- Treat inspect-only files as reference context.\n- Treat asset-reference files as binary/reference context unless the task explicitly requires asset changes.\n- Use only real files from the project.\n- Keep the implementation focused on the user's actual task.\n\n## Constraints\n\n{{rules}}\n\n## Known AI-Readiness Issues\n\n{{readinessIssues}}\n\n## Acceptance Criteria\n\n{{acceptanceCriteria}}\n\n## Verification\n\n{{verification}}\n\n## Expected Final Response\n\nReturn a concise final response with:\n\n- Files changed\n- What was changed\n- Verification performed\n- Any risks, limitations, or manual checks still needed",
+      "isBuiltin": false,
+      "createdAt": "2026-06-29T14:33:22.547Z",
+      "updatedAt": "2026-06-29T14:33:22.547Z"
+    }
+  ],
+  "ruleItems": [],
+  "ruleProfiles": [],
+  "acceptanceCriteriaPresets": []
+}

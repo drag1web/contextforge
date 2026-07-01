@@ -1,14 +1,39 @@
 import type {
+  AcceptanceCriteriaPreset,
   AppSettings,
   GenerationMetadata,
   OllamaModel,
   OllamaStatus,
   Project,
+  PromptTemplate,
+  RuleItem,
+  RuleProfile,
+  RuleProfilesCatalog,
   TaskPack,
-  WorkspaceSearchResponse
+  WorkspaceSearchResponse,
+  ContextComposerPreview,
+  ContextComposerFileSearchResponse,
+  ContextComposerFileSnippetResponse,
 } from "../types";
 
 const API_URL = "http://localhost:4000/api";
+
+export class ApiRequestError extends Error {
+  status: number;
+  code?: string;
+  data: unknown;
+
+  constructor(message: string, status: number, data: unknown) {
+    super(message);
+    this.name = "ApiRequestError";
+    this.status = status;
+    this.data = data;
+    this.code =
+      data && typeof data === "object" && "code" in data
+        ? String((data as { code?: unknown }).code ?? "")
+        : undefined;
+  }
+}
 
 async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${url}`, {
@@ -22,7 +47,7 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const data = await response.json();
 
   if (!data.ok) {
-    throw new Error(data.message ?? "Request failed");
+    throw new ApiRequestError(data.message ?? "Request failed", response.status, data);
   }
 
   return data;
@@ -106,6 +131,14 @@ export async function createTaskPack(input: {
   rawTask: string;
   taskType: string;
   targetTool: string;
+  selectedFilePaths?: string[];
+
+  templateId?: string;
+  ruleProfileId?: string;
+  enabledRuleIds?: string[];
+  customRules?: string[];
+  acceptanceCriteriaPresetId?: string;
+  acceptanceCriteria?: string[];
 }): Promise<TaskPack> {
   const data = await request<{ ok: true; taskPack: TaskPack }>("/task-packs", {
     method: "POST",
@@ -156,4 +189,151 @@ export async function searchWorkspace(query: string): Promise<WorkspaceSearchRes
     query: data.query,
     results: data.results
   };
+}
+
+export async function createContextComposerPreview(input: {
+  projectId: number;
+  rawTask: string;
+  taskType: string;
+  targetTool: string;
+}): Promise<ContextComposerPreview> {
+  const data = await request<{
+    ok: true;
+    preview: ContextComposerPreview;
+  }>("/context-composer/preview", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+
+  return data.preview;
+}
+
+export async function searchContextComposerFiles(input: {
+  projectId: number;
+  query: string;
+  limit?: number;
+  excludePaths?: string[];
+}): Promise<ContextComposerFileSearchResponse> {
+  const data = await request<
+    {
+      ok: true;
+    } & ContextComposerFileSearchResponse
+  >("/context-composer/files", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+
+  return {
+    project: data.project,
+    query: data.query,
+    results: data.results
+  };
+}
+
+export async function readContextComposerFileSnippet(input: {
+  projectId: number;
+  filePath: string;
+}): Promise<ContextComposerFileSnippetResponse> {
+  const data = await request<
+    {
+      ok: true;
+    } & ContextComposerFileSnippetResponse
+  >("/context-composer/snippet", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+
+  return {
+    file: data.file,
+    snippet: data.snippet
+  };
+}
+
+export async function getTemplates(): Promise<PromptTemplate[]> {
+  const data = await request<{ ok: true; templates: PromptTemplate[] }>("/templates");
+  return data.templates;
+}
+
+export async function createTemplate(input: {
+  name: string;
+  description?: string;
+  targetTool: string;
+  taskType: string;
+  content: string;
+}): Promise<PromptTemplate> {
+  const data = await request<{ ok: true; template: PromptTemplate }>("/templates", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+
+  return data.template;
+}
+
+export async function updateTemplate(
+  id: string,
+  input: Partial<Pick<PromptTemplate, "name" | "description" | "targetTool" | "taskType" | "content">>
+): Promise<PromptTemplate> {
+  const data = await request<{ ok: true; template: PromptTemplate }>(`/templates/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input)
+  });
+
+  return data.template;
+}
+
+export async function deleteTemplate(id: string): Promise<void> {
+  await request<{ ok: true }>(`/templates/${id}`, {
+    method: "DELETE"
+  });
+}
+
+export async function getRuleProfilesCatalog(): Promise<RuleProfilesCatalog> {
+  const data = await request<
+    {
+      ok: true;
+      ruleProfiles: RuleProfile[];
+      ruleItems: RuleItem[];
+      acceptanceCriteriaPresets: AcceptanceCriteriaPreset[];
+    }
+  >("/rule-profiles");
+
+  return {
+    ruleProfiles: data.ruleProfiles,
+    ruleItems: data.ruleItems,
+    acceptanceCriteriaPresets: data.acceptanceCriteriaPresets
+  };
+}
+
+export async function createRuleProfile(input: {
+  name: string;
+  description?: string;
+  taskType: string;
+  enabledRuleIds?: string[];
+  customRules?: string[];
+  acceptanceCriteriaPresetId?: string | null;
+}): Promise<RuleProfile> {
+  const data = await request<{ ok: true; ruleProfile: RuleProfile }>("/rule-profiles", {
+    method: "POST",
+    body: JSON.stringify(input)
+  });
+
+  return data.ruleProfile;
+}
+
+export async function updateRuleProfile(
+  id: string,
+  input: Partial<Pick<RuleProfile, "name" | "description" | "taskType" | "enabledRuleIds" | "customRules" | "acceptanceCriteriaPresetId">>
+): Promise<RuleProfile> {
+  const data = await request<{ ok: true; ruleProfile: RuleProfile }>(`/rule-profiles/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input)
+  });
+
+  return data.ruleProfile;
+}
+
+export async function deleteRuleProfile(id: string): Promise<void> {
+  await request<{ ok: true }>(`/rule-profiles/${id}`, {
+    method: "DELETE"
+  });
 }
