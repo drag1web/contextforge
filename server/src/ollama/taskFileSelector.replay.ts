@@ -283,6 +283,17 @@ function fixtureInventory(): ProjectInventory {
       role: "docs",
       textHints: ["api reference", "curl", "desktop", "api keys", "releases"]
     }),
+    sourceFile("package.json", {
+      kind: "config",
+      role: "config",
+      textHints: ["package", "dependencies", "scripts", "framer-motion", "vite", "react"],
+      contentPreview: '{ "dependencies": { "framer-motion": "^12.0.0", "react": "^19.0.0" }, "scripts": { "build": "vite build" } }'
+    }),
+    sourceFile("package-lock.json", {
+      kind: "config",
+      role: "config",
+      textHints: ["lockfile", "dependencies"]
+    }),
     sourceFile("vite.config.ts", {
       kind: "config",
       role: "config",
@@ -796,6 +807,41 @@ const replayCases: ReplayCase[] = [
     expectArea: "ui",
     include: ["src/pages/BillingPage.tsx"],
     exclude: ["server/index.mjs"]
+  },
+  {
+    id: "ru-orders-management-missing",
+    rawTask: "Сделай красивую страницу управления заказами.",
+    taskType: "ui",
+    intent: taskAreaIntent("ui", ["страница", "управление", "заказы"], [], false),
+    expectArea: "ui",
+    expectStatus: "blocked",
+    empty: true
+  },
+  {
+    id: "ru-account-oauth-badges-reference-support",
+    rawTask: "На странице аккаунта сделай красивые badges для подключенных OAuth-провайдеров.",
+    taskType: "general",
+    intent: taskAreaIntent("ui", ["account", "oauth", "provider", "badge"], [], false),
+    expectArea: "ui",
+    include: ["src/pages/AccountPage.tsx"],
+    exclude: ["src/api/client.ts", "src/contexts/AuthContext.tsx", "server/index.mjs"]
+  },
+  {
+    id: "ru-oauth-callback-redirect",
+    rawTask: "Почини OAuth callback redirect после авторизации.",
+    taskType: "general",
+    intent: taskAreaIntent("backend", ["oauth", "callback", "redirect", "auth"], [], true),
+    include: ["src/pages/AuthCallbackPage.tsx"],
+    exclude: [".agents/skills/contextforge-auth-backend/SKILL.md", "server/data/db.json"]
+  },
+  {
+    id: "ru-home-animation-library-package",
+    rawTask: "Добавь библиотеку для анимаций и используй её на главной странице.",
+    taskType: "ui",
+    intent: taskAreaIntent("ui", ["home", "animation", "library"], [], false),
+    expectArea: "ui",
+    include: ["src/pages/HomePage.tsx", "package.json"],
+    exclude: ["src/pages/AccountPage.tsx"]
   }
 ];
 

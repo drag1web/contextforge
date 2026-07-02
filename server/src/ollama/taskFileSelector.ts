@@ -559,11 +559,6 @@ function tokenize(value: string) {
         .split(separators)
         .map((token) => token.trim())
         .filter((token) => token.length >= 2);
-
-    return normalizeForCompare(value)
-        .split(/[^a-zа-яё0-9_.\/-]+/i)
-        .map((token) => token.trim())
-        .filter((token) => token.length >= 2);
 }
 
 function tokenizeIdentifierLike(value: string) {
@@ -573,14 +568,6 @@ function tokenizeIdentifierLike(value: string) {
         .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
         .toLowerCase()
         .split(separators)
-        .map((token) => token.trim())
-        .filter((token) => token.length >= 2);
-
-    return normalizePath(value)
-        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-        .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
-        .toLowerCase()
-        .split(/[^a-zÐ°-ÑÑ‘0-9]+/i)
         .map((token) => token.trim())
         .filter((token) => token.length >= 2);
 }
@@ -2283,6 +2270,315 @@ function applyVisualOnlyScopeGuard(selectedFiles: SelectedTaskFile[], input: Sel
             reason: `${selectedFile.reason} Visual-only UI scope guard downgraded behavior/state support context to inspect-only.`
         };
     });
+}
+
+function hasDependencyPackageIntent(input: SelectTaskFilesInput) {
+    const text = normalizeForCompare(getPositiveTaskText(input.rawTask));
+    return includesAny(text, [
+        "package", "packages", "dependency", "dependencies", "library", "libraries", "npm", "yarn", "pnpm", "bun", "install",
+        "пакет", "пакеты", "библиотек", "зависимост", "npm install", "установ", "добавь библиотеку", "добавить библиотеку"
+    ]);
+}
+
+function hasAnimationLibraryIntent(input: SelectTaskFilesInput) {
+    const text = normalizeForCompare(getPositiveTaskText(input.rawTask));
+    return includesAny(text, ["animation", "animations", "motion", "animate", "анимац"]);
+}
+
+function isAgentSkillPath(pathValue: string) {
+    const filePath = normalizeForCompare(pathValue);
+    return filePath.startsWith(".agents/skills/") || filePath.includes("/.agents/skills/") || filePath.startsWith("agents/skills/");
+}
+
+function isLocalStateDataPath(pathValue: string) {
+    const filePath = normalizeForCompare(pathValue);
+    const fileName = filePath.split("/").pop() ?? filePath;
+    return filePath.startsWith("server/data/")
+        || filePath.includes("/server/data/")
+        || fileName.endsWith(".sqlite")
+        || fileName.endsWith(".db")
+        || fileName.endsWith(".sqlite3");
+}
+
+function isDangerousAutoEditPath(pathValue: string) {
+    return isSensitiveEnvPath(pathValue) || isLocalStateDataPath(pathValue) || isAgentSkillPath(pathValue) || isLockFilePath(pathValue);
+}
+
+function isOauthCallbackFlowTask(input: SelectTaskFilesInput) {
+    const text = normalizeForCompare(getPositiveTaskText(input.rawTask));
+    return includesAny(text, ["oauth", "auth", "authorization", "authentication", "callback", "redirect", "return url", "колбэк", "callback", "редирект", "авторизац"])
+        && includesAny(text, ["callback", "redirect", "return", "колбэк", "редирект", "возврат"]);
+}
+
+function scoreCallbackFlowFile(file: ProjectInventoryFile) {
+    const identity = normalizeForCompare([
+        file.path,
+        file.name,
+        file.role,
+        file.routePath ?? "",
+        ...(file.symbols ?? []),
+        ...(file.exports ?? []),
+        ...(file.textHints ?? [])
+    ].join(" "));
+    let score = 0;
+    if (includesAny(identity, ["callback", "redirect", "return", "колбэк", "редирект"])) score += 70;
+    if (includesAny(identity, ["oauth", "auth", "authorization", "authentication", "авторизац"])) score += 52;
+    if (isPageLikeTargetFile(file)) score += 32;
+    if (file.role === "api-route") score += 26;
+    if (isClientApiBridgePath(file.path)) score += 18;
+    if (isAgentSkillPath(file.path) || isLocalStateDataPath(file.path)) score -= 200;
+    return score;
+}
+
+function getCallbackFlowSeedFiles(input: SelectTaskFilesInput, selected: SelectedTaskFile[]) {
+    if (!isOauthCallbackFlowTask(input)) return [];
+    const seen = new Set(selected.map((file) => normalizeForCompare(file.path)));
+    return input.inventory.files
+        .filter((file) => !seen.has(normalizeForCompare(file.path)))
+        .filter((file) => !isDangerousAutoEditPath(file.path))
+        .filter((file) => canUseSelectedFile(input, file, "bugfix", "none") || isClientApiBridgePath(file.path) || isPageLikeTargetFile(file))
+        .map((file) => ({ file, score: scoreCallbackFlowFile(file) }))
+        .filter((item) => item.score >= 92)
+        .sort((a, b) => b.score - a.score || a.file.path.localeCompare(b.file.path))
+        .slice(0, 3)
+        .map((item) => makeSelectedFile(
+            item.file,
+            "Added because the task explicitly targets an auth/OAuth callback redirect flow and this real file has callback/auth identity.",
+            Math.min(0.94, Math.max(0.78, item.score / 150))
+        ));
+}
+
+function getHomePageSeedFiles(input: SelectTaskFilesInput, selected: SelectedTaskFile[]) {
+    if (!isHomePageTask(input)) return [];
+    const seen = new Set(selected.map((file) => normalizeForCompare(file.path)));
+    const candidates = input.inventory.files
+        .filter((file) => !seen.has(normalizeForCompare(file.path)))
+        .filter((file) => isPageLikeTargetFile(file))
+        .filter((file) => canUseSemanticPageTargetFile(input, file, "ui", "none"))
+        .map((file) => {
+            const identity = normalizeForCompare([file.path, file.name, file.routePath ?? "", ...(file.symbols ?? []), ...(file.exports ?? []), ...(file.textHints ?? [])].join(" "));
+            let score = 0;
+            if (isRootPageFile(file)) score += 150;
+            if (includesAny(identity, ["home", "homepage", "landing", "index", "главн"])) score += 90;
+            score += getPageSemanticMatchScore(file, input) * 0.25;
+            return { file, score };
+        })
+        .filter((item) => item.score >= 80)
+        .sort((a, b) => b.score - a.score || a.file.path.localeCompare(b.file.path))
+        .slice(0, 1);
+
+    return candidates.map((item) => makeSelectedFile(
+        item.file,
+        "Added because the task explicitly targets the home/main/landing page and this real page has root/home identity.",
+        Math.min(0.95, Math.max(0.82, item.score / 180))
+    ));
+}
+
+function getPackageJsonFile(inventory: ProjectInventory) {
+    return inventory.files
+        .filter((file) => normalizeForCompare(file.path).endsWith("package.json"))
+        .sort((left, right) => left.path.split("/").length - right.path.split("/").length || left.path.localeCompare(right.path))[0];
+}
+
+function getLockFiles(inventory: ProjectInventory) {
+    return inventory.files.filter((file) => isLockFilePath(file.path));
+}
+
+function addDependencyPackageContext(selected: SelectedTaskFile[], input: SelectTaskFilesInput) {
+    if (!hasDependencyPackageIntent(input)) return selected;
+    const next = [...selected];
+    const seen = new Set(next.map((file) => normalizeForCompare(file.path)));
+    const packageFile = getPackageJsonFile(input.inventory);
+    if (packageFile && !seen.has(normalizeForCompare(packageFile.path))) {
+        next.push(makeSelectedFile(
+            packageFile,
+            "Added because the task mentions packages/libraries/dependencies, so the coding agent must inspect project dependencies and scripts.",
+            0.9,
+            "config-reference"
+        ));
+        seen.add(normalizeForCompare(packageFile.path));
+    }
+
+    for (const lockFile of getLockFiles(input.inventory).slice(0, 2)) {
+        if (seen.has(normalizeForCompare(lockFile.path))) continue;
+        next.push(makeSelectedFile(
+            lockFile,
+            "Added as inspect-only dependency lockfile context for a package/dependency task.",
+            0.62,
+            "inspect-only"
+        ));
+        seen.add(normalizeForCompare(lockFile.path));
+    }
+
+    return next;
+}
+
+function packageJsonMentionsKnownAnimationLibrary(input: SelectTaskFilesInput) {
+    if (!hasAnimationLibraryIntent(input)) return false;
+    const packageFile = getPackageJsonFile(input.inventory);
+    if (!packageFile) return false;
+    const packageText = normalizeForCompare([
+        packageFile.contentPreview ?? "",
+        ...(packageFile.textHints ?? [])
+    ].join(" "));
+    return includesAny(packageText, ["framer-motion", "motion", "react-spring", "gsap", "animejs", "lottie"]);
+}
+
+function hasStrictPageIdentityIntent(input: SelectTaskFilesInput) {
+    const text = normalizeForCompare(getPositiveTaskText(input.rawTask));
+    const asksForConcretePage = includesAny(text, [
+        "страница", "страницу", "странице", "page", "screen", "view", "раздел", "экран"
+    ]);
+    const managementLike = includesAny(text, [
+        "управлен", "management", "manage", "admin", "administrator", "админ", "администратор", "orders", "order management", "заказ", "users", "пользовател"
+    ]);
+    return asksForConcretePage && managementLike;
+}
+
+function hasStrongPageIdentityEvidence(file: ProjectInventoryFile, input: SelectTaskFilesInput) {
+    const identityValues = [
+        file.path,
+        file.name,
+        file.routePath ?? "",
+        ...(file.symbols ?? []),
+        ...(file.exports ?? [])
+    ];
+    const identityText = normalizeForCompare(identityValues.join(" "));
+    const locationTokens = getConcretePageLocationTokens(input);
+    const positiveTokens = getPositiveTargetTokens(input).filter((token) => !["form", "input", "field", "button", "badge", "badges"].includes(token));
+    const tokens = uniqueStrings([...locationTokens, ...positiveTokens]).filter((token) => token.length >= 3);
+    if (tokens.length === 0) return false;
+
+    return tokens.some((token) => filePartMatchesToken(identityText, token));
+}
+
+function shouldBlockWeakStrictPageSelection(input: SelectTaskFilesInput, selectedFiles: SelectedTaskFile[]) {
+    if (!hasStrictPageIdentityIntent(input)) return false;
+    const pageTargets = selectedFiles
+        .map((selectedFile) => findInventoryFile(input.inventory, selectedFile.path))
+        .filter((file): file is ProjectInventoryFile => Boolean(file && isPageLikeTargetFile(file)));
+    if (pageTargets.length === 0) return true;
+    return !pageTargets.some((file) => hasStrongPageIdentityEvidence(file, input));
+}
+
+function applyPrimaryPageNarrowingGuard(selectedFiles: SelectedTaskFile[], input: SelectTaskFilesInput, area: EffectiveTaskArea) {
+    if (!isSpecificPageOrFileTask(input, area)) return selectedFiles;
+    const tokenContext = buildTokenContext(input);
+    const pageTargets = getSelectedConcretePageTargets(selectedFiles, input.inventory);
+    if (pageTargets.length <= 1) return selectedFiles;
+
+    let primaryTargets: ProjectInventoryFile[] = [];
+    if (isHomePageTask(input)) {
+        primaryTargets = pageTargets
+            .filter((file) => isRootPageFile(file) || includesAny([file.path, file.name, file.routePath ?? "", ...(file.symbols ?? [])].join(" "), ["home", "homepage", "landing", "index", "главн"]))
+            .slice(0, 1);
+    }
+
+    if (primaryTargets.length === 0) {
+        if (taskAllowsMultipleConcretePageTargets(input, tokenContext)) return selectedFiles;
+        primaryTargets = getPrimaryConcretePageTargets(input, area, tokenContext, pageTargets);
+    }
+
+    if (primaryTargets.length === 0) return selectedFiles;
+
+    const primaryPaths = new Set(primaryTargets.map((file) => normalizeForCompare(file.path)));
+    return selectedFiles.filter((selectedFile) => {
+        const inventoryFile = findInventoryFile(input.inventory, selectedFile.path);
+        if (!inventoryFile || !isPageLikeTargetFile(inventoryFile)) return true;
+        return primaryPaths.has(normalizeForCompare(inventoryFile.path));
+    });
+}
+
+function applyReferenceOnlySafetyGuard(selectedFiles: SelectedTaskFile[], input: SelectTaskFilesInput, area: EffectiveTaskArea) {
+    const tokenContext = buildTokenContext(input);
+    const explicitPaths = new Set(tokenContext.explicitExistingPaths.map(normalizeForCompare));
+    const hasPageTarget = selectedFiles.some((selectedFile) => {
+        const inventoryFile = findInventoryFile(input.inventory, selectedFile.path);
+        return Boolean(inventoryFile && isPageLikeTargetFile(inventoryFile));
+    });
+    const visualOnly = isVisualOnlyUiTask(input);
+
+    return selectedFiles
+        .filter((selectedFile) => {
+            const inventoryFile = findInventoryFile(input.inventory, selectedFile.path);
+            if (!inventoryFile) return false;
+            if (explicitPaths.has(normalizeForCompare(inventoryFile.path))) return true;
+            if (isSensitiveEnvPath(inventoryFile.path)) return false;
+            if (isLocalStateDataPath(inventoryFile.path)) return false;
+            return true;
+        })
+        .map((selectedFile) => {
+            const inventoryFile = findInventoryFile(input.inventory, selectedFile.path);
+            if (!inventoryFile) return selectedFile;
+            if (explicitPaths.has(normalizeForCompare(inventoryFile.path))) return selectedFile;
+
+            const shouldInspectOnly = isAgentSkillPath(inventoryFile.path)
+                || isLockFilePath(inventoryFile.path)
+                || (hasPageTarget && (area === "ui" || visualOnly) && isBehaviorOrStateSupportFile(inventoryFile))
+                || (hasPageTarget && inventoryFile.role === "hook" && !isPageLikeTargetFile(inventoryFile));
+
+            if (!shouldInspectOnly || selectedFile.usage === "inspect-only" || selectedFile.usage === "asset-reference") return selectedFile;
+
+            return {
+                ...selectedFile,
+                usage: "inspect-only" as SelectedTaskFileUsage,
+                reason: `${selectedFile.reason} Final safety guard marked this support/protected file as inspect-only.`
+            };
+        });
+}
+
+function dedupeSelectedFilesByPath(selectedFiles: SelectedTaskFile[]) {
+    const seen = new Set<string>();
+    const result: SelectedTaskFile[] = [];
+    for (const file of selectedFiles) {
+        const key = normalizeForCompare(file.path);
+        if (seen.has(key)) continue;
+        seen.add(key);
+        result.push(file);
+    }
+    return result;
+}
+
+function finalizeSelectedFilesForSafety(selection: TaskFileSelection, input: SelectTaskFilesInput) {
+    const notes: string[] = [];
+    let selectedFiles = dedupeSelectedFilesByPath(selection.selectedFiles);
+
+    selectedFiles.push(...getHomePageSeedFiles(input, selectedFiles));
+    selectedFiles.push(...getCallbackFlowSeedFiles(input, selectedFiles));
+    selectedFiles = dedupeSelectedFilesByPath(selectedFiles);
+
+    selectedFiles = addDependencyPackageContext(selectedFiles, input);
+    selectedFiles = applyPrimaryPageNarrowingGuard(selectedFiles, input, selection.effectiveTaskArea);
+    selectedFiles = applyVisualOnlyScopeGuard(selectedFiles, input, selection.effectiveTaskArea);
+    selectedFiles = applyReferenceOnlySafetyGuard(selectedFiles, input, selection.effectiveTaskArea);
+    selectedFiles = dedupeSelectedFilesByPath(selectedFiles);
+
+    if (shouldBlockWeakStrictPageSelection(input, selectedFiles)) {
+        notes.push("Strict page target guard blocked auto-selection because the requested management/admin/order/user page was not grounded by path, route, or component identity.");
+        selectedFiles = [];
+    }
+
+    if (hasDependencyPackageIntent(input)) {
+        if (selectedFiles.some((file) => normalizeForCompare(file.path).endsWith("package.json"))) {
+            notes.push("Dependency/package intent detected; package.json was included for dependency and script context.");
+        } else {
+            notes.push("Dependency/package intent detected, but no package.json was found in the project inventory.");
+        }
+    }
+
+    if (packageJsonMentionsKnownAnimationLibrary(input)) {
+        notes.push("Animation library intent detected and package.json already appears to mention an animation library; inspect dependencies before adding another one.");
+    }
+
+    if (isOauthCallbackFlowTask(input) && selectedFiles.some((file) => includesAny(file.path, ["callback", "redirect"]))) {
+        notes.push("OAuth/auth callback flow detected; callback/redirect identity files were preferred over unrelated auth support files.");
+    }
+
+    if (selectedFiles.some((file) => isAgentSkillPath(file.path) && file.usage === "inspect-only")) {
+        notes.push("Agent skill documents are reference-only and must not be edited as task implementation files.");
+    }
+
+    return { selectedFiles, notes };
 }
 
 function isWithinRequestedRouteScope(file: ProjectInventoryFile, tokenContext: TokenContext) {
@@ -4780,14 +5076,19 @@ function withSelectorSafetyProfile(
 ): TaskFileSelection {
     const marker = `Selector safety profile: ${SELECTOR_SAFETY_PROFILE}.`;
     const versionMarker = `Selector engine version: ${SELECTOR_ENGINE_VERSION}.`;
+    const finalized = input
+        ? finalizeSelectedFilesForSafety(selection, input)
+        : { selectedFiles: selection.selectedFiles, notes: [] };
     const notes = [
         ...(selection.notes.some((note) => note === versionMarker) ? [] : [versionMarker]),
         ...(selection.notes.some((note) => note === marker) ? [] : [marker]),
+        ...finalized.notes,
         ...selection.notes
     ];
 
     return {
         ...selection,
+        selectedFiles: finalized.selectedFiles,
         notes,
         diagnostics: {
             selectorVersion: SELECTOR_ENGINE_VERSION,

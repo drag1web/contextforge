@@ -1390,6 +1390,142 @@ async function testUiTriggerApiRequestIsFullstack() {
   );
 }
 
+async function testStrictMissingOrdersPageBlocksInsteadOfWeakBodyMatch() {
+  const result = await selectTaskFiles({
+    rawTask: "Сделай красивую страницу управления заказами.",
+    taskType: "ui",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("src/app/(site)/steel/page.tsx", {
+        role: "page",
+        routePath: "/steel",
+        symbols: ["SteelPage"],
+        textHints: ["марки стали", "склад", "под заказ"],
+        contentPreview: "<h1>Марки стали</h1><p>Поставки под заказ в короткие сроки.</p>"
+      }),
+      sourceFile("src/app/(site)/contacts/page.tsx", {
+        role: "page",
+        routePath: "/contacts",
+        symbols: ["ContactsPage"],
+        textHints: ["контакты"]
+      })
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "ui",
+      domainTerms: ["страница", "управление", "заказы"],
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [],
+        positiveActions: ["make order management page beautiful"],
+        protectedScopes: [],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: true,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: []
+      }
+    })
+  });
+
+  assert.equal(result.selectedFiles.length, 0);
+  assert.equal(result.notes.some((note) => note.includes("Strict page target guard blocked")), true);
+}
+
+async function testAdminPageMissingBlocksInsteadOfAccountFallback() {
+  const result = await selectTaskFiles({
+    rawTask: "Нужно добавить на страницу администратора форму добавления пользователя. API-запросы и загрузку не менять.",
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("src/pages/AccountPage.tsx", {
+        role: "page",
+        routePath: "/account",
+        symbols: ["AccountPage"],
+        textHints: ["account", "profile", "user"]
+      }),
+      sourceFile("src/api/client.ts", {
+        role: "client-api",
+        symbols: ["api"],
+        textHints: ["api", "request", "users"]
+      })
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "ui",
+      domainTerms: ["admin", "user", "form"],
+      fileRoleHints: ["api"],
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [],
+        positiveActions: ["add user form to admin page"],
+        protectedScopes: ["api requests", "loading"],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: true,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: []
+      }
+    })
+  });
+
+  assert.equal(result.selectedFiles.length, 0);
+}
+
+async function testPackageIntentAddsPackageJsonAndNarrowsHomePage() {
+  const result = await selectTaskFiles({
+    rawTask: "Добавь библиотеку для анимаций и используй её на главной странице.",
+    taskType: "ui",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("src/pages/HomePage.tsx", {
+        role: "page",
+        routePath: "/",
+        symbols: ["HomePage"],
+        imports: ["../components/Hero"],
+        textHints: ["home", "landing", "главная", "hero"]
+      }),
+      sourceFile("src/pages/AccountPage.tsx", {
+        role: "page",
+        routePath: "/account",
+        symbols: ["AccountPage"],
+        textHints: ["account", "profile", "animation"]
+      }),
+      sourceFile("src/components/Hero.tsx", {
+        role: "component",
+        symbols: ["Hero"],
+        textHints: ["home", "hero"]
+      }),
+      sourceFile("package.json", {
+        kind: "config",
+        role: "config",
+        textHints: ["package", "dependencies", "framer-motion"],
+        contentPreview: '{ "dependencies": { "framer-motion": "^12.0.0" } }'
+      })
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "ui",
+      domainTerms: ["home", "animation", "library"],
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [],
+        positiveActions: ["add animation library on homepage"],
+        protectedScopes: [],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: true,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: []
+      }
+    })
+  });
+
+  assert.equal(result.selectedFiles.some((file) => file.path === "src/pages/HomePage.tsx" && file.usage === "inspect-and-edit"), true);
+  assert.equal(result.selectedFiles.some((file) => file.path === "src/pages/AccountPage.tsx" && file.usage === "inspect-and-edit"), false);
+  assert.equal(result.selectedFiles.some((file) => file.path === "package.json"), true);
+}
+
 async function testEnvFilesAreNotReadIntoInventory() {
   const root = await fs.mkdtemp(path.join(os.tmpdir(), "contextforge-selector-"));
   await fs.writeFile(path.join(root, ".env"), "SESSION_SECRET=super-secret-value\nDATABASE_URL=postgresql://user:pass@localhost/db\n");
@@ -1431,6 +1567,9 @@ async function main() {
   await testVisualOnlyAccountBadgesDowngradesAuthSupport();
   await testCallbackFlowStillAllowsAuthSupport();
   await testUiTriggerApiRequestIsFullstack();
+  await testStrictMissingOrdersPageBlocksInsteadOfWeakBodyMatch();
+  await testAdminPageMissingBlocksInsteadOfAccountFallback();
+  await testPackageIntentAddsPackageJsonAndNarrowsHomePage();
   await testEnvFilesAreNotReadIntoInventory();
   console.log("taskFileSelector smoke tests passed");
 }
