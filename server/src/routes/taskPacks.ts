@@ -6,139 +6,136 @@ import { z } from "zod";
 import { storage } from "../storage/index.js";
 import { getAppSettings } from "../settings/settingsService.js";
 import {
-    buildTaskPackRulesTemplatePrompt,
-    RulesServiceError
+  buildTaskPackRulesTemplatePrompt,
+  RulesServiceError,
 } from "../rules/rulesService.js";
 import { generateWithConfiguredOllama } from "../ollama/ollamaService.js";
-import { analyzeTaskIntent, type TaskIntentAnalysis } from "../ollama/taskIntentAnalyzer.js";
 import {
-    selectTaskFiles,
-    type TaskFileSelection,
-    type SelectedTaskFileUsage
+  analyzeTaskIntent,
+  type TaskIntentAnalysis,
+} from "../ollama/taskIntentAnalyzer.js";
+import {
+  selectTaskFiles,
+  type TaskFileSelection,
+  type SelectedTaskFileUsage,
 } from "../ollama/taskFileSelector.js";
 import {
-    scanProjectInventory,
-    type ProjectInventory,
-    type ProjectInventoryFile,
-    type ProjectInventoryFileKind
+  scanProjectInventory,
+  type ProjectInventory,
+  type ProjectInventoryFile,
+  type ProjectInventoryFileKind,
 } from "../scanner/projectInventoryScanner.js";
 import {
-    evaluateContextSelectionQuality,
-    type ContextSelectionQuality
+  evaluateContextSelectionQuality,
+  type ContextSelectionQuality,
 } from "../selection/contextQuality.js";
 
 export const taskPacksRouter = Router();
 
 const createTaskPackSchema = z.object({
-    projectId: z.number().int().positive(),
-    rawTask: z.string().min(3),
-    taskType: z.string().default("general"),
-    targetTool: z.string().default("generic"),
-    selectedFilePaths: z
-        .array(z.string().trim().min(1).max(500))
-        .max(48)
-        .optional(),
+  projectId: z.number().int().positive(),
+  rawTask: z.string().min(3),
+  taskType: z.string().default("general"),
+  targetTool: z.string().default("generic"),
+  selectedFilePaths: z
+    .array(z.string().trim().min(1).max(500))
+    .max(48)
+    .optional(),
 
-    templateId: z.string().trim().min(1).max(180).optional(),
-    ruleProfileId: z.string().trim().min(1).max(180).optional(),
-    enabledRuleIds: z
-        .array(z.string().trim().min(1).max(180))
-        .max(80)
-        .optional(),
-    customRules: z
-        .array(z.string().trim().min(1).max(700))
-        .max(20)
-        .optional(),
-    acceptanceCriteriaPresetId: z.string().trim().min(1).max(180).optional(),
-    acceptanceCriteria: z
-        .array(z.string().trim().min(1).max(700))
-        .max(30)
-        .optional()
+  templateId: z.string().trim().min(1).max(180).optional(),
+  ruleProfileId: z.string().trim().min(1).max(180).optional(),
+  enabledRuleIds: z.array(z.string().trim().min(1).max(180)).max(80).optional(),
+  customRules: z.array(z.string().trim().min(1).max(700)).max(20).optional(),
+  acceptanceCriteriaPresetId: z.string().trim().min(1).max(180).optional(),
+  acceptanceCriteria: z
+    .array(z.string().trim().min(1).max(700))
+    .max(30)
+    .optional(),
 });
 
 interface ProjectReadinessReport {
-    issues: string[];
+  issues: string[];
 }
 
 interface ProjectRow {
-    id: number;
-    name: string;
-    localPath: string;
-    packageManager: string | null;
-    detectedStack: string[];
-    scripts: Record<string, string>;
-    readinessScore: number;
-    readinessReport: ProjectReadinessReport | null;
+  id: number;
+  name: string;
+  localPath: string;
+  packageManager: string | null;
+  detectedStack: string[];
+  scripts: Record<string, string>;
+  readinessScore: number;
+  readinessReport: ProjectReadinessReport | null;
 }
 
 interface TaskContextSnippet {
-    relativePath: string;
-    language: string;
-    content: string;
-    truncated: boolean;
+  relativePath: string;
+  language: string;
+  content: string;
+  truncated: boolean;
 }
 
 interface TaskContextFileReference {
-    path: string;
-    kind: ProjectInventoryFileKind;
-    usage: SelectedTaskFileUsage;
-    reason: string;
-    confidence: number;
-    canReadText: boolean;
-    sizeBytes: number;
+  path: string;
+  kind: ProjectInventoryFileKind;
+  usage: SelectedTaskFileUsage;
+  reason: string;
+  confidence: number;
+  canReadText: boolean;
+  sizeBytes: number;
 }
 
 interface UniversalTaskPackContext {
-    taskType: string;
-    effectiveTaskArea: string;
-    projectTree: string[];
-    relevantFiles: string[];
-    fileSnippets: TaskContextSnippet[];
-    fileReferences: TaskContextFileReference[];
-    taskIntent?: TaskIntentAnalysis;
-    fileSelection: TaskFileSelection;
-    selectionQuality: ContextSelectionQuality;
-    inventorySummary: {
-        totalFiles: number;
-        scannedFiles: number;
-        truncated: boolean;
-        notes: string[];
-    };
+  taskType: string;
+  effectiveTaskArea: string;
+  projectTree: string[];
+  relevantFiles: string[];
+  fileSnippets: TaskContextSnippet[];
+  fileReferences: TaskContextFileReference[];
+  taskIntent?: TaskIntentAnalysis;
+  fileSelection: TaskFileSelection;
+  selectionQuality: ContextSelectionQuality;
+  inventorySummary: {
+    totalFiles: number;
+    scannedFiles: number;
+    truncated: boolean;
     notes: string[];
+  };
+  notes: string[];
 }
 
 interface TaskPackGenerationRecipe {
-    template: {
-        id: string;
-        name: string;
-        targetTool: string;
-        taskType: string;
-        isBuiltin: boolean;
-    } | null;
-    ruleProfile: {
-        id: string;
-        name: string;
-        taskType: string;
-        isBuiltin: boolean;
-    } | null;
-    enabledRules: Array<{
-        id: string;
-        title: string;
-        category: string;
-    }>;
-    customRules: string[];
-    acceptanceCriteriaPreset: {
-        id: string;
-        name: string;
-        taskType: string;
-        isBuiltin: boolean;
-    } | null;
-    acceptanceCriteria: string[];
-    counts: {
-        enabledRules: number;
-        customRules: number;
-        acceptanceCriteria: number;
-    };
+  template: {
+    id: string;
+    name: string;
+    targetTool: string;
+    taskType: string;
+    isBuiltin: boolean;
+  } | null;
+  ruleProfile: {
+    id: string;
+    name: string;
+    taskType: string;
+    isBuiltin: boolean;
+  } | null;
+  enabledRules: Array<{
+    id: string;
+    title: string;
+    category: string;
+  }>;
+  customRules: string[];
+  acceptanceCriteriaPreset: {
+    id: string;
+    name: string;
+    taskType: string;
+    isBuiltin: boolean;
+  } | null;
+  acceptanceCriteria: string[];
+  counts: {
+    enabledRules: number;
+    customRules: number;
+    acceptanceCriteria: number;
+  };
 }
 
 const MAX_SNIPPET_FILES = 5;
@@ -146,641 +143,691 @@ const MAX_SNIPPET_CHARS = 1600;
 const MAX_TEXT_FILE_SIZE_BYTES = 120_000;
 
 const PROTECTED_SECTION_TITLES = new Set([
-    "Relevant File Candidates",
-    "Code Context Snippets",
-    "Non-Text / Asset References",
-    "ContextForge Assisted Notes"
+  "Relevant File Candidates",
+  "Code Context Snippets",
+  "Non-Text / Asset References",
+  "ContextForge Assisted Notes",
 ]);
 
 const STRUCTURAL_SECTION_TITLES = new Set([
-    "Agent Instructions",
-    "Constraints",
-    "Known AI-Readiness Issues",
-    "Acceptance Criteria",
-    "Verification",
-    "Expected Final Response",
-    "ContextForge Rules & Criteria"
+  "Agent Instructions",
+  "Constraints",
+  "Known AI-Readiness Issues",
+  "Acceptance Criteria",
+  "Verification",
+  "Expected Final Response",
+  "ContextForge Rules & Criteria",
 ]);
 
 const LANGUAGE_BY_EXTENSION: Record<string, string> = {
-    ".ts": "ts",
-    ".tsx": "tsx",
-    ".js": "js",
-    ".jsx": "jsx",
-    ".mjs": "js",
-    ".cjs": "js",
-    ".css": "css",
-    ".scss": "scss",
-    ".sass": "sass",
-    ".less": "less",
-    ".html": "html",
-    ".json": "json",
-    ".md": "md",
-    ".mdx": "mdx",
-    ".txt": "text",
-    ".yml": "yaml",
-    ".yaml": "yaml",
-    ".toml": "toml",
-    ".sql": "sql",
-    ".prisma": "prisma",
-    ".graphql": "graphql",
-    ".gql": "graphql",
-    ".xml": "xml",
-    ".svg": "xml"
+  ".ts": "ts",
+  ".tsx": "tsx",
+  ".js": "js",
+  ".jsx": "jsx",
+  ".mjs": "js",
+  ".cjs": "js",
+  ".css": "css",
+  ".scss": "scss",
+  ".sass": "sass",
+  ".less": "less",
+  ".html": "html",
+  ".json": "json",
+  ".md": "md",
+  ".mdx": "mdx",
+  ".txt": "text",
+  ".yml": "yaml",
+  ".yaml": "yaml",
+  ".toml": "toml",
+  ".sql": "sql",
+  ".prisma": "prisma",
+  ".graphql": "graphql",
+  ".gql": "graphql",
+  ".xml": "xml",
+  ".svg": "xml",
 };
 
 function normalizePath(value: string) {
-    return value.replace(/\\/g, "/");
+  return value.replace(/\\/g, "/");
 }
 
 function getLanguageForFile(relativePath: string) {
-    const extension = path.extname(relativePath).toLowerCase();
-    return LANGUAGE_BY_EXTENSION[extension] ?? "text";
+  const extension = path.extname(relativePath).toLowerCase();
+  return LANGUAGE_BY_EXTENSION[extension] ?? "text";
 }
 
 function createTitle(rawTask: string) {
-    return rawTask.length > 80 ? `${rawTask.slice(0, 77)}...` : rawTask;
+  return rawTask.length > 80 ? `${rawTask.slice(0, 77)}...` : rawTask;
 }
 
 function isSafeProjectChild(projectRoot: string, relativePath: string) {
-    const root = path.resolve(projectRoot);
-    const target = path.resolve(projectRoot, relativePath);
+  const root = path.resolve(projectRoot);
+  const target = path.resolve(projectRoot, relativePath);
 
-    return target === root || target.startsWith(`${root}${path.sep}`);
+  return target === root || target.startsWith(`${root}${path.sep}`);
 }
 
 function findInventoryFile(inventory: ProjectInventory, relativePath: string) {
-    const normalized = normalizePath(relativePath).toLowerCase();
+  const normalized = normalizePath(relativePath).toLowerCase();
 
-    return inventory.files.find(
-        (file) => normalizePath(file.path).toLowerCase() === normalized
-    );
+  return inventory.files.find(
+    (file) => normalizePath(file.path).toLowerCase() === normalized,
+  );
 }
 
 function getUniqueStrings(values: string[]) {
-    return Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+  return Array.from(
+    new Set(values.map((value) => value.trim()).filter(Boolean)),
+  );
 }
 
 function isBackendRouteLikePath(relativePath: string) {
-    const normalizedPath = normalizePath(relativePath).toLowerCase();
-    const fileName = normalizedPath.split("/").pop() ?? normalizedPath;
+  const normalizedPath = normalizePath(relativePath).toLowerCase();
+  const fileName = normalizedPath.split("/").pop() ?? normalizedPath;
 
-    const isServerFolder =
-        normalizedPath.startsWith("server/") ||
-        normalizedPath.includes("/server/") ||
-        normalizedPath.startsWith("backend/") ||
-        normalizedPath.includes("/backend/");
+  const isServerFolder =
+    normalizedPath.startsWith("server/") ||
+    normalizedPath.includes("/server/") ||
+    normalizedPath.startsWith("backend/") ||
+    normalizedPath.includes("/backend/");
 
-    const isBackendRoleFolder =
-        normalizedPath.startsWith("routes/") ||
-        normalizedPath.includes("/routes/") ||
-        normalizedPath.startsWith("controllers/") ||
-        normalizedPath.includes("/controllers/") ||
-        normalizedPath.startsWith("middleware/") ||
-        normalizedPath.includes("/middleware/") ||
-        normalizedPath.startsWith("middlewares/") ||
-        normalizedPath.includes("/middlewares/");
+  const isBackendRoleFolder =
+    normalizedPath.startsWith("routes/") ||
+    normalizedPath.includes("/routes/") ||
+    normalizedPath.startsWith("controllers/") ||
+    normalizedPath.includes("/controllers/") ||
+    normalizedPath.startsWith("middleware/") ||
+    normalizedPath.includes("/middleware/") ||
+    normalizedPath.startsWith("middlewares/") ||
+    normalizedPath.includes("/middlewares/");
 
-    const isFrameworkApiRoute =
-        normalizedPath.startsWith("app/api/") ||
-        normalizedPath.includes("/app/api/") ||
-        normalizedPath.startsWith("pages/api/") ||
-        normalizedPath.includes("/pages/api/") ||
-        normalizedPath.endsWith("/route.ts") ||
-        normalizedPath.endsWith("/route.tsx") ||
-        normalizedPath.endsWith("/route.js") ||
-        normalizedPath.endsWith("/route.jsx");
+  const isFrameworkApiRoute =
+    normalizedPath.startsWith("app/api/") ||
+    normalizedPath.includes("/app/api/") ||
+    normalizedPath.startsWith("pages/api/") ||
+    normalizedPath.includes("/pages/api/") ||
+    normalizedPath.endsWith("/route.ts") ||
+    normalizedPath.endsWith("/route.tsx") ||
+    normalizedPath.endsWith("/route.js") ||
+    normalizedPath.endsWith("/route.jsx");
 
-    const isBackendEntry =
-        fileName === "server.ts" ||
-        fileName === "server.js" ||
-        fileName === "server.mjs" ||
-        fileName === "server.cjs" ||
-        ((fileName === "app.ts" ||
-            fileName === "app.js" ||
-            fileName === "index.ts" ||
-            fileName === "index.js") &&
-            isServerFolder);
+  const isBackendEntry =
+    fileName === "server.ts" ||
+    fileName === "server.js" ||
+    fileName === "server.mjs" ||
+    fileName === "server.cjs" ||
+    ((fileName === "app.ts" ||
+      fileName === "app.js" ||
+      fileName === "index.ts" ||
+      fileName === "index.js") &&
+      isServerFolder);
 
-    return isServerFolder || isBackendRoleFolder || isFrameworkApiRoute || isBackendEntry;
+  return (
+    isServerFolder ||
+    isBackendRoleFolder ||
+    isFrameworkApiRoute ||
+    isBackendEntry
+  );
 }
 
 function inventoryHasBackendRouteFiles(inventory: ProjectInventory) {
-    return inventory.files.some((file) => isBackendRouteLikePath(file.path));
+  return inventory.files.some((file) => isBackendRouteLikePath(file.path));
 }
 
-function normalizeTaskTypeSection(markdown: string, context: UniversalTaskPackContext) {
-    const requestedTaskType = String(context.taskType || "general").trim() || "general";
-    const taskTypeSectionPattern = /(## Task Type\s*\n+)([\s\S]*?)(\n+## Task\s*\n)/;
+function normalizeTaskTypeSection(
+  markdown: string,
+  context: UniversalTaskPackContext,
+) {
+  const requestedTaskType =
+    String(context.taskType || "general").trim() || "general";
+  const taskTypeSectionPattern =
+    /(## Task Type\s*\n+)([\s\S]*?)(\n+## Task\s*\n)/;
 
-    if (!taskTypeSectionPattern.test(markdown)) {
-        return markdown;
-    }
+  if (!taskTypeSectionPattern.test(markdown)) {
+    return markdown;
+  }
 
-    return markdown.replace(taskTypeSectionPattern, `$1${requestedTaskType}$3`);
+  return markdown.replace(taskTypeSectionPattern, `$1${requestedTaskType}$3`);
 }
 
 function shouldReadSnippet(file: ProjectInventoryFile) {
-    if (!file.canReadText) {
-        return false;
-    }
+  if (!file.canReadText) {
+    return false;
+  }
 
-    if (file.kind === "asset") {
-        return false;
-    }
+  if (file.kind === "asset") {
+    return false;
+  }
 
-    if (file.kind === "runtime") {
-        return false;
-    }
+  if (file.kind === "runtime") {
+    return false;
+  }
 
-    if (file.kind === "data") {
-        return false;
-    }
+  if (file.kind === "data") {
+    return false;
+  }
 
-    if (file.sizeBytes > MAX_TEXT_FILE_SIZE_BYTES) {
-        return false;
-    }
+  if (file.sizeBytes > MAX_TEXT_FILE_SIZE_BYTES) {
+    return false;
+  }
 
-    return true;
+  return true;
 }
 
 async function readFileSnippet(
-    projectRoot: string,
-    file: ProjectInventoryFile
+  projectRoot: string,
+  file: ProjectInventoryFile,
 ): Promise<TaskContextSnippet | null> {
-    if (!shouldReadSnippet(file)) {
-        return null;
-    }
+  if (!shouldReadSnippet(file)) {
+    return null;
+  }
 
-    if (!isSafeProjectChild(projectRoot, file.path)) {
-        return null;
-    }
+  if (!isSafeProjectChild(projectRoot, file.path)) {
+    return null;
+  }
 
-    const absolutePath = path.join(projectRoot, file.path);
+  const absolutePath = path.join(projectRoot, file.path);
 
-    try {
-        const content = await fs.readFile(absolutePath, "utf8");
-        const truncated = content.length > MAX_SNIPPET_CHARS;
+  try {
+    const content = await fs.readFile(absolutePath, "utf8");
+    const truncated = content.length > MAX_SNIPPET_CHARS;
 
-        return {
-            relativePath: file.path,
-            language: getLanguageForFile(file.path),
-            content: truncated ? content.slice(0, MAX_SNIPPET_CHARS) : content,
-            truncated
-        };
-    } catch {
-        return null;
-    }
+    return {
+      relativePath: file.path,
+      language: getLanguageForFile(file.path),
+      content: truncated ? content.slice(0, MAX_SNIPPET_CHARS) : content,
+      truncated,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function buildSelectedFileSnippets({
-    projectRoot,
-    inventory,
-    fileSelection
+  projectRoot,
+  inventory,
+  fileSelection,
 }: {
-    projectRoot: string;
-    inventory: ProjectInventory;
-    fileSelection: TaskFileSelection;
+  projectRoot: string;
+  inventory: ProjectInventory;
+  fileSelection: TaskFileSelection;
 }) {
-    const snippets: TaskContextSnippet[] = [];
+  const snippets: TaskContextSnippet[] = [];
 
-    for (const selectedFile of fileSelection.selectedFiles) {
-        if (snippets.length >= MAX_SNIPPET_FILES) {
-            break;
-        }
-
-        const inventoryFile = findInventoryFile(inventory, selectedFile.path);
-
-        if (!inventoryFile) {
-            continue;
-        }
-
-        const snippet = await readFileSnippet(projectRoot, inventoryFile);
-
-        if (snippet) {
-            snippets.push(snippet);
-        }
+  for (const selectedFile of fileSelection.selectedFiles) {
+    if (snippets.length >= MAX_SNIPPET_FILES) {
+      break;
     }
 
-    return snippets;
+    const inventoryFile = findInventoryFile(inventory, selectedFile.path);
+
+    if (!inventoryFile) {
+      continue;
+    }
+
+    const snippet = await readFileSnippet(projectRoot, inventoryFile);
+
+    if (snippet) {
+      snippets.push(snippet);
+    }
+  }
+
+  return snippets;
 }
 
 function buildFileReferences({
-    inventory,
-    fileSelection
+  inventory,
+  fileSelection,
 }: {
-    inventory: ProjectInventory;
-    fileSelection: TaskFileSelection;
+  inventory: ProjectInventory;
+  fileSelection: TaskFileSelection;
 }): TaskContextFileReference[] {
-    const references: TaskContextFileReference[] = [];
+  const references: TaskContextFileReference[] = [];
 
-    for (const selectedFile of fileSelection.selectedFiles) {
-        const inventoryFile = findInventoryFile(inventory, selectedFile.path);
+  for (const selectedFile of fileSelection.selectedFiles) {
+    const inventoryFile = findInventoryFile(inventory, selectedFile.path);
 
-        if (!inventoryFile) {
-            continue;
-        }
+    if (!inventoryFile) {
+      if (selectedFile.usage !== "create-and-edit") {
+        continue;
+      }
 
-        references.push({
-            path: inventoryFile.path,
-            kind: inventoryFile.kind,
-            usage: selectedFile.usage,
-            reason: selectedFile.reason,
-            confidence: selectedFile.confidence,
-            canReadText: inventoryFile.canReadText,
-            sizeBytes: inventoryFile.sizeBytes
-        });
+      references.push({
+        path: selectedFile.path,
+        kind: selectedFile.kind,
+        usage: selectedFile.usage,
+        reason: selectedFile.reason,
+        confidence: selectedFile.confidence,
+        canReadText: false,
+        sizeBytes: 0,
+      });
+      continue;
     }
 
-    return references;
+    references.push({
+      path: inventoryFile.path,
+      kind: inventoryFile.kind,
+      usage: selectedFile.usage,
+      reason: selectedFile.reason,
+      confidence: selectedFile.confidence,
+      canReadText: inventoryFile.canReadText,
+      sizeBytes: inventoryFile.sizeBytes,
+    });
+  }
+
+  return references;
 }
 
 function getManualUsageForFile(
-    file: ProjectInventoryFile,
-    context?: {
-        rawTask: string;
-        effectiveTaskArea: string;
-    }
+  file: ProjectInventoryFile,
+  context?: {
+    rawTask: string;
+    effectiveTaskArea: string;
+  },
 ): SelectedTaskFileUsage {
-    if (
-        context &&
-        shouldUseInspectOnlyForComposerSelection({
-            file,
-            rawTask: context.rawTask,
-            effectiveTaskArea: context.effectiveTaskArea
-        })
-    ) {
-        return "inspect-only";
-    }
+  if (
+    context &&
+    shouldUseInspectOnlyForComposerSelection({
+      file,
+      rawTask: context.rawTask,
+      effectiveTaskArea: context.effectiveTaskArea,
+    })
+  ) {
+    return "inspect-only";
+  }
 
-    if (file.kind === "asset") {
-        return "asset-reference";
-    }
+  if (file.kind === "asset") {
+    return "asset-reference";
+  }
 
-    if (file.kind === "config") {
-        return "config-reference";
-    }
+  if (file.kind === "config") {
+    return "config-reference";
+  }
 
-    if (file.kind === "docs" || file.kind === "data" || file.kind === "runtime") {
-        return "inspect-only";
-    }
+  if (file.kind === "docs" || file.kind === "data" || file.kind === "runtime") {
+    return "inspect-only";
+  }
 
-    return "inspect-and-edit";
+  return "inspect-and-edit";
 }
 
 function normalizeComposerPath(path: string) {
-    return path.replace(/\\/g, "/").toLowerCase();
+  return path.replace(/\\/g, "/").toLowerCase();
 }
 
 function hasNoBackendMutationConstraint(task: string) {
-    const normalized = task.toLowerCase();
+  const normalized = task.toLowerCase();
 
-    return [
-        "do not change backend",
-        "don't change backend",
-        "without changing backend",
-        "keep backend behavior",
-        "backend behavior",
-        "backend unchanged",
-        "do not change api",
-        "don't change api",
-        "keep api",
-        "api unchanged",
-        "не менять backend",
-        "не менять бэк",
-        "не трогать бэк",
-        "не менять api",
-        "не трогать api",
-        "без изменения backend",
-        "без изменения бэка"
-    ].some((phrase) => normalized.includes(phrase));
+  return [
+    "do not change backend",
+    "don't change backend",
+    "without changing backend",
+    "keep backend behavior",
+    "backend behavior",
+    "backend unchanged",
+    "do not change api",
+    "don't change api",
+    "keep api",
+    "api unchanged",
+    "не менять backend",
+    "не менять бэк",
+    "не трогать бэк",
+    "не менять api",
+    "не трогать api",
+    "без изменения backend",
+    "без изменения бэка",
+  ].some((phrase) => normalized.includes(phrase));
 }
 
 function isBackendOrApiReferencePath(path: string) {
-    const normalized = normalizeComposerPath(path);
+  const normalized = normalizeComposerPath(path);
 
-    return (
-        normalized.includes("/server/") ||
-        normalized.includes("/routes/") ||
-        normalized.includes("/controllers/") ||
-        normalized.includes("/services/") ||
-        normalized.includes("/repositories/") ||
-        normalized.includes("/db/") ||
-        normalized.includes("/database/") ||
-        normalized.includes("/api/") ||
-        normalized.startsWith("server/") ||
-        normalized.startsWith("api/") ||
-        normalized.endsWith("/api.ts") ||
-        normalized.endsWith("/api.js") ||
-        normalized.endsWith("/client.ts") ||
-        normalized.endsWith("/client.js")
-    );
+  return (
+    normalized.includes("/server/") ||
+    normalized.includes("/routes/") ||
+    normalized.includes("/controllers/") ||
+    normalized.includes("/services/") ||
+    normalized.includes("/repositories/") ||
+    normalized.includes("/db/") ||
+    normalized.includes("/database/") ||
+    normalized.includes("/api/") ||
+    normalized.startsWith("server/") ||
+    normalized.startsWith("api/") ||
+    normalized.endsWith("/api.ts") ||
+    normalized.endsWith("/api.js") ||
+    normalized.endsWith("/client.ts") ||
+    normalized.endsWith("/client.js")
+  );
 }
 
 function shouldUseInspectOnlyForComposerSelection(input: {
-    file: ProjectInventoryFile;
-    rawTask: string;
-    effectiveTaskArea: string;
+  file: ProjectInventoryFile;
+  rawTask: string;
+  effectiveTaskArea: string;
 }) {
-    if (input.file.kind !== "source") {
-        return false;
-    }
+  if (input.file.kind !== "source") {
+    return false;
+  }
 
-    if (input.effectiveTaskArea !== "ui") {
-        return false;
-    }
+  if (input.effectiveTaskArea !== "ui") {
+    return false;
+  }
 
-    if (!hasNoBackendMutationConstraint(input.rawTask)) {
-        return false;
-    }
+  if (!hasNoBackendMutationConstraint(input.rawTask)) {
+    return false;
+  }
 
-    return isBackendOrApiReferencePath(input.file.path);
+  return isBackendOrApiReferencePath(input.file.path);
 }
 
 function buildManualComposerFileSelection({
-    inventory,
-    baseSelection,
-    selectedFilePaths,
-    rawTask,
-    effectiveTaskArea
+  inventory,
+  baseSelection,
+  selectedFilePaths,
+  rawTask,
+  effectiveTaskArea,
 }: {
-    inventory: ProjectInventory;
-    baseSelection: TaskFileSelection;
-    selectedFilePaths: string[];
-    rawTask: string;
-    effectiveTaskArea: string;
+  inventory: ProjectInventory;
+  baseSelection: TaskFileSelection;
+  selectedFilePaths: string[];
+  rawTask: string;
+  effectiveTaskArea: string;
 }): TaskFileSelection {
-    const selectedByPath = new Map(
-        baseSelection.selectedFiles.map((file) => [
-            normalizePath(file.path).toLowerCase(),
-            file
-        ])
+  const selectedByPath = new Map(
+    baseSelection.selectedFiles.map((file) => [
+      normalizePath(file.path).toLowerCase(),
+      file,
+    ]),
+  );
+
+  const rejectedManualPaths: string[] = [];
+  const manualSelectedFiles: TaskFileSelection["selectedFiles"] = [];
+
+  for (const candidatePath of getUniqueStrings(
+    selectedFilePaths.map(normalizePath),
+  )) {
+    const inventoryFile = findInventoryFile(inventory, candidatePath);
+
+    if (!inventoryFile) {
+      rejectedManualPaths.push(candidatePath);
+      continue;
+    }
+
+    const existingSelection = selectedByPath.get(
+      normalizePath(inventoryFile.path).toLowerCase(),
     );
 
-    const rejectedManualPaths: string[] = [];
-    const manualSelectedFiles: TaskFileSelection["selectedFiles"] = [];
+    const usage = getManualUsageForFile(inventoryFile, {
+      rawTask,
+      effectiveTaskArea,
+    });
 
-    for (const candidatePath of getUniqueStrings(selectedFilePaths.map(normalizePath))) {
-        const inventoryFile = findInventoryFile(inventory, candidatePath);
+    if (existingSelection) {
+      manualSelectedFiles.push({
+        ...existingSelection,
+        path: inventoryFile.path,
+        usage,
+        reason:
+          usage === "inspect-only" && existingSelection.usage !== "inspect-only"
+            ? `Manually confirmed in Context Composer as reference-only context. ${existingSelection.reason}`
+            : `Manually confirmed in Context Composer. ${existingSelection.reason}`,
+      });
 
-        if (!inventoryFile) {
-            rejectedManualPaths.push(candidatePath);
-            continue;
-        }
-
-        const existingSelection = selectedByPath.get(
-            normalizePath(inventoryFile.path).toLowerCase()
-        );
-
-        const usage = getManualUsageForFile(inventoryFile, {
-            rawTask,
-            effectiveTaskArea
-        });
-
-        if (existingSelection) {
-            manualSelectedFiles.push({
-                ...existingSelection,
-                path: inventoryFile.path,
-                usage,
-                reason:
-                    usage === "inspect-only" && existingSelection.usage !== "inspect-only"
-                        ? `Manually confirmed in Context Composer as reference-only context. ${existingSelection.reason}`
-                        : `Manually confirmed in Context Composer. ${existingSelection.reason}`
-            });
-
-            continue;
-        }
-
-        manualSelectedFiles.push({
-            path: inventoryFile.path,
-            kind: inventoryFile.kind,
-            usage,
-            reason:
-                usage === "inspect-only"
-                    ? "Manually included from Context Composer review as reference-only context."
-                    : "Manually included from Context Composer review.",
-            confidence: 0.95
-        });
+      continue;
     }
 
-    if (manualSelectedFiles.length === 0) {
-        return {
-            ...baseSelection,
-            selectedFiles: [],
-            rejectedModelPaths: [
-                ...baseSelection.rejectedModelPaths,
-                ...rejectedManualPaths
-            ],
-            notes: [
-                ...baseSelection.notes,
-                "Composer selection was requested, but no selected paths passed backend validation."
-            ]
-        };
-    }
+    manualSelectedFiles.push({
+      path: inventoryFile.path,
+      kind: inventoryFile.kind,
+      usage,
+      reason:
+        usage === "inspect-only"
+          ? "Manually included from Context Composer review as reference-only context."
+          : "Manually included from Context Composer review.",
+      confidence: 0.95,
+    });
+  }
 
+  if (manualSelectedFiles.length === 0) {
     return {
-        ...baseSelection,
-        selectedFiles: manualSelectedFiles,
-        rejectedModelPaths: [
-            ...baseSelection.rejectedModelPaths,
-            ...rejectedManualPaths
-        ],
-        notes: [
-            ...baseSelection.notes,
-            `Composer confirmed selection applied: ${manualSelectedFiles.length} file(s).`,
-            rejectedManualPaths.length > 0
-                ? `Rejected manual Composer path(s): ${rejectedManualPaths.join(", ")}.`
-                : ""
-        ].filter(Boolean)
+      ...baseSelection,
+      selectedFiles: [],
+      rejectedModelPaths: [
+        ...baseSelection.rejectedModelPaths,
+        ...rejectedManualPaths,
+      ],
+      notes: [
+        ...baseSelection.notes,
+        "Composer selection was requested, but no selected paths passed backend validation.",
+      ],
     };
+  }
+
+  return {
+    ...baseSelection,
+    selectedFiles: manualSelectedFiles,
+    rejectedModelPaths: [
+      ...baseSelection.rejectedModelPaths,
+      ...rejectedManualPaths,
+    ],
+    notes: [
+      ...baseSelection.notes,
+      `Composer confirmed selection applied: ${manualSelectedFiles.length} file(s).`,
+      rejectedManualPaths.length > 0
+        ? `Rejected manual Composer path(s): ${rejectedManualPaths.join(", ")}.`
+        : "",
+    ].filter(Boolean),
+  };
 }
 
 function buildContextNotes({
-    inventory,
-    taskIntent,
-    fileSelection,
-    selectionQuality
+  inventory,
+  taskIntent,
+  fileSelection,
+  selectionQuality,
 }: {
-    inventory: ProjectInventory;
-    taskIntent?: TaskIntentAnalysis;
-    fileSelection: TaskFileSelection;
-    selectionQuality: ContextSelectionQuality;
+  inventory: ProjectInventory;
+  taskIntent?: TaskIntentAnalysis;
+  fileSelection: TaskFileSelection;
+  selectionQuality: ContextSelectionQuality;
 }) {
-    const notes: string[] = [];
-    const uniqueRejectedModelPaths = getUniqueStrings(fileSelection.rejectedModelPaths);
+  const notes: string[] = [];
+  const uniqueRejectedModelPaths = getUniqueStrings(
+    fileSelection.rejectedModelPaths,
+  );
 
-    notes.push("Project inventory was collected by ContextForge before selecting files.");
+  notes.push(
+    "Project inventory was collected by ContextForge before selecting files.",
+  );
+  notes.push(
+    "Files were selected from real inventory paths and validated before being added to this Task Pack.",
+  );
+  notes.push(
+    "Protected context sections were generated by the backend and restored after local AI generation.",
+  );
+
+  if (taskIntent) {
     notes.push(
-        "Files were selected from real inventory paths and validated before being added to this Task Pack."
+      `Task intent source: ${taskIntent.source}; area: ${taskIntent.taskArea}; confidence: ${taskIntent.confidence}.`,
     );
+
+    if (taskIntent.structuredIntent) {
+      notes.push(
+        `Structured intent: ${taskIntent.structuredIntent.primaryTargets.length} primary target(s); edit scope ${taskIntent.structuredIntent.allowedEditScope}.`,
+      );
+    }
+  }
+
+  if ("effectiveTaskArea" in fileSelection) {
+    notes.push(`Effective task area: ${fileSelection.effectiveTaskArea}.`);
+  }
+
+  if ("assetMode" in fileSelection) {
+    notes.push(`Asset mode: ${fileSelection.assetMode}.`);
+  }
+
+  if ("conflictNote" in fileSelection && fileSelection.conflictNote) {
+    notes.push(fileSelection.conflictNote);
+  }
+
+  notes.push(
+    `File selection source: ${fileSelection.source}; selected files: ${fileSelection.selectedFiles.length}.`,
+  );
+  notes.push(
+    `Context quality: ${selectionQuality.status}; score: ${selectionQuality.score}/100.`,
+  );
+  if (selectionQuality.blockingReasons.length > 0) {
     notes.push(
-        "Protected context sections were generated by the backend and restored after local AI generation."
+      `Context blocking reason(s): ${selectionQuality.blockingReasons.join("; ")}.`,
     );
+  }
+  if (selectionQuality.warnings.length > 0) {
+    notes.push(`Context warning(s): ${selectionQuality.warnings.join("; ")}.`);
+  }
 
-    if (taskIntent) {
-        notes.push(
-            `Task intent source: ${taskIntent.source}; area: ${taskIntent.taskArea}; confidence: ${taskIntent.confidence}.`
-        );
-
-        if (taskIntent.structuredIntent) {
-            notes.push(
-                `Structured intent: ${taskIntent.structuredIntent.primaryTargets.length} primary target(s); edit scope ${taskIntent.structuredIntent.allowedEditScope}.`
-            );
-        }
-    }
-
-    if ("effectiveTaskArea" in fileSelection) {
-        notes.push(`Effective task area: ${fileSelection.effectiveTaskArea}.`);
-    }
-
-    if ("assetMode" in fileSelection) {
-        notes.push(`Asset mode: ${fileSelection.assetMode}.`);
-    }
-
-    if ("conflictNote" in fileSelection && fileSelection.conflictNote) {
-        notes.push(fileSelection.conflictNote);
-    }
-
+  if (uniqueRejectedModelPaths.length > 0) {
     notes.push(
-        `File selection source: ${fileSelection.source}; selected files: ${fileSelection.selectedFiles.length}.`
+      `Rejected ${uniqueRejectedModelPaths.length} model-selected path(s) because they were not present in inventory or were blocked by safety rules.`,
     );
-    notes.push(`Context quality: ${selectionQuality.status}; score: ${selectionQuality.score}/100.`);
-    if (selectionQuality.blockingReasons.length > 0) {
-        notes.push(`Context blocking reason(s): ${selectionQuality.blockingReasons.join("; ")}.`);
-    }
-    if (selectionQuality.warnings.length > 0) {
-        notes.push(`Context warning(s): ${selectionQuality.warnings.join("; ")}.`);
-    }
+  }
 
-    if (uniqueRejectedModelPaths.length > 0) {
-        notes.push(
-            `Rejected ${uniqueRejectedModelPaths.length} model-selected path(s) because they were not present in inventory or were blocked by safety rules.`
-        );
-    }
+  if (
+    "effectiveTaskArea" in fileSelection &&
+    fileSelection.effectiveTaskArea === "fullstack" &&
+    !inventoryHasBackendRouteFiles(inventory)
+  ) {
+    notes.push(
+      "No backend/server route files were found in the scanned project inventory. This appears to be a frontend-only or client-only project, so the Task Pack selected available UI/client API files and the external agent should document the expected backend endpoint contract instead of inventing server files.",
+    );
+  }
 
-    if (
-        "effectiveTaskArea" in fileSelection &&
-        fileSelection.effectiveTaskArea === "fullstack" &&
-        !inventoryHasBackendRouteFiles(inventory)
-    ) {
-        notes.push(
-            "No backend/server route files were found in the scanned project inventory. This appears to be a frontend-only or client-only project, so the Task Pack selected available UI/client API files and the external agent should document the expected backend endpoint contract instead of inventing server files."
-        );
-    }
+  if (inventory.truncated) {
+    notes.push(
+      "Project inventory was truncated, so some deep/extra files may be missing.",
+    );
+  }
 
-    if (inventory.truncated) {
-        notes.push("Project inventory was truncated, so some deep/extra files may be missing.");
-    }
+  notes.push(...inventory.notes);
+  notes.push(...fileSelection.notes);
 
-    notes.push(...inventory.notes);
-    notes.push(...fileSelection.notes);
-
-    return Array.from(new Set(notes.filter(Boolean)));
+  return Array.from(new Set(notes.filter(Boolean)));
 }
 
 function buildUniversalTaskPackContext({
+  taskType,
+  inventory,
+  taskIntent,
+  fileSelection,
+  selectionQuality,
+  fileSnippets,
+  fileReferences,
+}: {
+  taskType: string;
+  inventory: ProjectInventory;
+  taskIntent?: TaskIntentAnalysis;
+  fileSelection: TaskFileSelection;
+  selectionQuality: ContextSelectionQuality;
+  fileSnippets: TaskContextSnippet[];
+  fileReferences: TaskContextFileReference[];
+}): UniversalTaskPackContext {
+  return {
     taskType,
-    inventory,
+    effectiveTaskArea:
+      "effectiveTaskArea" in fileSelection
+        ? fileSelection.effectiveTaskArea
+        : (taskIntent?.taskArea ?? taskType),
+    projectTree: inventory.files.map((file) => file.path),
+    relevantFiles: fileSelection.selectedFiles.map((file) => file.path),
+    fileSnippets,
+    fileReferences,
     taskIntent,
     fileSelection,
     selectionQuality,
-    fileSnippets,
-    fileReferences
-}: {
-    taskType: string;
-    inventory: ProjectInventory;
-    taskIntent?: TaskIntentAnalysis;
-    fileSelection: TaskFileSelection;
-    selectionQuality: ContextSelectionQuality;
-    fileSnippets: TaskContextSnippet[];
-    fileReferences: TaskContextFileReference[];
-}): UniversalTaskPackContext {
-    return {
-        taskType,
-        effectiveTaskArea:
-            "effectiveTaskArea" in fileSelection
-                ? fileSelection.effectiveTaskArea
-                : taskIntent?.taskArea ?? taskType,
-        projectTree: inventory.files.map((file) => file.path),
-        relevantFiles: fileSelection.selectedFiles.map((file) => file.path),
-        fileSnippets,
-        fileReferences,
-        taskIntent,
-        fileSelection,
-        selectionQuality,
-        inventorySummary: {
-            totalFiles: inventory.totalFiles,
-            scannedFiles: inventory.scannedFiles,
-            truncated: inventory.truncated,
-            notes: inventory.notes
-        },
-        notes: buildContextNotes({
-            inventory,
-            taskIntent,
-            fileSelection,
-            selectionQuality
-        })
-    };
+    inventorySummary: {
+      totalFiles: inventory.totalFiles,
+      scannedFiles: inventory.scannedFiles,
+      truncated: inventory.truncated,
+      notes: inventory.notes,
+    },
+    notes: buildContextNotes({
+      inventory,
+      taskIntent,
+      fileSelection,
+      selectionQuality,
+    }),
+  };
 }
 
 function formatFileSize(sizeBytes: number) {
-    if (sizeBytes < 1024) {
-        return `${sizeBytes} B`;
-    }
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
 
-    if (sizeBytes < 1024 * 1024) {
-        return `${Math.round(sizeBytes / 1024)} KB`;
-    }
+  if (sizeBytes < 1024 * 1024) {
+    return `${Math.round(sizeBytes / 1024)} KB`;
+  }
 
-    return `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`;
+  return `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function buildRelevantFilesSection(context: UniversalTaskPackContext) {
-    if (context.fileReferences.length === 0) {
-        return `
+  if (context.fileReferences.length === 0) {
+    return `
 ## Relevant File Candidates
 
 No relevant files were selected. Inspect the project manually before editing.
 `.trim();
-    }
+  }
 
-    const rows = context.fileReferences.map((file) => {
-        const confidence = Math.round(file.confidence * 100);
+  const rows = context.fileReferences.map((file) => {
+    const confidence = Math.round(file.confidence * 100);
+    const createNote =
+      file.usage === "create-and-edit"
+        ? "  - status: planned new file; it does not exist yet"
+        : "";
 
-        return [
-            `- ${file.path}`,
-            `  - kind: ${file.kind}`,
-            `  - usage: ${file.usage}`,
-            `  - confidence: ${confidence}%`,
-            `  - size: ${formatFileSize(file.sizeBytes)}`,
-            `  - reason: ${file.reason}`
-        ].filter(Boolean).join("\n");
-    });
+    return [
+      `- ${file.path}`,
+      `  - kind: ${file.kind}`,
+      `  - usage: ${file.usage}`,
+      createNote,
+      `  - confidence: ${confidence}%`,
+      `  - size: ${formatFileSize(file.sizeBytes)}`,
+      `  - reason: ${file.reason}`,
+    ]
+      .filter(Boolean)
+      .join("\n");
+  });
+  const hasCreateTargets = context.fileReferences.some(
+    (file) => file.usage === "create-and-edit",
+  );
+  const intro = hasCreateTargets
+    ? "Inspect existing reference files first. Files marked create-and-edit are planned new files that should be created as part of this task."
+    : "Inspect these files before modifying code:";
 
-    return `
+  return `
 ## Relevant File Candidates
 
-Inspect these files before modifying code:
+${intro}
 
 ${rows.join("\n")}
 `.trim();
 }
 
 function buildCodeSnippetsSection(context: UniversalTaskPackContext) {
-    if (context.fileSnippets.length === 0) {
-        return `
+  if (context.fileSnippets.length === 0) {
+    return `
 ## Code Context Snippets
 
 No text snippets were included. Selected files may be binary assets, too large, or unavailable for safe text reading.
 `.trim();
-    }
+  }
 
-    const snippets = context.fileSnippets.map((snippet) => {
-        const truncationNote = snippet.truncated
-            ? "\n\n<!-- Snippet truncated. Inspect the full file before editing. -->"
-            : "";
+  const snippets = context.fileSnippets.map((snippet) => {
+    const truncationNote = snippet.truncated
+      ? "\n\n<!-- Snippet truncated. Inspect the full file before editing. -->"
+      : "";
 
-        return `
+    return `
 ### ${snippet.relativePath}
 
 \`\`\`${snippet.language}
@@ -788,9 +835,9 @@ ${snippet.content}
 ${truncationNote}
 \`\`\`
 `.trim();
-    });
+  });
 
-    return `
+  return `
 ## Code Context Snippets
 
 These snippets are partial context only. Inspect full files before editing.
@@ -800,29 +847,30 @@ ${snippets.join("\n\n")}
 }
 
 function buildAssetReferenceSection(context: UniversalTaskPackContext) {
-    const assetLikeFiles = context.fileReferences.filter(
-        (file) =>
-            file.kind === "asset" ||
-            file.kind === "data" ||
-            file.kind === "runtime" ||
-            !file.canReadText
-    );
+  const assetLikeFiles = context.fileReferences.filter(
+    (file) =>
+      file.usage !== "create-and-edit" &&
+      (file.kind === "asset" ||
+        file.kind === "data" ||
+        file.kind === "runtime" ||
+        !file.canReadText),
+  );
 
-    if (assetLikeFiles.length === 0) {
-        return "";
-    }
+  if (assetLikeFiles.length === 0) {
+    return "";
+  }
 
-    const rows = assetLikeFiles.map((file) => {
-        return [
-            `- ${file.path}`,
-            `  - kind: ${file.kind}`,
-            `  - usage: ${file.usage}`,
-            `  - size: ${formatFileSize(file.sizeBytes)}`,
-            `  - note: binary/non-text content was not read into the prompt`
-        ].join("\n");
-    });
+  const rows = assetLikeFiles.map((file) => {
+    return [
+      `- ${file.path}`,
+      `  - kind: ${file.kind}`,
+      `  - usage: ${file.usage}`,
+      `  - size: ${formatFileSize(file.sizeBytes)}`,
+      `  - note: binary/non-text content was not read into the prompt`,
+    ].join("\n");
+  });
 
-    return `
+  return `
 ## Non-Text / Asset References
 
 These files may be relevant, but their binary or non-text content was not embedded.
@@ -832,73 +880,80 @@ ${rows.join("\n")}
 }
 
 function buildContextForgeNotesSection(context: UniversalTaskPackContext) {
-    const rejectedModelPaths = getUniqueStrings(context.fileSelection.rejectedModelPaths);
-    const intent = context.taskIntent
-        ? [
-            `- Source: ${context.taskIntent.source}`,
-            `- Task area: ${context.taskIntent.taskArea}`,
-            `- Risk level: ${context.taskIntent.riskLevel}`,
-            `- Confidence: ${context.taskIntent.confidence}`,
-            context.taskIntent.intentTags.length > 0
-                ? `- Intent tags: ${context.taskIntent.intentTags.join(", ")}`
-                : null,
-            context.taskIntent.domainTerms.length > 0
-                ? `- Domain terms: ${context.taskIntent.domainTerms.join(", ")}`
-                : null,
-            context.taskIntent.fileRoleHints.length > 0
-                ? `- File role hints: ${context.taskIntent.fileRoleHints.join(", ")}`
-                : null,
-            context.taskIntent.structuredIntent
-                ? `- Structured targets: ${context.taskIntent.structuredIntent.primaryTargets.map((target) => `${target.kind}:${target.path ?? target.routePath ?? target.value}`).join(", ") || "none"}`
-                : null,
-            context.taskIntent.structuredIntent
-                ? `- Edit scope: ${context.taskIntent.structuredIntent.allowedEditScope}`
-                : null
-        ]
-            .filter(Boolean)
-            .join("\n")
-        : "- Task intent analysis was not available.";
+  const rejectedModelPaths = getUniqueStrings(
+    context.fileSelection.rejectedModelPaths,
+  );
+  const intent = context.taskIntent
+    ? [
+        `- Source: ${context.taskIntent.source}`,
+        `- Task area: ${context.taskIntent.taskArea}`,
+        `- Risk level: ${context.taskIntent.riskLevel}`,
+        `- Confidence: ${context.taskIntent.confidence}`,
+        context.taskIntent.intentTags.length > 0
+          ? `- Intent tags: ${context.taskIntent.intentTags.join(", ")}`
+          : null,
+        context.taskIntent.domainTerms.length > 0
+          ? `- Domain terms: ${context.taskIntent.domainTerms.join(", ")}`
+          : null,
+        context.taskIntent.fileRoleHints.length > 0
+          ? `- File role hints: ${context.taskIntent.fileRoleHints.join(", ")}`
+          : null,
+        context.taskIntent.structuredIntent
+          ? `- Structured targets: ${context.taskIntent.structuredIntent.primaryTargets.map((target) => `${target.kind}:${target.path ?? target.routePath ?? target.value}`).join(", ") || "none"}`
+          : null,
+        context.taskIntent.structuredIntent
+          ? `- Edit scope: ${context.taskIntent.structuredIntent.allowedEditScope}`
+          : null,
+      ]
+        .filter(Boolean)
+        .join("\n")
+    : "- Task intent analysis was not available.";
 
-    const quality = [
-        `- Status: ${context.selectionQuality.status}`,
-        `- Score: ${context.selectionQuality.score}/100`,
-        context.selectionQuality.requiredManualReview ? "- Manual review required: yes" : "- Manual review required: no",
-        context.selectionQuality.blockingReasons.length > 0
-            ? `- Blocking reasons: ${context.selectionQuality.blockingReasons.join("; ")}`
-            : "- Blocking reasons: none",
-        context.selectionQuality.warnings.length > 0
-            ? `- Warnings: ${context.selectionQuality.warnings.join("; ")}`
-            : "- Warnings: none"
-    ].join("\n");
+  const quality = [
+    `- Status: ${context.selectionQuality.status}`,
+    `- Score: ${context.selectionQuality.score}/100`,
+    context.selectionQuality.requiredManualReview
+      ? "- Manual review required: yes"
+      : "- Manual review required: no",
+    context.selectionQuality.blockingReasons.length > 0
+      ? `- Blocking reasons: ${context.selectionQuality.blockingReasons.join("; ")}`
+      : "- Blocking reasons: none",
+    context.selectionQuality.warnings.length > 0
+      ? `- Warnings: ${context.selectionQuality.warnings.join("; ")}`
+      : "- Warnings: none",
+  ].join("\n");
 
-    const fileSelection = [
-        `- Source: ${context.fileSelection.source}`,
-        `- Used fallback: ${context.fileSelection.usedFallback ? "yes" : "no"}`,
-        `- Duration: ${context.fileSelection.durationMs} ms`,
-        `- Effective task area: ${context.effectiveTaskArea}`,
-        "assetMode" in context.fileSelection
-            ? `- Asset mode: ${context.fileSelection.assetMode}`
-            : null,
-        "conflictNote" in context.fileSelection && context.fileSelection.conflictNote
-            ? `- Task type conflict: ${context.fileSelection.conflictNote}`
-            : null,
-        rejectedModelPaths.length > 0
-            ? `- Rejected model paths: ${rejectedModelPaths.join(", ")}`
-            : "- Rejected model paths: none"
-    ].filter(Boolean).join("\n");
+  const fileSelection = [
+    `- Source: ${context.fileSelection.source}`,
+    `- Used fallback: ${context.fileSelection.usedFallback ? "yes" : "no"}`,
+    `- Duration: ${context.fileSelection.durationMs} ms`,
+    `- Effective task area: ${context.effectiveTaskArea}`,
+    "assetMode" in context.fileSelection
+      ? `- Asset mode: ${context.fileSelection.assetMode}`
+      : null,
+    "conflictNote" in context.fileSelection &&
+    context.fileSelection.conflictNote
+      ? `- Task type conflict: ${context.fileSelection.conflictNote}`
+      : null,
+    rejectedModelPaths.length > 0
+      ? `- Rejected model paths: ${rejectedModelPaths.join(", ")}`
+      : "- Rejected model paths: none",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
-    const inventory = [
-        `- Total files found: ${context.inventorySummary.totalFiles}`,
-        `- Files kept in inventory: ${context.inventorySummary.scannedFiles}`,
-        `- Truncated: ${context.inventorySummary.truncated ? "yes" : "no"}`
-    ].join("\n");
+  const inventory = [
+    `- Total files found: ${context.inventorySummary.totalFiles}`,
+    `- Files kept in inventory: ${context.inventorySummary.scannedFiles}`,
+    `- Truncated: ${context.inventorySummary.truncated ? "yes" : "no"}`,
+  ].join("\n");
 
-    const notes =
-        context.notes.length > 0
-            ? context.notes.map((note) => `- ${note}`).join("\n")
-            : "- No additional notes.";
+  const notes =
+    context.notes.length > 0
+      ? context.notes.map((note) => `- ${note}`).join("\n")
+      : "- No additional notes.";
 
-    return `
+  return `
 ## ContextForge Assisted Notes
 
 ### Task Intent Analysis
@@ -920,151 +975,164 @@ ${notes}
 }
 
 function buildProtectedContextBlock(context: UniversalTaskPackContext) {
-    return [
-        buildRelevantFilesSection(context),
-        buildCodeSnippetsSection(context),
-        buildAssetReferenceSection(context),
-        buildContextForgeNotesSection(context)
-    ]
-        .filter(Boolean)
-        .join("\n\n---\n\n")
-        .trim();
+  return [
+    buildRelevantFilesSection(context),
+    buildCodeSnippetsSection(context),
+    buildAssetReferenceSection(context),
+    buildContextForgeNotesSection(context),
+  ]
+    .filter(Boolean)
+    .join("\n\n---\n\n")
+    .trim();
 }
 
 function normalizeSectionTitle(value: string) {
-    return value.trim().replace(/\s+/g, " ");
+  return value.trim().replace(/\s+/g, " ");
 }
 
 function getSecondLevelHeadings(markdown: string) {
-    return markdown
-        .split(/\r?\n/)
-        .map((line) => line.match(/^##\s+(.+?)\s*$/)?.[1])
-        .filter((value): value is string => Boolean(value))
-        .map(normalizeSectionTitle);
+  return markdown
+    .split(/\r?\n/)
+    .map((line) => line.match(/^##\s+(.+?)\s*$/)?.[1])
+    .filter((value): value is string => Boolean(value))
+    .map(normalizeSectionTitle);
 }
 
-function hasAllRequiredTemplateSections(candidate: string, fallbackPrompt: string) {
-    const candidateHeadings = new Set(getSecondLevelHeadings(candidate));
-    const fallbackHeadings = getSecondLevelHeadings(fallbackPrompt);
+function hasAllRequiredTemplateSections(
+  candidate: string,
+  fallbackPrompt: string,
+) {
+  const candidateHeadings = new Set(getSecondLevelHeadings(candidate));
+  const fallbackHeadings = getSecondLevelHeadings(fallbackPrompt);
 
-    return fallbackHeadings.every((heading) => {
-        if (PROTECTED_SECTION_TITLES.has(heading)) {
-            return true;
-        }
+  return fallbackHeadings.every((heading) => {
+    if (PROTECTED_SECTION_TITLES.has(heading)) {
+      return true;
+    }
 
-        return candidateHeadings.has(heading);
-    });
+    return candidateHeadings.has(heading);
+  });
 }
 
 function hasAllStructuralSections(candidate: string) {
-    const candidateHeadings = new Set(getSecondLevelHeadings(candidate));
+  const candidateHeadings = new Set(getSecondLevelHeadings(candidate));
 
-    return Array.from(STRUCTURAL_SECTION_TITLES).every((heading) =>
-        candidateHeadings.has(heading)
-    );
+  return Array.from(STRUCTURAL_SECTION_TITLES).every((heading) =>
+    candidateHeadings.has(heading),
+  );
 }
 
 function removeProtectedSections(markdown: string) {
-    const lines = markdown.split(/\r?\n/);
-    const output: string[] = [];
-    let skipping = false;
+  const lines = markdown.split(/\r?\n/);
+  const output: string[] = [];
+  let skipping = false;
 
-    for (const line of lines) {
-        const headingMatch = line.match(/^##\s+(.+?)\s*$/);
+  for (const line of lines) {
+    const headingMatch = line.match(/^##\s+(.+?)\s*$/);
 
-        if (headingMatch) {
-            const title = normalizeSectionTitle(headingMatch[1]);
+    if (headingMatch) {
+      const title = normalizeSectionTitle(headingMatch[1]);
 
-            if (PROTECTED_SECTION_TITLES.has(title)) {
-                skipping = true;
-                continue;
-            }
+      if (PROTECTED_SECTION_TITLES.has(title)) {
+        skipping = true;
+        continue;
+      }
 
-            skipping = false;
-        }
-
-        if (!skipping) {
-            output.push(line);
-        }
+      skipping = false;
     }
 
-    return output.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+    if (!skipping) {
+      output.push(line);
+    }
+  }
+
+  return output
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
 }
 
-function insertBeforeSection(markdown: string, sectionTitle: string, content: string) {
-    const marker = `\n${sectionTitle}`;
+function insertBeforeSection(
+  markdown: string,
+  sectionTitle: string,
+  content: string,
+) {
+  const marker = `\n${sectionTitle}`;
 
-    if (!markdown.includes(marker)) {
-        return `${markdown.trim()}\n\n---\n\n${content}`;
-    }
+  if (!markdown.includes(marker)) {
+    return `${markdown.trim()}\n\n---\n\n${content}`;
+  }
 
-    return markdown.replace(marker, `\n${content}\n\n---\n\n${sectionTitle}`);
+  return markdown.replace(marker, `\n${content}\n\n---\n\n${sectionTitle}`);
 }
 
 function ensureHeading(markdown: string) {
-    const trimmed = markdown.trim();
+  const trimmed = markdown.trim();
 
-    if (trimmed.startsWith("# AI Task Pack")) {
-        return trimmed;
-    }
+  if (trimmed.startsWith("# AI Task Pack")) {
+    return trimmed;
+  }
 
-    const firstTaskPackIndex = trimmed.indexOf("# AI Task Pack");
+  const firstTaskPackIndex = trimmed.indexOf("# AI Task Pack");
 
-    if (firstTaskPackIndex >= 0) {
-        return trimmed.slice(firstTaskPackIndex).trim();
-    }
+  if (firstTaskPackIndex >= 0) {
+    return trimmed.slice(firstTaskPackIndex).trim();
+  }
 
-    return `# AI Task Pack\n\n${trimmed}`;
+  return `# AI Task Pack\n\n${trimmed}`;
 }
 
 function normalizeMarkdownSeparators(markdown: string) {
-    return markdown
-        .replace(/\n(?:\s*---\s*\n){2,}/g, "\n\n---\n\n")
-        .replace(/\n{4,}/g, "\n\n\n")
-        .trim();
+  return markdown
+    .replace(/\n(?:\s*---\s*\n){2,}/g, "\n\n---\n\n")
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim();
 }
 
 function restoreProtectedSections(
-    markdown: string,
-    context: UniversalTaskPackContext
+  markdown: string,
+  context: UniversalTaskPackContext,
 ) {
-    const withoutProtectedSections = removeProtectedSections(markdown);
-    const protectedBlock = buildProtectedContextBlock(context);
+  const withoutProtectedSections = removeProtectedSections(markdown);
+  const protectedBlock = buildProtectedContextBlock(context);
 
-    return insertBeforeSection(
-        withoutProtectedSections,
-        "## Agent Instructions",
-        protectedBlock
-    )
-        .replace(/\n{4,}/g, "\n\n\n")
-        .trim();
+  return insertBeforeSection(
+    withoutProtectedSections,
+    "## Agent Instructions",
+    protectedBlock,
+  )
+    .replace(/\n{4,}/g, "\n\n\n")
+    .trim();
 }
 
 function buildContextAwareTemplatePrompt(
-    templatePrompt: string,
-    context: UniversalTaskPackContext
+  templatePrompt: string,
+  context: UniversalTaskPackContext,
 ) {
-    return normalizeTaskTypeSection(restoreProtectedSections(templatePrompt, context), context);
+  return normalizeTaskTypeSection(
+    restoreProtectedSections(templatePrompt, context),
+    context,
+  );
 }
 
 function buildTaskPackGenerationPrompt({
-    project,
-    contextAwareTemplatePrompt,
-    rawTask,
-    taskType,
-    targetTool,
-    context
+  project,
+  contextAwareTemplatePrompt,
+  rawTask,
+  taskType,
+  targetTool,
+  context,
 }: {
-    project: ProjectRow;
-    contextAwareTemplatePrompt: string;
-    rawTask: string;
-    taskType: string;
-    targetTool: string;
-    context: UniversalTaskPackContext;
+  project: ProjectRow;
+  contextAwareTemplatePrompt: string;
+  rawTask: string;
+  taskType: string;
+  targetTool: string;
+  context: UniversalTaskPackContext;
 }) {
-    const hasTestScript = Boolean(project.scripts?.test);
+  const hasTestScript = Boolean(project.scripts?.test);
 
-    return `
+  return `
 You are ContextForge's local AI generation engine.
 
 Your job:
@@ -1100,10 +1168,11 @@ Important:
 - Do not add commentary before or after the document.
 - The first line must be exactly: # AI Task Pack
 - The "## Task Type" section must preserve the user-selected/requested task type. Mention the inferred area separately in ContextForge Assisted Notes only.
-- ${hasTestScript
-            ? "The project has a test script. You may include it in verification."
-            : "The project has no detected test script. Do not recommend npm run test."
-        }
+- ${
+    hasTestScript
+      ? "The project has a test script. You may include it in verification."
+      : "The project has no detected test script. Do not recommend npm run test."
+  }
 
 Required document structure:
 # AI Task Pack
@@ -1124,17 +1193,17 @@ Required document structure:
 
 Project metadata:
 ${JSON.stringify(
-            {
-                name: project.name,
-                localPath: project.localPath,
-                packageManager: project.packageManager,
-                detectedStack: project.detectedStack,
-                scripts: project.scripts,
-                readinessScore: project.readinessScore
-            },
-            null,
-            2
-        )}
+  {
+    name: project.name,
+    localPath: project.localPath,
+    packageManager: project.packageManager,
+    detectedStack: project.detectedStack,
+    scripts: project.scripts,
+    readinessScore: project.readinessScore,
+  },
+  null,
+  2,
+)}
 
 User task:
 ${rawTask}
@@ -1150,22 +1219,22 @@ ${targetTool}
 
 Validated task context summary:
 ${JSON.stringify(
-            {
-                relevantFiles: context.relevantFiles,
-                fileReferences: context.fileReferences,
-                taskIntent: context.taskIntent,
-                fileSelection: {
-                    source: context.fileSelection.source,
-                    usedFallback: context.fileSelection.usedFallback,
-                    rejectedModelPaths: context.fileSelection.rejectedModelPaths,
-                    notes: context.fileSelection.notes
-                },
-                selectionQuality: context.selectionQuality,
-                inventorySummary: context.inventorySummary
-            },
-            null,
-            2
-        )}
+  {
+    relevantFiles: context.relevantFiles,
+    fileReferences: context.fileReferences,
+    taskIntent: context.taskIntent,
+    fileSelection: {
+      source: context.fileSelection.source,
+      usedFallback: context.fileSelection.usedFallback,
+      rejectedModelPaths: context.fileSelection.rejectedModelPaths,
+      notes: context.fileSelection.notes,
+    },
+    selectionQuality: context.selectionQuality,
+    inventorySummary: context.inventorySummary,
+  },
+  null,
+  2,
+)}
 
 Template Task Pack:
 ${contextAwareTemplatePrompt}
@@ -1173,279 +1242,289 @@ ${contextAwareTemplatePrompt}
 }
 
 function postProcessGeneratedTaskPack(
-    generatedPrompt: string,
-    fallbackPrompt: string,
-    context: UniversalTaskPackContext
+  generatedPrompt: string,
+  fallbackPrompt: string,
+  context: UniversalTaskPackContext,
 ) {
-    const candidate = generatedPrompt.trim().startsWith("# AI Task Pack")
-        ? generatedPrompt
-        : fallbackPrompt;
+  const candidate = generatedPrompt.trim().startsWith("# AI Task Pack")
+    ? generatedPrompt
+    : fallbackPrompt;
 
-    const withHeading = ensureHeading(candidate);
-    const withEffectiveTaskType = normalizeTaskTypeSection(withHeading, context);
-    const restored = restoreProtectedSections(withEffectiveTaskType, context);
+  const withHeading = ensureHeading(candidate);
+  const withEffectiveTaskType = normalizeTaskTypeSection(withHeading, context);
+  const restored = restoreProtectedSections(withEffectiveTaskType, context);
 
-    if (
-        !hasAllRequiredTemplateSections(restored, fallbackPrompt) ||
-        !hasAllStructuralSections(restored)
-    ) {
-        return normalizeMarkdownSeparators(
-            normalizeTaskTypeSection(
-                restoreProtectedSections(fallbackPrompt, context),
-                context
-            )
-        );
-    }
+  if (
+    !hasAllRequiredTemplateSections(restored, fallbackPrompt) ||
+    !hasAllStructuralSections(restored)
+  ) {
+    return normalizeMarkdownSeparators(
+      normalizeTaskTypeSection(
+        restoreProtectedSections(fallbackPrompt, context),
+        context,
+      ),
+    );
+  }
 
-    return normalizeMarkdownSeparators(restored);
+  return normalizeMarkdownSeparators(restored);
 }
 
 async function getProjectById(projectId: number): Promise<ProjectRow | null> {
-    return storage.getProjectById(projectId);
+  return storage.getProjectById(projectId);
 }
 
 function buildGenerationRecipeMetadata(
-    recipe: Awaited<ReturnType<typeof buildTaskPackRulesTemplatePrompt>>["recipe"]
+  recipe: Awaited<
+    ReturnType<typeof buildTaskPackRulesTemplatePrompt>
+  >["recipe"],
 ): TaskPackGenerationRecipe {
-    return {
-        template: recipe.template
-            ? {
-                id: recipe.template.id,
-                name: recipe.template.name,
-                targetTool: recipe.template.targetTool,
-                taskType: recipe.template.taskType,
-                isBuiltin: recipe.template.isBuiltin
-            }
-            : null,
-        ruleProfile: recipe.profile
-            ? {
-                id: recipe.profile.id,
-                name: recipe.profile.name,
-                taskType: recipe.profile.taskType,
-                isBuiltin: recipe.profile.isBuiltin
-            }
-            : null,
-        enabledRules: recipe.ruleItems.map((rule) => ({
-            id: rule.id,
-            title: rule.title,
-            category: rule.category
-        })),
-        customRules: recipe.customRules,
-        acceptanceCriteriaPreset: recipe.acceptanceCriteriaPreset
-            ? {
-                id: recipe.acceptanceCriteriaPreset.id,
-                name: recipe.acceptanceCriteriaPreset.name,
-                taskType: recipe.acceptanceCriteriaPreset.taskType,
-                isBuiltin: recipe.acceptanceCriteriaPreset.isBuiltin
-            }
-            : null,
-        acceptanceCriteria: recipe.acceptanceCriteria,
-        counts: {
-            enabledRules: recipe.ruleItems.length,
-            customRules: recipe.customRules.length,
-            acceptanceCriteria: recipe.acceptanceCriteria.length
+  return {
+    template: recipe.template
+      ? {
+          id: recipe.template.id,
+          name: recipe.template.name,
+          targetTool: recipe.template.targetTool,
+          taskType: recipe.template.taskType,
+          isBuiltin: recipe.template.isBuiltin,
         }
-    };
+      : null,
+    ruleProfile: recipe.profile
+      ? {
+          id: recipe.profile.id,
+          name: recipe.profile.name,
+          taskType: recipe.profile.taskType,
+          isBuiltin: recipe.profile.isBuiltin,
+        }
+      : null,
+    enabledRules: recipe.ruleItems.map((rule) => ({
+      id: rule.id,
+      title: rule.title,
+      category: rule.category,
+    })),
+    customRules: recipe.customRules,
+    acceptanceCriteriaPreset: recipe.acceptanceCriteriaPreset
+      ? {
+          id: recipe.acceptanceCriteriaPreset.id,
+          name: recipe.acceptanceCriteriaPreset.name,
+          taskType: recipe.acceptanceCriteriaPreset.taskType,
+          isBuiltin: recipe.acceptanceCriteriaPreset.isBuiltin,
+        }
+      : null,
+    acceptanceCriteria: recipe.acceptanceCriteria,
+    counts: {
+      enabledRules: recipe.ruleItems.length,
+      customRules: recipe.customRules.length,
+      acceptanceCriteria: recipe.acceptanceCriteria.length,
+    },
+  };
 }
 
 taskPacksRouter.get("/", async (_req, res) => {
-    const taskPacks = await storage.listTaskPacks();
+  const taskPacks = await storage.listTaskPacks();
 
-    res.json({
-        ok: true,
-        taskPacks
-    });
+  res.json({
+    ok: true,
+    taskPacks,
+  });
 });
 
 taskPacksRouter.post("/", async (req, res) => {
-    const parsed = createTaskPackSchema.safeParse(req.body);
+  const parsed = createTaskPackSchema.safeParse(req.body);
 
-    if (!parsed.success) {
-        res.status(400).json({
-            ok: false,
-            message: "Invalid request body",
-            issues: parsed.error.issues
-        });
-        return;
+  if (!parsed.success) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid request body",
+      issues: parsed.error.issues,
+    });
+    return;
+  }
+
+  try {
+    const project = await getProjectById(parsed.data.projectId);
+
+    if (!project) {
+      res.status(404).json({
+        ok: false,
+        message: "Project not found",
+      });
+      return;
     }
 
-    try {
-        const project = await getProjectById(parsed.data.projectId);
+    const inventory = await scanProjectInventory(project.localPath);
+    const settings = await getAppSettings();
 
-        if (!project) {
-            res.status(404).json({
-                ok: false,
-                message: "Project not found"
-            });
-            return;
-        }
+    const taskIntent = await analyzeTaskIntent({
+      rawTask: parsed.data.rawTask,
+      taskType: parsed.data.taskType,
+      targetTool: parsed.data.targetTool,
+      project,
+      projectTree: inventory.files.map((file) => file.path),
+    });
 
-        const inventory = await scanProjectInventory(project.localPath);
-        const settings = await getAppSettings();
+    const automaticFileSelection = await selectTaskFiles({
+      rawTask: parsed.data.rawTask,
+      taskType: parsed.data.taskType,
+      targetTool: parsed.data.targetTool,
+      inventory,
+      taskIntent,
+    });
 
-        const taskIntent = await analyzeTaskIntent({
-            rawTask: parsed.data.rawTask,
-            taskType: parsed.data.taskType,
-            targetTool: parsed.data.targetTool,
-            project,
-            projectTree: inventory.files.map((file) => file.path)
-        });
+    const manualSelectionRequested = Array.isArray(
+      parsed.data.selectedFilePaths,
+    );
 
-        const automaticFileSelection = await selectTaskFiles({
-            rawTask: parsed.data.rawTask,
-            taskType: parsed.data.taskType,
-            targetTool: parsed.data.targetTool,
-            inventory,
-            taskIntent
-        });
+    const effectiveSelectionArea =
+      "effectiveTaskArea" in automaticFileSelection
+        ? automaticFileSelection.effectiveTaskArea
+        : taskIntent.taskArea;
 
-        const manualSelectionRequested = Array.isArray(parsed.data.selectedFilePaths);
+    const fileSelection = manualSelectionRequested
+      ? buildManualComposerFileSelection({
+          inventory,
+          baseSelection: automaticFileSelection,
+          selectedFilePaths: parsed.data.selectedFilePaths ?? [],
+          rawTask: parsed.data.rawTask,
+          effectiveTaskArea: effectiveSelectionArea,
+        })
+      : automaticFileSelection;
 
-        const effectiveSelectionArea =
-            "effectiveTaskArea" in automaticFileSelection
-                ? automaticFileSelection.effectiveTaskArea
-                : taskIntent.taskArea;
+    const fileReferences = buildFileReferences({
+      inventory,
+      fileSelection,
+    });
 
-        const fileSelection = manualSelectionRequested
-            ? buildManualComposerFileSelection({
-                inventory,
-                baseSelection: automaticFileSelection,
-                selectedFilePaths: parsed.data.selectedFilePaths ?? [],
-                rawTask: parsed.data.rawTask,
-                effectiveTaskArea: effectiveSelectionArea
-            })
-            : automaticFileSelection;
+    const selectionQuality = evaluateContextSelectionQuality({
+      rawTask: parsed.data.rawTask,
+      requestedTaskType: parsed.data.taskType,
+      effectiveTaskArea: effectiveSelectionArea,
+      inventory,
+      fileSelection,
+      manualSelectionConfirmed: manualSelectionRequested,
+      contextQualityMode: settings.contextQualityMode,
+    });
 
-        const fileReferences = buildFileReferences({
-            inventory,
-            fileSelection
-        });
+    const shouldBlockAutomaticGeneration =
+      settings.contextQualityMode !== "advisory" &&
+      selectionQuality.status === "blocked" &&
+      !manualSelectionRequested;
 
-        const selectionQuality = evaluateContextSelectionQuality({
-            rawTask: parsed.data.rawTask,
-            requestedTaskType: parsed.data.taskType,
-            effectiveTaskArea: effectiveSelectionArea,
-            inventory,
-            fileSelection,
-            manualSelectionConfirmed: manualSelectionRequested,
-            contextQualityMode: settings.contextQualityMode
-        });
-
-        const shouldBlockAutomaticGeneration = settings.contextQualityMode !== "advisory" && selectionQuality.status === "blocked" && !manualSelectionRequested;
-
-        if (shouldBlockAutomaticGeneration) {
-            res.status(422).json({
-                ok: false,
-                code: "CONTEXT_SELECTION_BLOCKED",
-                message: "ContextForge could not select safe/relevant files automatically. Review files in Context Composer and generate from the confirmed selection.",
-                selectionQuality
-            });
-            return;
-        }
-
-        const fileSnippets = await buildSelectedFileSnippets({
-            projectRoot: project.localPath,
-            inventory,
-            fileSelection
-        });
-
-        const universalContext = buildUniversalTaskPackContext({
-            taskType: parsed.data.taskType,
-            inventory,
-            taskIntent,
-            fileSelection,
-            selectionQuality,
-            fileSnippets,
-            fileReferences
-        });
-
-        const projectForPrompt = {
-            ...project,
-            readinessReport: project.readinessReport ?? { issues: [] }
-        };
-
-        const effectiveTaskType = parsed.data.taskType;
-
-        const taskPackTemplate = await buildTaskPackRulesTemplatePrompt({
-            project: projectForPrompt,
-            rawTask: parsed.data.rawTask,
-            taskType: parsed.data.taskType,
-            targetTool: parsed.data.targetTool,
-            templateId: parsed.data.templateId,
-            ruleProfileId: parsed.data.ruleProfileId,
-            enabledRuleIds: parsed.data.enabledRuleIds,
-            customRules: parsed.data.customRules,
-            acceptanceCriteriaPresetId: parsed.data.acceptanceCriteriaPresetId,
-            acceptanceCriteria: parsed.data.acceptanceCriteria
-        });
-
-        const templatePrompt = taskPackTemplate.prompt;
-        const generationRecipe = buildGenerationRecipeMetadata(taskPackTemplate.recipe);
-
-        const contextAwareTemplatePrompt = buildContextAwareTemplatePrompt(
-            templatePrompt,
-            universalContext
-        );
-
-        const generation = await generateWithConfiguredOllama({
-            fallbackContent: contextAwareTemplatePrompt,
-            expectedHeading: "# AI Task Pack",
-            numPredict: 2200,
-            prompt: buildTaskPackGenerationPrompt({
-                project,
-                contextAwareTemplatePrompt,
-                rawTask: parsed.data.rawTask,
-                taskType: parsed.data.taskType,
-                targetTool: parsed.data.targetTool,
-                context: universalContext
-            })
-        });
-
-        const generatedPrompt = postProcessGeneratedTaskPack(
-            generation.content,
-            contextAwareTemplatePrompt,
-            universalContext
-        );
-
-        const title = createTitle(parsed.data.rawTask);
-
-        const taskPack = await storage.createTaskPack({
-            projectId: project.id,
-            title,
-            rawTask: parsed.data.rawTask,
-            taskType: effectiveTaskType,
-            targetTool: parsed.data.targetTool,
-            generatedPrompt,
-            generationMode: generation.mode,
-            generationModel: generation.model,
-            generationMessage: generation.message,
-            generationUsedFallback: generation.usedFallback,
-            generationDurationMs: generation.durationMs,
-            generationRecipe
-        });
-
-        res.json({
-            ok: true,
-            taskPack: {
-                ...taskPack,
-                projectName: project.name
-            }
-        });
-    } catch (error) {
-        console.error("Failed to create task pack:", error);
-
-        if (error instanceof RulesServiceError) {
-            res.status(error.statusCode).json({
-                ok: false,
-                message: error.message
-            });
-            return;
-        }
-
-        res.status(500).json({
-            ok: false,
-            message: "Failed to create task pack",
-            error: error instanceof Error ? error.message : String(error)
-        });
+    if (shouldBlockAutomaticGeneration) {
+      res.status(422).json({
+        ok: false,
+        code: "CONTEXT_SELECTION_BLOCKED",
+        message:
+          "ContextForge could not select safe/relevant files automatically. Review files in Context Composer and generate from the confirmed selection.",
+        selectionQuality,
+      });
+      return;
     }
+
+    const fileSnippets = await buildSelectedFileSnippets({
+      projectRoot: project.localPath,
+      inventory,
+      fileSelection,
+    });
+
+    const universalContext = buildUniversalTaskPackContext({
+      taskType: parsed.data.taskType,
+      inventory,
+      taskIntent,
+      fileSelection,
+      selectionQuality,
+      fileSnippets,
+      fileReferences,
+    });
+
+    const projectForPrompt = {
+      ...project,
+      readinessReport: project.readinessReport ?? { issues: [] },
+    };
+
+    const effectiveTaskType = parsed.data.taskType;
+
+    const taskPackTemplate = await buildTaskPackRulesTemplatePrompt({
+      project: projectForPrompt,
+      rawTask: parsed.data.rawTask,
+      taskType: parsed.data.taskType,
+      targetTool: parsed.data.targetTool,
+      templateId: parsed.data.templateId,
+      ruleProfileId: parsed.data.ruleProfileId,
+      enabledRuleIds: parsed.data.enabledRuleIds,
+      customRules: parsed.data.customRules,
+      acceptanceCriteriaPresetId: parsed.data.acceptanceCriteriaPresetId,
+      acceptanceCriteria: parsed.data.acceptanceCriteria,
+    });
+
+    const templatePrompt = taskPackTemplate.prompt;
+    const generationRecipe = buildGenerationRecipeMetadata(
+      taskPackTemplate.recipe,
+    );
+
+    const contextAwareTemplatePrompt = buildContextAwareTemplatePrompt(
+      templatePrompt,
+      universalContext,
+    );
+
+    const generation = await generateWithConfiguredOllama({
+      fallbackContent: contextAwareTemplatePrompt,
+      expectedHeading: "# AI Task Pack",
+      numPredict: 2200,
+      prompt: buildTaskPackGenerationPrompt({
+        project,
+        contextAwareTemplatePrompt,
+        rawTask: parsed.data.rawTask,
+        taskType: parsed.data.taskType,
+        targetTool: parsed.data.targetTool,
+        context: universalContext,
+      }),
+    });
+
+    const generatedPrompt = postProcessGeneratedTaskPack(
+      generation.content,
+      contextAwareTemplatePrompt,
+      universalContext,
+    );
+
+    const title = createTitle(parsed.data.rawTask);
+
+    const taskPack = await storage.createTaskPack({
+      projectId: project.id,
+      title,
+      rawTask: parsed.data.rawTask,
+      taskType: effectiveTaskType,
+      targetTool: parsed.data.targetTool,
+      generatedPrompt,
+      generationMode: generation.mode,
+      generationModel: generation.model,
+      generationMessage: generation.message,
+      generationUsedFallback: generation.usedFallback,
+      generationDurationMs: generation.durationMs,
+      generationRecipe,
+    });
+
+    res.json({
+      ok: true,
+      taskPack: {
+        ...taskPack,
+        projectName: project.name,
+      },
+    });
+  } catch (error) {
+    console.error("Failed to create task pack:", error);
+
+    if (error instanceof RulesServiceError) {
+      res.status(error.statusCode).json({
+        ok: false,
+        message: error.message,
+      });
+      return;
+    }
+
+    res.status(500).json({
+      ok: false,
+      message: "Failed to create task pack",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 });

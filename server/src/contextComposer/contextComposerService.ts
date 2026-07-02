@@ -211,6 +211,19 @@ function buildFileReferences({
     const inventoryFile = findInventoryFile(inventory, selectedFile.path);
 
     if (!inventoryFile) {
+      if (selectedFile.usage !== "create-and-edit") {
+        continue;
+      }
+
+      references.push({
+        path: selectedFile.path,
+        kind: selectedFile.kind,
+        usage: selectedFile.usage,
+        reason: selectedFile.reason,
+        confidence: selectedFile.confidence,
+        canReadText: false,
+        sizeBytes: 0
+      });
       continue;
     }
 

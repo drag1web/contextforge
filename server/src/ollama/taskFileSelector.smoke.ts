@@ -3,7 +3,11 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { scanProjectInventory, type ProjectInventory, type ProjectInventoryFile } from "../scanner/projectInventoryScanner.js";
+import {
+  scanProjectInventory,
+  type ProjectInventory,
+  type ProjectInventoryFile,
+} from "../scanner/projectInventoryScanner.js";
 import { evaluateContextSelectionQuality } from "../selection/contextQuality.js";
 import { buildProjectSemanticGraph } from "../selection/projectSemanticGraph.js";
 import type { AppSettings } from "../settings/settingsService.js";
@@ -26,13 +30,16 @@ const testSettings: AppSettings = {
     bugfix: 7,
     refactor: 8,
     docs: 6,
-    tests: 7
+    tests: 7,
   },
   contextQualityMode: "balanced",
-  sidebarShowDescriptions: false
+  sidebarShowDescriptions: false,
 };
 
-function sourceFile(pathValue: string, patch: Partial<ProjectInventoryFile> = {}): ProjectInventoryFile {
+function sourceFile(
+  pathValue: string,
+  patch: Partial<ProjectInventoryFile> = {},
+): ProjectInventoryFile {
   const name = pathValue.split("/").pop() ?? pathValue;
   return {
     path: pathValue,
@@ -48,7 +55,7 @@ function sourceFile(pathValue: string, patch: Partial<ProjectInventoryFile> = {}
     depth: pathValue.split("/").length,
     canReadText: true,
     isLikelyGenerated: false,
-    ...patch
+    ...patch,
   };
 }
 
@@ -59,21 +66,27 @@ function inventory(files: ProjectInventoryFile[]): ProjectInventory {
     totalFiles: files.length,
     scannedFiles: files.length,
     truncated: false,
-    notes: []
+    notes: [],
   };
 }
 
-async function select(rawTask: string, files: ProjectInventoryFile[], taskType = "ui") {
+async function select(
+  rawTask: string,
+  files: ProjectInventoryFile[],
+  taskType = "ui",
+) {
   return selectTaskFiles({
     rawTask,
     taskType,
     targetTool: "codex",
     inventory: inventory(files),
-    settings: testSettings
+    settings: testSettings,
   });
 }
 
-function structuredIntent(overrides: Partial<TaskIntentAnalysis> = {}): TaskIntentAnalysis {
+function structuredIntent(
+  overrides: Partial<TaskIntentAnalysis> = {},
+): TaskIntentAnalysis {
   return {
     taskArea: "ui",
     intentTags: [],
@@ -93,11 +106,11 @@ function structuredIntent(overrides: Partial<TaskIntentAnalysis> = {}): TaskInte
       needsStyles: null,
       needsBackend: null,
       ambiguities: [],
-      modelNotes: []
+      modelNotes: [],
     },
     source: "ollama",
     durationMs: 1,
-    ...overrides
+    ...overrides,
   };
 }
 
@@ -108,7 +121,7 @@ async function testSemanticPageTarget() {
       sourceFile("src/app/(site)/page.tsx", {
         role: "page",
         routePath: "/",
-        textHints: ["главная", "платформа"]
+        textHints: ["главная", "платформа"],
       }),
       sourceFile("src/app/(site)/requisites/page.tsx", {
         role: "page",
@@ -117,33 +130,48 @@ async function testSemanticPageTarget() {
         exports: ["metadata"],
         symbols: ["RequisitesPage", "metadata"],
         textHints: ["реквизиты", "банковские", "компании"],
-        contentPreview: "export const metadata = { title: 'Реквизиты', description: 'Реквизиты компании' }; <h1>Реквизиты</h1>"
+        contentPreview:
+          "export const metadata = { title: 'Реквизиты', description: 'Реквизиты компании' }; <h1>Реквизиты</h1>",
       }),
       sourceFile("src/app/(site)/requisites/RequisitesDetails.tsx", {
         symbols: ["RequisitesDetails"],
-        textHints: ["реквизиты", "банковские", "детали"]
+        textHints: ["реквизиты", "банковские", "детали"],
       }),
       sourceFile("src/app/(site)/contacts/page.tsx", {
         role: "page",
         routePath: "/contacts",
-        textHints: ["контакты", "телефон"]
+        textHints: ["контакты", "телефон"],
       }),
       sourceFile("src/app/(site)/legal/page.tsx", {
         role: "page",
         routePath: "/legal",
-        textHints: ["юридические", "политика"]
+        textHints: ["юридические", "политика"],
       }),
       sourceFile("src/components/ui/Button.tsx", {
         role: "ui-component",
-        textHints: ["button", "кнопка"]
-      })
-    ]
+        textHints: ["button", "кнопка"],
+      }),
+    ],
   );
 
-  assert.equal(result.selectedFiles[0]?.path, "src/app/(site)/requisites/page.tsx");
-  assert.equal(result.selectedFiles.find((file) => file.path.endsWith("RequisitesDetails.tsx"))?.usage, "inspect-and-edit");
-  assert.equal(result.selectedFiles.some((file) => file.path.includes("/contacts/")), false);
-  assert.equal(result.selectedFiles.some((file) => file.path.includes("/legal/")), false);
+  assert.equal(
+    result.selectedFiles[0]?.path,
+    "src/app/(site)/requisites/page.tsx",
+  );
+  assert.equal(
+    result.selectedFiles.find((file) =>
+      file.path.endsWith("RequisitesDetails.tsx"),
+    )?.usage,
+    "inspect-and-edit",
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path.includes("/contacts/")),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path.includes("/legal/")),
+    false,
+  );
 }
 
 async function testHeaderTaskDoesNotBecomeRootPageTask() {
@@ -153,23 +181,29 @@ async function testHeaderTaskDoesNotBecomeRootPageTask() {
       sourceFile("src/components/Header.tsx", {
         role: "component",
         symbols: ["Header"],
-        textHints: ["header", "nav", "navigation", "language", "русский"]
+        textHints: ["header", "nav", "navigation", "language", "русский"],
       }),
       sourceFile("src/styles/global.css", {
         kind: "style",
         role: "style",
-        textHints: ["topbar", "header", "nav"]
+        textHints: ["topbar", "header", "nav"],
       }),
       sourceFile("src/app/page.tsx", {
         role: "page",
         routePath: "/",
-        textHints: ["главная", "landing"]
-      })
-    ]
+        textHints: ["главная", "landing"],
+      }),
+    ],
   );
 
   assert.equal(result.selectedFiles[0]?.path, "src/components/Header.tsx");
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/app/page.tsx" && file.usage === "inspect-and-edit"), false);
+  assert.equal(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "src/app/page.tsx" && file.usage === "inspect-and-edit",
+    ),
+    false,
+  );
 }
 
 async function testSemanticPageTargetUnicode() {
@@ -179,7 +213,7 @@ async function testSemanticPageTargetUnicode() {
       sourceFile("src/app/(site)/page.tsx", {
         role: "page",
         routePath: "/",
-        textHints: ["главная", "платформа"]
+        textHints: ["главная", "платформа"],
       }),
       sourceFile("src/app/(site)/requisites/page.tsx", {
         role: "page",
@@ -188,33 +222,48 @@ async function testSemanticPageTargetUnicode() {
         exports: ["metadata"],
         symbols: ["RequisitesPage", "metadata"],
         textHints: ["реквизиты", "банковские", "компании"],
-        contentPreview: "export const metadata = { title: 'Реквизиты', description: 'Реквизиты компании' }; <h1>Реквизиты</h1>"
+        contentPreview:
+          "export const metadata = { title: 'Реквизиты', description: 'Реквизиты компании' }; <h1>Реквизиты</h1>",
       }),
       sourceFile("src/app/(site)/requisites/RequisitesDetails.tsx", {
         symbols: ["RequisitesDetails"],
-        textHints: ["реквизиты", "банковские", "детали"]
+        textHints: ["реквизиты", "банковские", "детали"],
       }),
       sourceFile("src/app/(site)/contacts/page.tsx", {
         role: "page",
         routePath: "/contacts",
-        textHints: ["контакты", "телефон"]
+        textHints: ["контакты", "телефон"],
       }),
       sourceFile("src/app/(site)/legal/page.tsx", {
         role: "page",
         routePath: "/legal",
-        textHints: ["юридические", "политика"]
+        textHints: ["юридические", "политика"],
       }),
       sourceFile("src/components/ui/Button.tsx", {
         role: "ui-component",
-        textHints: ["button", "кнопка"]
-      })
-    ]
+        textHints: ["button", "кнопка"],
+      }),
+    ],
   );
 
-  assert.equal(result.selectedFiles[0]?.path, "src/app/(site)/requisites/page.tsx");
-  assert.equal(result.selectedFiles.find((file) => file.path.endsWith("RequisitesDetails.tsx"))?.usage, "inspect-and-edit");
-  assert.equal(result.selectedFiles.some((file) => file.path.includes("/contacts/")), false);
-  assert.equal(result.selectedFiles.some((file) => file.path.includes("/legal/")), false);
+  assert.equal(
+    result.selectedFiles[0]?.path,
+    "src/app/(site)/requisites/page.tsx",
+  );
+  assert.equal(
+    result.selectedFiles.find((file) =>
+      file.path.endsWith("RequisitesDetails.tsx"),
+    )?.usage,
+    "inspect-and-edit",
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path.includes("/contacts/")),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path.includes("/legal/")),
+    false,
+  );
 }
 
 async function testExplicitRussianHeaderFileDoesNotBlockReview() {
@@ -222,31 +271,32 @@ async function testExplicitRussianHeaderFileDoesNotBlockReview() {
     sourceFile("src/components/Header.tsx", {
       role: "component",
       symbols: ["Header"],
-      textHints: ["header", "nav", "navigation", "language", "russian"]
+      textHints: ["header", "nav", "navigation", "language", "russian"],
     }),
     sourceFile("src/styles/global.css", {
       kind: "style",
       role: "style",
-      textHints: ["topbar", "header", "nav"]
+      textHints: ["topbar", "header", "nav"],
     }),
     sourceFile("src/components/Button.tsx", {
       role: "ui-component",
-      textHints: ["button"]
+      textHints: ["button"],
     }),
     sourceFile("src/app/page.tsx", {
       role: "page",
       routePath: "/",
-      textHints: ["home", "landing"]
-    })
+      textHints: ["home", "landing"],
+    }),
   ];
   const projectInventory = inventory(files);
-  const rawTask = "В файле src/components/Header.tsx исправить навигацию и не менять остальные файлы.";
+  const rawTask =
+    "В файле src/components/Header.tsx исправить навигацию и не менять остальные файлы.";
   const result = await selectTaskFiles({
     rawTask,
     taskType: "ui",
     targetTool: "codex",
     inventory: projectInventory,
-    settings: testSettings
+    settings: testSettings,
   });
   const quality = evaluateContextSelectionQuality({
     rawTask,
@@ -255,10 +305,13 @@ async function testExplicitRussianHeaderFileDoesNotBlockReview() {
     inventory: projectInventory,
     fileSelection: result,
     manualSelectionConfirmed: false,
-    contextQualityMode: "balanced"
+    contextQualityMode: "balanced",
   });
 
-  assert.deepEqual(result.selectedFiles.map((file) => file.path), ["src/components/Header.tsx"]);
+  assert.deepEqual(
+    result.selectedFiles.map((file) => file.path),
+    ["src/components/Header.tsx"],
+  );
   assert.equal(result.selectedFiles[0]?.usage, "inspect-and-edit");
   assert.notEqual(quality.status, "blocked");
   assert.equal(quality.requiredManualReview, false);
@@ -269,13 +322,13 @@ async function testStructuredIntentCanSeedExplicitTarget() {
     sourceFile("src/components/Header.tsx", {
       role: "component",
       symbols: ["Header"],
-      textHints: ["header", "navigation"]
+      textHints: ["header", "navigation"],
     }),
     sourceFile("src/components/Footer.tsx", {
       role: "component",
       symbols: ["Footer"],
-      textHints: ["footer"]
-    })
+      textHints: ["footer"],
+    }),
   ];
   const result = await selectTaskFiles({
     rawTask: "Аккуратно почини Header, остальное не трогай.",
@@ -286,31 +339,38 @@ async function testStructuredIntentCanSeedExplicitTarget() {
     taskIntent: structuredIntent({
       structuredIntent: {
         schemaVersion: 1,
-        primaryTargets: [{
-          kind: "explicit_file",
-          value: "src/components/Header.tsx",
-          path: "src/components/Header.tsx",
-          confidence: 0.97,
-          evidence: "Model resolved the user's selected UI area to the header component."
-        }],
+        primaryTargets: [
+          {
+            kind: "explicit_file",
+            value: "src/components/Header.tsx",
+            path: "src/components/Header.tsx",
+            confidence: 0.97,
+            evidence:
+              "Model resolved the user's selected UI area to the header component.",
+          },
+        ],
         positiveActions: ["fix selected UI area"],
         protectedScopes: ["other files"],
         allowedEditScope: "explicit_targets_only",
         needsStyles: null,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
-  assert.deepEqual(result.selectedFiles.map((file) => file.path), ["src/components/Header.tsx"]);
+  assert.deepEqual(
+    result.selectedFiles.map((file) => file.path),
+    ["src/components/Header.tsx"],
+  );
   assert.equal(result.selectedFiles[0]?.usage, "inspect-and-edit");
 }
 
 async function testStructuredIntentCanSeedSemanticPageTarget() {
   const result = await selectTaskFiles({
-    rawTask: "Этот раздел звучит слишком официально. Сделай понятнее для клиента.",
+    rawTask:
+      "Этот раздел звучит слишком официально. Сделай понятнее для клиента.",
     taskType: "ui",
     targetTool: "codex",
     inventory: inventory([
@@ -320,17 +380,18 @@ async function testStructuredIntentCanSeedSemanticPageTarget() {
         imports: ["./RequisitesDetails"],
         symbols: ["RequisitesPage"],
         textHints: ["реквизиты", "банковские", "company details"],
-        contentPreview: "export const metadata = { title: 'Реквизиты' }; <h1>Реквизиты</h1>"
+        contentPreview:
+          "export const metadata = { title: 'Реквизиты' }; <h1>Реквизиты</h1>",
       }),
       sourceFile("src/app/(site)/contacts/page.tsx", {
         role: "page",
         routePath: "/contacts",
-        textHints: ["контакты"]
+        textHints: ["контакты"],
       }),
       sourceFile("src/components/ui/Button.tsx", {
         role: "ui-component",
-        textHints: ["button"]
-      })
+        textHints: ["button"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -338,26 +399,35 @@ async function testStructuredIntentCanSeedSemanticPageTarget() {
       recommendedSearchTerms: ["requisites"],
       structuredIntent: {
         schemaVersion: 1,
-        primaryTargets: [{
-          kind: "page",
-          value: "requisites",
-          routePath: "/requisites",
-          confidence: 0.91,
-          evidence: "Model mapped the described business section to the requisites page."
-        }],
+        primaryTargets: [
+          {
+            kind: "page",
+            value: "requisites",
+            routePath: "/requisites",
+            confidence: 0.91,
+            evidence:
+              "Model mapped the described business section to the requisites page.",
+          },
+        ],
         positiveActions: ["make the page copy clearer"],
         protectedScopes: [],
         allowedEditScope: "target_with_supporting_context",
         needsStyles: true,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
-  assert.equal(result.selectedFiles[0]?.path, "src/app/(site)/requisites/page.tsx");
-  assert.equal(result.selectedFiles.some((file) => file.path.includes("/contacts/")), false);
+  assert.equal(
+    result.selectedFiles[0]?.path,
+    "src/app/(site)/requisites/page.tsx",
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path.includes("/contacts/")),
+    false,
+  );
 }
 
 async function testProtectedApiTerms() {
@@ -366,22 +436,29 @@ async function testProtectedApiTerms() {
     [
       sourceFile("src/components/UsersTable.js", {
         symbols: ["UsersTable"],
-        textHints: ["users", "table", "form"]
+        textHints: ["users", "table", "form"],
       }),
       sourceFile("src/api/api.js", {
         role: "client-api",
         symbols: ["loadUsers", "deleteUser"],
-        textHints: ["api", "request", "users"]
-      })
-    ]
+        textHints: ["api", "request", "users"],
+      }),
+    ],
   );
 
   assert.equal(result.selectedFiles[0]?.path, "src/components/UsersTable.js");
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/api/api.js" && file.usage === "inspect-and-edit"), false);
+  assert.equal(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "src/api/api.js" && file.usage === "inspect-and-edit",
+    ),
+    false,
+  );
 }
 
 async function testGeneralHeaderTaskWithBackendConstraintStaysUi() {
-  const rawTask = "Почини штуку, где после смены языка всё едет вправо. Я не знаю файл, но это где верхнее меню, переключатель темы и кнопка аккаунта. Бэк, авторизацию и API не трогай.";
+  const rawTask =
+    "Почини штуку, где после смены языка всё едет вправо. Я не знаю файл, но это где верхнее меню, переключатель темы и кнопка аккаунта. Бэк, авторизацию и API не трогай.";
   const result = await selectTaskFiles({
     rawTask,
     taskType: "general",
@@ -390,34 +467,42 @@ async function testGeneralHeaderTaskWithBackendConstraintStaysUi() {
       sourceFile("src/components/Header.tsx", {
         role: "component",
         symbols: ["Header"],
-        textHints: ["header", "topbar", "navigation", "language", "theme", "account", "menu"]
+        textHints: [
+          "header",
+          "topbar",
+          "navigation",
+          "language",
+          "theme",
+          "account",
+          "menu",
+        ],
       }),
       sourceFile("src/styles/global.css", {
         kind: "style",
         role: "style",
-        textHints: ["topbar", "header", "navigation", "theme"]
+        textHints: ["topbar", "header", "navigation", "theme"],
       }),
       sourceFile("src/i18n/translations.ts", {
         role: "unknown",
-        textHints: ["language", "locale", "translations", "russian"]
+        textHints: ["language", "locale", "translations", "russian"],
       }),
       sourceFile("server/index.mjs", {
         role: "server-entry",
-        textHints: ["server", "api", "auth"]
+        textHints: ["server", "api", "auth"],
       }),
       sourceFile("server/schema.sql", {
         kind: "data",
         role: "db-schema",
-        textHints: ["database", "auth", "sessions"]
+        textHints: ["database", "auth", "sessions"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
-        textHints: ["api", "fetch", "auth"]
+        textHints: ["api", "fetch", "auth"],
       }),
       sourceFile("src/contexts/AuthContext.tsx", {
         role: "store",
-        textHints: ["auth", "session", "account"]
-      })
+        textHints: ["auth", "session", "account"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -434,22 +519,43 @@ async function testGeneralHeaderTaskWithBackendConstraintStaysUi() {
         needsStyles: true,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: ["Synthetic regression: model misclassified a UI task as backend."]
-      }
-    })
+        modelNotes: [
+          "Synthetic regression: model misclassified a UI task as backend.",
+        ],
+      },
+    }),
   });
 
   assert.equal(result.effectiveTaskArea, "ui");
   assert.equal(result.selectedFiles[0]?.path, "src/components/Header.tsx");
-  assert.equal(result.notes.includes("Selector safety profile: ui-specific-target-review-v5."), true);
-  assert.equal(result.selectedFiles.some((file) => file.path.startsWith("server/")), false);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/api/client.ts"), false);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/contexts/AuthContext.tsx" && file.usage === "inspect-and-edit"), false);
+  assert.equal(
+    result.notes.includes(
+      "Selector safety profile: ui-specific-target-review-v5.",
+    ),
+    true,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path.startsWith("server/")),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path === "src/api/client.ts"),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "src/contexts/AuthContext.tsx" &&
+        file.usage === "inspect-and-edit",
+    ),
+    false,
+  );
 }
 
 async function testStructuredHeaderTargetCannotBeDisplacedByPageFallback() {
   const result = await selectTaskFiles({
-    rawTask: "\u0418\u0441\u043f\u0440\u0430\u0432\u044c Header, \u043d\u0430 \u0440\u0443\u0441\u0441\u043a\u043e\u043c \u0442\u0435\u043a\u0441\u0442 \u043d\u0430\u043b\u0435\u0437\u0430\u0435\u0442 \u043d\u0430 \u043a\u043d\u043e\u043f\u043a\u0438.",
+    rawTask:
+      "\u0418\u0441\u043f\u0440\u0430\u0432\u044c Header, \u043d\u0430 \u0440\u0443\u0441\u0441\u043a\u043e\u043c \u0442\u0435\u043a\u0441\u0442 \u043d\u0430\u043b\u0435\u0437\u0430\u0435\u0442 \u043d\u0430 \u043a\u043d\u043e\u043f\u043a\u0438.",
     taskType: "general",
     targetTool: "codex",
     inventory: inventory([
@@ -458,138 +564,170 @@ async function testStructuredHeaderTargetCannotBeDisplacedByPageFallback() {
         imports: ["../contexts/AuthContext"],
         exports: ["Header"],
         symbols: ["Header"],
-        textHints: ["header", "nav", "menu", "locale", "button"]
+        textHints: ["header", "nav", "menu", "locale", "button"],
       }),
       sourceFile("src/styles/global.css", {
         kind: "style",
         role: "style",
-        textHints: ["topbar", "header", "navigation"]
+        textHints: ["topbar", "header", "navigation"],
       }),
       sourceFile("src/pages/OnboardingPage.tsx", {
         role: "page",
-        imports: ["../api/client", "../contexts/AuthContext", "../hooks/useLocale"],
+        imports: [
+          "../api/client",
+          "../contexts/AuthContext",
+          "../hooks/useLocale",
+        ],
         symbols: ["OnboardingPage"],
-        textHints: ["onboarding", "user", "button", "locale", "api"]
+        textHints: ["onboarding", "user", "button", "locale", "api"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
-        textHints: ["api", "request"]
+        textHints: ["api", "request"],
       }),
       sourceFile("src/contexts/AuthContext.tsx", {
         role: "store",
-        textHints: ["auth", "session"]
+        textHints: ["auth", "session"],
       }),
       sourceFile("src/hooks/useLocale.ts", {
         role: "hook",
-        textHints: ["locale", "translation"]
-      })
+        textHints: ["locale", "translation"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
       taskArea: "bugfix",
       confidence: 0.95,
-      intentTags: ["navigation-ui", "header layout fix", "localization overflow"],
+      intentTags: [
+        "navigation-ui",
+        "header layout fix",
+        "localization overflow",
+      ],
       domainTerms: ["header", "text", "buttons"],
       fileRoleHints: ["component", "style"],
       structuredIntent: {
         schemaVersion: 1,
-        primaryTargets: [{
-          kind: "explicit_file",
-          value: "src/components/Header.tsx",
-          path: "src/components/Header.tsx",
-          confidence: 0.95,
-          evidence: "Header is explicitly mentioned by the user."
-        }],
+        primaryTargets: [
+          {
+            kind: "explicit_file",
+            value: "src/components/Header.tsx",
+            path: "src/components/Header.tsx",
+            confidence: 0.95,
+            evidence: "Header is explicitly mentioned by the user.",
+          },
+        ],
         positiveActions: ["fix header overflow"],
         protectedScopes: [],
         allowedEditScope: "target_with_supporting_context",
         needsStyles: true,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
   assert.equal(result.effectiveTaskArea, "ui");
   assert.equal(result.selectedFiles[0]?.path, "src/components/Header.tsx");
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/styles/global.css"), true);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/pages/OnboardingPage.tsx"), false);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/api/client.ts"), false);
+  assert.equal(
+    result.selectedFiles.some((file) => file.path === "src/styles/global.css"),
+    true,
+  );
+  assert.equal(
+    result.selectedFiles.some(
+      (file) => file.path === "src/pages/OnboardingPage.tsx",
+    ),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path === "src/api/client.ts"),
+    false,
+  );
 }
 
 async function testUnsupportedStructuredHeaderTargetIsIgnored() {
   const result = await selectTaskFiles({
-    rawTask: "Улучши форму добавления пользователя, чтобы поля были понятнее. Логику загрузки, удаления и API-запросы не менять.",
+    rawTask:
+      "Улучши форму добавления пользователя, чтобы поля были понятнее. Логику загрузки, удаления и API-запросы не менять.",
     taskType: "ui",
     targetTool: "codex",
     inventory: inventory([
       sourceFile("src/components/Header.tsx", {
         role: "component",
         symbols: ["Header"],
-        textHints: ["header", "navigation", "topbar"]
+        textHints: ["header", "navigation", "topbar"],
       }),
       sourceFile("src/pages/AuthPage.tsx", {
         role: "page",
         symbols: ["AuthPage"],
-        textHints: ["auth", "login", "form", "email"]
+        textHints: ["auth", "login", "form", "email"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
-        textHints: ["api", "request"]
-      })
+        textHints: ["api", "request"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
       structuredIntent: {
         schemaVersion: 1,
-        primaryTargets: [{
-          kind: "explicit_file",
-          value: "src/components/Header.tsx",
-          path: "src/components/Header.tsx",
-          confidence: 0.97,
-          evidence: "Leaked schema example; the user did not mention this file."
-        }],
+        primaryTargets: [
+          {
+            kind: "explicit_file",
+            value: "src/components/Header.tsx",
+            path: "src/components/Header.tsx",
+            confidence: 0.97,
+            evidence:
+              "Leaked schema example; the user did not mention this file.",
+          },
+        ],
         positiveActions: ["improve user add form"],
         protectedScopes: ["backend/api"],
         allowedEditScope: "target_with_supporting_context",
         needsStyles: true,
         needsBackend: false,
         ambiguities: ["No exact add-user form file exists in this fixture."],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
-  assert.deepEqual(result.selectedFiles.map((file) => file.path), []);
-  assert.equal(result.notes.some((note) => note.includes("specific UI object")), true);
+  assert.deepEqual(
+    result.selectedFiles.map((file) => file.path),
+    [],
+  );
+  assert.equal(
+    result.notes.some((note) => note.includes("specific UI object")),
+    true,
+  );
 }
 
 async function testHallucinatedHeaderHintsDoNotOverrideSpecificFormTask() {
   const result = await selectTaskFiles({
-    rawTask: "Improve the add user form. Do not change API requests or loading.",
+    rawTask:
+      "Improve the add user form. Do not change API requests or loading.",
     taskType: "general",
     targetTool: "claude",
     inventory: inventory([
       sourceFile("src/components/Header.tsx", {
         role: "component",
         symbols: ["Header"],
-        textHints: ["header", "navigation", "topbar", "language"]
+        textHints: ["header", "navigation", "topbar", "language"],
       }),
       sourceFile("src/styles/global.css", {
         kind: "style",
         role: "style",
-        textHints: ["topbar", "header", "navigation", "theme"]
+        textHints: ["topbar", "header", "navigation", "theme"],
       }),
       sourceFile("src/components/Button.tsx", {
         role: "component",
         symbols: ["Button"],
-        textHints: ["button", "control"]
+        textHints: ["button", "control"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
-        textHints: ["api", "request", "loading"]
-      })
+        textHints: ["api", "request", "loading"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -607,20 +745,39 @@ async function testHallucinatedHeaderHintsDoNotOverrideSpecificFormTask() {
         needsStyles: true,
         needsBackend: false,
         ambiguities: ["The inventory fixture has no add-user form file."],
-        modelNotes: ["Synthetic regression: model hallucinated header terms for a form task."]
-      }
-    })
+        modelNotes: [
+          "Synthetic regression: model hallucinated header terms for a form task.",
+        ],
+      },
+    }),
   });
 
-  assert.deepEqual(result.selectedFiles.map((file) => file.path), []);
-  assert.equal(result.notes.includes("Selector safety profile: ui-specific-target-review-v5."), true);
-  assert.equal(result.notes.some((note) => note.includes("specific UI object")), true);
-  assert.equal(result.notes.some((note) => note.includes("Header/navigation surface target detected")), false);
+  assert.deepEqual(
+    result.selectedFiles.map((file) => file.path),
+    [],
+  );
+  assert.equal(
+    result.notes.includes(
+      "Selector safety profile: ui-specific-target-review-v5.",
+    ),
+    true,
+  );
+  assert.equal(
+    result.notes.some((note) => note.includes("specific UI object")),
+    true,
+  );
+  assert.equal(
+    result.notes.some((note) =>
+      note.includes("Header/navigation surface target detected"),
+    ),
+    false,
+  );
 }
 
 async function testAdminPageFormWithProtectedApiStaysPageScoped() {
   const result = await selectTaskFiles({
-    rawTask: "Add a user creation form to the admin page. Do not change API requests or loading.",
+    rawTask:
+      "Add a user creation form to the admin page. Do not change API requests or loading.",
     taskType: "general",
     targetTool: "claude",
     inventory: inventory([
@@ -629,30 +786,30 @@ async function testAdminPageFormWithProtectedApiStaysPageScoped() {
         routePath: "/admin",
         imports: ["../api/client", "../hooks/useLocale"],
         symbols: ["AdminPage"],
-        textHints: ["admin", "administrator", "dashboard", "users"]
+        textHints: ["admin", "administrator", "dashboard", "users"],
       }),
       sourceFile("src/pages/AuthCallbackPage.tsx", {
         role: "page",
         routePath: "/auth/callback",
         imports: ["../api/client", "../contexts/AuthContext"],
         symbols: ["AuthCallbackPage"],
-        textHints: ["auth", "callback", "session", "user"]
+        textHints: ["auth", "callback", "session", "user"],
       }),
       sourceFile("src/hooks/useLocale.ts", {
         role: "hook",
         symbols: ["useLocale"],
-        textHints: ["locale", "translation"]
+        textHints: ["locale", "translation"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
         symbols: ["api", "adminSummary", "syncReleases"],
-        textHints: ["api", "request", "loading", "admin"]
+        textHints: ["api", "request", "loading", "admin"],
       }),
       sourceFile("src/contexts/AuthContext.tsx", {
         role: "store",
         symbols: ["AuthProvider", "useAuth"],
-        textHints: ["auth", "session", "user"]
-      })
+        textHints: ["auth", "session", "user"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -669,27 +826,48 @@ async function testAdminPageFormWithProtectedApiStaysPageScoped() {
         needsStyles: true,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: ["Synthetic regression: API and auth files must not become editable page support."]
-      }
-    })
+        modelNotes: [
+          "Synthetic regression: API and auth files must not become editable page support.",
+        ],
+      },
+    }),
   });
 
   assert.deepEqual(
     result.selectedFiles.map((file) => [file.path, file.usage]),
     [
       ["src/pages/AdminPage.tsx", "inspect-and-edit"],
-      ["src/hooks/useLocale.ts", "inspect-only"]
-    ]
+      ["src/hooks/useLocale.ts", "inspect-only"],
+    ],
   );
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/pages/AuthCallbackPage.tsx"), false);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/api/client.ts"), false);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/contexts/AuthContext.tsx"), false);
-  assert.equal(result.notes.some((note) => note.includes("UI/frontend files should not be selected")), false);
+  assert.equal(
+    result.selectedFiles.some(
+      (file) => file.path === "src/pages/AuthCallbackPage.tsx",
+    ),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path === "src/api/client.ts"),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some(
+      (file) => file.path === "src/contexts/AuthContext.tsx",
+    ),
+    false,
+  );
+  assert.equal(
+    result.notes.some((note) =>
+      note.includes("UI/frontend files should not be selected"),
+    ),
+    false,
+  );
 }
 
 async function testRussianAdminPageFormWithMisleadingIntentStaysAdminScoped() {
   const result = await selectTaskFiles({
-    rawTask: "\u041d\u0443\u0436\u043d\u043e \u0434\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043d\u0430 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443 \u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440\u0430 \u0444\u043e\u0440\u043c\u0443 \u0434\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u0438\u044f \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f. API-\u0437\u0430\u043f\u0440\u043e\u0441\u044b \u0438 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0443 \u043d\u0435 \u043c\u0435\u043d\u044f\u0442\u044c.",
+    rawTask:
+      "\u041d\u0443\u0436\u043d\u043e \u0434\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043d\u0430 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443 \u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440\u0430 \u0444\u043e\u0440\u043c\u0443 \u0434\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u0438\u044f \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f. API-\u0437\u0430\u043f\u0440\u043e\u0441\u044b \u0438 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0443 \u043d\u0435 \u043c\u0435\u043d\u044f\u0442\u044c.",
     taskType: "general",
     targetTool: "codex",
     inventory: inventory([
@@ -698,30 +876,30 @@ async function testRussianAdminPageFormWithMisleadingIntentStaysAdminScoped() {
         routePath: "/admin",
         imports: ["../api/client", "../hooks/useLocale"],
         symbols: ["AdminPage"],
-        textHints: ["admin", "administrator", "dashboard", "users"]
+        textHints: ["admin", "administrator", "dashboard", "users"],
       }),
       sourceFile("src/pages/AccountPage.tsx", {
         role: "page",
         routePath: "/account",
         symbols: ["AccountPage"],
-        textHints: ["account", "profile", "user", "settings"]
+        textHints: ["account", "profile", "user", "settings"],
       }),
       sourceFile("src/pages/AuthCallbackPage.tsx", {
         role: "page",
         routePath: "/auth/callback",
         symbols: ["AuthCallbackPage"],
-        textHints: ["auth", "callback", "session", "user"]
+        textHints: ["auth", "callback", "session", "user"],
       }),
       sourceFile("src/hooks/useLocale.ts", {
         role: "hook",
         symbols: ["useLocale"],
-        textHints: ["locale", "translation"]
+        textHints: ["locale", "translation"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
         symbols: ["api", "adminSummary", "syncReleases"],
-        textHints: ["api", "request", "loading", "admin", "user"]
-      })
+        textHints: ["api", "request", "loading", "admin", "user"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -738,21 +916,37 @@ async function testRussianAdminPageFormWithMisleadingIntentStaysAdminScoped() {
         needsStyles: true,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: ["Synthetic regression: user/account terms must not outrank the concrete admin page location."]
-      }
-    })
+        modelNotes: [
+          "Synthetic regression: user/account terms must not outrank the concrete admin page location.",
+        ],
+      },
+    }),
   });
 
   assert.equal(result.effectiveTaskArea, "ui");
   assert.equal(result.selectedFiles[0]?.path, "src/pages/AdminPage.tsx");
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/pages/AccountPage.tsx"), false);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/api/client.ts"), false);
-  assert.equal(result.notes.some((note) => note.includes("UI/frontend files should not be selected")), false);
+  assert.equal(
+    result.selectedFiles.some(
+      (file) => file.path === "src/pages/AccountPage.tsx",
+    ),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path === "src/api/client.ts"),
+    false,
+  );
+  assert.equal(
+    result.notes.some((note) =>
+      note.includes("UI/frontend files should not be selected"),
+    ),
+    false,
+  );
 }
 
 async function testStructuredRussianAdminPageTargetDoesNotBlock() {
   const result = await selectTaskFiles({
-    rawTask: "\u041d\u0443\u0436\u043d\u043e \u0434\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043d\u0430 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443 \u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440\u0430 \u0444\u043e\u0440\u043c\u0443 \u0434\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u0438\u044f \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f. API-\u0437\u0430\u043f\u0440\u043e\u0441\u044b \u0438 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0443 \u043d\u0435 \u043c\u0435\u043d\u044f\u0442\u044c.",
+    rawTask:
+      "\u041d\u0443\u0436\u043d\u043e \u0434\u043e\u0431\u0430\u0432\u0438\u0442\u044c \u043d\u0430 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443 \u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442\u043e\u0440\u0430 \u0444\u043e\u0440\u043c\u0443 \u0434\u043e\u0431\u0430\u0432\u043b\u0435\u043d\u0438\u044f \u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b\u044f. API-\u0437\u0430\u043f\u0440\u043e\u0441\u044b \u0438 \u0437\u0430\u0433\u0440\u0443\u0437\u043a\u0443 \u043d\u0435 \u043c\u0435\u043d\u044f\u0442\u044c.",
     taskType: "general",
     targetTool: "codex",
     inventory: inventory([
@@ -760,22 +954,22 @@ async function testStructuredRussianAdminPageTargetDoesNotBlock() {
         role: "page",
         imports: ["../api/client", "../hooks/useLocale"],
         symbols: ["AdminPage"],
-        textHints: ["admin", "administrator", "dashboard", "users"]
+        textHints: ["admin", "administrator", "dashboard", "users"],
       }),
       sourceFile("src/pages/AccountPage.tsx", {
         role: "page",
         symbols: ["AccountPage"],
-        textHints: ["account", "profile", "user", "settings"]
+        textHints: ["account", "profile", "user", "settings"],
       }),
       sourceFile("src/hooks/useLocale.ts", {
         role: "hook",
         symbols: ["useLocale"],
-        textHints: ["locale", "translation"]
+        textHints: ["locale", "translation"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
-        textHints: ["api", "request", "loading", "admin", "user"]
-      })
+        textHints: ["api", "request", "loading", "admin", "user"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -784,33 +978,44 @@ async function testStructuredRussianAdminPageTargetDoesNotBlock() {
       domainTerms: ["admin", "form", "user", "api", "loading"],
       structuredIntent: {
         schemaVersion: 1,
-        primaryTargets: [{
-          kind: "explicit_file",
-          value: "src/pages/AdminPage.tsx",
-          path: "src/pages/AdminPage.tsx",
-          confidence: 0.95,
-          evidence: "Admin page inferred from the requested page location."
-        }],
+        primaryTargets: [
+          {
+            kind: "explicit_file",
+            value: "src/pages/AdminPage.tsx",
+            path: "src/pages/AdminPage.tsx",
+            confidence: 0.95,
+            evidence: "Admin page inferred from the requested page location.",
+          },
+        ],
         positiveActions: ["add user creation form"],
         protectedScopes: ["api requests", "loading"],
         allowedEditScope: "target_with_supporting_context",
         needsStyles: true,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
   assert.equal(result.effectiveTaskArea, "ui");
   assert.equal(result.selectedFiles[0]?.path, "src/pages/AdminPage.tsx");
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/pages/AccountPage.tsx"), false);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/api/client.ts"), false);
+  assert.equal(
+    result.selectedFiles.some(
+      (file) => file.path === "src/pages/AccountPage.tsx",
+    ),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path === "src/api/client.ts"),
+    false,
+  );
 }
 
 async function testConnectedDevicesProtectedBackendDoesNotProtectUi() {
   const result = await selectTaskFiles({
-    rawTask: "Improve connected devices pairing code screen. Backend pairing API should not change.",
+    rawTask:
+      "Improve connected devices pairing code screen. Backend pairing API should not change.",
     taskType: "general",
     targetTool: "codex",
     inventory: inventory([
@@ -819,28 +1024,28 @@ async function testConnectedDevicesProtectedBackendDoesNotProtectUi() {
         routePath: "/devices",
         imports: ["../api/client", "../hooks/useLocale"],
         symbols: ["DevicesPage"],
-        textHints: ["devices", "connected", "pairing", "code", "screen"]
+        textHints: ["devices", "connected", "pairing", "code", "screen"],
       }),
       sourceFile("src/pages/AccountPage.tsx", {
         role: "page",
         routePath: "/account",
         symbols: ["AccountPage"],
-        textHints: ["account", "profile", "user"]
+        textHints: ["account", "profile", "user"],
       }),
       sourceFile("src/hooks/useLocale.ts", {
         role: "hook",
         symbols: ["useLocale"],
-        textHints: ["locale", "translation"]
+        textHints: ["locale", "translation"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
         symbols: ["requestPairingCode", "pairDesktop"],
-        textHints: ["api", "backend", "pairing", "devices"]
+        textHints: ["api", "backend", "pairing", "devices"],
       }),
       sourceFile("server/index.mjs", {
         role: "server-entry",
-        textHints: ["server", "api", "pairing", "devices"]
-      })
+        textHints: ["server", "api", "pairing", "devices"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -855,21 +1060,33 @@ async function testConnectedDevicesProtectedBackendDoesNotProtectUi() {
         needsStyles: true,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
   assert.equal(result.effectiveTaskArea, "ui");
   assert.equal(result.selectedFiles[0]?.path, "src/pages/DevicesPage.tsx");
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/api/client.ts"), false);
-  assert.equal(result.selectedFiles.some((file) => file.path.startsWith("server/")), false);
-  assert.equal(result.notes.some((note) => note.includes("UI/frontend files should not be selected")), false);
+  assert.equal(
+    result.selectedFiles.some((file) => file.path === "src/api/client.ts"),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path.startsWith("server/")),
+    false,
+  );
+  assert.equal(
+    result.notes.some((note) =>
+      note.includes("UI/frontend files should not be selected"),
+    ),
+    false,
+  );
 }
 
 async function testUnscopedAddUserFormBlocksInsteadOfGuessingAccountPages() {
   const result = await selectTaskFiles({
-    rawTask: "Improve the add user form. Do not change API requests or loading.",
+    rawTask:
+      "Improve the add user form. Do not change API requests or loading.",
     taskType: "general",
     targetTool: "claude",
     inventory: inventory([
@@ -877,18 +1094,18 @@ async function testUnscopedAddUserFormBlocksInsteadOfGuessingAccountPages() {
         role: "page",
         routePath: "/account",
         symbols: ["AccountPage"],
-        textHints: ["account", "user", "profile", "settings"]
+        textHints: ["account", "user", "profile", "settings"],
       }),
       sourceFile("src/pages/AuthCallbackPage.tsx", {
         role: "page",
         routePath: "/auth/callback",
         symbols: ["AuthCallbackPage"],
-        textHints: ["auth", "callback", "user", "loading"]
+        textHints: ["auth", "callback", "user", "loading"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
-        textHints: ["api", "request", "loading", "user"]
-      })
+        textHints: ["api", "request", "loading", "user"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -902,19 +1119,28 @@ async function testUnscopedAddUserFormBlocksInsteadOfGuessingAccountPages() {
         allowedEditScope: "target_with_supporting_context",
         needsStyles: true,
         needsBackend: false,
-        ambiguities: ["No concrete add-user form target exists in this fixture."],
-        modelNotes: []
-      }
-    })
+        ambiguities: [
+          "No concrete add-user form target exists in this fixture.",
+        ],
+        modelNotes: [],
+      },
+    }),
   });
 
-  assert.deepEqual(result.selectedFiles.map((file) => file.path), []);
-  assert.equal(result.notes.some((note) => note.includes("specific UI object")), true);
+  assert.deepEqual(
+    result.selectedFiles.map((file) => file.path),
+    [],
+  );
+  assert.equal(
+    result.notes.some((note) => note.includes("specific UI object")),
+    true,
+  );
 }
 
 async function testRussianApiRequestsProtectedInMissingFormTask() {
   const result = await selectTaskFiles({
-    rawTask: "Улучши форму добавления пользователя. API-запросы и загрузку не менять.",
+    rawTask:
+      "Улучши форму добавления пользователя. API-запросы и загрузку не менять.",
     taskType: "general",
     targetTool: "claude",
     inventory: inventory([
@@ -922,22 +1148,22 @@ async function testRussianApiRequestsProtectedInMissingFormTask() {
         role: "page",
         routePath: "/account",
         symbols: ["AccountPage"],
-        textHints: ["account", "user", "profile", "settings"]
+        textHints: ["account", "user", "profile", "settings"],
       }),
       sourceFile("src/pages/AuthCallbackPage.tsx", {
         role: "page",
         routePath: "/auth/callback",
         symbols: ["AuthCallbackPage"],
-        textHints: ["auth", "callback", "user", "loading"]
+        textHints: ["auth", "callback", "user", "loading"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
-        textHints: ["api", "request", "loading", "user"]
+        textHints: ["api", "request", "loading", "user"],
       }),
       sourceFile("server/index.mjs", {
         role: "server-entry",
-        textHints: ["server", "api", "user"]
-      })
+        textHints: ["server", "api", "user"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -952,15 +1178,23 @@ async function testRussianApiRequestsProtectedInMissingFormTask() {
         allowedEditScope: "target_with_supporting_context",
         needsStyles: true,
         needsBackend: false,
-        ambiguities: ["No concrete add-user form target exists in this fixture."],
-        modelNotes: []
-      }
-    })
+        ambiguities: [
+          "No concrete add-user form target exists in this fixture.",
+        ],
+        modelNotes: [],
+      },
+    }),
   });
 
   assert.notEqual(result.effectiveTaskArea, "backend");
-  assert.deepEqual(result.selectedFiles.map((file) => file.path), []);
-  assert.equal(result.notes.some((note) => note.includes("specific UI object")), true);
+  assert.deepEqual(
+    result.selectedFiles.map((file) => file.path),
+    [],
+  );
+  assert.equal(
+    result.notes.some((note) => note.includes("specific UI object")),
+    true,
+  );
 }
 
 async function testQualitySignalsExplainBlockedMissingTarget() {
@@ -969,18 +1203,19 @@ async function testQualitySignalsExplainBlockedMissingTarget() {
       role: "page",
       routePath: "/account",
       symbols: ["AccountPage"],
-      textHints: ["account", "user", "profile", "settings"]
+      textHints: ["account", "user", "profile", "settings"],
     }),
     sourceFile("src/api/client.ts", {
       role: "client-api",
-      textHints: ["api", "request", "loading", "user"]
+      textHints: ["api", "request", "loading", "user"],
     }),
     sourceFile("server/index.mjs", {
       role: "server-entry",
-      textHints: ["server", "api", "user"]
-    })
+      textHints: ["server", "api", "user"],
+    }),
   ]);
-  const rawTask = "Improve the add user form. Do not change API requests or loading.";
+  const rawTask =
+    "Improve the add user form. Do not change API requests or loading.";
   const result = await selectTaskFiles({
     rawTask,
     taskType: "general",
@@ -998,10 +1233,12 @@ async function testQualitySignalsExplainBlockedMissingTarget() {
         allowedEditScope: "target_with_supporting_context",
         needsStyles: true,
         needsBackend: false,
-        ambiguities: ["No concrete add-user form target exists in this fixture."],
-        modelNotes: []
-      }
-    })
+        ambiguities: [
+          "No concrete add-user form target exists in this fixture.",
+        ],
+        modelNotes: [],
+      },
+    }),
   });
   const quality = evaluateContextSelectionQuality({
     rawTask,
@@ -1010,19 +1247,25 @@ async function testQualitySignalsExplainBlockedMissingTarget() {
     inventory: projectInventory,
     fileSelection: result,
     manualSelectionConfirmed: false,
-    contextQualityMode: "balanced"
+    contextQualityMode: "balanced",
   });
 
   assert.equal(quality.status, "blocked");
   assert.equal(quality.signals.targetConfidence, 0);
   assert.equal(quality.signals.contextCompleteness, 0);
   assert.equal(quality.signals.protectedScopeRisk < 50, true);
-  assert.equal(quality.signals.nextActions.some((action) => action.includes("Search for the exact")), true);
+  assert.equal(
+    quality.signals.nextActions.some((action) =>
+      action.includes("Search for the exact"),
+    ),
+    true,
+  );
 }
 
 async function testReleaseAdminEmptyStateKeepsBackendProtected() {
   const result = await selectTaskFiles({
-    rawTask: "На экране, где админ управляет релизами, добавь аккуратное пустое состояние. Backend не трогать.",
+    rawTask:
+      "На экране, где админ управляет релизами, добавь аккуратное пустое состояние. Backend не трогать.",
     taskType: "general",
     targetTool: "claude",
     inventory: inventory([
@@ -1031,29 +1274,29 @@ async function testReleaseAdminEmptyStateKeepsBackendProtected() {
         routePath: "/admin",
         imports: ["../api/client", "../hooks/useLocale"],
         symbols: ["AdminPage"],
-        textHints: ["admin", "releases", "dashboard"]
+        textHints: ["admin", "releases", "dashboard"],
       }),
       sourceFile("src/pages/ReleasesPage.tsx", {
         role: "page",
         routePath: "/releases",
         imports: ["../api/client", "../hooks/useLocale"],
         symbols: ["ReleasesPage"],
-        textHints: ["release", "releases", "empty", "state", "version"]
+        textHints: ["release", "releases", "empty", "state", "version"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
         symbols: ["api", "getReleases"],
-        textHints: ["api", "releases", "request"]
+        textHints: ["api", "releases", "request"],
       }),
       sourceFile("src/hooks/useLocale.ts", {
         role: "hook",
         symbols: ["useLocale"],
-        textHints: ["locale", "translation"]
+        textHints: ["locale", "translation"],
       }),
       sourceFile("server/index.ts", {
         role: "server-entry",
-        textHints: ["server", "backend", "api"]
-      })
+        textHints: ["server", "backend", "api"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -1068,14 +1311,27 @@ async function testReleaseAdminEmptyStateKeepsBackendProtected() {
         needsStyles: true,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/pages/ReleasesPage.tsx" || file.path === "src/pages/AdminPage.tsx"), true);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/api/client.ts"), false);
-  assert.equal(result.selectedFiles.some((file) => file.path.startsWith("server/")), false);
+  assert.equal(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "src/pages/ReleasesPage.tsx" ||
+        file.path === "src/pages/AdminPage.tsx",
+    ),
+    true,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path === "src/api/client.ts"),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path.startsWith("server/")),
+    false,
+  );
 }
 
 async function testSemanticGraphResolvesPageSupportEdges() {
@@ -1083,37 +1339,49 @@ async function testSemanticGraphResolvesPageSupportEdges() {
     sourceFile("src/pages/ProductPage.tsx", {
       role: "page",
       routePath: "/product",
-      imports: ["../components/ProductForm", "../hooks/useLocale", "../api/client", "../styles/product.css"],
+      imports: [
+        "../components/ProductForm",
+        "../hooks/useLocale",
+        "../api/client",
+        "../styles/product.css",
+      ],
       symbols: ["ProductPage"],
-      textHints: ["product", "form"]
+      textHints: ["product", "form"],
     }),
     sourceFile("src/components/ProductForm.tsx", {
       role: "component",
       symbols: ["ProductForm"],
-      textHints: ["product", "form", "fields"]
+      textHints: ["product", "form", "fields"],
     }),
     sourceFile("src/hooks/useLocale.ts", {
       role: "hook",
       symbols: ["useLocale"],
-      textHints: ["locale", "translation"]
+      textHints: ["locale", "translation"],
     }),
     sourceFile("src/api/client.ts", {
       role: "client-api",
       symbols: ["api"],
-      textHints: ["api", "request"]
+      textHints: ["api", "request"],
     }),
     sourceFile("src/styles/product.css", {
       kind: "style",
       role: "style",
-      textHints: ["product", "form", "layout"]
-    })
+      textHints: ["product", "form", "layout"],
+    }),
   ]);
 
   const graph = buildProjectSemanticGraph(projectInventory);
-  const support = graph.getSupportFiles(["src/pages/ProductPage.tsx"], { maxPerTarget: 8 });
-  const supportByPath = new Map(support.map((item) => [item.file.path, item.edge.kind]));
+  const support = graph.getSupportFiles(["src/pages/ProductPage.tsx"], {
+    maxPerTarget: 8,
+  });
+  const supportByPath = new Map(
+    support.map((item) => [item.file.path, item.edge.kind]),
+  );
 
-  assert.equal(supportByPath.get("src/components/ProductForm.tsx"), "component-import");
+  assert.equal(
+    supportByPath.get("src/components/ProductForm.tsx"),
+    "component-import",
+  );
   assert.equal(supportByPath.get("src/hooks/useLocale.ts"), "hook-import");
   assert.equal(supportByPath.get("src/api/client.ts"), "client-api-import");
   assert.equal(supportByPath.get("src/styles/product.css"), "style-import");
@@ -1128,25 +1396,29 @@ async function testSelectorUsesSemanticGraphSupportWithoutProtectedApi() {
       sourceFile("src/pages/ProductPage.tsx", {
         role: "page",
         routePath: "/product",
-        imports: ["../components/ProductForm", "../hooks/useLocale", "../api/client"],
+        imports: [
+          "../components/ProductForm",
+          "../hooks/useLocale",
+          "../api/client",
+        ],
         symbols: ["ProductPage"],
-        textHints: ["product", "form"]
+        textHints: ["product", "form"],
       }),
       sourceFile("src/components/ProductForm.tsx", {
         role: "component",
         symbols: ["ProductForm"],
-        textHints: ["product", "form", "fields"]
+        textHints: ["product", "form", "fields"],
       }),
       sourceFile("src/hooks/useLocale.ts", {
         role: "hook",
         symbols: ["useLocale"],
-        textHints: ["locale", "translation"]
+        textHints: ["locale", "translation"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
         symbols: ["api"],
-        textHints: ["api", "request", "product"]
-      })
+        textHints: ["api", "request", "product"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -1161,23 +1433,39 @@ async function testSelectorUsesSemanticGraphSupportWithoutProtectedApi() {
         needsStyles: true,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/pages/ProductPage.tsx"), true);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/components/ProductForm.tsx"), true);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/api/client.ts"), false);
   assert.equal(
-    result.selectedFiles.some((file) => file.reason.includes("Semantic graph support")),
-    true
+    result.selectedFiles.some(
+      (file) => file.path === "src/pages/ProductPage.tsx",
+    ),
+    true,
+  );
+  assert.equal(
+    result.selectedFiles.some(
+      (file) => file.path === "src/components/ProductForm.tsx",
+    ),
+    true,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path === "src/api/client.ts"),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) =>
+      file.reason.includes("Semantic graph support"),
+    ),
+    true,
   );
 }
 
 async function testVisualOnlyAccountBadgesDowngradesAuthSupport() {
   const result = await selectTaskFiles({
-    rawTask: "On the account page, make beautiful badges for connected OAuth providers.",
+    rawTask:
+      "On the account page, make beautiful badges for connected OAuth providers.",
     taskType: "general",
     targetTool: "codex",
     inventory: inventory([
@@ -1188,41 +1476,41 @@ async function testVisualOnlyAccountBadgesDowngradesAuthSupport() {
           "../contexts/AuthContext",
           "../contexts/NotificationContext",
           "../components/GoogleIcon",
-          "../components/ProviderBadge"
+          "../components/ProviderBadge",
         ],
         symbols: ["AccountPage", "providerLabel"],
-        textHints: ["account", "profile", "provider", "oauth", "badge"]
+        textHints: ["account", "profile", "provider", "oauth", "badge"],
       }),
       sourceFile("src/pages/AuthCallbackPage.tsx", {
         role: "page",
         symbols: ["AuthCallbackPage"],
-        textHints: ["auth", "callback", "oauth", "provider", "redirect"]
+        textHints: ["auth", "callback", "oauth", "provider", "redirect"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
         symbols: ["api"],
-        textHints: ["api", "oauth", "provider", "request"]
+        textHints: ["api", "oauth", "provider", "request"],
       }),
       sourceFile("src/contexts/AuthContext.tsx", {
         role: "store",
         symbols: ["AuthContext", "useAuth"],
-        textHints: ["auth", "session", "user", "provider"]
+        textHints: ["auth", "session", "user", "provider"],
       }),
       sourceFile("src/contexts/NotificationContext.tsx", {
         role: "store",
         symbols: ["NotificationContext", "useNotify"],
-        textHints: ["notification", "toast", "message"]
+        textHints: ["notification", "toast", "message"],
       }),
       sourceFile("src/components/GoogleIcon.tsx", {
         role: "component",
         symbols: ["GoogleIcon"],
-        textHints: ["google", "provider", "icon"]
+        textHints: ["google", "provider", "icon"],
       }),
       sourceFile("src/components/ProviderBadge.tsx", {
         role: "component",
         symbols: ["ProviderBadge"],
-        textHints: ["provider", "badge", "oauth", "visual"]
-      })
+        textHints: ["provider", "badge", "oauth", "visual"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -1239,20 +1527,33 @@ async function testVisualOnlyAccountBadgesDowngradesAuthSupport() {
         needsStyles: true,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
-  const accountPage = result.selectedFiles.find((file) => file.path === "src/pages/AccountPage.tsx");
-  const apiClient = result.selectedFiles.find((file) => file.path === "src/api/client.ts");
-  const authContext = result.selectedFiles.find((file) => file.path === "src/contexts/AuthContext.tsx");
-  const notificationContext = result.selectedFiles.find((file) => file.path === "src/contexts/NotificationContext.tsx");
-  const providerBadge = result.selectedFiles.find((file) => file.path === "src/components/ProviderBadge.tsx");
+  const accountPage = result.selectedFiles.find(
+    (file) => file.path === "src/pages/AccountPage.tsx",
+  );
+  const apiClient = result.selectedFiles.find(
+    (file) => file.path === "src/api/client.ts",
+  );
+  const authContext = result.selectedFiles.find(
+    (file) => file.path === "src/contexts/AuthContext.tsx",
+  );
+  const notificationContext = result.selectedFiles.find(
+    (file) => file.path === "src/contexts/NotificationContext.tsx",
+  );
+  const providerBadge = result.selectedFiles.find(
+    (file) => file.path === "src/components/ProviderBadge.tsx",
+  );
 
   assert.equal(result.effectiveTaskArea, "ui");
   assert.equal(accountPage?.usage, "inspect-and-edit");
-  assert.notEqual(result.selectedFiles[0]?.path, "src/pages/AuthCallbackPage.tsx");
+  assert.notEqual(
+    result.selectedFiles[0]?.path,
+    "src/pages/AuthCallbackPage.tsx",
+  );
   assert.equal(apiClient?.usage, "inspect-only");
   assert.equal(authContext?.usage, "inspect-only");
   assert.equal(notificationContext?.usage, "inspect-only");
@@ -1261,31 +1562,39 @@ async function testVisualOnlyAccountBadgesDowngradesAuthSupport() {
 
 async function testCallbackFlowStillAllowsAuthSupport() {
   const result = await selectTaskFiles({
-    rawTask: "Fix the OAuth callback page after login redirect and verify session handling.",
+    rawTask:
+      "Fix the OAuth callback page after login redirect and verify session handling.",
     taskType: "general",
     targetTool: "codex",
     inventory: inventory([
       sourceFile("src/pages/AccountPage.tsx", {
         role: "page",
         symbols: ["AccountPage"],
-        textHints: ["account", "profile", "provider"]
+        textHints: ["account", "profile", "provider"],
       }),
       sourceFile("src/pages/AuthCallbackPage.tsx", {
         role: "page",
         imports: ["../api/client", "../contexts/AuthContext"],
         symbols: ["AuthCallbackPage"],
-        textHints: ["auth", "callback", "oauth", "provider", "redirect", "session"]
+        textHints: [
+          "auth",
+          "callback",
+          "oauth",
+          "provider",
+          "redirect",
+          "session",
+        ],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
         symbols: ["api", "completeOAuth"],
-        textHints: ["api", "oauth", "callback", "request"]
+        textHints: ["api", "oauth", "callback", "request"],
       }),
       sourceFile("src/contexts/AuthContext.tsx", {
         role: "store",
         symbols: ["AuthContext", "useAuth"],
-        textHints: ["auth", "session", "user", "provider"]
-      })
+        textHints: ["auth", "session", "user", "provider"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -1300,14 +1609,27 @@ async function testCallbackFlowStillAllowsAuthSupport() {
         needsStyles: false,
         needsBackend: null,
         ambiguities: [],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/pages/AuthCallbackPage.tsx"), true);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/api/client.ts"), true);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/contexts/AuthContext.tsx"), true);
+  assert.equal(
+    result.selectedFiles.some(
+      (file) => file.path === "src/pages/AuthCallbackPage.tsx",
+    ),
+    true,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path === "src/api/client.ts"),
+    true,
+  );
+  assert.equal(
+    result.selectedFiles.some(
+      (file) => file.path === "src/contexts/AuthContext.tsx",
+    ),
+    true,
+  );
 }
 
 async function testUiTriggerApiRequestIsFullstack() {
@@ -1320,33 +1642,33 @@ async function testUiTriggerApiRequestIsFullstack() {
         role: "page",
         imports: ["../api/client", "../components/Badge"],
         symbols: ["AccountPage", "handleProviderBadgeClick"],
-        textHints: ["account", "provider", "badge", "click"]
+        textHints: ["account", "provider", "badge", "click"],
       }),
       sourceFile("src/pages/OnboardingPage.tsx", {
         role: "page",
         symbols: ["OnboardingPage"],
-        textHints: ["onboarding", "setup", "connect", "account"]
+        textHints: ["onboarding", "setup", "connect", "account"],
       }),
       sourceFile("src/components/RouteSkeleton.tsx", {
         role: "component",
         symbols: ["RouteSkeleton"],
-        textHints: ["route", "skeleton", "loading"]
+        textHints: ["route", "skeleton", "loading"],
       }),
       sourceFile("src/components/Badge.tsx", {
         role: "component",
         symbols: ["Badge"],
-        textHints: ["badge", "click", "provider"]
+        textHints: ["badge", "click", "provider"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
         symbols: ["api"],
-        textHints: ["api", "request", "provider"]
+        textHints: ["api", "request", "provider"],
       }),
       sourceFile("server/index.mjs", {
         role: "server-entry",
         symbols: ["handleProviderBadge"],
-        textHints: ["api", "provider", "request", "server"]
-      })
+        textHints: ["api", "provider", "request", "server"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -1362,31 +1684,37 @@ async function testUiTriggerApiRequestIsFullstack() {
         needsStyles: false,
         needsBackend: true,
         ambiguities: [],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
   assert.equal(result.effectiveTaskArea, "fullstack");
   assert.equal(
-    result.selectedFiles.some((file) => file.path === "src/pages/AccountPage.tsx"),
-    true
+    result.selectedFiles.some(
+      (file) => file.path === "src/pages/AccountPage.tsx",
+    ),
+    true,
   );
   assert.equal(
     result.selectedFiles.some((file) => file.path === "src/api/client.ts"),
-    true
+    true,
   );
   assert.equal(
     result.selectedFiles.some((file) => file.path === "server/index.mjs"),
-    true
+    true,
   );
   assert.equal(
-    result.selectedFiles.some((file) => file.path === "src/pages/OnboardingPage.tsx"),
-    false
+    result.selectedFiles.some(
+      (file) => file.path === "src/pages/OnboardingPage.tsx",
+    ),
+    false,
   );
   assert.equal(
-    result.selectedFiles.some((file) => file.path === "src/components/RouteSkeleton.tsx"),
-    false
+    result.selectedFiles.some(
+      (file) => file.path === "src/components/RouteSkeleton.tsx",
+    ),
+    false,
   );
 }
 
@@ -1401,14 +1729,15 @@ async function testStrictMissingOrdersPageBlocksInsteadOfWeakBodyMatch() {
         routePath: "/steel",
         symbols: ["SteelPage"],
         textHints: ["марки стали", "склад", "под заказ"],
-        contentPreview: "<h1>Марки стали</h1><p>Поставки под заказ в короткие сроки.</p>"
+        contentPreview:
+          "<h1>Марки стали</h1><p>Поставки под заказ в короткие сроки.</p>",
       }),
       sourceFile("src/app/(site)/contacts/page.tsx", {
         role: "page",
         routePath: "/contacts",
         symbols: ["ContactsPage"],
-        textHints: ["контакты"]
-      })
+        textHints: ["контакты"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -1423,18 +1752,24 @@ async function testStrictMissingOrdersPageBlocksInsteadOfWeakBodyMatch() {
         needsStyles: true,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
   assert.equal(result.selectedFiles.length, 0);
-  assert.equal(result.notes.some((note) => note.includes("Strict page target guard blocked")), true);
+  assert.equal(
+    result.notes.some((note) =>
+      note.includes("Strict page target guard blocked"),
+    ),
+    true,
+  );
 }
 
 async function testAdminPageMissingBlocksInsteadOfAccountFallback() {
   const result = await selectTaskFiles({
-    rawTask: "Нужно добавить на страницу администратора форму добавления пользователя. API-запросы и загрузку не менять.",
+    rawTask:
+      "Нужно добавить на страницу администратора форму добавления пользователя. API-запросы и загрузку не менять.",
     taskType: "general",
     targetTool: "codex",
     inventory: inventory([
@@ -1442,13 +1777,13 @@ async function testAdminPageMissingBlocksInsteadOfAccountFallback() {
         role: "page",
         routePath: "/account",
         symbols: ["AccountPage"],
-        textHints: ["account", "profile", "user"]
+        textHints: ["account", "profile", "user"],
       }),
       sourceFile("src/api/client.ts", {
         role: "client-api",
         symbols: ["api"],
-        textHints: ["api", "request", "users"]
-      })
+        textHints: ["api", "request", "users"],
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -1464,9 +1799,9 @@ async function testAdminPageMissingBlocksInsteadOfAccountFallback() {
         needsStyles: true,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
   assert.equal(result.selectedFiles.length, 0);
@@ -1474,7 +1809,8 @@ async function testAdminPageMissingBlocksInsteadOfAccountFallback() {
 
 async function testPackageIntentAddsPackageJsonAndNarrowsHomePage() {
   const result = await selectTaskFiles({
-    rawTask: "Добавь библиотеку для анимаций и используй её на главной странице.",
+    rawTask:
+      "Добавь библиотеку для анимаций и используй её на главной странице.",
     taskType: "ui",
     targetTool: "codex",
     inventory: inventory([
@@ -1483,25 +1819,25 @@ async function testPackageIntentAddsPackageJsonAndNarrowsHomePage() {
         routePath: "/",
         symbols: ["HomePage"],
         imports: ["../components/Hero"],
-        textHints: ["home", "landing", "главная", "hero"]
+        textHints: ["home", "landing", "главная", "hero"],
       }),
       sourceFile("src/pages/AccountPage.tsx", {
         role: "page",
         routePath: "/account",
         symbols: ["AccountPage"],
-        textHints: ["account", "profile", "animation"]
+        textHints: ["account", "profile", "animation"],
       }),
       sourceFile("src/components/Hero.tsx", {
         role: "component",
         symbols: ["Hero"],
-        textHints: ["home", "hero"]
+        textHints: ["home", "hero"],
       }),
       sourceFile("package.json", {
         kind: "config",
         role: "config",
         textHints: ["package", "dependencies", "framer-motion"],
-        contentPreview: '{ "dependencies": { "framer-motion": "^12.0.0" } }'
-      })
+        contentPreview: '{ "dependencies": { "framer-motion": "^12.0.0" } }',
+      }),
     ]),
     settings: testSettings,
     taskIntent: structuredIntent({
@@ -1516,31 +1852,285 @@ async function testPackageIntentAddsPackageJsonAndNarrowsHomePage() {
         needsStyles: true,
         needsBackend: false,
         ambiguities: [],
-        modelNotes: []
-      }
-    })
+        modelNotes: [],
+      },
+    }),
   });
 
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/pages/HomePage.tsx" && file.usage === "inspect-and-edit"), true);
-  assert.equal(result.selectedFiles.some((file) => file.path === "src/pages/AccountPage.tsx" && file.usage === "inspect-and-edit"), false);
-  assert.equal(result.selectedFiles.some((file) => file.path === "package.json"), true);
+  assert.equal(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "src/pages/HomePage.tsx" &&
+        file.usage === "inspect-and-edit",
+    ),
+    true,
+  );
+  assert.equal(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "src/pages/AccountPage.tsx" &&
+        file.usage === "inspect-and-edit",
+    ),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path === "package.json"),
+    true,
+  );
+}
+
+async function testCreateMissingExplicitPagePathCreatesPlannedFile() {
+  const result = await selectTaskFiles({
+    rawTask:
+      "Создай новую страницу src/pages/BillingPage.tsx с карточками тарифов.",
+    taskType: "ui",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("src/App.tsx", {
+        role: "app-entry",
+        imports: ["react-router-dom"],
+        textHints: ["routes", "router", "pages"],
+      }),
+      sourceFile("src/pages/HomePage.tsx", {
+        role: "page",
+        routePath: "/",
+        symbols: ["HomePage"],
+        textHints: ["home", "landing"],
+      }),
+      sourceFile("src/styles/global.css", {
+        kind: "style",
+        role: "style",
+        textHints: ["global", "page", "card"],
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "ui",
+      domainTerms: ["billing", "pricing", "page"],
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [],
+        positiveActions: ["create new billing page"],
+        protectedScopes: [],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: true,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: [],
+      },
+    }),
+  });
+
+  assert.equal(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "src/pages/BillingPage.tsx" &&
+        file.usage === "create-and-edit",
+    ),
+    true,
+  );
+  assert.equal(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "src/pages/HomePage.tsx" && file.usage === "inspect-only",
+    ),
+    true,
+  );
+}
+
+async function testCreateRouteInfersReactRouterPageAndRouteRegistration() {
+  const result = await selectTaskFiles({
+    rawTask: "Добавь новую страницу /pricing для тарифов.",
+    taskType: "ui",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("src/App.tsx", {
+        role: "app-entry",
+        imports: ["react-router-dom", "./pages/HomePage"],
+        textHints: ["BrowserRouter", "Routes", "Route", "pages"],
+      }),
+      sourceFile("src/pages/HomePage.tsx", {
+        role: "page",
+        routePath: "/",
+        symbols: ["HomePage"],
+        textHints: ["home", "landing"],
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "ui",
+      domainTerms: ["pricing", "page"],
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [],
+        positiveActions: ["add new page /pricing"],
+        protectedScopes: [],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: true,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: [],
+      },
+    }),
+  });
+
+  assert.equal(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "src/pages/PricingPage.tsx" &&
+        file.usage === "create-and-edit",
+    ),
+    true,
+  );
+  assert.equal(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "src/App.tsx" && file.usage === "inspect-and-edit",
+    ),
+    true,
+  );
+}
+
+async function testCreateRouteUsesExistingPageWhenInferredFileExists() {
+  const result = await selectTaskFiles({
+    rawTask: "Добавь новую страницу /pricing для тарифов.",
+    taskType: "ui",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("src/App.tsx", {
+        role: "app-entry",
+        imports: [
+          "react-router-dom",
+          "./pages/HomePage",
+          "./pages/PricingPage",
+        ],
+        textHints: ["BrowserRouter", "Routes", "Route", "pages"],
+      }),
+      sourceFile("src/pages/HomePage.tsx", {
+        role: "page",
+        routePath: "/",
+        symbols: ["HomePage"],
+        textHints: ["home", "landing"],
+      }),
+      sourceFile("src/pages/PricingPage.tsx", {
+        role: "page",
+        symbols: ["PricingPage"],
+        textHints: ["pricing", "tariffs", "тарифы"],
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "ui",
+      domainTerms: ["pricing", "page", "тарифы"],
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [
+          {
+            kind: "explicit_file",
+            value: "src/pages/PricingPage.tsx",
+            path: "src/pages/PricingPage.tsx",
+            confidence: 0.9,
+            evidence: "inferred from /pricing route",
+          },
+        ],
+        positiveActions: ["add new page /pricing"],
+        protectedScopes: [],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: true,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: [],
+      },
+    }),
+  });
+
+  assert.equal(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "src/pages/PricingPage.tsx" &&
+        file.usage === "inspect-and-edit",
+    ),
+    true,
+  );
+  assert.equal(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "src/pages/PricingPage.tsx" &&
+        file.usage === "create-and-edit",
+    ),
+    false,
+  );
+}
+
+async function testUnsafeCreatePathBlocks() {
+  const result = await selectTaskFiles({
+    rawTask: "Создай файл ../../.env и положи туда настройки.",
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("src/App.tsx", {
+        role: "app-entry",
+        textHints: ["app"],
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "ui",
+      domainTerms: ["env", "settings"],
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [],
+        positiveActions: ["create file ../../.env"],
+        protectedScopes: [],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: false,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: [],
+      },
+    }),
+  });
+
+  assert.equal(result.selectedFiles.length, 0);
+  assert.equal(
+    result.notes.some((note) =>
+      note.includes("unsafe/out-of-scope path(s) were requested"),
+    ),
+    true,
+  );
 }
 
 async function testEnvFilesAreNotReadIntoInventory() {
-  const root = await fs.mkdtemp(path.join(os.tmpdir(), "contextforge-selector-"));
-  await fs.writeFile(path.join(root, ".env"), "SESSION_SECRET=super-secret-value\nDATABASE_URL=postgresql://user:pass@localhost/db\n");
-  await fs.writeFile(path.join(root, ".env.example"), "SESSION_SECRET=example\nDATABASE_URL=postgresql://user:pass@localhost/db\n");
+  const root = await fs.mkdtemp(
+    path.join(os.tmpdir(), "contextforge-selector-"),
+  );
+  await fs.writeFile(
+    path.join(root, ".env"),
+    "SESSION_SECRET=super-secret-value\nDATABASE_URL=postgresql://user:pass@localhost/db\n",
+  );
+  await fs.writeFile(
+    path.join(root, ".env.example"),
+    "SESSION_SECRET=example\nDATABASE_URL=postgresql://user:pass@localhost/db\n",
+  );
   await fs.mkdir(path.join(root, "src", "app"), { recursive: true });
-  await fs.writeFile(path.join(root, "src", "app", "page.tsx"), "export const metadata = { title: 'Home' };\nexport default function Page(){ return <h1>Home</h1>; }\n");
+  await fs.writeFile(
+    path.join(root, "src", "app", "page.tsx"),
+    "export const metadata = { title: 'Home' };\nexport default function Page(){ return <h1>Home</h1>; }\n",
+  );
 
   const scanned = await scanProjectInventory(root);
   const envFile = scanned.files.find((file) => file.path === ".env");
-  const envExampleFile = scanned.files.find((file) => file.path === ".env.example");
+  const envExampleFile = scanned.files.find(
+    (file) => file.path === ".env.example",
+  );
 
   assert.equal(envFile?.canReadText, false);
   assert.equal(envFile?.contentPreview, undefined);
   assert.equal(envExampleFile?.canReadText, true);
-  assert.equal(envExampleFile?.contentPreview?.includes("super-secret-value"), false);
+  assert.equal(
+    envExampleFile?.contentPreview?.includes("super-secret-value"),
+    false,
+  );
 }
 
 async function main() {
@@ -1570,6 +2160,10 @@ async function main() {
   await testStrictMissingOrdersPageBlocksInsteadOfWeakBodyMatch();
   await testAdminPageMissingBlocksInsteadOfAccountFallback();
   await testPackageIntentAddsPackageJsonAndNarrowsHomePage();
+  await testCreateMissingExplicitPagePathCreatesPlannedFile();
+  await testCreateRouteInfersReactRouterPageAndRouteRegistration();
+  await testCreateRouteUsesExistingPageWhenInferredFileExists();
+  await testUnsafeCreatePathBlocks();
   await testEnvFilesAreNotReadIntoInventory();
   console.log("taskFileSelector smoke tests passed");
 }
