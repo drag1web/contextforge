@@ -1938,6 +1938,124 @@ async function testCreateMissingExplicitPagePathCreatesPlannedFile() {
   );
 }
 
+
+async function testCreateMissingTeamPageExactPathCreatesPlannedFile() {
+  const result = await selectTaskFiles({
+    rawTask:
+      "Создай новую страницу src/pages/TeamPage.tsx с описанием команды, hero-блоком и карточками участников.",
+    taskType: "ui",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("src/App.tsx", {
+        role: "app-entry",
+        imports: ["react-router-dom"],
+        textHints: ["routes", "router", "pages"],
+      }),
+      sourceFile("src/pages/HomePage.tsx", {
+        role: "page",
+        routePath: "/",
+        symbols: ["HomePage"],
+        textHints: ["home", "landing", "team"],
+      }),
+      sourceFile("src/styles/global.css", {
+        kind: "style",
+        role: "style",
+        textHints: ["global", "page", "card"],
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "ui",
+      domainTerms: ["team", "page"],
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [],
+        positiveActions: ["create new team page"],
+        protectedScopes: [],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: true,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: [],
+      },
+    }),
+  });
+
+  assert.equal(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "src/pages/TeamPage.tsx" &&
+        file.usage === "create-and-edit",
+    ),
+    true,
+  );
+  assert.equal(
+    result.notes.some((note) =>
+      note.includes("missing safe in-project path(s) were kept as planned files"),
+    ),
+    true,
+  );
+}
+
+async function testConditionalCreateOrEditWithoutExplicitTargetRequiresReview() {
+  const result = await selectTaskFiles({
+    rawTask:
+      "Нужен отдельный экран подписки для пользователя: если такая страница уже есть — улучши её, если нет — создай новую. Backend, API, AuthContext и .env не трогать.",
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("src/pages/UsagePage.tsx", {
+        role: "page",
+        routePath: "/usage",
+        symbols: ["UsagePage"],
+        textHints: ["usage", "quota", "events", "limits", "user", "plan"],
+      }),
+      sourceFile("src/pages/BillingPage.tsx", {
+        role: "page",
+        routePath: "/billing",
+        symbols: ["BillingPage"],
+        textHints: ["billing", "payment", "invoice", "plan"],
+      }),
+      sourceFile("src/pages/PricingPage.tsx", {
+        role: "page",
+        routePath: "/pricing",
+        symbols: ["PricingPage"],
+        textHints: ["pricing", "plans", "tiers", "billing"],
+      }),
+      sourceFile("src/api/client.ts", {
+        role: "client-api",
+        textHints: ["api", "subscription"],
+      }),
+      sourceFile("src/contexts/AuthContext.tsx", {
+        role: "component",
+        textHints: ["auth", "user"],
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "ui",
+      domainTerms: ["подписки", "экран", "пользователь"],
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [],
+        positiveActions: ["if existing page exists improve it, otherwise create it"],
+        protectedScopes: ["backend", "api", "AuthContext", ".env"],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: true,
+        needsBackend: false,
+        ambiguities: ["subscription screen may map to billing, pricing, or usage"],
+        modelNotes: [],
+      },
+    }),
+  });
+
+  assert.equal(result.selectedFiles.length, 0);
+  assert.equal(
+    result.notes.some((note) => note.includes("Manual target review is required")),
+    true,
+  );
+}
+
 async function testCreateRouteInfersReactRouterPageAndRouteRegistration() {
   const result = await selectTaskFiles({
     rawTask: "Добавь новую страницу /pricing для тарифов.",
@@ -2161,6 +2279,8 @@ async function main() {
   await testAdminPageMissingBlocksInsteadOfAccountFallback();
   await testPackageIntentAddsPackageJsonAndNarrowsHomePage();
   await testCreateMissingExplicitPagePathCreatesPlannedFile();
+  await testCreateMissingTeamPageExactPathCreatesPlannedFile();
+  await testConditionalCreateOrEditWithoutExplicitTargetRequiresReview();
   await testCreateRouteInfersReactRouterPageAndRouteRegistration();
   await testCreateRouteUsesExistingPageWhenInferredFileExists();
   await testUnsafeCreatePathBlocks();

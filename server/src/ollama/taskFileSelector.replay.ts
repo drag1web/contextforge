@@ -283,6 +283,17 @@ function fixtureInventory(): ProjectInventory {
       role: "docs",
       textHints: ["api reference", "curl", "desktop", "api keys", "releases"]
     }),
+    sourceFile("package.json", {
+      kind: "config",
+      role: "config",
+      textHints: ["package", "dependencies", "scripts", "framer-motion", "vite", "react"],
+      contentPreview: '{ "dependencies": { "framer-motion": "^12.0.0", "react": "^19.0.0" }, "scripts": { "build": "vite build" } }'
+    }),
+    sourceFile("package-lock.json", {
+      kind: "config",
+      role: "config",
+      textHints: ["lockfile", "dependencies"]
+    }),
     sourceFile("vite.config.ts", {
       kind: "config",
       role: "config",
@@ -690,6 +701,52 @@ const replayCases: ReplayCase[] = [
     include: ["src/pages/PricingPage.tsx"]
   },
   {
+    id: "ru-create-team-page-exact-path",
+    rawTask: "Создай новую страницу src/pages/TeamPage.tsx с описанием команды и карточками участников.",
+    taskType: "ui",
+    intent: structuredIntent({
+      taskArea: "ui",
+      domainTerms: ["team", "page"],
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [],
+        positiveActions: ["create new team page"],
+        protectedScopes: [],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: true,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: []
+      }
+    }),
+    expectArea: "ui",
+    include: ["src/pages/TeamPage.tsx"]
+  },
+  {
+    id: "ru-subscription-conditional-review",
+    rawTask: "Нужен отдельный экран подписки для пользователя: если такая страница уже есть — улучши её, если нет — создай новую. Backend, API, AuthContext и .env не трогать.",
+    taskType: "general",
+    intent: structuredIntent({
+      taskArea: "ui",
+      domainTerms: ["подписки", "экран", "пользователь"],
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [],
+        positiveActions: ["if existing page exists improve it, otherwise create it"],
+        protectedScopes: ["backend", "api", "AuthContext", ".env"],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: true,
+        needsBackend: false,
+        ambiguities: ["subscription screen may map to billing, pricing, or usage"],
+        modelNotes: []
+      }
+    }),
+    expectArea: "ui",
+    expectStatus: "blocked",
+    empty: true,
+    exclude: ["src/api/client.ts", "src/contexts/AuthContext.tsx", "server/index.mjs"]
+  },
+  {
     id: "zh-header-anchor",
     rawTask: "\u4fee\u590d Header navigation \u5728\u8bed\u8a00\u5207\u6362\u540e\u6ea2\u51fa, do not change backend.",
     taskType: "ui",
@@ -798,22 +855,39 @@ const replayCases: ReplayCase[] = [
     exclude: ["server/index.mjs"]
   },
   {
-    id: "ru-existing-pricing-route",
-    rawTask: "Добавь новую страницу /pricing для тарифов и сделай её в стиле текущего лендинга.",
-    taskType: "general",
-    intent: taskAreaIntent("fullstack", ["add page", "pricing", "landing style"], [], false),
+    id: "ru-orders-management-missing",
+    rawTask: "Сделай красивую страницу управления заказами.",
+    taskType: "ui",
+    intent: taskAreaIntent("ui", ["страница", "управление", "заказы"], [], false),
     expectArea: "ui",
-    include: ["src/pages/PricingPage.tsx"],
-    exclude: ["src/pages/HomePage.tsx"]
+    expectStatus: "blocked",
+    empty: true
   },
   {
-    id: "ru-natural-price-route",
-    rawTask: "Улучши роут прайса и карточки тарифов, но главную страницу не меняй.",
-    taskType: "ui",
-    intent: taskAreaIntent("ui", ["price route", "pricing cards"], ["home page"], false),
+    id: "ru-account-oauth-badges-reference-support",
+    rawTask: "На странице аккаунта сделай красивые badges для подключенных OAuth-провайдеров.",
+    taskType: "general",
+    intent: taskAreaIntent("ui", ["account", "oauth", "provider", "badge"], [], false),
     expectArea: "ui",
-    include: ["src/pages/PricingPage.tsx"],
-    exclude: ["src/pages/HomePage.tsx"]
+    include: ["src/pages/AccountPage.tsx"],
+    exclude: ["src/api/client.ts", "src/contexts/AuthContext.tsx", "server/index.mjs"]
+  },
+  {
+    id: "ru-oauth-callback-redirect",
+    rawTask: "Почини OAuth callback redirect после авторизации.",
+    taskType: "general",
+    intent: taskAreaIntent("backend", ["oauth", "callback", "redirect", "auth"], [], true),
+    include: ["src/pages/AuthCallbackPage.tsx"],
+    exclude: [".agents/skills/contextforge-auth-backend/SKILL.md", "server/data/db.json"]
+  },
+  {
+    id: "ru-home-animation-library-package",
+    rawTask: "Добавь библиотеку для анимаций и используй её на главной странице.",
+    taskType: "ui",
+    intent: taskAreaIntent("ui", ["home", "animation", "library"], [], false),
+    expectArea: "ui",
+    include: ["src/pages/HomePage.tsx", "package.json"],
+    exclude: ["src/pages/AccountPage.tsx"]
   }
 ];
 
