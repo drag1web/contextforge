@@ -12,6 +12,16 @@ export interface ContextSelectionQuality {
     warnings: string[];
     blockingReasons: string[];
     requiredManualReview: boolean;
+    signals: ContextSelectionQualitySignals;
+}
+
+export interface ContextSelectionQualitySignals {
+    targetConfidence: number;
+    scopeSafety: number;
+    contextCompleteness: number;
+    protectedScopeRisk: number;
+    manualReviewReason: string | null;
+    nextActions: string[];
 }
 
 interface EvaluateContextSelectionQualityInput {
@@ -202,6 +212,111 @@ function unique(values: string[]) {
     return Array.from(new Set(values.filter(Boolean)));
 }
 
+function hasProtectedBackendConstraint(rawTask: string, selectionNotes: string) {
+    const text = normalizeForCompare([rawTask, selectionNotes].join(" "));
+
+    return /\b(?:api|endpoint|request|requests|fetch|server|backend|auth|session|token|database|db)\b[^.!?\n]{0,140}\b(?:do\s+not|don't|dont|without|not|avoid|keep|preserve|unchanged)\b/i.test(text)
+        || /\b(?:do\s+not|don't|dont|without|not|avoid|keep|preserve)\b[^.!?\n]{0,140}\b(?:api|endpoint|request|requests|fetch|server|backend|auth|session|token|database|db)\b/i.test(text)
+        || /\bapi\b[^.!?\n]{0,140}\u043d\u0435\s+(?:\u043c\u0435\u043d\u044f\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u0442\u0440\u043e\u0433\u0430\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439)/i.test(text)
+        || /(?:\u0430\u043f\u0438|\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0441\u0435\u0440\u0432\u0435\u0440|\u0437\u0430\u043f\u0440\u043e\u0441|\u0437\u0430\u0433\u0440\u0443\u0437|\u0442\u043e\u043a\u0435\u043d|\u0441\u0435\u0441\u0441|\u0431\u0430\u0437\u0430|\u0431\u0434)[^.!?\n]{0,140}\u043d\u0435\s+(?:\u043c\u0435\u043d\u044f\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u0442\u0440\u043e\u0433\u0430\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439)/i.test(text)
+        || text.includes("backend/api files should not be selected");
+}
+
+function buildQualitySignals({
+    selectedFiles,
+    score,
+    warnings,
+    blockingReasons,
+    hasEditableCode,
+    hasOverlappingFile,
+    strongOverlapFileCount,
+    plausibleCodeFileCount,
+    genericOnly,
+    explicitPathSelected,
+    docsConfigOnly,
+    docsPrimaryIntent,
+    isCodeTask,
+    hasBackend,
+    protectedBackendConstraint
+}: {
+    selectedFiles: ProjectInventoryFile[];
+    score: number;
+    warnings: string[];
+    blockingReasons: string[];
+    hasEditableCode: boolean;
+    hasOverlappingFile: boolean;
+    strongOverlapFileCount: number;
+    plausibleCodeFileCount: number;
+    genericOnly: boolean;
+    explicitPathSelected: boolean;
+    docsConfigOnly: boolean;
+    docsPrimaryIntent: boolean;
+    isCodeTask: boolean;
+    hasBackend: boolean;
+    protectedBackendConstraint: boolean;
+}): ContextSelectionQualitySignals {
+    const targetConfidence = clampScore(
+        selectedFiles.length === 0
+            ? 0
+            : explicitPathSelected
+                ? 95
+                : hasOverlappingFile
+                    ? 48 + strongOverlapFileCount * 14 + plausibleCodeFileCount * 7
+                    : genericOnly
+                        ? 24
+                        : plausibleCodeFileCount > 0
+                            ? 44 + plausibleCodeFileCount * 6
+                            : 32
+    );
+    const contextCompleteness = clampScore(
+        selectedFiles.length === 0
+            ? 0
+            : docsPrimaryIntent && docsConfigOnly
+                ? 78
+                : (hasEditableCode ? 42 : 14) + Math.min(34, selectedFiles.length * 7) + Math.min(24, plausibleCodeFileCount * 8)
+    );
+    const protectedScopeRisk = clampScore(
+        protectedBackendConstraint && hasBackend
+            ? 92
+            : protectedBackendConstraint
+                ? 18
+                : genericOnly && isCodeTask
+                    ? 32
+                    : 8
+    );
+    const scopeSafety = clampScore(100 - protectedScopeRisk - (genericOnly && isCodeTask ? 12 : 0));
+    const manualReviewReason = blockingReasons[0] ?? (score < 78 ? warnings[0] ?? null : null);
+    const nextActions: string[] = [];
+
+    if (selectedFiles.length === 0) {
+        nextActions.push("Search for the exact page, component, form, service, or route before generating.");
+    }
+    if (blockingReasons.some((reason) => reason.includes("specific UI object")) || blockingReasons.some((reason) => reason.includes("No UI page"))) {
+        nextActions.push("Pick the real UI surface manually, or clarify which screen contains the requested element.");
+    }
+    if (protectedBackendConstraint) {
+        nextActions.push("Keep backend/API files out of inspect-and-edit unless the user explicitly allows backend changes.");
+    }
+    if (genericOnly && isCodeTask) {
+        nextActions.push("Replace generic shell/config files with a concrete page, component, service, or route.");
+    }
+    if (!hasOverlappingFile && selectedFiles.length > 0 && isCodeTask) {
+        nextActions.push("Add a file whose path, symbols, route, or text hints match the task wording.");
+    }
+    if (nextActions.length === 0 && score < 78) {
+        nextActions.push("Review selected files manually before generating the Task Pack.");
+    }
+
+    return {
+        targetConfidence,
+        scopeSafety,
+        contextCompleteness,
+        protectedScopeRisk,
+        manualReviewReason,
+        nextActions: unique(nextActions).slice(0, 4)
+    };
+}
+
 function getPositiveTaskTextForExplicitMentions(rawTask: string) {
     let text = rawTask;
     const normalized = rawTask.replace(/[—–]/g, " — ");
@@ -256,7 +371,7 @@ function applyModeToResult({
     warnings: string[];
     blockingReasons: string[];
     manualSelectionConfirmed: boolean;
-}): ContextSelectionQuality {
+}): Omit<ContextSelectionQuality, "signals"> {
     let nextScore = clampScore(score);
     let nextWarnings = unique(warnings);
     let nextBlockingReasons = unique(blockingReasons);
@@ -324,6 +439,7 @@ export function evaluateContextSelectionQuality(input: EvaluateContextSelectionQ
     const strongOverlapFileCount = overlapCounts.filter((count) => count >= 2).length;
     const genericOnly = selectedFiles.length > 0 && selectedFiles.every(isGenericShellOrGlobal);
     const selectionNotes = input.fileSelection.notes.join("\n").toLowerCase();
+    const protectedBackendConstraint = hasProtectedBackendConstraint(input.rawTask, selectionNotes);
     const explicitResolution = resolveExplicitFileMentions(getPositiveTaskTextForExplicitMentions(input.rawTask), input.inventory);
     const explicitExistingPathTokens = explicitResolution.existingPaths.map(normalizeForCompare);
     const explicitMentionCount = explicitResolution.existingPaths.length + explicitResolution.missingPaths.length;
@@ -444,11 +560,32 @@ export function evaluateContextSelectionQuality(input: EvaluateContextSelectionQ
         }
     }
 
-    return applyModeToResult({
+    const result = applyModeToResult({
         mode,
         score,
         warnings,
         blockingReasons,
         manualSelectionConfirmed: Boolean(input.manualSelectionConfirmed)
     });
+
+    return {
+        ...result,
+        signals: buildQualitySignals({
+            selectedFiles,
+            score: result.score,
+            warnings: result.warnings,
+            blockingReasons: result.blockingReasons,
+            hasEditableCode,
+            hasOverlappingFile,
+            strongOverlapFileCount,
+            plausibleCodeFileCount,
+            genericOnly,
+            explicitPathSelected,
+            docsConfigOnly,
+            docsPrimaryIntent,
+            isCodeTask,
+            hasBackend,
+            protectedBackendConstraint
+        })
+    };
 }

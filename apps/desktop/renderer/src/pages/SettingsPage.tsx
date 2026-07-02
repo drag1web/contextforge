@@ -1075,6 +1075,30 @@ export function SettingsPage() {
   const activePreset = getActivePreset(composerLimits);
   const currentLanguage = (settingsDraft?.language ?? "system") as AppLanguage;
   const resolvedLanguage = resolveAppLanguage(currentLanguage);
+  const defaultModelOptions = useMemo(() => {
+    const currentModel = settingsDraft?.defaultOllamaModel ?? "";
+    const hasCurrentModel = Boolean(currentModel) && models.some((model) => model.name === currentModel);
+
+    return [
+      {
+        value: "",
+        label: t("settings.noModelSelected"),
+        description: t("settings.useTemplateOnly")
+      },
+      ...(currentModel && !hasCurrentModel
+        ? [{
+            value: currentModel,
+            label: currentModel,
+            description: t("settings.customModel")
+          }]
+        : []),
+      ...models.map((model) => ({
+        value: model.name,
+        label: model.name,
+        description: `${model.model ?? t("settings.localModel")} - ${formatModelSize(model.size)}`
+      }))
+    ];
+  }, [models, settingsDraft?.defaultOllamaModel, t]);
 
   function handleLanguageChange(language: AppLanguage) {
     updateSettingsDraft({ language });
@@ -1315,7 +1339,7 @@ export function SettingsPage() {
                         </p>
 
                         <pre className="mt-4 overflow-auto rounded-xl border border-neutral-900 bg-black p-4 text-sm text-neutral-300">
-                          ollama pull llama3.1
+                          ollama pull llama3.1{"\n"}ollama pull gemma3:4b
                         </pre>
                       </div>
                     ) : (
@@ -1521,18 +1545,7 @@ export function SettingsPage() {
                                 defaultOllamaModel: value || null
                               })
                             }
-                            options={[
-                              {
-                                value: "",
-                                label: t("settings.noModelSelected"),
-                                description: t("settings.useTemplateOnly")
-                              },
-                              ...models.map((model) => ({
-                                value: model.name,
-                                label: model.name,
-                                description: formatModelSize(model.size)
-                              }))
-                            ]}
+                            options={defaultModelOptions}
                           />
                         </div>
                       </div>

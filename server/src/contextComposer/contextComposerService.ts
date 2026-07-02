@@ -834,8 +834,14 @@ function buildClarifyingQuestions({
 
   const questions: string[] = [];
   const topFiles = suggestedFileGroups[0]?.files.slice(0, 4).map((file) => file.path) ?? [];
+  const weakReviewOnly = selectionQuality.status === "blocked"
+    && suggestedFileGroups.length > 0
+    && suggestedFileGroups.every((group) => group.id === "weak-manual-review-candidates");
+  const hasSpecificUiObject = /(?:\b(?:form|input|field|modal|dialog|table|card|profile|account|search|filter)\b|(?:\u0444\u043e\u0440\u043c|\u043f\u043e\u043b\u0435|\u0438\u043d\u043f\u0443\u0442|\u043c\u043e\u0434\u0430\u043b|\u0434\u0438\u0430\u043b\u043e\u0433|\u0442\u0430\u0431\u043b\u0438\u0446|\u043a\u0430\u0440\u0442\u043e\u0447|\u043f\u0440\u043e\u0444\u0438\u043b|\u0430\u043a\u043a\u0430\u0443\u043d\u0442|\u043f\u043e\u0438\u0441\u043a|\u0444\u0438\u043b\u044c\u0442\u0440))/i.test(rawTask);
 
-  if (topFiles.length > 0) {
+  if (weakReviewOnly && hasSpecificUiObject) {
+    questions.push("No exact target file was found for the requested UI object. Search for the real page/component, or manually include a weak suggestion only if you recognize it.");
+  } else if (topFiles.length > 0) {
     questions.push(`Which of these looks like the real target file: ${topFiles.join(" | ")}?`);
   } else {
     questions.push("Which page, component, route, service, or config file is the real target for this task?");
@@ -900,11 +906,34 @@ function hasComposerProtectedBackendConstraint(rawTask: string, taskIntent?: Tas
   ].join(" "));
 
   const mentionsBackendSurface = /\b(api|endpoint|request|requests|fetch|server|backend|auth|session|token|database|db)\b/i.test(text);
-  const protectsSurface = /\b(do not|don't|dont|without|not|avoid|keep|preserve)\b/i.test(text)
+  const russianProtectedBackend = /\bapi\b[^.!?\n]{0,140}\u043d\u0435\s+(?:\u043c\u0435\u043d\u044f|\u0442\u0440\u043e\u0433|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440|\u0438\u0437\u043c\u0435\u043d)/i.test(text)
+    || /(?:\u0430\u043f\u0438|\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0441\u0435\u0440\u0432\u0435\u0440|\u0437\u0430\u043f\u0440\u043e\u0441|\u0437\u0430\u0433\u0440\u0443\u0437|\u0442\u043e\u043a\u0435\u043d|\u0441\u0435\u0441\u0441|\u0431\u0430\u0437\u0430|\u0431\u0434)[^.!?\n]{0,140}\u043d\u0435\s+(?:\u043c\u0435\u043d\u044f|\u0442\u0440\u043e\u0433|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440|\u0438\u0437\u043c\u0435\u043d)/i.test(text)
+    || /\u043d\u0435\s+(?:\u043c\u0435\u043d\u044f|\u0442\u0440\u043e\u0433|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440|\u0438\u0437\u043c\u0435\u043d)[^.!?\n]{0,140}(?:\u0430\u043f\u0438|\u0431\u044d\u043a|\u0431\u0435\u043a|\u0441\u0435\u0440\u0432\u0435\u0440|\u0437\u0430\u043f\u0440\u043e\u0441|\u0437\u0430\u0433\u0440\u0443\u0437|api|backend|server)/i.test(text);
+  const protectsSurface = russianProtectedBackend
+    || /\b(do not|don't|dont|without|not|avoid|keep|preserve)\b/i.test(text)
     || /(?:не|нельзя|без|сохрани|оставь|не\s+меня|не\s+трог)/i.test(text);
 
   return (mentionsBackendSurface && protectsSurface)
+    || russianProtectedBackend
     || (taskIntent?.structuredIntent?.needsBackend === false && mentionsBackendSurface);
+}
+
+function hasDirectProtectedBackendText(rawTask: string) {
+  const normalized = normalizePath(rawTask)
+    .toLowerCase()
+    .replace(/[_./\\-]+/g, " ");
+
+  const backendSurface = /(?:\b(?:api|backend|back\s*end|server|endpoint|route|request|requests|fetch|upload|uploads|loading|load|http|axios|database|db|auth|session|token)\b|(?:\u0430\u043f\u0438|\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0441\u0435\u0440\u0432\u0435\u0440|\u044d\u043d\u0434\u043f\u043e\u0438\u043d\u0442|\u043c\u0430\u0440\u0448\u0440\u0443\u0442|\u0437\u0430\u043f\u0440\u043e\u0441|\u0444\u0435\u0442\u0447|\u0437\u0430\u0433\u0440\u0443\u0437|\u0431\u0430\u0437\u0430|\u0431\u0434|\u0430\u0432\u0442\u043e\u0440\u0438\u0437\u0430\u0446|\u0441\u0435\u0441\u0441|\u0442\u043e\u043a\u0435\u043d))/i;
+  const negativeIntent = /(?:\b(?:do\s+not|don't|dont|without|avoid|keep|leave|preserve)\b|\u043d\u0435\s+(?:\u043c\u0435\u043d\u044f|\u0442\u0440\u043e\u0433|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440|\u0438\u0437\u043c\u0435\u043d|\u043b\u043e\u043c\u0430|\u043f\u0435\u0440\u0435\u043f\u0438\u0441)|\u0431\u0435\u0437\s+\u0438\u0437\u043c\u0435\u043d)/i;
+
+  if (!backendSurface.test(normalized) || !negativeIntent.test(normalized)) {
+    return false;
+  }
+
+  return [
+    new RegExp(`${backendSurface.source}[\\s\\S]{0,180}${negativeIntent.source}`, "i"),
+    new RegExp(`${negativeIntent.source}[\\s\\S]{0,180}${backendSurface.source}`, "i")
+  ].some((pattern) => pattern.test(normalized));
 }
 
 function isComposerBackendOrApiFile(file: ProjectInventoryFile) {
@@ -935,7 +964,11 @@ function isComposerBackendOrApiFile(file: ProjectInventoryFile) {
 }
 
 function canShowComposerCandidateForTask(file: ProjectInventoryFile, rawTask: string, taskIntent?: TaskIntentAnalysis, allowExplicitPath = false) {
-  if (!hasComposerProtectedBackendConstraint(rawTask, taskIntent)) return true;
+  const backendProtected = hasComposerProtectedBackendConstraint(rawTask, taskIntent)
+    || hasDirectProtectedBackendText(rawTask)
+    || (taskIntent?.structuredIntent?.protectedScopes ?? []).some((scope) => hasDirectProtectedBackendText(scope));
+
+  if (!backendProtected) return true;
   if (allowExplicitPath) return true;
   return !isComposerBackendOrApiFile(file);
 }

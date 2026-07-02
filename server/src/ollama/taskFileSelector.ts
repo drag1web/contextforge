@@ -1,5 +1,6 @@
 import { getAppSettings } from "../settings/settingsService.js";
 import { resolveExplicitFileMentions } from "../selection/explicitFileMentions.js";
+import { buildProjectSemanticGraph } from "../selection/projectSemanticGraph.js";
 import type {
     ProjectInventory,
     ProjectInventoryFile,
@@ -34,6 +35,15 @@ export interface TaskFileSelection {
     effectiveTaskArea: EffectiveTaskArea;
     assetMode: AssetMode;
     conflictNote?: string;
+    diagnostics?: {
+        selectorVersion: string;
+        safetyProfile: string;
+        generationMode: "template" | "ollama";
+        model: string | null;
+        requestedTaskType: string;
+        effectiveTaskArea: EffectiveTaskArea;
+        usedFallback: boolean;
+    };
 }
 
 interface SelectTaskFilesInput {
@@ -60,6 +70,7 @@ interface TokenContext {
 const MAX_SELECTED_FILES = 14;
 const MIN_MODEL_SELECTED_FILES = 3;
 const MAX_INVENTORY_FILES_FOR_PROMPT = 700;
+const SELECTOR_ENGINE_VERSION = "2026-07-02.protected-ui-area-v2";
 const SELECTOR_SAFETY_PROFILE = "ui-specific-target-review-v5";
 
 const VALID_USAGES: SelectedTaskFileUsage[] = [
@@ -110,9 +121,80 @@ function hasRuntimeNoBackendConstraint(rawTask: string) {
     return matchesAny(rawTask, [
         /\b(?:backend|api|server|auth|authorization|authentication|session|token|cookie|database|db)\b[^.!?\n]{0,120}\b(?:do\s+not|don't|dont)\s+(?:touch|change|edit|modify)\b/i,
         /\b(?:do\s+not|don't|dont)\s+(?:touch|change|edit|modify)\b[^.!?\n]{0,120}\b(?:backend|api|server|auth|authorization|authentication|session|token|cookie|database|db)\b/i,
+        /\bapi\b[^.!?\n]{0,120}\u043d\u0435\s+(?:\u043c\u0435\u043d\u044f\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u0442\u0440\u043e\u0433\u0430\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439)/i,
+        /(?:\u0430\u043f\u0438|\u0437\u0430\u043f\u0440\u043e\u0441[a-z\u0430-\u044f\u04510-9_-]*|\u0437\u0430\u0433\u0440\u0443\u0437[a-z\u0430-\u044f\u04510-9_-]*)[^.!?\n]{0,120}\u043d\u0435\s+(?:\u043c\u0435\u043d\u044f\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u0442\u0440\u043e\u0433\u0430\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439)/i,
         /(?:\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0430\u043f\u0438|api|\u0441\u0435\u0440\u0432\u0435\u0440|\u0430\u0432\u0442\u043e\u0440\u0438\u0437\u0430\u0446|\u0430\u0443\u0442\u0435\u043d\u0442\u0438\u0444|\u0441\u0435\u0441\u0441|\u0442\u043e\u043a\u0435\u043d|\u043a\u0443\u043a\u0438|\u0431\u0430\u0437\u0430|\u0431\u0434)[^.!?\n]{0,120}\u043d\u0435\s+(?:\u0442\u0440\u043e\u0433\u0430\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u043c\u0435\u043d\u044f\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c)/i,
         /\u043d\u0435\s+(?:\u0442\u0440\u043e\u0433\u0430\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u043c\u0435\u043d\u044f\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c)[^.!?\n]{0,120}(?:\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0430\u043f\u0438|api|\u0441\u0435\u0440\u0432\u0435\u0440|\u0430\u0432\u0442\u043e\u0440\u0438\u0437\u0430\u0446|\u0430\u0443\u0442\u0435\u043d\u0442\u0438\u0444|\u0441\u0435\u0441\u0441|\u0442\u043e\u043a\u0435\u043d|\u043a\u0443\u043a\u0438|\u0431\u0430\u0437\u0430|\u0431\u0434)/i
     ]);
+}
+
+function hasProtectedBackendScopeConstraint(rawTask: string) {
+    const backendScope = String.raw`(?:\b(?:backend|back[-\s]?end|api|server|endpoint|route|request|requests|fetch|upload|uploads|loading|load|http|axios|database|db)\b|(?:\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0430\u043f\u0438|api|\u0441\u0435\u0440\u0432\u0435\u0440|\u044d\u043d\u0434\u043f\u043e\u0438\u043d\u0442|\u043c\u0430\u0440\u0448\u0440\u0443\u0442|\u0437\u0430\u043f\u0440\u043e\u0441|\u0444\u0435\u0442\u0447|\u0437\u0430\u0433\u0440\u0443\u0437|\u0431\u0430\u0437\u0430|\u0431\u0434))`;
+    const negativeVerb = String.raw`(?:\b(?:do\s+not|don't|dont)\s+(?:touch|change|edit|modify|rewrite)\b|\b(?:should|must)\s+not\s+(?:touch|change|edit|modify|rewrite)\b|\b(?:keep|leave)\b[^.!?\n]{0,32}\b(?:unchanged|alone)\b|\b(?:must|should)\b[^.!?\n]{0,32}\b(?:stay|remain)\b[^.!?\n]{0,16}\b(?:unchanged|intact)\b|\u043d\u0435\s+(?:\u0442\u0440\u043e\u0433\u0430\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u043c\u0435\u043d\u044f\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u043f\u0435\u0440\u0435\u043f\u0438\u0441\u044b\u0432\u0430\u0439|\u043f\u0435\u0440\u0435\u043f\u0438\u0441\u044b\u0432\u0430\u0442\u044c)|\u0431\u0435\u0437\s+\u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439)`;
+
+    return [
+        new RegExp(`${backendScope}[^.!?\\n]{0,140}${negativeVerb}`, "i"),
+        new RegExp(`${negativeVerb}[^.!?\\n]{0,140}${backendScope}`, "i")
+    ].some((pattern) => pattern.test(rawTask));
+}
+
+function hasDirectProtectedBackendText(rawTask: string) {
+    const normalized = normalizePath(rawTask)
+        .toLowerCase()
+        .replace(/[_./\\-]+/g, " ");
+    const backendSurface = /(?:\b(?:api|backend|back\s*end|server|endpoint|route|request|requests|fetch|upload|uploads|loading|load|http|axios|database|db|auth|session|token)\b|(?:\u0430\u043f\u0438|\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0441\u0435\u0440\u0432\u0435\u0440|\u044d\u043d\u0434\u043f\u043e\u0438\u043d\u0442|\u043c\u0430\u0440\u0448\u0440\u0443\u0442|\u0437\u0430\u043f\u0440\u043e\u0441|\u0444\u0435\u0442\u0447|\u0437\u0430\u0433\u0440\u0443\u0437|\u0431\u0430\u0437\u0430|\u0431\u0434|\u0430\u0432\u0442\u043e\u0440\u0438\u0437\u0430\u0446|\u0441\u0435\u0441\u0441|\u0442\u043e\u043a\u0435\u043d))/i;
+    const negativeIntent = /(?:\b(?:do\s+not|don't|dont|without|avoid|keep|leave|preserve)\b|\u043d\u0435\s+(?:\u043c\u0435\u043d\u044f|\u0442\u0440\u043e\u0433|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440|\u0438\u0437\u043c\u0435\u043d|\u043b\u043e\u043c\u0430|\u043f\u0435\u0440\u0435\u043f\u0438\u0441)|\u0431\u0435\u0437\s+\u0438\u0437\u043c\u0435\u043d)/i;
+
+    if (!backendSurface.test(normalized) || !negativeIntent.test(normalized)) return false;
+
+    return [
+        new RegExp(`${backendSurface.source}[\\s\\S]{0,180}${negativeIntent.source}`, "i"),
+        new RegExp(`${negativeIntent.source}[\\s\\S]{0,180}${backendSurface.source}`, "i")
+    ].some((pattern) => pattern.test(normalized));
+}
+
+function hasSimpleProtectedBackendText(rawTask: string) {
+    const text = rawTask.toLowerCase().replace(/[_./\\-]+/g, " ");
+    const hasBackendSurface = /(?:\b(?:api|backend|server|endpoint|request|fetch|upload|loading|database|db|auth|session|token)\b|(?:\u0430\u043f\u0438|\u0431\u044d\u043a|\u0431\u0435\u043a|\u0441\u0435\u0440\u0432\u0435\u0440|\u0437\u0430\u043f\u0440\u043e\u0441|\u0437\u0430\u0433\u0440\u0443\u0437|\u0431\u0430\u0437\u0430|\u0431\u0434|\u0441\u0435\u0441\u0441|\u0442\u043e\u043a\u0435\u043d))/i.test(text);
+    const hasNegative = /(?:\b(?:do not|don't|dont|without|avoid|keep|preserve)\b|\u043d\u0435\s+(?:\u043c\u0435\u043d\u044f|\u0442\u0440\u043e\u0433|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440|\u0438\u0437\u043c\u0435\u043d|\u043b\u043e\u043c\u0430)|\u0431\u0435\u0437\s+\u0438\u0437\u043c\u0435\u043d)/i.test(text);
+    return hasBackendSurface && hasNegative;
+}
+
+function hasSimpleUiSurfaceText(rawTask: string) {
+    const text = rawTask.toLowerCase().replace(/[_./\\-]+/g, " ");
+    return [
+        "ui", "ux", "frontend", "front end", "screen", "page", "layout", "visual", "design", "style",
+        "css", "button", "form", "input", "modal", "dialog", "card", "navigation", "navbar", "header", "topbar", "menu",
+        "\u044d\u043a\u0440\u0430\u043d", "\u0441\u0442\u0440\u0430\u043d\u0438\u0446", "\u0432\u0438\u0437\u0443\u0430\u043b", "\u0434\u0438\u0437\u0430\u0439\u043d",
+        "\u0441\u0442\u0438\u043b", "\u043a\u043d\u043e\u043f", "\u0444\u043e\u0440\u043c", "\u043f\u043e\u043b\u0435", "\u0438\u043d\u043f\u0443\u0442",
+        "\u043c\u043e\u0434\u0430\u043b", "\u0434\u0438\u0430\u043b\u043e\u0433", "\u043a\u0430\u0440\u0442\u043e\u0447", "\u043d\u0430\u0432\u0438\u0433\u0430\u0446", "\u0448\u0430\u043f\u043a"
+    ].some((term) => text.includes(term));
+}
+
+function hasSimpleProtectedFrontendText(rawTask: string) {
+    const text = stripProtectedBackendScopeClauses(rawTask)
+        .toLowerCase()
+        .replace(/[_./\\-]+/g, " ");
+    const frontendScope = String.raw`(?:\b(?:ui|ux|frontend|front\s*end|screen|page|layout|visual|design|style|css|button|form|input|modal|dialog|card|navigation|header|topbar|menu)\b|(?:\u044d\u043a\u0440\u0430\u043d|\u0441\u0442\u0440\u0430\u043d\u0438\u0446|\u0432\u0438\u0437\u0443\u0430\u043b|\u0434\u0438\u0437\u0430\u0439\u043d|\u0441\u0442\u0438\u043b|\u043a\u043d\u043e\u043f|\u0444\u043e\u0440\u043c|\u043a\u0430\u0440\u0442\u043e\u0447|\u0448\u0430\u043f\u043a|\u0438\u043d\u0442\u0435\u0440\u0444\u0435\u0439\u0441))`;
+    const negativeIntent = String.raw`(?:\b(?:do\s+not|don't|dont)\s+(?:touch|change|edit|modify)\b|\bwithout\s+(?:changing|touching|editing|modifying)\b|\b(?:keep|leave)\b[^.!?\n]{0,32}\b(?:unchanged|alone|intact)\b|\b(?:not\s+touch|not\s+change)\b|\u043d\u0435\s+(?:\u043c\u0435\u043d|\u0442\u0440\u043e\u0433|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440|\u0438\u0437\u043c\u0435\u043d|\u043b\u043e\u043c\u0430)|\u0431\u0435\u0437\s+\u0438\u0437\u043c\u0435\u043d)`;
+
+    return [
+        new RegExp(`${frontendScope}[^.!?\\n]{0,120}${negativeIntent}`, "i"),
+        new RegExp(`${negativeIntent}[^.!?\\n]{0,120}${frontendScope}`, "i"),
+        /\b(?:backend|server|api)\s+only\b/i,
+        /(?:\u0442\u043e\u043b\u044c\u043a\u043e\s+(?:backend|api|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0441\u0435\u0440\u0432\u0435\u0440|\u0430\u043f\u0438))/i
+    ].some((pattern) => pattern.test(text));
+}
+
+function stripProtectedBackendScopeClauses(rawTask: string) {
+    const backendScope = String.raw`(?:\b(?:backend|back[-\s]?end|api|server|endpoint|route|request|requests|fetch|upload|uploads|loading|load|http|axios|database|db)\b|(?:\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0430\u043f\u0438|api|\u0441\u0435\u0440\u0432\u0435\u0440|\u044d\u043d\u0434\u043f\u043e\u0438\u043d\u0442|\u043c\u0430\u0440\u0448\u0440\u0443\u0442|\u0437\u0430\u043f\u0440\u043e\u0441|\u0444\u0435\u0442\u0447|\u0437\u0430\u0433\u0440\u0443\u0437|\u0431\u0430\u0437\u0430|\u0431\u0434))`;
+    const negativeVerb = String.raw`(?:\b(?:do\s+not|don't|dont)\s+(?:touch|change|edit|modify|rewrite)\b|\b(?:should|must)\s+not\s+(?:touch|change|edit|modify|rewrite)\b|\b(?:keep|leave)\b[^.!?\n]{0,32}\b(?:unchanged|alone)\b|\b(?:must|should)\b[^.!?\n]{0,32}\b(?:stay|remain)\b[^.!?\n]{0,16}\b(?:unchanged|intact)\b|\u043d\u0435\s+(?:\u0442\u0440\u043e\u0433\u0430\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u043c\u0435\u043d\u044f\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u043f\u0435\u0440\u0435\u043f\u0438\u0441\u044b\u0432\u0430\u0439|\u043f\u0435\u0440\u0435\u043f\u0438\u0441\u044b\u0432\u0430\u0442\u044c)|\u0431\u0435\u0437\s+\u0438\u0437\u043c\u0435\u043d\u0435\u043d\u0438\u0439)`;
+
+    return rawTask
+        .replace(/\bapi\b[^.!?;\n]{0,160}\u043d\u0435\s+(?:\u043c\u0435\u043d\u044f\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u0442\u0440\u043e\u0433\u0430\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439)[^.!?;\n]*/gi, " ")
+        .replace(/(?:\u0430\u043f\u0438|\u0437\u0430\u043f\u0440\u043e\u0441[a-z\u0430-\u044f\u04510-9_-]*|\u0437\u0430\u0433\u0440\u0443\u0437[a-z\u0430-\u044f\u04510-9_-]*)[^.!?;\n]{0,160}\u043d\u0435\s+(?:\u043c\u0435\u043d\u044f\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u0442\u0440\u043e\u0433\u0430\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439)[^.!?;\n]*/gi, " ")
+        .replace(new RegExp(`${backendScope}[^.!?;\\n]{0,160}${negativeVerb}[^.!?;\\n]*`, "gi"), " ")
+        .replace(new RegExp(`${negativeVerb}[^.!?;\\n]{0,160}${backendScope}[^.!?;\\n]*`, "gi"), " ");
 }
 
 function hasRuntimeUiSurfaceTerm(rawTask: string) {
@@ -120,6 +202,10 @@ function hasRuntimeUiSurfaceTerm(rawTask: string) {
         /\b(?:ui|ux|frontend|front-end|screen|page|layout|visual|design|style|css|button|form|input|modal|card|navigation|nav|navbar|header|topbar|menu|theme|account)\b/i,
         /(?:\u044d\u043a\u0440\u0430\u043d|\u0441\u0442\u0440\u0430\u043d\u0438\u0446|\u0432\u0438\u0437\u0443\u0430\u043b|\u0434\u0438\u0437\u0430\u0439\u043d|\u0432\u043d\u0435\u0448\u043d|\u0441\u0442\u0438\u043b|\u043a\u043d\u043e\u043f|\u0444\u043e\u0440\u043c|\u043f\u043e\u043b\u0435|\u043c\u043e\u0434\u0430\u043b|\u043a\u0430\u0440\u0442\u043e\u0447|\u043d\u0430\u0432\u0438\u0433\u0430\u0446|\u0448\u0430\u043f\u043a|\u0432\u0435\u0440\u0445\u043d\u0435\u0435\s+\u043c\u0435\u043d\u044e|\u043f\u0435\u0440\u0435\u043a\u043b\u044e\u0447\u0430\u0442\u0435\u043b\u044c\s+\u0442\u0435\u043c|\u043a\u043d\u043e\u043f\u043a\u0430\s+\u0430\u043a\u043a\u0430\u0443\u043d\u0442|\u0435\u0434\u0435\u0442\s+\u0432\u043f\u0440\u0430\u0432\u043e)/i
     ]);
+}
+
+function hasDirectUiSurfaceText(rawTask: string) {
+    return /(?:\b(?:ui|ux|frontend|front\s*end|screen|page|layout|visual|design|style|css|button|form|input|modal|dialog|card|navigation|nav|navbar|header|topbar|menu|theme|account)\b|(?:\u044d\u043a\u0440\u0430\u043d|\u0441\u0442\u0440\u0430\u043d\u0438\u0446|\u0432\u0438\u0437\u0443\u0430\u043b|\u0434\u0438\u0437\u0430\u0439\u043d|\u0432\u043d\u0435\u0448\u043d|\u0441\u0442\u0438\u043b|\u043a\u043d\u043e\u043f|\u0444\u043e\u0440\u043c|\u043f\u043e\u043b\u0435|\u0438\u043d\u043f\u0443\u0442|\u043c\u043e\u0434\u0430\u043b|\u0434\u0438\u0430\u043b\u043e\u0433|\u043a\u0430\u0440\u0442\u043e\u0447|\u043d\u0430\u0432\u0438\u0433\u0430\u0446|\u0448\u0430\u043f\u043a|\u043c\u0435\u043d\u044e|\u0430\u043a\u043a\u0430\u0443\u043d\u0442))/i.test(rawTask);
 }
 
 interface TaskConstraints {
@@ -149,7 +235,7 @@ function uniqueNormalizedTokens(values: string[]) {
 
 const NEGATIVE_CONSTRAINT_STOP_WORDS = new Set([
     "не", "no", "not", "do", "dont", "don't", "менять", "меняй", "трогать", "трогай", "редактировать", "редактируй",
-    "изменять", "изменяй", "modify", "change", "touch", "edit", "without", "keep", "and", "or", "the", "a", "an", "site", "page",
+    "изменять", "изменяй", "modify", "change", "touch", "edit", "without", "keep", "and", "or", "the", "a", "an", "site", "page", "pages", "screen", "screens", "route", "routes", "view", "views",
     "сайт", "сайта", "эту", "это", "там", "вот", "как", "или", "и", "а", "но", "при", "для", "по", "на", "остальные", "остальных",
     "страницы", "страниц", "файлы", "файл", "others", "other", "rest"
 ]);
@@ -180,6 +266,8 @@ function getNegativeConstraintPhrases(rawTask: string) {
         /([^.!?\n—]{1,160})\s+(?:do\s+not|don't|dont)\s+(?:change|touch|edit|modify)/gi
     ];
 
+    beforeNegativeRegexes.push(/([^.!?\n—]{1,160})\s+(?:should|must)\s+not\s+(?:change|touch|edit|modify)/gi);
+
     for (const regex of afterNegativeRegexes) {
         for (const match of text.matchAll(regex)) {
             const cleaned = cleanPhrase(match[1] ?? "");
@@ -194,7 +282,7 @@ function getNegativeConstraintPhrases(rawTask: string) {
             const afterBut = clause.split(/(?:^|\s)(?:но|but|however)(?:\s|$)/gi).pop()?.trim() ?? clause;
             // Skip positive task clauses such as "improve navigation and do not change other files".
             if (/(?:улучш|сдел|замен|добав|реализ|подключ|исправ|передел)/i.test(afterBut)
-                || /\b(?:improve|make|replace|add|implement|connect|fix|change)\b/i.test(afterBut)) continue;
+                || /\b(?:improve|make|replace|add|implement|connect|fix|change|update)\b/i.test(afterBut)) continue;
             const cleaned = cleanPhrase(afterBut);
             if (cleaned) phrases.push(cleaned);
         }
@@ -204,7 +292,7 @@ function getNegativeConstraintPhrases(rawTask: string) {
 }
 
 function getPositiveTaskText(rawTask: string) {
-    let text = rawTask;
+    let text = stripProtectedBackendScopeClauses(rawTask);
 
     for (const phrase of getNegativeConstraintPhrases(rawTask)) {
         if (!phrase) continue;
@@ -291,7 +379,11 @@ function mentionsOtherPagesProtected(rawTask: string) {
 
 function getTaskConstraints(input: SelectTaskFilesInput): TaskConstraints {
     const rawTask = input.rawTask;
-    const runtimeNoBackendConstraint = hasRuntimeNoBackendConstraint(rawTask);
+    const selectedArea = getSelectedTaskTypeArea(input.taskType);
+    const frontendProtectedForBackendTask = selectedArea === "backend" && hasSimpleProtectedFrontendText(rawTask);
+    const runtimeNoBackendConstraint = frontendProtectedForBackendTask
+        ? false
+        : hasRuntimeNoBackendConstraint(rawTask) || hasProtectedBackendScopeConstraint(rawTask) || hasDirectProtectedBackendText(rawTask) || hasSimpleProtectedBackendText(rawTask);
     const protectedFileTerms = uniqueStrings([
         ...extractNegativeConstraintTerms(rawTask),
         ...extractProtectedRouteTermsFromInventory(rawTask, input.inventory),
@@ -303,7 +395,16 @@ function getTaskConstraints(input: SelectTaskFilesInput): TaskConstraints {
             ]
             : [])
     ]);
-    const hasProtectedApiTerms = protectedFileTerms.some((term) => ["api", "endpoint", "service", "request", "requests", "fetch", "axios"].includes(normalizeForCompare(term)));
+    const hasProtectedApiTerms = protectedFileTerms.some((term) => {
+        const normalized = normalizeForCompare(term).replace(/^[^a-zа-яё0-9]+|[^a-zа-яё0-9]+$/gi, "");
+        return ["api", "endpoint", "service", "request", "requests", "fetch", "axios"].includes(normalized)
+            || normalized.startsWith("api")
+            || normalized.startsWith("апи")
+            || normalized.startsWith("запрос")
+            || normalized.startsWith("загруз")
+            || normalized.startsWith("upload")
+            || normalized.startsWith("load");
+    });
 
     const noBackendMutation = runtimeNoBackendConstraint || hasProtectedApiTerms || includesAny(rawTask, [
         "do not change backend",
@@ -338,6 +439,11 @@ function getTaskConstraints(input: SelectTaskFilesInput): TaskConstraints {
         "не редактируй бэкенд",
         "не меняй backend",
         "не менять backend",
+        "backend не менять",
+        "backend не трогать",
+        "backend не трогай",
+        "backend не редактировать",
+        "backend не редактируй",
         "не трогай backend",
         "не трогать backend",
         "не менять backend api",
@@ -365,7 +471,7 @@ function getTaskConstraints(input: SelectTaskFilesInput): TaskConstraints {
 
     ]);
 
-    const noFrontendMutation = includesAny(rawTask, [
+    const noFrontendMutation = hasSimpleProtectedFrontendText(rawTask) || includesAny(rawTask, [
         "do not change frontend",
         "don't change frontend",
         "do not change ui",
@@ -448,8 +554,33 @@ function isValidUsage(value: unknown): value is SelectedTaskFileUsage {
 }
 
 function tokenize(value: string) {
+    const separators = /[^a-z\u0430-\u044f\u04510-9_.\/-]+/i;
+    return normalizeForCompare(value)
+        .split(separators)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 2);
+
     return normalizeForCompare(value)
         .split(/[^a-zа-яё0-9_.\/-]+/i)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 2);
+}
+
+function tokenizeIdentifierLike(value: string) {
+    const separators = /[^a-z\u0430-\u044f\u04510-9]+/i;
+    return normalizePath(value)
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+        .toLowerCase()
+        .split(separators)
+        .map((token) => token.trim())
+        .filter((token) => token.length >= 2);
+
+    return normalizePath(value)
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .replace(/([A-Z]+)([A-Z][a-z])/g, "$1 $2")
+        .toLowerCase()
+        .split(/[^a-zÐ°-ÑÑ‘0-9]+/i)
         .map((token) => token.trim())
         .filter((token) => token.length >= 2);
 }
@@ -534,14 +665,39 @@ function isBackendOrAuthProtectedSupportFile(file: ProjectInventoryFile) {
         || (isBackendLeaningPath(file.path) && !isClientUiPath(file.path));
 }
 
+function isBehaviorOrStateSupportFile(file: ProjectInventoryFile) {
+    const filePath = normalizeForCompare(file.path);
+    const fileText = normalizeForCompare([
+        file.path,
+        file.name,
+        file.role,
+        ...(file.symbols ?? []),
+        ...(file.exports ?? [])
+    ].join(" "));
+
+    return isBackendOrAuthProtectedSupportFile(file)
+        || ["hook", "store", "service", "repository", "model", "state"].includes(file.role)
+        || filePath.includes("/contexts/")
+        || filePath.includes("/context/")
+        || filePath.includes("/hooks/")
+        || filePath.includes("/stores/")
+        || filePath.includes("/store/")
+        || filePath.includes("/state/")
+        || filePath.includes("/services/")
+        || filePath.includes("/repositories/")
+        || filePath.includes("/repository/")
+        || filePath.includes("/data/")
+        || includesAny(fileText, ["context", "store", "state", "reducer", "dispatch", "hook", "service", "repository"]);
+}
+
 function getSelectedTaskTypeArea(taskType: string): EffectiveTaskArea {
     const selected = normalizeForCompare(taskType);
-    if (selected.includes("ui") || selected.includes("ux") || selected.includes("front")) return "ui";
-    if (selected.includes("backend") || selected.includes("server") || selected.includes("api")) return "backend";
-    if (selected.includes("fullstack") || selected.includes("full-stack")) return "fullstack";
     if (selected.includes("build") || selected.includes("config")) return "build";
     if (selected.includes("docs")) return "docs";
     if (selected.includes("test")) return "tests";
+    if (selected.includes("ui") || selected.includes("ux") || selected.includes("front")) return "ui";
+    if (selected.includes("backend") || selected.includes("server") || selected.includes("api")) return "backend";
+    if (selected.includes("fullstack") || selected.includes("full-stack")) return "fullstack";
     if (selected.includes("bugfix")) return "bugfix";
     if (selected.includes("refactor")) return "refactor";
     return "general";
@@ -579,11 +735,16 @@ function scoreTaskArea(input: SelectTaskFilesInput) {
     const hasApi = includesAny(text, ["api", "апи", "endpoint", "эндпоинт", "route", "маршрут"]);
     const hasAuth = includesAny(text, ["auth", "authorization", "authentication", "login", "session", "token", "cookie", "авторизац", "логин", "сесс", "токен", "куки"]);
     const hasServer = includesAny(text, ["server", "backend", "database", "db", "service", "controller", "сервер", "серверный", "бэкенд", "бекенд", "база", "бд", "сервис"]);
-    const hasUi = hasRuntimeUiSurfaceTerm(input.rawTask) || includesAny(text, ["ui", "ux", "screen", "page", "layout", "visual", "design", "style", "css", "button", "form", "input", "focus", "modal", "card", "navigation", "header", "frontend", "component", "экран", "страниц", "визуал", "дизайн", "кноп", "форма", "пол", "фокус", "модал", "карточ", "навигац", "шапк", "дороже", "чище", "деревян", "дефолт"]);
+    const hasUi = hasRuntimeUiSurfaceTerm(input.rawTask) || includesAny(text, ["ui", "ux", "screen", "page", "layout", "visual", "design", "style", "css", "button", "form", "input", "focus", "modal", "card", "navigation", "header", "frontend", "component", "flow", "display", "empty state", "placeholder", "экран", "страниц", "визуал", "дизайн", "кноп", "форма", "пол", "фокус", "модал", "карточ", "навигац", "шапк", "дороже", "чище", "деревян", "дефолт"]);
 
     if (hasApi || hasAuth || hasServer) scores.backend += 5;
     if (hasApi && hasAuth) scores.backend += 8;
     if (hasUi) scores.ui += 5;
+    if (isVisualOnlyUiTask(input)) {
+        scores.ui += 14;
+        scores.backend -= 10;
+        scores.fullstack -= 8;
+    }
 
     const positiveExplicitResolution = resolveExplicitFileMentions(getPositiveTaskText(input.rawTask), input.inventory);
     const positiveExplicitFiles = positiveExplicitResolution.existingPaths
@@ -602,15 +763,26 @@ function scoreTaskArea(input: SelectTaskFilesInput) {
             scores.fullstack += 11;
         }
     }
-    if (includesAny(text, ["build", "npm run build", "compile", "compilation", "bundl", "import", "imports", "module not found", "resolve", "alias", "tsconfig", "vite", "next build", "eslint", "typecheck", "typescript", "сборк", "билд", "компиляц", "импорт", "импортами", "путями", "алиас", "модул"])) scores.build += 9;
+    if (includesAny(text, ["build", "npm run build", "compile", "compilation", "bundl", "import", "imports", "module not found", "resolve", "alias", "tsconfig", "vite", "next build", "eslint", "typecheck", "typescript", "proxy", "port", "configuration", "config", "dev server", "dev proxy", "сборк", "билд", "компиляц", "импорт", "импортами", "путями", "алиас", "модул"])) scores.build += 12;
     if (includesAny(text, ["readme", "docs", "documentation", "guide", "manual", "instructions", "how to run", "setup", "onboarding", "документац", "ридми", "инструкц", "запуск", "запуска", "разработчик", "команды"])) scores.docs += docsAsSecondaryDeliverable ? 2 : 8;
     if (docsAsSecondaryDeliverable) scores.docs -= 4;
     if (includesAny(text, ["test", "tests", "unit", "e2e", "spec", "coverage", "jest", "vitest", "playwright", "тест", "тесты", "покрытие"])) scores.tests += 7;
     if (includesAny(text, ["bug", "fix", "broken", "error", "crash", "fails", "not working", "ошибка", "баг", "слом", "падает", "не работает", "краш", "исправь", "почини"])) scores.bugfix += 3;
     if (includesAny(text, ["refactor", "cleanup", "restructure", "рефактор", "почисти", "не меняй логику", "не меняй бизнес-логику"])) scores.refactor += 3;
 
-    if (hasUi && (hasApi || hasServer) && includesAny(text, ["button", "form", "screen", "page", "показывает результат", "кноп", "форма", "экран", "страниц"]) && includesAny(text, ["api", "endpoint", "server", "route", "вызывает сервер", "сервер", "эндпоинт", "маршрут"])) {
+    if (hasUi && (hasApi || hasServer) && includesAny(text, [
+        "button", "form", "screen", "page", "component", "badge", "card", "click", "handler",
+        "показывает результат", "кноп", "форма", "экран", "страниц", "компонент", "бейдж", "карточ", "клик", "нажат"
+    ]) && includesAny(text, ["api", "endpoint", "server", "route", "вызывает сервер", "сервер", "эндпоинт", "маршрут"])) {
         scores.fullstack += 12;
+    }
+
+    if (hasUi && hasApi && includesAny(text, [
+        "connect", "wire", "hook up", "click", "handler", "trigger", "call", "request", "submit",
+        "\u043f\u043e\u0434\u043a\u043b\u044e\u0447", "\u043a\u043b\u0438\u043a", "\u043d\u0430\u0436\u0430\u0442", "\u0432\u044b\u0437\u043e\u0432", "\u0437\u0430\u043f\u0440\u043e\u0441"
+    ])) {
+        scores.fullstack += 14;
+        scores.backend -= 4;
     }
 
     if (constraints.noBackendMutation) {
@@ -635,20 +807,67 @@ function scoreTaskArea(input: SelectTaskFilesInput) {
         scores[input.taskIntent.taskArea] += input.taskIntent.confidence >= 0.65 ? 2.5 : 1.2;
     }
 
+    if (input.taskIntent?.taskArea === "fullstack" && input.taskIntent.structuredIntent?.needsBackend === true) {
+        scores.fullstack += 9;
+        scores.backend -= 3;
+    }
+
+    if (input.taskIntent?.taskArea === "backend" && input.taskIntent.structuredIntent?.needsBackend === true) {
+        scores.backend += 10;
+        scores.ui -= 5;
+        scores.fullstack -= 3;
+    }
+
     if (constraints.noBackendMutation && hasUi) {
         scores.ui += 10;
         scores.backend -= 10;
         scores.fullstack -= 8;
     }
 
+    if (hasUi && hasAuth && !hasApi && !hasServer && includesAny(text, [
+        "badge", "badges", "chip", "chips", "provider", "providers", "avatar", "profile", "account",
+        "page", "screen", "visual", "style", "card", "label",
+        "\u0431\u0435\u0439\u0434\u0436", "\u0431\u0435\u0439\u0434\u0436\u0438", "\u043f\u0440\u043e\u0432\u0430\u0439\u0434\u0435\u0440", "\u043f\u0440\u043e\u0432\u0430\u0439\u0434\u0435\u0440\u044b",
+        "\u0430\u0432\u0430\u0442\u0430\u0440", "\u043f\u0440\u043e\u0444\u0438\u043b", "\u0430\u043a\u043a\u0430\u0443\u043d\u0442", "\u0441\u0442\u0440\u0430\u043d\u0438\u0446", "\u0432\u0438\u0437\u0443\u0430\u043b", "\u0441\u0442\u0438\u043b", "\u043a\u0430\u0440\u0442\u043e\u0447"
+    ])) {
+        scores.ui += 8;
+        scores.backend -= 8;
+        scores.fullstack -= 4;
+    }
+
     const selectedArea = getSelectedTaskTypeArea(input.taskType);
-    if (selectedArea !== "general") scores[selectedArea] += 4;
+    if (selectedArea !== "general") scores[selectedArea] += selectedArea === "build" || selectedArea === "docs" || selectedArea === "tests" ? 10 : 6;
 
     return scores;
 }
 
 function getEffectiveTaskArea(input: SelectTaskFilesInput): EffectiveTaskArea {
     const scores = scoreTaskArea(input);
+    const selectedArea = getSelectedTaskTypeArea(input.taskType);
+    const positiveText = normalizeForCompare(getPositiveTaskText(input.rawTask));
+    const constraints = getTaskConstraints(input);
+
+    if (
+        selectedArea === "backend" &&
+        (constraints.noFrontendMutation || hasSimpleProtectedFrontendText(input.rawTask))
+    ) {
+        return "backend";
+    }
+
+    if (
+        selectedArea === "general" &&
+        (constraints.noBackendMutation || hasSimpleProtectedBackendText(input.rawTask)) &&
+        (hasRuntimeUiSurfaceTerm(input.rawTask) || hasDirectUiSurfaceText(input.rawTask) || hasSimpleUiSurfaceText(input.rawTask))
+    ) {
+        return "ui";
+    }
+
+    if (
+        selectedArea === "build" &&
+        includesAny(positiveText, ["vite", "proxy", "port", "configuration", "config", "tsconfig", "build", "dev server", "alias", "eslint", "typecheck"])
+    ) {
+        return "build";
+    }
     const sorted = (Object.entries(scores) as Array<[EffectiveTaskArea, number]>).sort((a, b) => b[1] - a[1]);
     const [area, score] = sorted[0] ?? ["general", 0];
     return score > 0 ? area : "general";
@@ -669,6 +888,10 @@ function getAssetMode(input: SelectTaskFilesInput): AssetMode {
     ]);
 
     if (!hasAssetIntent) return "none";
+
+    if (includesAny(taskText, ["release", "releases", "download", "checksum", "installer", "attached", "asset is missing", "asset missing", "page", "empty state"])) {
+        return "none";
+    }
 
     const hasNonAssetWork = includesAny(taskText, [
         "filter", "search", "sort", "select", "dropdown", "navigation", "button", "menu", "layout",
@@ -691,6 +914,25 @@ function buildSemanticTokens(input: SelectTaskFilesInput) {
 
     // Universal technical/UI meanings only. Business-domain words are not hardcoded here;
     // they are taken dynamically from the user's task and real inventory textHints.
+    addSemanticTokenIfIncludes(tokens, text, ["\u0442\u0430\u0431\u043b\u0438\u0446", "table"], ["table", "row", "rows", "grid"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u0441\u043f\u0438\u0441", "list"], ["list", "items", "item", "row", "rows"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u0444\u0438\u043b\u044c\u0442\u0440", "filter"], ["filter", "filters", "controls", "select", "dropdown"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u043f\u043e\u0438\u0441\u043a", "search"], ["search", "query"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u0444\u043e\u0440\u043c", "form", "input", "\u0444\u043e\u043a\u0443\u0441"], ["form", "input", "field", "focus"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442", "\u044e\u0437\u0435\u0440", "user"], ["user", "users", "account", "profile"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u0430\u0434\u043c\u0438\u043d", "admin", "administrator"], ["admin", "administrator", "dashboard"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u0440\u0435\u043b\u0438\u0437", "release", "version", "\u0432\u0435\u0440\u0441"], ["release", "releases", "version", "versions", "changelog"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u043f\u0443\u0441\u0442\u043e\u0435 \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435", "empty state", "empty", "\u043d\u0435\u0442 \u0434\u0430\u043d\u043d\u044b\u0445", "\u043d\u0438\u0447\u0435\u0433\u043e \u043d\u0435 \u043d\u0430\u0439\u0434\u0435\u043d\u043e"], ["empty", "state", "placeholder"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u0430\u043a\u043a\u0430\u0443\u043d\u0442", "account"], ["account", "profile", "user"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u043f\u0440\u043e\u0432\u0430\u0439\u0434\u0435\u0440", "provider", "oauth"], ["provider", "providers", "oauth"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u0431\u0435\u0439\u0434\u0436", "badge", "chip"], ["badge", "badges", "chip", "chips", "label"]);
+    addSemanticTokenIfIncludes(tokens, text, ["legal", "privacy", "policy", "terms", "\u044e\u0440\u0438\u0434", "\u043f\u0440\u0438\u0432\u0430\u0442", "\u043f\u043e\u043b\u0438\u0442\u0438\u043a"], ["legal", "privacy", "policy", "terms"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u0441\u0442\u0440\u0430\u043d\u0438\u0446", "page", "screen", "view"], ["page", "screen", "view"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u043d\u0430\u0432\u0438\u0433\u0430\u0446", "navigation", "navbar", "\u043c\u0435\u043d\u044e", "theme", "\u0442\u0435\u043c\u0430"], ["nav", "navigation", "navbar", "topbar", "header", "menu", "theme"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u043a\u043d\u043e\u043f", "button"], ["button", "buttons", "actions"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u043a\u0430\u0440\u0442\u043e\u0447", "card"], ["card", "cards", "item"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u0430\u043f\u0438", "api", "endpoint", "route", "service"], ["api", "client", "service", "services", "route", "routes"]);
+    addSemanticTokenIfIncludes(tokens, text, ["\u0441\u0435\u0440\u0432\u0435\u0440", "server", "backend", "\u0431\u044d\u043a\u0435\u043d\u0434", "\u0431\u0435\u043a\u0435\u043d\u0434"], ["server", "backend", "api", "route", "service"]);
     addSemanticTokenIfIncludes(tokens, text, ["таблиц", "table"], ["table", "row", "rows", "grid"]);
     addSemanticTokenIfIncludes(tokens, text, ["спис", "list"], ["list", "items", "item", "row", "rows"]);
     addSemanticTokenIfIncludes(tokens, text, ["каталог", "catalog"], ["catalog", "catalogue", "list", "grid"]);
@@ -699,6 +941,10 @@ function buildSemanticTokens(input: SelectTaskFilesInput) {
     addSemanticTokenIfIncludes(tokens, text, ["сорт", "sort"], ["sort", "sorting", "order"]);
     addSemanticTokenIfIncludes(tokens, text, ["модал", "modal", "dialog"], ["modal", "dialog"]);
     addSemanticTokenIfIncludes(tokens, text, ["форма", "form", "input", "focus", "фокус"], ["form", "input", "field", "focus"]);
+    addSemanticTokenIfIncludes(tokens, text, ["пользоват", "юзер", "user"], ["user", "users", "account", "profile"]);
+    addSemanticTokenIfIncludes(tokens, text, ["админ", "администратор", "admin", "administrator"], ["admin", "administrator", "dashboard"]);
+    addSemanticTokenIfIncludes(tokens, text, ["релиз", "release", "version", "верс"], ["release", "releases", "version", "versions", "changelog"]);
+    addSemanticTokenIfIncludes(tokens, text, ["пустое состояние", "empty state", "empty", "нет данных", "ничего не найдено"], ["empty", "state", "placeholder"]);
     addSemanticTokenIfIncludes(tokens, text, ["навигац", "navigation", "navbar", "верхнее меню", "меню", "theme", "account", "тема", "аккаунт"], ["nav", "navigation", "navbar", "topbar", "header", "menu", "theme", "account"]);
     addSemanticTokenIfIncludes(tokens, text, ["кноп", "button"], ["button", "buttons", "actions"]);
     addSemanticTokenIfIncludes(tokens, text, ["главн", "homepage", "landing"], ["home", "homepage", "landing"]);
@@ -859,14 +1105,20 @@ function extractNaturalRouteMentions(input: SelectTaskFilesInput, explicitRoutes
 
     if (taskTokens.length === 0) return [];
 
-    const hasPageLanguage = includesAny(positiveText, [
+    const hasUnicodePageLanguage = /(?:\u0441\u0442\u0440\u0430\u043d\u0438\u0446|\u044d\u043a\u0440\u0430\u043d|\u0440\u0430\u0437\u0434\u0435\u043b|\u0441\u0435\u043a\u0446\u0438|\u0432\u043a\u043b\u0430\u0434\u043a)/i.test(positiveText);
+    const hasPageLanguage = hasUnicodePageLanguage || includesAny(positiveText, [
         "страниц", "раздел", "route", "page", "screen", "экран", "вкладк", "секци"
     ]);
 
+    const callbackFlowRequested = includesAny(positiveText, [
+        "callback", "redirect", "return url", "oauth callback", "auth callback",
+        "\u043a\u043e\u043b\u0431\u044d\u043a", "\u0440\u0435\u0434\u0438\u0440\u0435\u043a\u0442", "\u0432\u043e\u0437\u0432\u0440\u0430\u0442", "\u043f\u043e\u0441\u043b\u0435 \u0432\u0445\u043e\u0434\u0430"
+    ]);
     const existing = new Set(explicitRoutes.map(normalizeRouteValue));
 
     return getInventoryRouteCandidates(input.inventory)
         .filter((candidate) => !existing.has(candidate.route))
+        .filter((candidate) => callbackFlowRequested || !includesAny(candidate.route, ["callback", "redirect", "return"]))
         .map((candidate) => ({ candidate, score: routeCandidateMatchesTask(candidate, taskTokens) + (hasPageLanguage ? 10 : 0) }))
         .filter((row) => row.score >= 28)
         .sort((a, b) => b.score - a.score)
@@ -879,6 +1131,10 @@ function extractProtectedRouteTermsFromInventory(rawTask: string, inventory: Pro
         .filter((token) => !NEGATIVE_CONSTRAINT_STOP_WORDS.has(token));
 
     if (negativeTokens.length === 0) return [];
+    const negativeText = normalizeForCompare(negativeTokens.join(" "));
+    const backendProtectedPhrase = includesAny(negativeText, ["backend", "server", "api", "endpoint", "service", "\u0431\u044d\u043a", "\u0431\u0435\u043a", "\u0441\u0435\u0440\u0432\u0435\u0440", "\u0430\u043f\u0438"]);
+    const uiRouteProtectedPhrase = includesAny(negativeText, ["page", "pages", "screen", "screens", "route", "routes", "view", "views", "ui", "frontend", "component", "\u0441\u0442\u0440\u0430\u043d\u0438\u0446", "\u044d\u043a\u0440\u0430\u043d", "\u0440\u043e\u0443\u0442", "\u043c\u0430\u0440\u0448\u0440\u0443\u0442", "\u043a\u043e\u043c\u043f\u043e\u043d\u0435\u043d\u0442"]);
+    if (backendProtectedPhrase && !uiRouteProtectedPhrase) return [];
 
     const terms = new Set<string>();
     for (const candidate of getInventoryRouteCandidates(inventory)) {
@@ -993,7 +1249,16 @@ function isBackendLeaningPath(pathValue: string) {
 
 function isClientApiBridgePath(pathValue: string) {
     const filePath = normalizeForCompare(pathValue);
-    return filePath.endsWith("/api.ts") || filePath.endsWith("/api.js") || filePath.includes("/lib/api") || filePath.includes("/services/api") || filePath.includes("/cloudapi") || filePath.includes("/clientapi");
+    return filePath.endsWith("/api.ts")
+        || filePath.endsWith("/api.js")
+        || filePath.endsWith("/api/client.ts")
+        || filePath.endsWith("/api/client.js")
+        || filePath.endsWith("/api/client.tsx")
+        || filePath.endsWith("/api/client.jsx")
+        || filePath.includes("/lib/api")
+        || filePath.includes("/services/api")
+        || filePath.includes("/cloudapi")
+        || filePath.includes("/clientapi");
 }
 
 function isServerSidePath(pathValue: string) {
@@ -1334,6 +1599,12 @@ function getRouteMatchScore(file: ProjectInventoryFile, routeMentions: string[])
     const filePath = normalizeForCompare(file.path);
     const routePath = normalizeForCompare(file.routePath ?? "");
     const fileText = getFileSearchText(file);
+    const identifierTokens = new Set([
+        ...tokenizeIdentifierLike(file.path),
+        ...tokenizeIdentifierLike(file.name),
+        ...(file.symbols ?? []).flatMap(tokenizeIdentifierLike),
+        ...(file.exports ?? []).flatMap(tokenizeIdentifierLike)
+    ]);
     let score = 0;
 
     for (const route of routeMentions) {
@@ -1347,6 +1618,7 @@ function getRouteMatchScore(file: ProjectInventoryFile, routeMentions: string[])
         if (filePath.includes(`/${normalizedRoute}/`) || filePath.endsWith(`/${normalizedRoute}/page.tsx`) || filePath.endsWith(`/${normalizedRoute}/page.jsx`)) score = Math.max(score, 122);
         if (filePath.includes(routeFolderNeedle) && (filePath.endsWith(".tsx") || filePath.endsWith(".jsx") || filePath.endsWith(".ts") || filePath.endsWith(".js"))) score = Math.max(score, 112);
         if (filePath.includes(routeFolderNeedle)) score = Math.max(score, 88);
+        if (routeTail.length >= 3 && identifierTokens.has(routeTail) && isPageLikeTargetFile(file)) score = Math.max(score, 126);
         if (routeTail.length >= 3 && (filePath.includes(routeTail) || fileText.includes(routeTail))) score = Math.max(score, 46);
     }
 
@@ -1368,18 +1640,27 @@ function isDirectRoutePageMatch(file: ProjectInventoryFile, routeMentions: strin
     const routePath = normalizeForCompare(file.routePath ?? "");
     const fileName = filePath.split("/").pop() ?? filePath;
     const pageLike = file.role === "page" || ["page.tsx", "page.jsx", "page.ts", "page.js"].includes(fileName);
+    const identifierTokens = new Set([
+        ...tokenizeIdentifierLike(file.path),
+        ...tokenizeIdentifierLike(file.name),
+        ...(file.symbols ?? []).flatMap(tokenizeIdentifierLike),
+        ...(file.exports ?? []).flatMap(tokenizeIdentifierLike)
+    ]);
 
     if (!pageLike) return false;
 
     for (const route of routeMentions) {
         const normalizedRoute = normalizeForCompare(route).replace(/^\/+|\/+$/g, "");
         if (!normalizedRoute) continue;
+        const routeParts = normalizedRoute.split("/").filter(Boolean);
+        const routeTail = routeParts[routeParts.length - 1] ?? normalizedRoute;
 
         if (routePath === `/${normalizedRoute}` || routePath.endsWith(`/${normalizedRoute}`)) return true;
         if (filePath.endsWith(`/${normalizedRoute}/page.tsx`)
             || filePath.endsWith(`/${normalizedRoute}/page.jsx`)
             || filePath.endsWith(`/${normalizedRoute}/page.ts`)
             || filePath.endsWith(`/${normalizedRoute}/page.js`)) return true;
+        if (routeParts.length === 1 && identifierTokens.has(routeTail)) return true;
     }
 
     return false;
@@ -1438,6 +1719,7 @@ function getPositiveTargetTokens(input: SelectTaskFilesInput) {
     const negativeTerms = new Set(extractNegativeConstraintTerms(input.rawTask).map(normalizeForCompare));
     const tokens = uniqueNormalizedTokens(tokenize([
         getPositiveTaskText(input.rawTask),
+        ...buildSemanticTokens(input),
         ...(input.taskIntent?.domainTerms ?? []),
         ...(input.taskIntent?.mentionedEntities ?? []),
         ...(input.taskIntent?.recommendedSearchTerms ?? []),
@@ -1463,6 +1745,7 @@ function getGroundedPositiveTargetTokens(input: SelectTaskFilesInput) {
         .filter((target) => structuredTargetHasTaskSupport(input, target));
     const tokens = uniqueNormalizedTokens(tokenize([
         getPositiveTaskText(input.rawTask),
+        ...buildSemanticTokens(input),
         ...supportedStructuredTargets.flatMap((target) => [
             target.value,
             target.path ?? "",
@@ -1563,10 +1846,20 @@ function getPageSemanticMatchScore(file: ProjectInventoryFile, input: SelectTask
     const filePath = normalizeForCompare(file.path);
     const routePath = normalizeForCompare(file.routePath ?? "");
     const routeSegments = tokenize(routePath).filter((token) => !BROAD_PATH_TOKENS.has(token));
-    const pathSegments = tokenize(file.path).filter((token) => !BROAD_PATH_TOKENS.has(token));
-    const symbolValues = [...(file.symbols ?? []), ...(file.exports ?? [])];
+    const pathSegments = uniqueStrings([
+        ...tokenize(file.path),
+        ...tokenizeIdentifierLike(file.path),
+        ...tokenizeIdentifierLike(file.name)
+    ]).filter((token) => !BROAD_PATH_TOKENS.has(token));
+    const symbolValues = [
+        ...(file.symbols ?? []),
+        ...(file.exports ?? []),
+        ...(file.symbols ?? []).flatMap(tokenizeIdentifierLike),
+        ...(file.exports ?? []).flatMap(tokenizeIdentifierLike)
+    ];
     const hintValues = file.textHints ?? [];
     const previewText = file.contentPreview ?? "";
+    const concreteLocationTokens = getConcretePageLocationTokens(input);
 
     let score = 0;
     let matchedSignals = 0;
@@ -1590,6 +1883,28 @@ function getPageSemanticMatchScore(file: ProjectInventoryFile, input: SelectTask
     matchedSignals += symbolMatch.matches;
     semanticMatches += symbolMatch.matches;
 
+    if (concreteLocationTokens.length > 0) {
+        const locationIdentityValues = [
+            filePath,
+            file.name,
+            routePath,
+            ...routeSegments,
+            ...pathSegments,
+            ...symbolValues,
+            ...hintValues
+        ];
+        const locationMatch = countTokenMatchesInValues(concreteLocationTokens, locationIdentityValues, 72);
+        score += locationMatch.score;
+        matchedSignals += locationMatch.matches;
+        semanticMatches += locationMatch.matches;
+
+        if (locationMatch.matches > 0) {
+            score += 54;
+        } else if (isSingularConcretePageRequest(input)) {
+            score -= 90;
+        }
+    }
+
     for (const token of positiveTokens) {
         if (filePartMatchesToken(previewText, token)) {
             score += 26;
@@ -1598,7 +1913,8 @@ function getPageSemanticMatchScore(file: ProjectInventoryFile, input: SelectTask
         }
     }
 
-    const hasPageLanguage = includesAny(getPositiveTaskText(input.rawTask), [
+    const hasUnicodePageLanguage = /(?:\u0441\u0442\u0440\u0430\u043d\u0438\u0446|\u044d\u043a\u0440\u0430\u043d|\u0440\u0430\u0437\u0434\u0435\u043b|\u0441\u0435\u043a\u0446\u0438|\u0432\u043a\u043b\u0430\u0434\u043a)/i.test(getPositiveTaskText(input.rawTask));
+    const hasPageLanguage = hasUnicodePageLanguage || includesAny(getPositiveTaskText(input.rawTask), [
         "страниц", "страница", "страницу", "странице", "раздел", "секци", "экран", "page", "route", "screen", "section", "view"
     ]);
 
@@ -1609,6 +1925,14 @@ function getPageSemanticMatchScore(file: ProjectInventoryFile, input: SelectTask
     if (file.role === "page") score += 18;
     if (file.routePath) score += 14;
 
+    const callbackFlowRequested = includesAny(getPositiveTaskText(input.rawTask), [
+        "callback", "redirect", "return url", "oauth callback", "auth callback",
+        "\u043a\u043e\u043b\u0431\u044d\u043a", "\u0440\u0435\u0434\u0438\u0440\u0435\u043a\u0442", "\u0432\u043e\u0437\u0432\u0440\u0430\u0442", "\u043f\u043e\u0441\u043b\u0435 \u0432\u0445\u043e\u0434\u0430"
+    ]);
+    if (!callbackFlowRequested && includesAny([file.path, file.name, file.routePath ?? "", ...(file.symbols ?? []), ...(file.exports ?? [])].join(" "), ["callback", "redirect", "return"])) {
+        score -= 220;
+    }
+
     if (isRootPageFile(file) && !isHomePageTask(input)) {
         score -= 160;
     }
@@ -1617,6 +1941,16 @@ function getPageSemanticMatchScore(file: ProjectInventoryFile, input: SelectTask
 }
 
 function taskAllowsMultipleConcretePageTargets(input: SelectTaskFilesInput, tokenContext: TokenContext) {
+    if (matchesAny(getPositiveTaskText(input.rawTask), [
+        /\b(?:on\s+the\s+page|on\s+page|screen|view)\b/i,
+        /(?:\u043d\u0430\s+\u0441\u0442\u0440\u0430\u043d\u0438\u0446(?:\u0443|\u0435)|\u043d\u0430\s+\u044d\u043a\u0440\u0430\u043d(?:\u0435)?|\u0432\s+\u0440\u0430\u0437\u0434\u0435\u043b\u0435)/i
+    ]) && !matchesAny(getPositiveTaskText(input.rawTask), [
+        /\b(?:pages|routes|screens|views|both|several|multiple)\b/i,
+        /(?:\u0441\u0442\u0440\u0430\u043d\u0438\u0446(?:\u044b|\u0430\u0445|\u0430\u043c\u0438)|\u044d\u043a\u0440\u0430\u043d(?:\u044b|\u0430\u0445|\u0430\u043c\u0438)|\u0440\u0430\u0437\u0434\u0435\u043b(?:\u044b|\u0430\u0445|\u0430\u043c\u0438)|\u043e\u0431\u0435|\u043e\u0431\u0430|\u043d\u0435\u0441\u043a\u043e\u043b\u044c\u043a)/i
+    ])) {
+        return false;
+    }
+
     if (tokenContext.routeMentions.length > 1) return true;
     if (getStructuredIntentTargets(input).filter((target) => target.kind === "page" || target.kind === "route").length > 1) return true;
 
@@ -1626,8 +1960,26 @@ function taskAllowsMultipleConcretePageTargets(input: SelectTaskFilesInput, toke
     ]);
 }
 
+function isSingularConcretePageRequest(input: SelectTaskFilesInput) {
+    const text = normalizeForCompare(getPositiveTaskText(input.rawTask));
+    return includesAny(text, [
+        "on the page",
+        "on page",
+        "this page",
+        "screen",
+        "this screen",
+        "на страницу",
+        "на странице",
+        "экране",
+        "на экран",
+        "в разделе",
+        "этот раздел"
+    ]);
+}
+
 function getConcretePageTargetLimit(input: SelectTaskFilesInput, area: EffectiveTaskArea, tokenContext: TokenContext) {
     if (!isSpecificPageOrFileTask(input, area)) return 2;
+    if (isSingularConcretePageRequest(input)) return 1;
     return taskAllowsMultipleConcretePageTargets(input, tokenContext) ? 2 : 1;
 }
 
@@ -1642,7 +1994,7 @@ function getSemanticPageTargetCandidates(input: SelectTaskFilesInput, area: Effe
         .filter((file) => !isRootPageFile(file) || isHomePageTask(input))
         .filter((file) => canUseSemanticPageTargetFile(input, file, area, assetMode))
         .map((file) => ({ file, score: getPageSemanticMatchScore(file, input, tokenContext) }))
-        .filter((item) => item.score >= 112)
+        .filter((item) => item.score >= 82)
         .sort((a, b) => b.score - a.score)
         .slice(0, getConcretePageTargetLimit(input, area, tokenContext));
 }
@@ -1703,6 +2055,25 @@ function scopeSelectionToPrimaryPageTargets(input: SelectTaskFilesInput, area: E
     return pageScopedSelected;
 }
 
+function scopeFullstackSelectionToPrimaryUiTargets(input: SelectTaskFilesInput, area: EffectiveTaskArea, selected: SelectedTaskFile[]) {
+    if (area !== "fullstack") return selected;
+
+    const tokenContext = buildTokenContext(input);
+    const pageTargets = getSelectedConcretePageTargets(selected, input.inventory);
+    if (pageTargets.length <= 1) return selected;
+
+    const primaryPageTargets = getPrimaryConcretePageTargets(input, "ui", tokenContext, pageTargets);
+    if (primaryPageTargets.length === 0 || primaryPageTargets.length === pageTargets.length) return selected;
+
+    const primaryPagePaths = new Set(primaryPageTargets.map((file) => normalizeForCompare(file.path)));
+    return selected.filter((selectedFile) => {
+        const inventoryFile = findInventoryFile(input.inventory, selectedFile.path);
+        if (!inventoryFile) return true;
+        if (!isPageLikeTargetFile(inventoryFile)) return true;
+        return primaryPagePaths.has(normalizeForCompare(inventoryFile.path));
+    });
+}
+
 function resolveImportToInventoryFile(sourceFile: ProjectInventoryFile, importPath: string, inventory: ProjectInventory) {
     const rawImport = normalizePath(importPath).trim();
     if (!rawImport || rawImport.startsWith("node:")) return undefined;
@@ -1746,29 +2117,66 @@ function resolveImportToInventoryFile(sourceFile: ProjectInventoryFile, importPa
 function getImportedReferenceFilesForPageTargets(input: SelectTaskFilesInput, pageTargets: ProjectInventoryFile[], area: EffectiveTaskArea, assetMode: AssetMode, selected: SelectedTaskFile[]) {
     const seen = new Set(selected.map((file) => normalizeForCompare(file.path)));
     const references: SelectedTaskFile[] = [];
+    const semanticGraph = buildProjectSemanticGraph(input.inventory);
+    const graphSupport = semanticGraph.getSupportFiles(
+        pageTargets.map((page) => page.path),
+        { includeRouteLocal: true, maxPerTarget: 6 }
+    );
 
-    for (const page of pageTargets) {
-        for (const importPath of page.imports ?? []) {
-            if (references.length >= 4) return references;
-            const imported = resolveImportToInventoryFile(page, importPath, input.inventory);
-            if (!imported) continue;
-            const normalized = normalizeForCompare(imported.path);
-            if (seen.has(normalized)) continue;
-            if (!canUsePageImportFile(input, page, imported, area)) continue;
-            if (isAppShellOrEntrypointFile(imported) || isGlobalStyleFile(imported) || isSystemSeoFile(imported)) continue;
-            if (isServerSidePath(imported.path) && area === "ui") continue;
+    const usableGraphSupport = graphSupport
+        .map(({ file: imported, edge }) => {
+            const page = pageTargets.find((target) => normalizeForCompare(target.path) === normalizeForCompare(edge.from)) ?? pageTargets[0];
+            if (!page) return undefined;
+            if (!canUsePageImportFile(input, page, imported, area)) return undefined;
+            if (isAppShellOrEntrypointFile(imported) || isGlobalStyleFile(imported) || isSystemSeoFile(imported)) return undefined;
+            if (isServerSidePath(imported.path) && area === "ui") return undefined;
 
-            const usage = getPageImportUsage(input, page, imported);
-            references.push(makeSelectedFile(
+            return {
+                edge,
                 imported,
-                usage === "inspect-and-edit"
-                    ? `Referenced by selected page target ${page.path} and matched the requested page scope; include as an editable supporting target.`
-                    : `Referenced by selected page target ${page.path}; include as inspect-only supporting context, not as the primary edit target.`,
-                usage === "inspect-and-edit" ? 0.76 : isGenericSharedUiPrimitive(imported) ? 0.62 : 0.68,
-                usage
-            ));
-            seen.add(normalized);
-        }
+                page,
+                usage: getPageImportUsage(input, page, imported)
+            };
+        })
+        .filter(Boolean) as Array<{
+            edge: ReturnType<typeof semanticGraph.getSupportFiles>[number]["edge"];
+            imported: ProjectInventoryFile;
+            page: ProjectInventoryFile;
+            usage: SelectedTaskFileUsage;
+        }>;
+
+    usableGraphSupport.sort((left, right) => {
+        const score = (item: typeof usableGraphSupport[number]) => {
+            let value = item.usage === "inspect-and-edit" ? 40 : 10;
+            if (item.edge.kind === "component-import") value += 16;
+            if (item.edge.kind === "style-import") value += 12;
+            if (isBehaviorOrStateSupportFile(item.imported)) value -= 8;
+            if (isGenericSharedUiPrimitive(item.imported)) value -= 6;
+            return value;
+        };
+
+        return score(right) - score(left);
+    });
+
+    for (const { file: imported, edge, page, usage } of usableGraphSupport.map((item) => ({
+        file: item.imported,
+        edge: item.edge,
+        page: item.page,
+        usage: item.usage
+    }))) {
+        if (references.length >= 5) return references;
+        const normalized = normalizeForCompare(imported.path);
+        if (seen.has(normalized)) continue;
+
+        references.push(makeSelectedFile(
+            imported,
+            usage === "inspect-and-edit"
+                ? `Semantic graph support for selected page target ${page.path} via ${edge.kind}; matched the requested page scope.`
+                : `Semantic graph support for selected page target ${page.path} via ${edge.kind}; inspect-only supporting context, not the primary edit target.`,
+            usage === "inspect-and-edit" ? 0.76 : isGenericSharedUiPrimitive(imported) ? 0.62 : 0.68,
+            usage
+        ));
+        seen.add(normalized);
     }
 
     return references;
@@ -1802,6 +2210,7 @@ function canUsePageImportFile(input: SelectTaskFilesInput, page: ProjectInventor
 function getPageImportUsage(input: SelectTaskFilesInput, page: ProjectInventoryFile, imported: ProjectInventoryFile): SelectedTaskFileUsage {
     if (isGenericSharedUiPrimitive(imported)) return "inspect-only";
     if (imported.kind !== "source" && imported.kind !== "style") return "inspect-only";
+    if (isVisualOnlyUiTask(input) && isBehaviorOrStateSupportFile(imported)) return "inspect-only";
     if (getTaskConstraints(input).noBackendMutation && isBackendOrAuthProtectedSupportFile(imported)) return "inspect-only";
     if (isRouteLocalPageImport(page, imported)) return "inspect-and-edit";
 
@@ -1821,6 +2230,59 @@ function getPageImportUsage(input: SelectTaskFilesInput, page: ProjectInventoryF
     return positiveTokens.some((token) => normalizedTermMatches(importedText, token) || normalizedTermMatches(token, importedText))
         ? "inspect-and-edit"
         : "inspect-only";
+}
+
+function isVisualOnlyUiTask(input: SelectTaskFilesInput) {
+    const positiveText = getPositiveTaskText(input.rawTask);
+    const text = normalizeForCompare([
+        positiveText,
+        input.taskType,
+        ...(input.taskIntent?.intentTags ?? []),
+        ...(input.taskIntent?.domainTerms ?? []),
+        ...(input.taskIntent?.structuredIntent?.positiveActions ?? [])
+    ].join(" "));
+    const behaviorText = normalizeForCompare([
+        positiveText,
+        input.taskType,
+        ...(input.taskIntent?.structuredIntent?.positiveActions ?? [])
+    ].join(" "));
+    const hasUiSurface = hasRuntimeUiSurfaceTerm(positiveText) || includesAny(text, [
+        "ui", "ux", "frontend", "page", "screen", "view", "component", "card", "badge", "badges", "chip", "chips",
+        "layout", "visual", "style", "css", "copy", "text", "label", "avatar", "icon", "animation", "responsive",
+        "\u0441\u0442\u0440\u0430\u043d\u0438\u0446", "\u044d\u043a\u0440\u0430\u043d", "\u043a\u043e\u043c\u043f\u043e\u043d\u0435\u043d\u0442", "\u043a\u0430\u0440\u0442\u043e\u0447", "\u0431\u0435\u0439\u0434\u0436", "\u0447\u0438\u043f", "\u0432\u0438\u0437\u0443\u0430\u043b", "\u0441\u0442\u0438\u043b", "\u0442\u0435\u043a\u0441\u0442", "\u043b\u0435\u0439\u0431\u043b", "\u0430\u0432\u0430\u0442\u0430\u0440", "\u0438\u043a\u043e\u043d", "\u0430\u043d\u0438\u043c\u0430\u0446", "\u0430\u0434\u0430\u043f\u0442\u0438\u0432"
+    ]);
+    const hasVisualAction = includesAny(text, [
+        "beautiful", "polish", "clean", "premium", "spacing", "align", "overflow", "wrap", "color", "typography",
+        "hover", "focus", "loading state", "empty state", "error state", "badge", "badges", "animation", "progress",
+        "\u043a\u0440\u0430\u0441\u0438\u0432", "\u043f\u043e\u043b\u0438\u0440", "\u043f\u0440\u0435\u043c\u0438\u0443\u043c", "\u043e\u0442\u0441\u0442\u0443\u043f", "\u0432\u044b\u0440\u043e\u0432\u043d", "\u043d\u0430\u043b\u0430\u0437", "\u043e\u0432\u0435\u0440\u0444\u043b\u043e\u0443", "\u043f\u0435\u0440\u0435\u043d\u043e\u0441", "\u0446\u0432\u0435\u0442", "\u0448\u0440\u0438\u0444\u0442", "\u0445\u043e\u0432\u0435\u0440", "\u0444\u043e\u043a\u0443\u0441", "\u043f\u0443\u0441\u0442\u043e\u0435 \u0441\u043e\u0441\u0442\u043e\u044f\u043d\u0438\u0435", "\u0430\u043d\u0438\u043c\u0430\u0446", "\u043f\u0440\u043e\u0433\u0440\u0435\u0441\u0441"
+    ]);
+    const hasBehaviorAction = includesAny(behaviorText, [
+        "fetch", "call api", "api call", "request", "endpoint", "submit", "save", "persist", "create user", "update user",
+        "delete", "connect to api", "wire", "integrate backend", "exchange code", "callback", "redirect", "session",
+        "token", "cookie", "database", "db", "schema", "migration", "server", "backend", "auth flow", "login flow",
+        "\u0437\u0430\u043f\u0440\u043e\u0441", "\u044d\u043d\u0434\u043f\u043e\u0438\u043d\u0442", "\u0441\u0430\u0431\u043c\u0438\u0442", "\u0441\u043e\u0445\u0440\u0430\u043d", "\u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438 \u043a api", "\u043f\u043e\u0434\u043a\u043b\u044e\u0447\u0438\u0442\u044c \u043a api", "\u0438\u043d\u0442\u0435\u0433\u0440\u0438\u0440\u0443\u0439 \u0431\u044d\u043a", "\u043a\u043e\u043b\u0431\u044d\u043a", "\u0440\u0435\u0434\u0438\u0440\u0435\u043a\u0442", "\u0441\u0435\u0441\u0441", "\u0442\u043e\u043a\u0435\u043d", "\u043a\u0443\u043a\u0438", "\u0431\u0430\u0437\u0430", "\u0431\u0434", "\u0441\u0445\u0435\u043c", "\u043c\u0438\u0433\u0440\u0430\u0446", "\u0441\u0435\u0440\u0432\u0435\u0440", "\u0431\u044d\u043a\u0435\u043d\u0434", "\u043b\u043e\u0433\u0438\u043d"
+    ]);
+
+    return hasUiSurface && hasVisualAction && !hasBehaviorAction;
+}
+
+function applyVisualOnlyScopeGuard(selectedFiles: SelectedTaskFile[], input: SelectTaskFilesInput, area: EffectiveTaskArea) {
+    if (area !== "ui" || !isVisualOnlyUiTask(input)) return selectedFiles;
+    const tokenContext = buildTokenContext(input);
+
+    return selectedFiles.map((selectedFile) => {
+        const inventoryFile = findInventoryFile(input.inventory, selectedFile.path);
+        if (!inventoryFile) return selectedFile;
+        const explicit = isExplicitFilePath(inventoryFile, tokenContext);
+        if (explicit) return selectedFile;
+        if (!isBehaviorOrStateSupportFile(inventoryFile)) return selectedFile;
+
+        return {
+            ...selectedFile,
+            usage: "inspect-only" as SelectedTaskFileUsage,
+            reason: `${selectedFile.reason} Visual-only UI scope guard downgraded behavior/state support context to inspect-only.`
+        };
+    });
 }
 
 function isWithinRequestedRouteScope(file: ProjectInventoryFile, tokenContext: TokenContext) {
@@ -1880,11 +2342,26 @@ function isBackendProtectionTerm(term: string) {
     ].includes(normalizeForCompare(term));
 }
 
-function hasProtectedTermMatch(file: ProjectInventoryFile, constraints: TaskConstraints) {
+function hasUiProtectionScope(constraints: TaskConstraints) {
+    return constraints.protectedFileTerms.some((term) => {
+        const normalized = normalizeForCompare(term);
+        return ["ui", "ux", "card", "cards", "component", "components", "page", "pages", "screen", "screens", "visual", "style", "styles"].includes(normalized);
+    });
+}
+
+function hasProtectedTermMatch(file: ProjectInventoryFile, constraints: TaskConstraints, area: EffectiveTaskArea) {
     if (constraints.protectedFileTerms.length === 0) return false;
     const fileText = getFileConstraintText(file);
     return constraints.protectedFileTerms.some((term) => {
         if (constraints.runtimeNoBackendConstraint && !isBackendProtectionTerm(term) && hasRuntimeUiSurfaceTerm(term)) {
+            return false;
+        }
+        if (
+            area === "backend" &&
+            hasUiProtectionScope(constraints) &&
+            !isBackendProtectionTerm(term) &&
+            (isBackendProtectedRole(file) || isBackendProtectedPath(file) || isServerSidePath(file.path))
+        ) {
             return false;
         }
         if (!normalizedTermMatches(fileText, term)) return false;
@@ -1908,7 +2385,7 @@ function isProtectedByUserConstraint(file: ProjectInventoryFile, input: SelectTa
         return true;
     }
 
-    if (hasProtectedTermMatch(file, constraints)) {
+    if (hasProtectedTermMatch(file, constraints, area)) {
         return true;
     }
 
@@ -1946,6 +2423,15 @@ function isSpecificPageOrFileTask(input: SelectTaskFilesInput, area: EffectiveTa
         "на странице", "страница", "страницу", "странице", "страницы", "on page", "page", "page with",
         "раздел", "section", "screen", "экран", "вкладк", "view"
     ])) return true;
+    if (area === "ui" || area === "general" || area === "bugfix") {
+        const tokenContext = buildTokenContext(input);
+        if (input.inventory.files
+            .filter((file) => isPageLikeTargetFile(file))
+            .some((file) => getPageSemanticMatchScore(file, input, tokenContext) >= 82)
+        ) {
+            return true;
+        }
+    }
     if (mentionsOtherPagesProtected(input.rawTask) || mentionsOnlyExplicitFiles(input.rawTask)) return true;
     return false;
 }
@@ -2253,7 +2739,8 @@ function getContextAwareSelectionLimit(input: SelectTaskFilesInput, area: Effect
 
 function rankAndCapSelection(selectedFiles: SelectedTaskFile[], input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode) {
     const seen = new Set<string>();
-    const deduped = selectedFiles.filter((file) => {
+    const scopedFiles = applyVisualOnlyScopeGuard(selectedFiles, input, area);
+    const deduped = scopedFiles.filter((file) => {
         const normalized = normalizeForCompare(file.path);
         if (seen.has(normalized)) return false;
         seen.add(normalized);
@@ -2281,7 +2768,7 @@ function rankAndCapSelection(selectedFiles: SelectedTaskFile[], input: SelectTas
 
     const selectionLimit = getContextAwareSelectionLimit(input, area, assetMode);
 
-    return sorted
+    const capped = sorted
         .filter((file) => {
             if (file.kind !== "asset") return true;
             if (assetCount >= assetCap) return false;
@@ -2289,6 +2776,196 @@ function rankAndCapSelection(selectedFiles: SelectedTaskFile[], input: SelectTas
             return true;
         })
         .slice(0, Math.min(MAX_SELECTED_FILES, selectionLimit));
+
+    return area === "fullstack" ? rebalanceFullstackSelection(capped, sorted, input) : capped;
+}
+
+function rebalanceFullstackSelection(capped: SelectedTaskFile[], sorted: SelectedTaskFile[], input: SelectTaskFilesInput) {
+    const result = [...capped];
+    const hasPath = (pathValue: string) => result.some((file) => normalizeForCompare(file.path) === normalizeForCompare(pathValue));
+    const findCandidate = (predicate: (file: SelectedTaskFile) => boolean) => {
+        const sortedCandidate = sorted.find((file) => predicate(file) && !hasPath(file.path));
+        if (sortedCandidate) return sortedCandidate;
+
+        return input.inventory.files
+            .filter((file) => !hasPath(file.path))
+            .filter((file) => canUseSelectedFile(input, file, "fullstack", "none"))
+            .map((file) => makeSelectedFile(file, "Added by full-stack layer balancing from validated project inventory.", 0.76))
+            .find(predicate);
+    };
+    const replaceWeakest = (candidate: SelectedTaskFile) => {
+        if (hasPath(candidate.path)) return;
+        const uiSourceCount = result.filter(isUiSource).length;
+        const replaceIndex = [...result]
+            .reverse()
+            .findIndex((file) => {
+                if (isClientBridge(file) || isBackend(file)) return false;
+                if (isUiSource(file) && uiSourceCount <= 1) return false;
+                return true;
+            });
+        if (replaceIndex === -1) return;
+        result[result.length - 1 - replaceIndex] = candidate;
+    };
+    const isClientBridge = (file: SelectedTaskFile) => {
+        const inventoryFile = findInventoryFile(input.inventory, file.path);
+        return Boolean(inventoryFile && isClientApiBridgePath(inventoryFile.path));
+    };
+    const isBackend = (file: SelectedTaskFile) => {
+        const inventoryFile = findInventoryFile(input.inventory, file.path);
+        return Boolean(inventoryFile && isBackendLeaningPath(inventoryFile.path) && !isClientUiPath(inventoryFile.path));
+    };
+    const isUiSource = (file: SelectedTaskFile) => {
+        const inventoryFile = findInventoryFile(input.inventory, file.path);
+        return Boolean(inventoryFile && isFrontendUiSourceFile(inventoryFile));
+    };
+    if (!result.some(isClientBridge)) {
+        const candidate = findCandidate(isClientBridge);
+        if (candidate) replaceWeakest(candidate);
+    }
+
+    if (!result.some(isBackend)) {
+        const candidate = findCandidate(isBackend);
+        if (candidate) replaceWeakest(candidate);
+    }
+
+    if (!result.some(isUiSource)) {
+        const candidate = findCandidate(isUiSource);
+        if (candidate) replaceWeakest(candidate);
+    }
+
+    return result;
+}
+
+function ensureRequiredFullstackLayers(selected: SelectedTaskFile[], input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode) {
+    if (area !== "fullstack") return selected;
+
+    const result = [...selected];
+    const hasPath = (pathValue: string) => result.some((file) => normalizeForCompare(file.path) === normalizeForCompare(pathValue));
+    const addLayer = (predicate: (file: ProjectInventoryFile) => boolean, reason: string, confidence: number) => {
+        if (result.some((selectedFile) => {
+            const inventoryFile = findInventoryFile(input.inventory, selectedFile.path);
+            return Boolean(inventoryFile && predicate(inventoryFile));
+        })) {
+            return;
+        }
+
+        const file = input.inventory.files
+            .filter((candidate) =>
+                !hasPath(candidate.path) &&
+                canUseSelectedFile(input, candidate, area, assetMode) &&
+                predicate(candidate)
+            )
+            .sort((left, right) => {
+                const score = (file: ProjectInventoryFile) => {
+                    let value = 0;
+                    if (file.kind === "source") value += 30;
+                    if (["api-route", "server-entry", "service", "controller"].includes(file.role)) value += 24;
+                    if (normalizeForCompare(file.path).includes("/data/")) value -= 18;
+                    if (file.kind === "data") value -= 20;
+                    return value;
+                };
+
+                return score(right) - score(left);
+            })[0];
+        if (file) result.push(makeSelectedFile(file, reason, confidence));
+    };
+
+    addLayer((file) => isClientApiBridgePath(file.path), "Added to keep the client API bridge in the full-stack context.", 0.8);
+    addLayer((file) => isBackendLeaningPath(file.path) && !isClientApiBridgePath(file.path) && !isClientUiPath(file.path), "Added to keep the backend/server layer in the full-stack context.", 0.78);
+    addLayer((file) => isFrontendUiSourceFile(file), "Added to keep a concrete UI source in the full-stack context.", 0.78);
+
+    return pruneFullstackSelection(result, input, assetMode)
+        .slice(0, Math.min(MAX_SELECTED_FILES, getSelectionLimitFromSettings(input, area, assetMode)));
+}
+
+function pruneFullstackSelection(selected: SelectedTaskFile[], input: SelectTaskFilesInput, assetMode: AssetMode) {
+    const tokenContext = buildTokenContext(input);
+    const limit = Math.min(MAX_SELECTED_FILES, getSelectionLimitFromSettings(input, "fullstack", assetMode));
+    const explicitPaths = new Set(tokenContext.explicitExistingPaths.map(normalizeForCompare));
+    const seen = new Set<string>();
+    const uniqueSelected = selected.filter((file) => {
+        const key = normalizeForCompare(file.path);
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+    });
+
+    const withInventory = uniqueSelected
+        .map((selectedFile) => ({
+            selectedFile,
+            inventoryFile: findInventoryFile(input.inventory, selectedFile.path)
+        }))
+        .filter((item): item is { selectedFile: SelectedTaskFile; inventoryFile: ProjectInventoryFile } => Boolean(item.inventoryFile));
+
+    const isClientBridge = (file: ProjectInventoryFile) => isClientApiBridgePath(file.path);
+    const isBackendLayer = (file: ProjectInventoryFile) => isBackendLeaningPath(file.path) && !isClientApiBridgePath(file.path) && !isClientUiPath(file.path);
+    const isUiSource = (file: ProjectInventoryFile) => isFrontendUiSourceFile(file);
+    const uiTargetLimit = taskAllowsMultipleConcretePageTargets(input, tokenContext) ? 2 : 1;
+    const required: SelectedTaskFile[] = [];
+    const addUnique = (file: SelectedTaskFile) => {
+        if (required.some((item) => normalizeForCompare(item.path) === normalizeForCompare(file.path))) return;
+        required.push(file);
+    };
+
+    for (const item of withInventory) {
+        if (explicitPaths.has(normalizeForCompare(item.selectedFile.path))) addUnique(item.selectedFile);
+    }
+
+    const clientBridge = withInventory.find((item) => isClientBridge(item.inventoryFile));
+    const backendLayer = withInventory.find((item) => isBackendLayer(item.inventoryFile));
+    if (clientBridge) addUnique(clientBridge.selectedFile);
+    if (backendLayer) addUnique(backendLayer.selectedFile);
+
+    const uiTargets = withInventory
+        .filter((item) => isUiSource(item.inventoryFile))
+        .map((item) => ({
+            ...item,
+            score: scoreFullstackPrimaryUiTarget(item.inventoryFile, input, tokenContext)
+        }))
+        .sort((a, b) => b.score - a.score || a.inventoryFile.path.localeCompare(b.inventoryFile.path))
+        .slice(0, uiTargetLimit);
+    for (const item of uiTargets) addUnique(item.selectedFile);
+
+    const support = withInventory
+        .filter((item) => !required.some((file) => normalizeForCompare(file.path) === normalizeForCompare(item.selectedFile.path)))
+        .filter((item) => !isPageLikeTargetFile(item.inventoryFile) || item.selectedFile.usage === "inspect-only")
+        .filter((item) => !isFrontendUiSourceFile(item.inventoryFile) || scoreFullstackPrimaryUiTarget(item.inventoryFile, input, tokenContext) >= 90)
+        .map((item) => ({
+            ...item,
+            score: selectedPriority(item.selectedFile, input, "fullstack", assetMode)
+        }))
+        .sort((a, b) => b.score - a.score);
+
+    const finalSelection = [...required];
+    for (const item of support) {
+        if (finalSelection.length >= limit) break;
+        if (finalSelection.some((file) => normalizeForCompare(file.path) === normalizeForCompare(item.selectedFile.path))) continue;
+        finalSelection.push(item.selectedFile);
+    }
+
+    return finalSelection;
+}
+
+function scoreFullstackPrimaryUiTarget(file: ProjectInventoryFile, input: SelectTaskFilesInput, tokenContext = buildTokenContext(input)) {
+    if (!isFrontendUiSourceFile(file)) return Number.NEGATIVE_INFINITY;
+
+    const filePath = normalizeForCompare(file.path);
+    const fileName = filePath.split("/").pop() ?? filePath;
+    let score = scoreFullstackUiSourceCandidate(file, input);
+
+    score += getPageSemanticMatchScore(file, input, tokenContext) * 0.6;
+    score += getSpecificPositiveOverlap(file, getSpecificPositiveTokens(input)) * 42;
+    score += getSpecificIdentityOverlap(file, getSpecificPositiveTokens(input)) * 48;
+
+    if (isPageLikeTargetFile(file)) score += 28;
+    if (file.role === "component" || file.role === "ui-component") score += 18;
+    if (file.routePath && tokenContext.routeMentions.some((route) => normalizeForCompare(route) === normalizeForCompare(file.routePath ?? ""))) score += 120;
+    if (filePath.includes("/components/") && getSpecificPositiveOverlap(file, getSpecificPositiveTokens(input)) === 0) score -= 20;
+    if (includesAny(fileName, ["skeleton", "placeholder", "fallback", "loading"])) score -= 95;
+    if (includesAny(filePath, ["/onboarding", "/demo", "/example"]) && !hasAnyStrongMatchForFile(file, tokenContext.strongTokens)) score -= 70;
+    if (isAppShellOrEntrypointFile(file) && !tokenContext.explicitExistingPaths.some((pathValue) => normalizeForCompare(pathValue) === filePath)) score -= 60;
+
+    return score;
 }
 
 function trimLowValueFallbackCandidates(items: Array<{ file: ProjectInventoryFile; score: number }>, tokenContext: TokenContext, area: EffectiveTaskArea) {
@@ -2344,13 +3021,78 @@ function taskMentionsStructuredPath(rawTask: string, filePath: string) {
     const normalizedPath = normalizeForCompare(filePath);
     const fileName = normalizedPath.split("/").pop() ?? normalizedPath;
     const baseName = fileName.replace(/\.[^.]+$/, "");
+    const taskTokens = new Set(tokenize(rawTask));
+    const baseTokens = uniqueStrings([
+        baseName,
+        ...tokenizeIdentifierLike(baseName)
+    ].map(normalizeForCompare).filter((token) => token.length >= 4));
 
-    return task.includes(normalizedPath) || task.includes(fileName) || (baseName.length >= 4 && task.includes(baseName));
+    return task.includes(normalizedPath)
+        || task.includes(fileName)
+        || baseTokens.some((token) => taskTokens.has(token));
+}
+
+function structuredExplicitTargetLooksGrounded(input: SelectTaskFilesInput, target: StructuredIntentTarget) {
+    if (!target.path) return false;
+    if (!["explicit_file", "page", "route", "component", "symbol"].includes(target.kind)) return false;
+
+    const inventoryFile = findInventoryFileByLoosePath(input.inventory, target.path);
+    if (!inventoryFile) return false;
+
+    const positiveText = getPositiveTaskText(input.rawTask);
+    const taskTokens = uniqueStrings([
+        ...tokenize(positiveText),
+        ...(input.taskIntent?.structuredIntent?.positiveActions ?? []).flatMap(tokenize),
+        ...(input.taskIntent?.domainTerms ?? []).flatMap(tokenize),
+        ...(input.taskIntent?.mentionedEntities ?? []).flatMap(tokenize),
+        ...(input.taskIntent?.recommendedSearchTerms ?? []).flatMap(tokenize),
+        target.evidence ? tokenize(target.evidence) : []
+    ].flat())
+        .map((token) => token.replace(/\.[a-z0-9]+$/i, ""))
+        .filter((token) => token.length >= 4)
+        .filter((token) => !WEAK_TASK_TOKENS.has(token))
+        .filter((token) => !BROAD_PATH_TOKENS.has(token));
+
+    const locationTokens = getConcretePageLocationTokens(input);
+    const identityValues = [
+        inventoryFile.path,
+        inventoryFile.name,
+        inventoryFile.role,
+        inventoryFile.routePath ?? "",
+        ...(inventoryFile.symbols ?? []),
+        ...(inventoryFile.exports ?? []),
+        ...(inventoryFile.textHints ?? [])
+    ];
+    const identityText = normalizeForCompare(identityValues.join(" "));
+    const identityTokens = uniqueStrings(identityValues.flatMap((value) => [
+        ...tokenize(value),
+        ...tokenizeIdentifierLike(value)
+    ]))
+        .map((token) => token.replace(/\.[a-z0-9]+$/i, ""))
+        .filter((token) => token.length >= 4)
+        .filter((token) => !WEAK_TASK_TOKENS.has(token))
+        .filter((token) => !BROAD_PATH_TOKENS.has(token));
+
+    const hasTaskIdentityOverlap = taskTokens.some((token) => (
+        identityTokens.some((identityToken) => normalizedTermMatches(identityToken, token) || normalizedTermMatches(token, identityToken))
+    ));
+    if (hasTaskIdentityOverlap) return true;
+
+    const hasLocationIdentityOverlap = locationTokens.some((token) => normalizedTermMatches(identityText, token) || normalizedTermMatches(token, identityText));
+    if (hasLocationIdentityOverlap) return true;
+
+    const surfaceText = [input.rawTask, positiveText, target.evidence ?? ""].join(" ");
+    if (matchesAny(surfaceText, [/\b(?:header|topbar|navbar|nav|navigation|menu|theme|locale|language)\b/i, /(?:\u0448\u0430\u043f\u043a|\u0432\u0435\u0440\u0445\u043d\u0435\u0435\s+\u043c\u0435\u043d\u044e|\u043d\u0430\u0432\u0438\u0433\u0430\u0446|\u0441\u043c\u0435\u043d\u044b\s+\u044f\u0437\u044b\u043a|\u044f\u0437\u044b\u043a|\u043b\u043e\u043a\u0430\u043b)/i]) && getHeaderSurfaceScore(inventoryFile) >= 70) return true;
+    if (matchesAny(surfaceText, [/\b(?:footer|site\s+footer|bottom\s+nav|legal\s+links|footer\s+links)\b/i, /(?:\u0444\u0443\u0442\u0435\u0440|\u043d\u0438\u0436\u043d\u0435\u0435\s+\u043c\u0435\u043d\u044e|\u0441\u0441\u044b\u043b\u043a\u0438\s+\u0432\s+\u0444\u0443\u0442\u0435\u0440\u0435)/i]) && getFooterSurfaceScore(inventoryFile) >= 70) return true;
+    if (matchesAny(surfaceText, [/\b(?:search|searchbox|search\s+box|search\s+input|filter\s+input|query\s+input)\b/i, /(?:\u043f\u043e\u0438\u0441\u043a|\u0441\u0442\u0440\u043e\u043a\u0430\s+\u043f\u043e\u0438\u0441\u043a\u0430|\u043f\u043e\u043b\u0435\s+\u043f\u043e\u0438\u0441\u043a\u0430)/i]) && getSearchSurfaceScore(inventoryFile) >= 70) return true;
+
+    return false;
 }
 
 function structuredTargetHasTaskSupport(input: SelectTaskFilesInput, target: StructuredIntentTarget) {
     if (!target.path) return true;
     if (taskMentionsStructuredPath(input.rawTask, target.path)) return true;
+    if (structuredExplicitTargetLooksGrounded(input, target)) return true;
 
     const taskTokens = new Set(
         tokenize(getPositiveTaskText(input.rawTask))
@@ -2362,7 +3104,15 @@ function structuredTargetHasTaskSupport(input: SelectTaskFilesInput, target: Str
 
     if (taskTokens.size === 0) return false;
 
-    return getStructuredTargetTerms(target)
+    return uniqueStrings([
+        target.value,
+        target.path ?? "",
+        target.routePath ?? "",
+        target.name ?? ""
+    ].flatMap((value) => tokenize(value)))
+        .filter((token) => token.length >= 4)
+        .filter((token) => !WEAK_TASK_TOKENS.has(token))
+        .filter((token) => !BROAD_PATH_TOKENS.has(token))
         .map((token) => token.replace(/\.[a-z0-9]+$/i, ""))
         .some((token) => taskTokens.has(token));
 }
@@ -2373,8 +3123,35 @@ function isUnsupportedStructuredTargetPath(input: SelectTaskFilesInput, file: Pr
         if (!target.path) return false;
         const targetPath = normalizeForCompare(target.path);
         if (filePath !== targetPath && !filePath.endsWith(`/${targetPath}`) && !targetPath.endsWith(`/${filePath}`)) return false;
+        if (hasIndependentTaskSupportForFile(input, file)) return false;
         return !structuredTargetHasTaskSupport(input, target);
     });
+}
+
+function hasIndependentTaskSupportForFile(input: SelectTaskFilesInput, file: ProjectInventoryFile) {
+    const positiveText = getPositiveTaskText(input.rawTask);
+    const surfaceText = [input.rawTask, positiveText].join(" ");
+    const identityText = normalizeForCompare([
+        file.path,
+        file.name,
+        file.role,
+        file.routePath ?? "",
+        ...(file.symbols ?? []),
+        ...(file.exports ?? []),
+        ...(file.textHints ?? [])
+    ].join(" "));
+
+    if (matchesAny(surfaceText, [/\b(?:header|topbar|navbar|nav|navigation|menu|theme|locale|language)\b/i, /(?:\u0448\u0430\u043f\u043a|\u0432\u0435\u0440\u0445\u043d\u0435\u0435\s+\u043c\u0435\u043d\u044e|\u043d\u0430\u0432\u0438\u0433\u0430\u0446|\u0441\u043c\u0435\u043d\u044b\s+\u044f\u0437\u044b\u043a|\u044f\u0437\u044b\u043a|\u043b\u043e\u043a\u0430\u043b)/i]) && getHeaderSurfaceScore(file) >= 70) return true;
+    if (matchesAny(surfaceText, [/\b(?:footer|site\s+footer|bottom\s+nav|legal\s+links|footer\s+links)\b/i, /(?:\u0444\u0443\u0442\u0435\u0440|\u043d\u0438\u0436\u043d\u0435\u0435\s+\u043c\u0435\u043d\u044e|\u0441\u0441\u044b\u043b\u043a\u0438\s+\u0432\s+\u0444\u0443\u0442\u0435\u0440\u0435)/i]) && getFooterSurfaceScore(file) >= 70) return true;
+    if (matchesAny(surfaceText, [/\b(?:search|searchbox|search\s+box|search\s+input|filter\s+input|query\s+input)\b/i, /(?:\u043f\u043e\u0438\u0441\u043a|\u0441\u0442\u0440\u043e\u043a\u0430\s+\u043f\u043e\u0438\u0441\u043a\u0430|\u043f\u043e\u043b\u0435\s+\u043f\u043e\u0438\u0441\u043a\u0430)/i]) && getSearchSurfaceScore(file) >= 70) return true;
+
+    if (getConcretePageLocationTokens(input).some((token) => normalizedTermMatches(identityText, token) || normalizedTermMatches(token, identityText))) return true;
+
+    const taskTokens = uniqueStrings(tokenize(positiveText))
+        .filter((token) => token.length >= 4)
+        .filter((token) => !WEAK_TASK_TOKENS.has(token))
+        .filter((token) => !BROAD_PATH_TOKENS.has(token));
+    return taskTokens.some((token) => normalizedTermMatches(identityText, token) || normalizedTermMatches(token, identityText));
 }
 
 function getStructuredTargetFileScore(file: ProjectInventoryFile, target: StructuredIntentTarget) {
@@ -2463,6 +3240,17 @@ function getStructuredIntentSeedFiles(input: SelectTaskFilesInput, area: Effecti
     return seeds.slice(0, 6);
 }
 
+function hasRawHeaderSurfaceIntent(input: SelectTaskFilesInput) {
+    return matchesAny([
+        input.rawTask,
+        getPositiveTaskText(input.rawTask)
+    ].join(" "), [
+        /\b(?:header|topbar|navbar|nav|navigation|menu|theme|locale|language)\b/i,
+        /\baccount\s+(?:button|menu|control|switcher)\b/i,
+        /(?:\u0448\u0430\u043f\u043a|\u0432\u0435\u0440\u0445\u043d\u0435\u0435\s+\u043c\u0435\u043d\u044e|\u043d\u0430\u0432\u0438\u0433\u0430\u0446|\u043c\u0435\u043d\u044e|\u043f\u0435\u0440\u0435\u043a\u043b\u044e\u0447\u0430\u0442\u0435\u043b\u044c\s+\u0442\u0435\u043c|\u043a\u043d\u043e\u043f\u043a\u0430\s+\u0430\u043a\u043a\u0430\u0443\u043d\u0442|\u0441\u043c\u0435\u043d\u044b\s+\u044f\u0437\u044b\u043a|\u044f\u0437\u044b\u043a|\u043b\u043e\u043a\u0430\u043b)/i
+    ]);
+}
+
 function hasHeaderSurfaceIntent(input: SelectTaskFilesInput) {
     const groundedStructuredTargetText = getStructuredIntentTargets(input)
         .filter((target) => structuredTargetHasTaskSupport(input, target))
@@ -2471,16 +3259,17 @@ function hasHeaderSurfaceIntent(input: SelectTaskFilesInput) {
             target.path ?? "",
             target.routePath ?? "",
             target.name ?? "",
-            target.evidence
-        ])
+        target.evidence
+    ])
         .join(" ");
 
+    if (hasRawHeaderSurfaceIntent(input)) return true;
+
     return matchesAny([
-        input.rawTask,
-        getPositiveTaskText(input.rawTask),
         groundedStructuredTargetText
     ].join(" "), [
-        /\b(?:header|topbar|navbar|nav|navigation|menu|theme|account|locale|language)\b/i,
+        /\b(?:header|topbar|navbar|nav|navigation|menu|theme|locale|language)\b/i,
+        /\baccount\s+(?:button|menu|control|switcher)\b/i,
         /(?:\u0448\u0430\u043f\u043a|\u0432\u0435\u0440\u0445\u043d\u0435\u0435\s+\u043c\u0435\u043d\u044e|\u043d\u0430\u0432\u0438\u0433\u0430\u0446|\u043c\u0435\u043d\u044e|\u043f\u0435\u0440\u0435\u043a\u043b\u044e\u0447\u0430\u0442\u0435\u043b\u044c\s+\u0442\u0435\u043c|\u043a\u043d\u043e\u043f\u043a\u0430\s+\u0430\u043a\u043a\u0430\u0443\u043d\u0442|\u0441\u043c\u0435\u043d\u044b\s+\u044f\u0437\u044b\u043a|\u044f\u0437\u044b\u043a|\u043b\u043e\u043a\u0430\u043b)/i
     ]);
 }
@@ -2532,10 +3321,194 @@ function getHeaderSurfaceSeedFiles(input: SelectTaskFilesInput, area: EffectiveT
     ));
 }
 
+function hasFooterSurfaceIntent(input: SelectTaskFilesInput) {
+    const groundedStructuredTargetText = getStructuredIntentTargets(input)
+        .filter((target) => structuredTargetHasTaskSupport(input, target))
+        .flatMap((target) => [
+            target.value,
+            target.path ?? "",
+            target.routePath ?? "",
+            target.name ?? "",
+            target.evidence
+        ])
+        .join(" ");
+
+    return matchesAny([
+        input.rawTask,
+        getPositiveTaskText(input.rawTask),
+        groundedStructuredTargetText
+    ].join(" "), [
+        /\b(?:footer|site\s+footer|bottom\s+nav|legal\s+links|footer\s+links)\b/i,
+        /(?:\u0444\u0443\u0442\u0435\u0440|\u043d\u0438\u0436\u043d\u0435\u0435\s+\u043c\u0435\u043d\u044e|\u043d\u0438\u0436\u043d\u044f\u044f\s+\u043d\u0430\u0432\u0438\u0433\u0430\u0446|\u0441\u0441\u044b\u043b\u043a\u0438\s+\u0432\s+\u0444\u0443\u0442\u0435\u0440\u0435)/i
+    ]);
+}
+
+function getFooterSurfaceScore(file: ProjectInventoryFile) {
+    const values = [
+        file.path,
+        file.name,
+        file.role,
+        file.routePath ?? "",
+        ...(file.symbols ?? []),
+        ...(file.exports ?? []),
+        ...(file.textHints ?? []),
+        file.contentPreview ?? ""
+    ];
+    const text = normalizeForCompare(values.join(" "));
+    let score = 0;
+
+    if (includesAny(file.path, ["footer", "bottom-nav", "bottomnav"])) score += 95;
+    if (includesAny(file.name, ["footer", "bottom-nav", "bottomnav"])) score += 90;
+    if ((file.symbols ?? []).some((symbol) => includesAny(symbol, ["Footer", "SiteFooter", "FooterLinks"]))) score += 85;
+    if ((file.exports ?? []).some((exportName) => includesAny(exportName, ["Footer", "SiteFooter", "FooterLinks"]))) score += 80;
+    if (file.kind === "style" && includesAny(text, ["footer", "bottom nav", "legal links"])) score += 56;
+    if (file.kind === "source" && isClientUiPath(file.path)) score += 22;
+    if (includesAny(text, ["footer", "legal", "links", "company", "developers", "product"])) score += 34;
+    if (includesAny(text, ["authcontext", "api", "server", "schema", "database"])) score -= 70;
+    if (includesAny(file.path, ["header", "modal", "skeleton", "api/", "server/"])) score -= 35;
+    if (file.role === "page") score -= 24;
+
+    return score;
+}
+
+function getFooterSurfaceSeedFiles(input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode, selected: SelectedTaskFile[]) {
+    if (area !== "ui" && area !== "fullstack" && area !== "general" && area !== "bugfix") return [];
+    if (!hasFooterSurfaceIntent(input)) return [];
+
+    const seen = new Set(selected.map((file) => normalizeForCompare(file.path)));
+    const scored = input.inventory.files
+        .filter((file) => !seen.has(normalizeForCompare(file.path)))
+        .filter((file) => canUseSelectedFile(input, file, area, assetMode))
+        .map((file) => ({ file, score: getFooterSurfaceScore(file) }))
+        .filter((item) => item.score >= 70)
+        .sort((a, b) => b.score - a.score);
+
+    return scored.slice(0, 2).map((item) => makeSelectedFile(
+        item.file,
+        "Selected as a likely footer/link surface by matching the task against real inventory names, symbols, exports, and UI text hints.",
+        Math.max(0.76, Math.min(0.93, item.score / 170))
+    ));
+}
+
+function hasSearchSurfaceIntent(input: SelectTaskFilesInput) {
+    return matchesAny([
+        input.rawTask,
+        getPositiveTaskText(input.rawTask)
+    ].join(" "), [
+        /\b(?:search|searchbox|search\s+box|search\s+input|filter\s+input|query\s+input)\b/i,
+        /(?:\u043f\u043e\u0438\u0441\u043a|\u0441\u0442\u0440\u043e\u043a\u0430\s+\u043f\u043e\u0438\u0441\u043a\u0430|\u043f\u043e\u043b\u0435\s+\u043f\u043e\u0438\u0441\u043a\u0430)/i
+    ]);
+}
+
+function getSearchSurfaceScore(file: ProjectInventoryFile) {
+    const values = [
+        file.path,
+        file.name,
+        file.role,
+        file.routePath ?? "",
+        ...(file.symbols ?? []),
+        ...(file.exports ?? []),
+        ...(file.textHints ?? []),
+        file.contentPreview ?? ""
+    ];
+    const text = normalizeForCompare(values.join(" "));
+    let score = 0;
+
+    if (includesAny(file.path, ["search", "filter"])) score += 95;
+    if (includesAny(file.name, ["search", "filter"])) score += 90;
+    if ((file.symbols ?? []).some((symbol) => includesAny(symbol, ["Search", "SearchBox", "SearchInput", "Filter"]))) score += 85;
+    if ((file.exports ?? []).some((exportName) => includesAny(exportName, ["Search", "SearchBox", "SearchInput", "Filter"]))) score += 80;
+    if (file.kind === "source" && ["component", "ui-component"].includes(file.role)) score += 32;
+    if (includesAny(text, ["search", "query", "filter", "input", "empty results", "no results"])) score += 38;
+    if (isPageLikeTargetFile(file)) score -= 36;
+    if (includesAny(text, ["api", "server", "schema", "database"])) score -= 60;
+
+    return score;
+}
+
+function getSearchSurfaceSeedFiles(input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode, selected: SelectedTaskFile[]) {
+    if (area !== "ui" && area !== "fullstack" && area !== "general" && area !== "bugfix") return [];
+    if (!hasSearchSurfaceIntent(input)) return [];
+
+    const seen = new Set(selected.map((file) => normalizeForCompare(file.path)));
+    const scored = input.inventory.files
+        .filter((file) => !seen.has(normalizeForCompare(file.path)))
+        .filter((file) => canUseSelectedFile(input, file, area, assetMode))
+        .map((file) => ({ file, score: getSearchSurfaceScore(file) }))
+        .filter((item) => item.score >= 70)
+        .sort((a, b) => b.score - a.score);
+
+    return scored.slice(0, 2).map((item) => makeSelectedFile(
+        item.file,
+        "Selected as a likely search/input surface by matching the task against real inventory names, symbols, exports, and UI text hints.",
+        Math.max(0.76, Math.min(0.93, item.score / 170))
+    ));
+}
+
+function hasLoadingSurfaceIntent(input: SelectTaskFilesInput) {
+    const protectedTerms = getTaskConstraints(input).protectedFileTerms.map(normalizeForCompare);
+    if (protectedTerms.some((term) => includesAny(term, ["loading", "loader", "skeleton", "spinner", "fallback", "\u0437\u0430\u0433\u0440\u0443\u0437", "\u0441\u043a\u0435\u043b\u0435\u0442", "\u043b\u043e\u0430\u0434\u0435\u0440", "\u0441\u043f\u0438\u043d\u043d\u0435\u0440"]))) {
+        return false;
+    }
+
+    return matchesAny([
+        input.rawTask,
+        getPositiveTaskText(input.rawTask)
+    ].join(" "), [
+        /\b(?:skeleton|loading\s+state|loading\s+screen|route\s+skeleton|page\s+skeleton|fallback\s+loader|spinner)\b/i,
+        /(?:\u0441\u043a\u0435\u043b\u0435\u0442\u043e\u043d|\u0437\u0430\u0433\u0440\u0443\u0437\u043a|\u043b\u043e\u0430\u0434\u0435\u0440|\u0441\u043f\u0438\u043d\u043d\u0435\u0440)/i
+    ]);
+}
+
+function getLoadingSurfaceScore(file: ProjectInventoryFile) {
+    const values = [
+        file.path,
+        file.name,
+        file.role,
+        file.routePath ?? "",
+        ...(file.symbols ?? []),
+        ...(file.exports ?? []),
+        ...(file.textHints ?? []),
+        file.contentPreview ?? ""
+    ];
+    const text = normalizeForCompare(values.join(" "));
+    let score = 0;
+
+    if (includesAny(file.path, ["skeleton", "loading", "loader", "spinner", "fallback"])) score += 95;
+    if (includesAny(file.name, ["skeleton", "loading", "loader", "spinner", "fallback"])) score += 90;
+    if ((file.symbols ?? []).some((symbol) => includesAny(symbol, ["Skeleton", "Loader", "Loading", "Fallback", "Spinner"]))) score += 85;
+    if ((file.exports ?? []).some((exportName) => includesAny(exportName, ["Skeleton", "Loader", "Loading", "Fallback", "Spinner"]))) score += 80;
+    if (file.kind === "source" && isClientUiPath(file.path)) score += 26;
+    if (includesAny(text, ["skeleton", "loading", "loader", "spinner", "fallback"])) score += 42;
+    if (isClientApiBridgePath(file.path) || isBackendLeaningPath(file.path)) score -= 80;
+    if (file.role === "page" && !includesAny(file.path, ["skeleton", "loading", "loader", "fallback"])) score -= 38;
+
+    return score;
+}
+
+function getLoadingSurfaceSeedFiles(input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode, selected: SelectedTaskFile[]) {
+    if (area !== "ui" && area !== "fullstack" && area !== "general" && area !== "bugfix") return [];
+    if (!hasLoadingSurfaceIntent(input)) return [];
+
+    const seen = new Set(selected.map((file) => normalizeForCompare(file.path)));
+    const scored = input.inventory.files
+        .filter((file) => !seen.has(normalizeForCompare(file.path)))
+        .filter((file) => canUseSelectedFile(input, file, area, assetMode))
+        .map((file) => ({ file, score: getLoadingSurfaceScore(file) }))
+        .filter((item) => item.score >= 70)
+        .sort((a, b) => b.score - a.score);
+
+    return scored.slice(0, 2).map((item) => makeSelectedFile(
+        item.file,
+        "Selected as a likely loading/skeleton surface by matching the task against real inventory names, symbols, exports, and UI text hints.",
+        Math.max(0.76, Math.min(0.93, item.score / 170))
+    ));
+}
+
 function hasSpecificUiObjectIntent(input: SelectTaskFilesInput) {
     return matchesAny(getPositiveTaskText(input.rawTask), [
         /\b(?:form|input|field|modal|dialog|table|list|card|profile|settings|user|account|checkout|search|filter)\b/i,
-        /(?:\u0444\u043e\u0440\u043c|\u043f\u043e\u043b\u0435|\u0438\u043d\u043f\u0443\u0442|\u043c\u043e\u0434\u0430\u043b|\u0434\u0438\u0430\u043b\u043e\u0433|\u0442\u0430\u0431\u043b\u0438\u0446|\u0441\u043f\u0438\u0441|\u043a\u0430\u0440\u0442\u043e\u0447|\u043f\u0440\u043e\u0444\u0438\u043b|\u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a|\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442|\u0430\u043a\u043a\u0430\u0443\u043d\u0442|\u043f\u043e\u0438\u0441\u043a|\u0444\u0438\u043b\u044c\u0442\u0440)/i
+        /(?:^|[^\p{L}\p{N}_])(?:\u0444\u043e\u0440\u043c(?:\u0430|\u0443|\u044b|\u0435|\u043e\u0439|\u0430\u043c\u0438|\u0430\u0445)?|\u043f\u043e\u043b\u0435|\u0438\u043d\u043f\u0443\u0442|\u043c\u043e\u0434\u0430\u043b|\u0434\u0438\u0430\u043b\u043e\u0433|\u0442\u0430\u0431\u043b\u0438\u0446|\u0441\u043f\u0438\u0441|\u043a\u0430\u0440\u0442\u043e\u0447|\u043f\u0440\u043e\u0444\u0438\u043b|\u043d\u0430\u0441\u0442\u0440\u043e\u0439\u043a|\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442|\u0430\u043a\u043a\u0430\u0443\u043d\u0442|\u043f\u043e\u0438\u0441\u043a|\u0444\u0438\u043b\u044c\u0442\u0440)(?=$|[^\p{L}\p{N}_])/iu
     ]);
 }
 
@@ -2545,6 +3518,17 @@ function getSpecificPositiveTokens(input: SelectTaskFilesInput) {
         .filter((token) => token.length >= 4)
         .filter((token) => !["api", "backend", "server", "auth", "route", "routes", "service", "services", "client"].includes(normalizeForCompare(token)))
         .filter((token) => !protectedTerms.has(normalizeForCompare(token)))
+        .slice(0, 12);
+}
+
+function getRawSpecificPositiveTokens(input: SelectTaskFilesInput) {
+    const protectedTerms = new Set(getTaskConstraints(input).protectedFileTerms.map(normalizeForCompare));
+    return uniqueNormalizedTokens(tokenize(getPositiveTaskText(input.rawTask)))
+        .filter((token) => token.length >= 4)
+        .filter((token) => !isWeakPageTargetToken(token))
+        .filter((token) => !["api", "backend", "server", "auth", "route", "routes", "service", "services", "client"].includes(normalizeForCompare(token)))
+        .filter((token) => !protectedTerms.has(normalizeForCompare(token)))
+        .filter((token) => !token.includes("/") && !token.includes("\\"))
         .slice(0, 12);
 }
 
@@ -2567,16 +3551,223 @@ function getSpecificPositiveOverlap(file: ProjectInventoryFile, tokens: string[]
     );
 }
 
+function getSpecificIdentityOverlap(file: ProjectInventoryFile, tokens: string[]) {
+    if (tokens.length === 0) return 0;
+    const values = [
+        file.path,
+        file.name,
+        file.role,
+        file.routePath ?? "",
+        ...(file.symbols ?? []),
+        ...(file.exports ?? [])
+    ];
+
+    return tokens.reduce(
+        (count, token) => count + (values.some((value) => normalizedTermMatches(value, token) || normalizedTermMatches(token, value)) ? 1 : 0),
+        0
+    );
+}
+
+function hasGroundedStructuredConcreteTarget(input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode) {
+    return getStructuredIntentTargets(input)
+        .filter((target) => structuredTargetHasTaskSupport(input, target))
+        .some((target) => {
+            if (!["explicit_file", "route", "page", "component", "symbol"].includes(target.kind)) return false;
+            const file = findStructuredTargetFile(input, target);
+            if (!file || !canUseSelectedFile(input, file, area, assetMode)) return false;
+
+            if (target.path || target.routePath) return true;
+
+            const terms = getStructuredTargetTerms(target);
+            if (terms.length === 0) return false;
+            return getSpecificIdentityOverlap(file, terms) >= 1;
+        });
+}
+
+function hasConcreteUiLocationHint(input: SelectTaskFilesInput, tokenContext: TokenContext) {
+    if (tokenContext.explicitExistingPaths.length > 0 || extractRouteMentions(input.rawTask).length > 0) return true;
+    if (hasGroundedStructuredConcreteTarget(input, getEffectiveTaskArea(input), getAssetMode(input))) return true;
+
+    return matchesAny(getPositiveTaskText(input.rawTask), [
+        /\b(?:in\s+file|in\s+component|on\s+page|on\s+the\s+page|page|screen|view|route)\b/i,
+        /(?:\u0432\s+\u0444\u0430\u0439\u043b\u0435|\u0432\s+\u043a\u043e\u043c\u043f\u043e\u043d\u0435\u043d\u0442\u0435|\u043d\u0430\s+\u0441\u0442\u0440\u0430\u043d\u0438\u0446|\u0441\u0442\u0440\u0430\u043d\u0438\u0446|\u044d\u043a\u0440\u0430\u043d|\u0440\u0430\u0437\u0434\u0435\u043b|\u0432\u043a\u043b\u0430\u0434\u043a)/i
+    ]);
+}
+
+function getSpecificUiObjectTokens(input: SelectTaskFilesInput) {
+    const positiveText = getPositiveTaskText(input.rawTask);
+    if (matchesAny(positiveText, [/\b(?:form|input|field)\b/i, /(?:^|[^\p{L}\p{N}_])(?:\u0444\u043e\u0440\u043c(?:\u0430|\u0443|\u044b|\u0435|\u043e\u0439|\u0430\u043c\u0438|\u0430\u0445)?|\u043f\u043e\u043b\u0435|\u0438\u043d\u043f\u0443\u0442)(?=$|[^\p{L}\p{N}_])/iu])) {
+        return getSpecificPositiveTokens(input).filter((token) => ["form", "input", "field"].includes(normalizeForCompare(token)));
+    }
+
+    const objectTokens = new Set([
+        "form", "input", "field", "modal", "dialog", "table", "list", "card",
+        "profile", "settings", "checkout", "search", "filter"
+    ]);
+
+    return getSpecificPositiveTokens(input).filter((token) => objectTokens.has(normalizeForCompare(token)));
+}
+
+function hasRawFormObjectIntent(input: SelectTaskFilesInput) {
+    return matchesAny(getPositiveTaskText(input.rawTask), [
+        /\b(?:form|input|field)\b/i,
+        /(?:^|[^\p{L}\p{N}_])(?:\u0444\u043e\u0440\u043c(?:\u0430|\u0443|\u044b|\u0435|\u043e\u0439|\u0430\u043c\u0438|\u0430\u0445)?|\u043f\u043e\u043b\u0435|\u0438\u043d\u043f\u0443\u0442)(?=$|[^\p{L}\p{N}_])/iu
+    ]);
+}
+
+function hasGroundedFormIdentityTarget(input: SelectTaskFilesInput, area: EffectiveTaskArea) {
+    const rawTokens = getRawSpecificPositiveTokens(input);
+    const formTokens = ["form", "input", "field", "\u0444\u043e\u0440\u043c", "\u043f\u043e\u043b\u0435", "\u0438\u043d\u043f\u0443\u0442"];
+    const locationTokens = rawTokens.filter((token) => !formTokens.some((formToken) => normalizedTermMatches(token, formToken) || normalizedTermMatches(formToken, token)));
+    const hasLocationToken = locationTokens.length > 0;
+
+    return input.inventory.files
+        .filter((file) => canUseSelectedFile(input, file, area, "none"))
+        .some((file) => {
+            const identity = normalizeForCompare([
+                file.path,
+                file.name,
+                file.role,
+                file.routePath ?? "",
+                ...(file.symbols ?? []),
+                ...(file.exports ?? [])
+            ].join(" "));
+            const searchText = getFileSearchText(file);
+            const identityHasForm = formTokens.some((token) => normalizedTermMatches(identity, token));
+            const searchHasForm = formTokens.some((token) => normalizedTermMatches(searchText, token));
+
+            if (!identityHasForm && !searchHasForm) return false;
+            if (!hasLocationToken) return identityHasForm;
+            return locationTokens.some((token) => normalizedTermMatches(identity, token));
+        });
+}
+
+function shouldBlockUngroundedFormTarget(input: SelectTaskFilesInput, area: EffectiveTaskArea, tokenContext: TokenContext) {
+    if (!hasRawFormObjectIntent(input)) return false;
+    if (tokenContext.explicitExistingPaths.length > 0 || extractRouteMentions(input.rawTask).length > 0) return false;
+    if (hasRawConcretePageLocation(input, area, tokenContext)) return false;
+    return !hasGroundedFormIdentityTarget(input, area);
+}
+
+function hasGroundedSpecificUiObjectFile(input: SelectTaskFilesInput, area: EffectiveTaskArea, tokenContext: TokenContext, tokens: string[]) {
+    const objectTokens = getSpecificUiObjectTokens(input);
+    if (objectTokens.length === 0) return false;
+    const hasLocationHint = hasConcreteUiLocationHint(input, tokenContext);
+
+    return input.inventory.files
+        .filter((file) => canUseSelectedFile(input, file, area, "none"))
+        .filter((file) => hasLocationHint || !isPageLikeTargetFile(file))
+        .some((file) => (
+            getSpecificIdentityOverlap(file, objectTokens) >= 1 && getSpecificPositiveOverlap(file, tokens) >= 2
+        ) || (
+            !isPageLikeTargetFile(file) && getSpecificPositiveOverlap(file, objectTokens) >= 1 && getSpecificPositiveOverlap(file, tokens) >= 2
+        ));
+}
+
+function hasStrongGroundedPageTarget(input: SelectTaskFilesInput, area: EffectiveTaskArea, tokenContext: TokenContext) {
+    const tokens = getSpecificPositiveTokens(input);
+    const objectTokens = getSpecificUiObjectTokens(input).map(normalizeForCompare);
+    const rawLocationTokens = getRawSpecificPositiveTokens(input)
+        .filter((token) => !objectTokens.includes(normalizeForCompare(token)));
+
+    return input.inventory.files
+        .filter((file) => canUseSelectedFile(input, file, area, "none"))
+        .filter((file) => isPageLikeTargetFile(file))
+        .some((file) => {
+            if (getPageSemanticMatchScore(file, input, tokenContext) < 70) return false;
+            if (getSpecificIdentityOverlap(file, tokens) < 1) return false;
+            if (objectTokens.length === 0) return true;
+            if (getSpecificIdentityOverlap(file, objectTokens) >= 1) return true;
+            return rawLocationTokens.length > 0 && getSpecificIdentityOverlap(file, rawLocationTokens) >= 1;
+        });
+}
+
+const CONCRETE_PAGE_LOCATION_STOP_TOKENS = new Set([
+    "page", "screen", "view", "route", "section", "tab", "form", "input", "field", "button",
+    "user", "users", "add", "create", "update", "improve", "fix", "make", "change",
+    "\u0441\u0442\u0440\u0430\u043d\u0438\u0446", "\u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0430", "\u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0443", "\u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0435",
+    "\u044d\u043a\u0440\u0430\u043d", "\u044d\u043a\u0440\u0430\u043d\u0435", "\u0440\u0430\u0437\u0434\u0435\u043b", "\u0432\u043a\u043b\u0430\u0434\u043a",
+    "\u0444\u043e\u0440\u043c", "\u0444\u043e\u0440\u043c\u0443", "\u043f\u043e\u043b\u0435", "\u043a\u043d\u043e\u043f\u043a",
+    "\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442", "\u0434\u043e\u0431\u0430\u0432", "\u0441\u043e\u0437\u0434\u0430", "\u0443\u043b\u0443\u0447\u0448", "\u0438\u0441\u043f\u0440\u0430\u0432"
+]);
+
+function getConcretePageLocationTokens(input: SelectTaskFilesInput) {
+    const positiveText = getPositiveTaskText(input.rawTask);
+    const chunks: string[] = [];
+
+    const addMatches = (patterns: RegExp[]) => {
+        for (const pattern of patterns) {
+            for (const match of positiveText.matchAll(pattern)) {
+                const chunk = String(match[1] ?? match[2] ?? "").trim();
+                if (chunk) chunks.push(chunk);
+            }
+        }
+    };
+
+    addMatches([
+        /\b(?:on|in|to)\s+(?:the\s+)?([a-z0-9 _-]{2,70}?)\s+(?:page|screen|view|route|section|tab)\b/gi,
+        /\b(?:page|screen|view|route|section|tab)\s+(?:for|of|called|named)?\s*([a-z0-9 _-]{2,70})/gi,
+        /(?:\u043d\u0430|\u0432)\s+(?:\u0441\u0442\u0440\u0430\u043d\u0438\u0446(?:\u0443|\u0435|\u0435\u0439|\u0430)|\u044d\u043a\u0440\u0430\u043d(?:\u0435|\u0430)?|\u0440\u0430\u0437\u0434\u0435\u043b(?:\u0435|\u0430)?|\u0432\u043a\u043b\u0430\u0434\u043a(?:\u0435|\u0443))\s+([^.!?,;\n]{2,70})/giu,
+        /(?:\u0441\u0442\u0440\u0430\u043d\u0438\u0446(?:\u0430|\u0443|\u0435)|\u044d\u043a\u0440\u0430\u043d|\u0440\u0430\u0437\u0434\u0435\u043b|\u0432\u043a\u043b\u0430\u0434\u043a\u0430)\s+([^.!?,;\n]{2,70})/giu
+    ]);
+
+    const directText = normalizeForCompare(positiveText);
+    if (/(?:\u0430\u0434\u043c\u0438\u043d|\u0430\u0434\u043c\u0438\u043d\u0438\u0441\u0442\u0440\u0430\u0442|admin|administrator)/i.test(directText)) {
+        chunks.push("admin administrator");
+    }
+    if (/(?:\u043b\u043e\u0433\u0438\u043d|\u0432\u0445\u043e\u0434|\u0430\u0432\u0442\u043e\u0440\u0438\u0437|login|signin|sign-in|auth)/i.test(directText)) {
+        chunks.push("login auth");
+    }
+    if (/(?:\u0434\u0430\u0448\u0431\u043e\u0440\u0434|\u043f\u0430\u043d\u0435\u043b|dashboard)/i.test(directText)) {
+        chunks.push("dashboard");
+    }
+    if (/(?:\u0430\u043a\u043a\u0430\u0443\u043d\u0442|\u043f\u0440\u043e\u0444\u0438\u043b|account|profile)/i.test(directText)) {
+        chunks.push("account profile");
+    }
+    if (/(?:\u0443\u0441\u0442\u0440\u043e\u0439\u0441\u0442\u0432|devices?|connected\s+apps?)/i.test(directText)) {
+        chunks.push("devices connected");
+    }
+
+    return uniqueNormalizedTokens(chunks.flatMap((chunk) => tokenize(chunk)))
+        .filter((token) => token.length >= 3)
+        .filter((token) => !CONCRETE_PAGE_LOCATION_STOP_TOKENS.has(normalizeForCompare(token)))
+        .filter((token) => !["api", "backend", "server", "loading", "request", "requests"].includes(normalizeForCompare(token)))
+        .slice(0, 10);
+}
+
+function hasRawConcretePageLocation(input: SelectTaskFilesInput, area: EffectiveTaskArea, tokenContext: TokenContext) {
+    const tokens = getConcretePageLocationTokens(input);
+    if (tokens.length === 0) return false;
+
+    return input.inventory.files
+        .filter((file) => canUseSelectedFile(input, file, area, "none"))
+        .filter((file) => isPageLikeTargetFile(file))
+        .some((file) => getPageSemanticMatchScore(file, input, tokenContext) >= 50 && getSpecificIdentityOverlap(file, tokens) >= 1);
+}
+
 function shouldRequireManualTargetReview(input: SelectTaskFilesInput, area: EffectiveTaskArea, selected: SelectedTaskFile[], tokenContext: TokenContext) {
     if (selected.length > 0) return false;
     if (area !== "ui" && area !== "general" && area !== "bugfix") return false;
     if (!hasSpecificUiObjectIntent(input)) return false;
     if (hasHeaderSurfaceIntent(input)) return false;
-    if (tokenContext.explicitExistingPaths.length > 0 || tokenContext.routeMentions.length > 0) return false;
-    if ((input.taskIntent?.structuredIntent?.primaryTargets ?? []).some((target) => structuredTargetHasTaskSupport(input, target))) return false;
-
+    if (hasFooterSurfaceIntent(input)) return false;
     const tokens = getSpecificPositiveTokens(input);
+    if (shouldBlockUngroundedFormTarget(input, area, tokenContext)) return true;
+    if (
+        getSpecificUiObjectTokens(input).length > 0 &&
+        tokenContext.explicitExistingPaths.length === 0 &&
+        extractRouteMentions(input.rawTask).length === 0 &&
+        !hasRawConcretePageLocation(input, area, tokenContext) &&
+        !hasGroundedSpecificUiObjectFile(input, area, tokenContext, tokens)
+    ) {
+        return true;
+    }
+    if (hasStrongGroundedPageTarget(input, area, tokenContext)) return false;
+    if (tokenContext.explicitExistingPaths.length > 0 || extractRouteMentions(input.rawTask).length > 0) return false;
+    if (hasGroundedStructuredConcreteTarget(input, area, "none")) return false;
+
     if (tokens.length === 0) return false;
+    if (!hasConcreteUiLocationHint(input, tokenContext) && !hasGroundedSpecificUiObjectFile(input, area, tokenContext, tokens)) return true;
 
     return !input.inventory.files
         .filter((file) => canUseSelectedFile(input, file, area, "none"))
@@ -2737,6 +3928,21 @@ function addBestMatchingFile(selected: SelectedTaskFile[], input: SelectTaskFile
     }
 }
 
+function addBestRequiredLayerFile(selected: SelectedTaskFile[], input: SelectTaskFilesInput, area: EffectiveTaskArea, assetMode: AssetMode, predicate: (file: ProjectInventoryFile) => boolean, reason: string, confidence = 0.78) {
+    const seen = new Set(selected.map((file) => normalizeForCompare(file.path)));
+    const tokenContext = buildTokenContext(input);
+    const best = input.inventory.files
+        .filter((file) => !seen.has(normalizeForCompare(file.path)))
+        .filter((file) => canUseSelectedFile(input, file, area, assetMode))
+        .filter(predicate)
+        .map((file) => ({ file, score: scoreFileFallback(file, tokenContext, input, area, assetMode) }))
+        .sort((a, b) => b.score - a.score)[0]?.file;
+
+    if (best) {
+        selected.push(makeSelectedFile(best, reason, confidence));
+    }
+}
+
 function addBestFullstackUiSourceFile(selected: SelectedTaskFile[], input: SelectTaskFilesInput, reason: string, confidence = 0.84) {
     const seen = new Set(selected.map((file) => normalizeForCompare(file.path)));
 
@@ -2759,7 +3965,7 @@ function ensureHelpfulCoverage(selected: SelectedTaskFile[], input: SelectTaskFi
     const hasDocs = selected.some((file) => file.kind === "docs");
     const hasPackage = selected.some((file) => normalizeForCompare(file.path).endsWith("package.json"));
     const hasConfig = selected.some((file) => file.kind === "config" || isPackageOrConfigPath(file.path));
-    const hasBackend = selected.some((file) => isBackendLeaningPath(file.path));
+    const hasBackend = selected.some((file) => isBackendLeaningPath(file.path) && !isClientApiBridgePath(file.path));
     const hasClientBridge = selected.some((file) => isClientApiBridgePath(file.path));
     const hasUiFile = selected.some((file) => file.kind === "source" && isClientUiPath(file.path) && !isClientApiBridgePath(file.path));
     const hasAsset = selected.some((file) => file.kind === "asset");
@@ -2798,8 +4004,8 @@ function ensureHelpfulCoverage(selected: SelectedTaskFile[], input: SelectTaskFi
     }
 
     if (area === "fullstack") {
-        if (!hasBackend) addBestMatchingFile(selected, input, area, assetMode, (file) => isBackendLeaningPath(file.path), "Added to cover the server/API side of the full-stack task.", 0.8);
-        if (!hasClientBridge) addBestMatchingFile(selected, input, area, assetMode, (file) => isClientApiBridgePath(file.path), "Added to cover the client API bridge for the full-stack task.", 0.84);
+        if (!hasBackend) addBestRequiredLayerFile(selected, input, area, assetMode, (file) => isBackendLeaningPath(file.path) && !isClientApiBridgePath(file.path), "Added to cover the server/API side of the full-stack task.", 0.8);
+        if (!hasClientBridge) addBestRequiredLayerFile(selected, input, area, assetMode, (file) => isClientApiBridgePath(file.path), "Added to cover the client API bridge for the full-stack task.", 0.84);
 
         const hasConcreteUiSource = selected.some((file) => file.kind === "source" && isClientUiPath(file.path) && !isClientApiBridgePath(file.path));
 
@@ -2824,13 +4030,29 @@ function getRouteAwareSeedFiles(input: SelectTaskFilesInput, area: EffectiveTask
     if (tokenContext.routeMentions.length === 0) return [];
 
     const seen = new Set(selected.map((file) => normalizeForCompare(file.path)));
+    const positiveTaskText = getPositiveTaskText(input.rawTask);
+    const callbackFlowRequested = includesAny(positiveTaskText, [
+        "callback", "redirect", "return url", "oauth callback", "auth callback",
+        "\u043a\u043e\u043b\u0431\u044d\u043a", "\u0440\u0435\u0434\u0438\u0440\u0435\u043a\u0442", "\u0432\u043e\u0437\u0432\u0440\u0430\u0442", "\u043f\u043e\u0441\u043b\u0435 \u0432\u0445\u043e\u0434\u0430"
+    ]);
+    const getCallbackPenalty = (file: ProjectInventoryFile) => {
+        if (callbackFlowRequested) return 0;
+        const identity = normalizeForCompare([file.path, file.name, file.routePath ?? "", ...(file.symbols ?? []), ...(file.exports ?? [])].join(" "));
+        return includesAny(identity, ["callback", "redirect", "return"]) ? 180 : 0;
+    };
     const available = input.inventory.files
         .filter((file) => !seen.has(normalizeForCompare(file.path)))
         .filter((file) => canUseSelectedFile(input, file, area, assetMode));
 
     const directPageCandidates = available
         .filter((file) => isDirectRoutePageMatch(file, tokenContext.routeMentions))
-        .map((file) => ({ file, score: getRouteMatchScore(file, tokenContext.routeMentions) + scoreFileFallback(file, tokenContext, input, area, assetMode) * 0.2 }))
+        .map((file) => ({
+            file,
+            score: getRouteMatchScore(file, tokenContext.routeMentions)
+                + getPageSemanticMatchScore(file, input, tokenContext) * 0.45
+                + scoreFileFallback(file, tokenContext, input, area, assetMode) * 0.2
+                - getCallbackPenalty(file)
+        }))
         .sort((a, b) => b.score - a.score);
 
     if (directPageCandidates.length > 0) {
@@ -2842,7 +4064,13 @@ function getRouteAwareSeedFiles(input: SelectTaskFilesInput, area: EffectiveTask
     }
 
     const candidates = available
-        .map((file) => ({ file, score: getRouteMatchScore(file, tokenContext.routeMentions) + scoreFileFallback(file, tokenContext, input, area, assetMode) * 0.25 }))
+        .map((file) => ({
+            file,
+            score: getRouteMatchScore(file, tokenContext.routeMentions)
+                + getPageSemanticMatchScore(file, input, tokenContext) * 0.35
+                + scoreFileFallback(file, tokenContext, input, area, assetMode) * 0.25
+                - getCallbackPenalty(file)
+        }))
         .filter((item) => item.score >= 88)
         .filter((item) => !isGenericSharedUiPrimitive(item.file) && !isAppShellOrEntrypointFile(item.file))
         .sort((a, b) => b.score - a.score)
@@ -2858,7 +4086,32 @@ function getRouteAwareSeedFiles(input: SelectTaskFilesInput, area: EffectiveTask
 
 function buildFallbackSelection(input: SelectTaskFilesInput): TaskFileSelection {
     const startedAt = Date.now();
-    const effectiveTaskArea = getEffectiveTaskArea(input);
+    const inferredTaskArea = getEffectiveTaskArea(input);
+    const rawTaskText = input.rawTask.toLowerCase().replace(/[_./\\-]+/g, " ");
+    const protectedBackendUiOverride =
+        inferredTaskArea === "backend" &&
+        getSelectedTaskTypeArea(input.taskType) === "general" &&
+        [
+            "api", "backend", "server", "endpoint", "request", "fetch", "upload", "loading",
+            "\u0430\u043f\u0438", "\u0431\u044d\u043a", "\u0431\u0435\u043a", "\u0441\u0435\u0440\u0432\u0435\u0440",
+            "\u0437\u0430\u043f\u0440\u043e\u0441", "\u0437\u0430\u0433\u0440\u0443\u0437"
+        ].some((term) => rawTaskText.includes(term)) &&
+        [
+            "do not", "don't", "dont", "without", "avoid", "keep", "preserve",
+            "\u043d\u0435 \u043c\u0435\u043d", "\u043d\u0435 \u0442\u0440\u043e\u0433", "\u043d\u0435 \u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440",
+            "\u043d\u0435 \u0438\u0437\u043c\u0435\u043d", "\u0431\u0435\u0437 \u0438\u0437\u043c\u0435\u043d"
+        ].some((term) => rawTaskText.includes(term)) &&
+        [
+            "ui", "ux", "frontend", "front end", "screen", "page", "layout", "visual", "design", "style",
+            "css", "button", "form", "input", "modal", "dialog", "card", "navigation", "header", "menu",
+            "\u044d\u043a\u0440\u0430\u043d", "\u0441\u0442\u0440\u0430\u043d\u0438\u0446", "\u0432\u0438\u0437\u0443\u0430\u043b", "\u0434\u0438\u0437\u0430\u0439\u043d",
+            "\u0441\u0442\u0438\u043b", "\u043a\u043d\u043e\u043f", "\u0444\u043e\u0440\u043c", "\u043f\u043e\u043b\u0435", "\u0438\u043d\u043f\u0443\u0442",
+            "\u043c\u043e\u0434\u0430\u043b", "\u043a\u0430\u0440\u0442\u043e\u0447", "\u043d\u0430\u0432\u0438\u0433\u0430\u0446", "\u0448\u0430\u043f\u043a"
+        ].some((term) => rawTaskText.includes(term));
+    const effectiveTaskArea: EffectiveTaskArea =
+        protectedBackendUiOverride
+            ? "ui"
+            : inferredTaskArea;
     const assetMode = getAssetMode(input);
     const conflictNote = getConflictNote(input, effectiveTaskArea);
     const tokenContext = buildTokenContext(input);
@@ -2889,7 +4142,12 @@ function buildFallbackSelection(input: SelectTaskFilesInput): TaskFileSelection 
         selected.push(surfaceFile);
     }
 
-    if (headerSurfaceSeedFiles.length > 0) {
+    const hasSelectedHeaderSurface = hasHeaderSurfaceIntent(input) && selected.some((selectedFile) => {
+        const inventoryFile = findInventoryFile(input.inventory, selectedFile.path);
+        return Boolean(inventoryFile && getHeaderSurfaceScore(inventoryFile) >= 70);
+    });
+
+    if (headerSurfaceSeedFiles.length > 0 || hasSelectedHeaderSurface) {
         const styleFile = getHeaderSurfaceStyleSeedFile(input, effectiveTaskArea, assetMode, selected);
         if (styleFile) {
             selected.push(makeSelectedFile(
@@ -2917,6 +4175,119 @@ function buildFallbackSelection(input: SelectTaskFilesInput): TaskFileSelection 
                 `Asset mode: ${assetMode}.`,
                 conflictNote ?? "No task type conflict detected.",
                 ...constraints.notes,
+                tokenContext.explicitMissingPaths.length > 0
+                    ? `Explicit path(s) mentioned by the user but not found in inventory: ${tokenContext.explicitMissingPaths.join(", ")}.`
+                    : "No missing explicit user paths detected."
+            ]
+        };
+    }
+
+    const footerSurfaceSeedFiles = getFooterSurfaceSeedFiles(input, effectiveTaskArea, assetMode, selected);
+    if (footerSurfaceSeedFiles.length > 0) {
+        selected.push(...footerSurfaceSeedFiles);
+        const finalSelectedFiles = rankAndCapSelection(selected, input, effectiveTaskArea, assetMode);
+        return {
+            selectedFiles: finalSelectedFiles,
+            rejectedModelPaths: tokenContext.explicitMissingPaths,
+            source: "fallback",
+            usedFallback: true,
+            durationMs: getDurationMs(startedAt),
+            effectiveTaskArea,
+            assetMode,
+            conflictNote,
+            notes: [
+                "Fallback file selection was used.",
+                "Fallback selection is universal and does not rely on project-specific domain rules.",
+                "Footer/link surface target detected; broad generic UI fallback candidates were skipped.",
+                `Effective task area: ${effectiveTaskArea}.`,
+                `Asset mode: ${assetMode}.`,
+                conflictNote ?? "No task type conflict detected.",
+                ...constraints.notes,
+                tokenContext.explicitMissingPaths.length > 0
+                    ? `Explicit path(s) mentioned by the user but not found in inventory: ${tokenContext.explicitMissingPaths.join(", ")}.`
+                    : "No missing explicit user paths detected."
+            ]
+        };
+    }
+
+    const searchSurfaceSeedFiles = getSearchSurfaceSeedFiles(input, effectiveTaskArea, assetMode, selected);
+    if (searchSurfaceSeedFiles.length > 0) {
+        selected.push(...searchSurfaceSeedFiles);
+        const finalSelectedFiles = rankAndCapSelection(selected, input, effectiveTaskArea, assetMode);
+        return {
+            selectedFiles: finalSelectedFiles,
+            rejectedModelPaths: tokenContext.explicitMissingPaths,
+            source: "fallback",
+            usedFallback: true,
+            durationMs: getDurationMs(startedAt),
+            effectiveTaskArea,
+            assetMode,
+            conflictNote,
+            notes: [
+                "Fallback file selection was used.",
+                "Fallback selection is universal and does not rely on project-specific domain rules.",
+                "Search/input surface target detected; broad generic UI fallback candidates were skipped.",
+                `Effective task area: ${effectiveTaskArea}.`,
+                `Asset mode: ${assetMode}.`,
+                conflictNote ?? "No task type conflict detected.",
+                ...constraints.notes,
+                tokenContext.explicitMissingPaths.length > 0
+                    ? `Explicit path(s) mentioned by the user but not found in inventory: ${tokenContext.explicitMissingPaths.join(", ")}.`
+                    : "No missing explicit user paths detected."
+            ]
+        };
+    }
+
+    const loadingSurfaceSeedFiles = getLoadingSurfaceSeedFiles(input, effectiveTaskArea, assetMode, selected);
+    if (loadingSurfaceSeedFiles.length > 0) {
+        selected.push(...loadingSurfaceSeedFiles);
+        const finalSelectedFiles = rankAndCapSelection(selected, input, effectiveTaskArea, assetMode);
+        return {
+            selectedFiles: finalSelectedFiles,
+            rejectedModelPaths: tokenContext.explicitMissingPaths,
+            source: "fallback",
+            usedFallback: true,
+            durationMs: getDurationMs(startedAt),
+            effectiveTaskArea,
+            assetMode,
+            conflictNote,
+            notes: [
+                "Fallback file selection was used.",
+                "Fallback selection is universal and does not rely on project-specific domain rules.",
+                "Loading/skeleton surface target detected; broad generic UI fallback candidates were skipped.",
+                `Effective task area: ${effectiveTaskArea}.`,
+                `Asset mode: ${assetMode}.`,
+                conflictNote ?? "No task type conflict detected.",
+                ...constraints.notes,
+                tokenContext.explicitMissingPaths.length > 0
+                    ? `Explicit path(s) mentioned by the user but not found in inventory: ${tokenContext.explicitMissingPaths.join(", ")}.`
+                    : "No missing explicit user paths detected."
+            ]
+        };
+    }
+
+    if (shouldRequireManualTargetReview(input, effectiveTaskArea, selected, tokenContext)) {
+        const groundedReviewTokens = getSpecificPositiveTokens(input);
+        return {
+            selectedFiles: [],
+            rejectedModelPaths: tokenContext.explicitMissingPaths,
+            source: "fallback",
+            usedFallback: true,
+            durationMs: getDurationMs(startedAt),
+            effectiveTaskArea,
+            assetMode,
+            conflictNote,
+            notes: [
+                "Fallback file selection was used.",
+                "Fallback selection stopped before route-aware ranking because the task names a specific UI object, but no matching page/component/form target was grounded in the inventory.",
+                "Review files manually or add the exact page/component path before generating.",
+                `Effective task area: ${effectiveTaskArea}.`,
+                `Asset mode: ${assetMode}.`,
+                conflictNote ?? "No task type conflict detected.",
+                ...constraints.notes,
+                groundedReviewTokens.length > 0
+                    ? `Grounded review tokens: ${groundedReviewTokens.slice(0, 18).join(", ")}.`
+                    : "No grounded review tokens were extracted.",
                 tokenContext.explicitMissingPaths.length > 0
                     ? `Explicit path(s) mentioned by the user but not found in inventory: ${tokenContext.explicitMissingPaths.join(", ")}.`
                     : "No missing explicit user paths detected."
@@ -2988,6 +4359,35 @@ function buildFallbackSelection(input: SelectTaskFilesInput): TaskFileSelection 
         };
     }
 
+
+    if (shouldRequireManualTargetReview(input, effectiveTaskArea, selected, tokenContext)) {
+        const groundedReviewTokens = getSpecificPositiveTokens(input);
+        return {
+            selectedFiles: [],
+            rejectedModelPaths: tokenContext.explicitMissingPaths,
+            source: "fallback",
+            usedFallback: true,
+            durationMs: getDurationMs(startedAt),
+            effectiveTaskArea,
+            assetMode,
+            conflictNote,
+            notes: [
+                "Fallback file selection was used.",
+                "Fallback selection stopped before semantic page ranking because the task names a specific UI object, but no matching page/component/form target was grounded in the inventory.",
+                "Review files manually or add the exact page/component path before generating.",
+                `Effective task area: ${effectiveTaskArea}.`,
+                `Asset mode: ${assetMode}.`,
+                conflictNote ?? "No task type conflict detected.",
+                ...constraints.notes,
+                groundedReviewTokens.length > 0
+                    ? `Grounded review tokens: ${groundedReviewTokens.slice(0, 18).join(", ")}.`
+                    : "No grounded review tokens were extracted.",
+                tokenContext.explicitMissingPaths.length > 0
+                    ? `Explicit path(s) mentioned by the user but not found in inventory: ${tokenContext.explicitMissingPaths.join(", ")}.`
+                    : "No missing explicit user paths detected."
+            ]
+        };
+    }
 
     if (!hasSelectedConcretePageTarget(selected, input.inventory)) {
         for (const item of getSemanticPageTargetCandidates(input, effectiveTaskArea, assetMode, tokenContext, selected)) {
@@ -3077,7 +4477,21 @@ function buildFallbackSelection(input: SelectTaskFilesInput): TaskFileSelection 
         ));
     }
 
-    const finalSelectedFiles = ensureHelpfulCoverage(selected, input, effectiveTaskArea, assetMode);
+    const finalSelectedFiles = ensureRequiredFullstackLayers(rankAndCapSelection(
+        scopeFullstackSelectionToPrimaryUiTargets(
+            input,
+            effectiveTaskArea,
+            scopeSelectionToPrimaryPageTargets(
+                input,
+                effectiveTaskArea,
+                assetMode,
+                ensureHelpfulCoverage(selected, input, effectiveTaskArea, assetMode)
+            )
+        ),
+        input,
+        effectiveTaskArea,
+        assetMode
+    ), input, effectiveTaskArea, assetMode);
 
     return {
         selectedFiles: finalSelectedFiles,
@@ -3359,13 +4773,31 @@ function appendFallbackFilesIfNeeded(selectedFiles: SelectedTaskFile[], input: S
     return next;
 }
 
-function withSelectorSafetyProfile(selection: TaskFileSelection): TaskFileSelection {
+function withSelectorSafetyProfile(
+    selection: TaskFileSelection,
+    input?: SelectTaskFilesInput,
+    settings?: Awaited<ReturnType<typeof getAppSettings>>
+): TaskFileSelection {
     const marker = `Selector safety profile: ${SELECTOR_SAFETY_PROFILE}.`;
-    if (selection.notes.some((note) => note === marker)) return selection;
+    const versionMarker = `Selector engine version: ${SELECTOR_ENGINE_VERSION}.`;
+    const notes = [
+        ...(selection.notes.some((note) => note === versionMarker) ? [] : [versionMarker]),
+        ...(selection.notes.some((note) => note === marker) ? [] : [marker]),
+        ...selection.notes
+    ];
 
     return {
         ...selection,
-        notes: [marker, ...selection.notes]
+        notes,
+        diagnostics: {
+            selectorVersion: SELECTOR_ENGINE_VERSION,
+            safetyProfile: SELECTOR_SAFETY_PROFILE,
+            generationMode: settings?.generationMode ?? selection.diagnostics?.generationMode ?? "template",
+            model: settings?.defaultOllamaModel ?? selection.diagnostics?.model ?? null,
+            requestedTaskType: input?.taskType ?? selection.diagnostics?.requestedTaskType ?? "unknown",
+            effectiveTaskArea: selection.effectiveTaskArea,
+            usedFallback: selection.usedFallback
+        }
     };
 }
 
@@ -3417,12 +4849,12 @@ function normalizeModelSelection(value: unknown, input: SelectTaskFilesInput, fa
         });
     }
 
-    const completedSelection = scopeSelectionToPrimaryPageTargets(input, effectiveTaskArea, assetMode, ensureHelpfulCoverage(
+    const completedSelection = ensureRequiredFullstackLayers(applyVisualOnlyScopeGuard(scopeFullstackSelectionToPrimaryUiTargets(input, effectiveTaskArea, scopeSelectionToPrimaryPageTargets(input, effectiveTaskArea, assetMode, ensureHelpfulCoverage(
         appendFallbackFilesIfNeeded(selectedFiles, input, fallback),
         input,
         effectiveTaskArea,
         assetMode
-    ));
+    ))), input, effectiveTaskArea), input, effectiveTaskArea, assetMode);
 
     if (completedSelection.length === 0) {
         return {
@@ -3465,6 +4897,73 @@ function normalizeModelSelection(value: unknown, input: SelectTaskFilesInput, fa
     };
 }
 
+function buildSelectorRepairPrompt(rawResponse: string) {
+    return `
+Repair this model response into strict JSON only. No Markdown. No code fences.
+
+Keep only this shape:
+{
+  "selectedFiles": [
+    {
+      "path": "real/path/from/inventory.ext",
+      "usage": "inspect-and-edit|inspect-only|asset-reference|config-reference",
+      "reason": "short grounded reason",
+      "confidence": 0.8
+    }
+  ],
+  "notes": []
+}
+
+If the response does not contain real file paths, return:
+{ "selectedFiles": [], "notes": ["No valid file paths were found in the model response."] }
+
+Invalid response:
+${rawResponse.slice(0, 6000)}
+`.trim();
+}
+
+async function requestSelectorJson({
+    ollamaUrl,
+    model,
+    prompt,
+    numPredict
+}: {
+    ollamaUrl: string;
+    model: string;
+    prompt: string;
+    numPredict: number;
+}) {
+    const response = await fetch(`${ollamaUrl.replace(/\/$/, "")}/api/generate`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+            model,
+            prompt,
+            stream: false,
+            format: "json",
+            options: { temperature: 0, num_predict: numPredict }
+        })
+    });
+
+    if (!response.ok) {
+        return {
+            ok: false as const,
+            status: response.status,
+            raw: "",
+            json: null
+        };
+    }
+
+    const data = (await response.json()) as OllamaGenerateResponse;
+    const raw = String(data.response ?? "");
+    return {
+        ok: true as const,
+        status: response.status,
+        raw,
+        json: extractJsonObject(raw)
+    };
+}
+
 export async function selectTaskFiles(input: SelectTaskFilesInput): Promise<TaskFileSelection> {
     const startedAt = Date.now();
     const settings = input.settings ?? await getAppSettings();
@@ -3476,33 +4975,48 @@ export async function selectTaskFiles(input: SelectTaskFilesInput): Promise<Task
     const fallback = buildFallbackSelection(inputWithSettings);
 
     if (settings.generationMode !== "ollama" || !settings.defaultOllamaModel) {
-        return withSelectorSafetyProfile({ ...fallback, durationMs: getDurationMs(startedAt) });
+        return withSelectorSafetyProfile({ ...fallback, durationMs: getDurationMs(startedAt) }, inputWithSettings, settings);
     }
 
     try {
-        const response = await fetch(`${settings.ollamaUrl.replace(/\/$/, "")}/api/generate`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-                model: settings.defaultOllamaModel,
-                prompt: buildSelectorPrompt(inputWithSettings),
-                stream: false,
-                format: "json",
-                options: { temperature: 0, num_predict: 1100 }
-            })
+        const firstAttempt = await requestSelectorJson({
+            ollamaUrl: settings.ollamaUrl,
+            model: settings.defaultOllamaModel,
+            prompt: buildSelectorPrompt(inputWithSettings),
+            numPredict: 1100
         });
 
-        if (!response.ok) {
+        if (!firstAttempt.ok) {
             return withSelectorSafetyProfile({
                 ...fallback,
                 durationMs: getDurationMs(startedAt),
-                notes: [...fallback.notes, `Ollama file selector responded with status ${response.status}.`]
-            });
+                notes: [...fallback.notes, `Ollama file selector responded with status ${firstAttempt.status}.`]
+            }, inputWithSettings, settings);
         }
 
-        const data = (await response.json()) as OllamaGenerateResponse;
-        const json = extractJsonObject(String(data.response ?? ""));
-        return withSelectorSafetyProfile(normalizeModelSelection(json, inputWithSettings, fallback, startedAt));
+        let json = firstAttempt.json;
+        const repairNotes: string[] = [];
+        if (!json) {
+            const repairAttempt = await requestSelectorJson({
+                ollamaUrl: settings.ollamaUrl,
+                model: settings.defaultOllamaModel,
+                prompt: buildSelectorRepairPrompt(firstAttempt.raw),
+                numPredict: 700
+            });
+
+            if (repairAttempt.ok && repairAttempt.json) {
+                json = repairAttempt.json;
+                repairNotes.push("Ollama file selector JSON was repaired after an invalid first response.");
+            } else {
+                repairNotes.push("Ollama file selector returned invalid JSON and repair did not produce valid JSON.");
+            }
+        }
+
+        const normalized = normalizeModelSelection(json, inputWithSettings, fallback, startedAt);
+        return withSelectorSafetyProfile({
+            ...normalized,
+            notes: [...repairNotes, ...normalized.notes]
+        }, inputWithSettings, settings);
     } catch (error) {
         return withSelectorSafetyProfile({
             ...fallback,
@@ -3511,6 +5025,6 @@ export async function selectTaskFiles(input: SelectTaskFilesInput): Promise<Task
                 ...fallback.notes,
                 error instanceof Error ? `Ollama file selector failed: ${error.message}` : "Ollama file selector failed."
             ]
-        });
+        }, inputWithSettings, settings);
     }
 }

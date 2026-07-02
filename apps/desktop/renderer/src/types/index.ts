@@ -264,6 +264,14 @@ export interface ContextSelectionQuality {
   warnings: string[];
   blockingReasons: string[];
   requiredManualReview: boolean;
+  signals?: {
+    targetConfidence: number;
+    scopeSafety: number;
+    contextCompleteness: number;
+    protectedScopeRisk: number;
+    manualReviewReason: string | null;
+    nextActions: string[];
+  };
 }
 
 export interface ContextComposerSnippet {
@@ -322,6 +330,15 @@ export interface ContextComposerPreview {
     durationMs: number;
     rejectedModelPaths: string[];
     notes: string[];
+    diagnostics?: {
+      selectorVersion: string;
+      safetyProfile: string;
+      generationMode: "template" | "ollama";
+      model: string | null;
+      requestedTaskType: string;
+      effectiveTaskArea: string;
+      usedFallback: boolean;
+    };
   };
   selectionQuality: ContextSelectionQuality;
   selectedFiles: ContextComposerFileReference[];

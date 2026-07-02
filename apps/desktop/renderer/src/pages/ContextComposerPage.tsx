@@ -822,6 +822,39 @@ export function ContextComposerPage({
                 ))}
               </div>
 
+              {preview.selectionQuality.signals && (
+                <div className="mt-3 grid gap-2 sm:grid-cols-4">
+                  {[
+                    ["Target", preview.selectionQuality.signals.targetConfidence],
+                    ["Scope", preview.selectionQuality.signals.scopeSafety],
+                    ["Context", preview.selectionQuality.signals.contextCompleteness],
+                    ["Safe", 100 - preview.selectionQuality.signals.protectedScopeRisk]
+                  ].map(([label, value]) => (
+                    <div key={label} className="rounded-2xl border border-white/10 bg-black/25 p-3">
+                      <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
+                        {label}
+                      </p>
+                      <p className="mt-1 text-sm font-semibold text-white">{value}/100</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {(preview.selectionQuality.signals?.nextActions ?? []).length > 0 && (
+                <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
+                    Next actions
+                  </p>
+                  <div className="mt-2 space-y-1">
+                    {(preview.selectionQuality.signals?.nextActions ?? []).map((item) => (
+                      <p key={item} className="text-xs leading-5 text-neutral-300">
+                        - {item}
+                      </p>
+                    ))}
+                  </div>
+                </div>
+              )}
+
               {(preview.clarifyingQuestions ?? []).length > 0 && (
                 <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
@@ -1404,6 +1437,53 @@ export function ContextComposerPage({
                             {note}
                           </p>
                         ))}
+                      </div>
+                    </article>
+
+                    <article className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                      <div className="mb-3 flex items-center gap-2">
+                        <Gauge size={15} className="text-neutral-500" />
+                        <p className="text-sm font-semibold text-white">
+                          Selector runtime
+                        </p>
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
+                          <span className="text-neutral-600">Version</span>
+                          <span className="max-w-[62%] truncate font-medium text-white">
+                            {preview.fileSelection.diagnostics?.selectorVersion ?? "not reported"}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
+                          <span className="text-neutral-600">Profile</span>
+                          <span className="max-w-[62%] truncate font-medium text-white">
+                            {preview.fileSelection.diagnostics?.safetyProfile ?? "unknown"}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
+                          <span className="text-neutral-600">Mode</span>
+                          <span className="font-medium text-white">
+                            {preview.fileSelection.diagnostics?.generationMode ?? preview.fileSelection.source}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
+                          <span className="text-neutral-600">Model</span>
+                          <span className="max-w-[62%] truncate font-medium text-white">
+                            {preview.fileSelection.diagnostics?.model ?? "template fallback"}
+                          </span>
+                        </div>
+
+                        <div className="flex items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
+                          <span className="text-neutral-600">Selector</span>
+                          <span className="font-medium text-white">
+                            {preview.fileSelection.source}
+                            {preview.fileSelection.usedFallback ? " fallback" : ""}
+                          </span>
+                        </div>
                       </div>
                     </article>
 

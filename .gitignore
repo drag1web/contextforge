@@ -13,3 +13,10 @@ server/dist
 
 .DS_Store
 Thumbs.db
+
+# Local ContextForge databases
+server/data/*.sqlite
+server/data/*.sqlite-*
+server/data/*.db
+server/data/*.db-*
+server/data/*.backup.sqlite
