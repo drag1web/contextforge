@@ -16,7 +16,7 @@ import type {
   TemplateTaskType
 } from "./types.js";
 
-const VALID_TARGET_TOOLS: TargetTool[] = ["codex", "cursor", "claude", "generic"];
+const VALID_TARGET_TOOLS: TargetTool[] = ["codex", "cursor", "claude", "gemini", "generic"];
 
 const VALID_TASK_TYPES: TemplateTaskType[] = [
   "general",
@@ -117,7 +117,8 @@ function getTargetToolLabel(targetTool: TargetTool) {
   const labels: Record<TargetTool, string> = {
     codex: "Codex",
     cursor: "Cursor",
-    claude: "Claude",
+    claude: "Claude Code",
+    gemini: "Gemini",
     generic: "Generic coding agent"
   };
 

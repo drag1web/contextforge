@@ -82,34 +82,22 @@ export function LoadingOverlay({ isVisible, message }: LoadingOverlayProps) {
     <AnimatePresence>
       {isVisible && (
         <motion.div
-          className="fixed inset-0 z-[9997] flex items-center justify-center bg-black/55 px-6 backdrop-blur-md"
+          className="fixed inset-0 z-[9997] flex items-center justify-center bg-black/62 px-6 backdrop-blur-sm"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
           transition={{ duration: 0.18 }}
         >
           <motion.div
-            className="relative w-full max-w-xl overflow-hidden rounded-[1.75rem] border border-white/10 bg-neutral-950/92 p-6 shadow-[0_34px_120px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.08)]"
+            className="cf-performance-stable relative w-full max-w-xl overflow-hidden rounded-[1.75rem] border border-white/10 bg-neutral-950/95 p-6 shadow-[0_24px_72px_rgba(0,0,0,0.68)]"
             initial={{ opacity: 0, y: 18, scale: 0.975 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={{ opacity: 0, y: 12, scale: 0.98 }}
             transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
           >
-            <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(255,255,255,0.12),transparent_22rem)]" />
-            <motion.div
-              className="pointer-events-none absolute -left-24 top-0 h-28 w-52 rotate-12 bg-white/[0.035] blur-2xl"
-              animate={{ x: ["0%", "240%"], opacity: [0.1, 0.35, 0.1] }}
-              transition={{ duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
-            />
-
             <div className="relative">
               <div className="flex items-start gap-4">
-                <div className="relative grid size-14 shrink-0 place-items-center rounded-2xl border border-white/10 bg-black/55 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.08)]">
-                  <motion.span
-                    className="absolute inset-0 rounded-2xl border border-white/20"
-                    animate={{ scale: [0.94, 1.12], opacity: [0.6, 0] }}
-                    transition={{ duration: 1.6, repeat: Infinity, ease: "easeOut" }}
-                  />
+                <div className="relative grid size-14 shrink-0 place-items-center rounded-2xl border border-white/10 bg-black/55 text-white shadow-[inset_0_1px_0_rgba(255,255,255,0.06)]">
                   <ActiveIcon size={22} />
                 </div>
 
@@ -135,7 +123,7 @@ export function LoadingOverlay({ isVisible, message }: LoadingOverlayProps) {
 
               <div className="mt-6 overflow-hidden rounded-full border border-white/10 bg-black/70 p-1">
                 <motion.div
-                  className="h-2 rounded-full bg-gradient-to-r from-neutral-500 via-white to-neutral-400 shadow-[0_0_24px_rgba(255,255,255,0.22)]"
+                  className="h-2 rounded-full bg-white"
                   initial={{ width: "8%" }}
                   animate={{ width: `${safeProgress}%` }}
                   transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
@@ -154,7 +142,7 @@ export function LoadingOverlay({ isVisible, message }: LoadingOverlayProps) {
                       className={[
                         "rounded-2xl border p-3 transition",
                         isActive
-                          ? "border-white/20 bg-white/[0.07] text-white shadow-[0_0_24px_rgba(255,255,255,0.06)]"
+                          ? "border-white/20 bg-white/[0.07] text-white"
                           : isDone
                             ? "border-white/10 bg-white/[0.035] text-neutral-300"
                             : "border-white/5 bg-black/35 text-neutral-600"

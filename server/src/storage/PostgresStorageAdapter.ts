@@ -108,10 +108,18 @@ export class PostgresStorageAdapter implements StorageAdapter {
       VALUES
         ('ollama_url', to_jsonb('http://localhost:11434'::text)),
         ('generation_mode', to_jsonb('template'::text)),
+        ('ai_provider', to_jsonb('ollama'::text)),
         ('default_target_tool', to_jsonb('codex'::text)),
         ('default_task_type', to_jsonb('general'::text)),
         ('default_ollama_model', 'null'::jsonb),
+        ('openai_compatible_base_url', to_jsonb('http://localhost:1234/v1'::text)),
+        ('openai_compatible_model', 'null'::jsonb),
+        ('openai_compatible_api_key', 'null'::jsonb),
+        ('gemini_base_url', to_jsonb('https://generativelanguage.googleapis.com/v1beta'::text)),
+        ('gemini_model', to_jsonb('gemini-1.5-flash'::text)),
+        ('gemini_api_key', 'null'::jsonb),
         ('language', to_jsonb('system'::text)),
+        ('theme', to_jsonb('dark'::text)),
         ('composer_file_limits', '{"default":8,"ui":7,"backend":8,"fullstack":10,"build":7,"bugfix":7,"refactor":8,"docs":6,"tests":7}'::jsonb),
         ('sidebar_show_descriptions', 'false'::jsonb)
       ON CONFLICT (key) DO NOTHING;

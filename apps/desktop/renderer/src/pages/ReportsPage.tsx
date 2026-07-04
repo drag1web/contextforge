@@ -49,18 +49,18 @@ function getReadinessLabel(score: number | null) {
 
 function getScoreFillClass(score: number | null) {
   if (score === null) {
-    return "bg-neutral-600 shadow-[0_0_18px_rgba(115,115,115,0.35)]";
+    return "bg-neutral-600";
   }
 
   if (score < 50) {
-    return "bg-[#ff1744] shadow-[0_0_18px_rgba(255,23,68,0.72),0_0_38px_rgba(255,23,68,0.28)]";
+    return "bg-[#ff1744]";
   }
 
   if (score < 80) {
-    return "bg-white shadow-[0_0_18px_rgba(255,255,255,0.48),0_0_34px_rgba(255,255,255,0.18)]";
+    return "bg-white";
   }
 
-  return "bg-[#00ff9d] shadow-[0_0_18px_rgba(0,255,157,0.58),0_0_34px_rgba(0,255,157,0.2)]";
+  return "bg-[#00ff9d]";
 }
 
 function getScoreWidth(score: number | null) {

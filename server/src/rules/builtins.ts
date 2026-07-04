@@ -7,7 +7,7 @@ import type {
   TemplateTaskType
 } from "./types.js";
 
-const TARGET_TOOLS: TargetTool[] = ["codex", "cursor", "claude", "generic"];
+const TARGET_TOOLS: TargetTool[] = ["codex", "cursor", "claude", "gemini", "generic"];
 
 const TASK_TYPES: TemplateTaskType[] = [
   "general",
@@ -24,7 +24,8 @@ const TASK_TYPES: TemplateTaskType[] = [
 const targetToolLabels: Record<TargetTool, string> = {
   codex: "Codex",
   cursor: "Cursor",
-  claude: "Claude",
+  claude: "Claude Code",
+  gemini: "Gemini",
   generic: "Generic coding agent"
 };
 
@@ -35,6 +36,8 @@ const targetToolInstructions: Record<TargetTool, string> = {
     "Use the selected context as the main working set, keep changes local to the task, and avoid broad rewrites.",
   claude:
     "Reason carefully about constraints, preserve existing behavior, and provide a clear final implementation summary.",
+  gemini:
+    "Use structured reasoning, keep the request grounded in the provided files, and produce a practical implementation summary.",
   generic:
     "Act as a careful AI coding agent. Inspect context first, make focused edits, and verify the result."
 };

@@ -238,10 +238,18 @@ export class SqliteStorageAdapter implements StorageAdapter {
 
     this.insertDefaultSetting("ollama_url", "http://localhost:11434");
     this.insertDefaultSetting("generation_mode", "template");
+    this.insertDefaultSetting("ai_provider", "ollama");
     this.insertDefaultSetting("default_target_tool", "codex");
     this.insertDefaultSetting("default_task_type", "general");
     this.insertDefaultSetting("default_ollama_model", null);
+    this.insertDefaultSetting("openai_compatible_base_url", "http://localhost:1234/v1");
+    this.insertDefaultSetting("openai_compatible_model", null);
+    this.insertDefaultSetting("openai_compatible_api_key", null);
+    this.insertDefaultSetting("gemini_base_url", "https://generativelanguage.googleapis.com/v1beta");
+    this.insertDefaultSetting("gemini_model", "gemini-1.5-flash");
+    this.insertDefaultSetting("gemini_api_key", null);
     this.insertDefaultSetting("language", "system");
+    this.insertDefaultSetting("theme", "dark");
     this.insertDefaultSetting("composer_file_limits", {
       default: 8,
       ui: 7,

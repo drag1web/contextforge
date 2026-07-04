@@ -596,24 +596,28 @@ function applyModeToResult({
   let nextScore = clampScore(score);
   let nextWarnings = unique(warnings);
   let nextBlockingReasons = unique(blockingReasons);
+  const hardBlockingReasons = nextBlockingReasons.filter(isHardSafetyReason);
+  const reviewBlockingReasons = nextBlockingReasons.filter(
+    (reason) => !isHardSafetyReason(reason),
+  );
 
-  if (manualSelectionConfirmed && nextBlockingReasons.length > 0) {
+  if (manualSelectionConfirmed && reviewBlockingReasons.length > 0) {
     nextWarnings = unique([
       ...nextWarnings,
-      ...nextBlockingReasons.map(
+      ...reviewBlockingReasons.map(
         (reason) => `Manual selection override: ${reason}`,
       ),
     ]);
-    nextBlockingReasons = [];
+    nextBlockingReasons = hardBlockingReasons;
     nextScore = Math.max(nextScore, 58);
   }
 
-  if (mode === "advisory" && nextBlockingReasons.length > 0) {
+  if (mode === "advisory" && reviewBlockingReasons.length > 0) {
     nextWarnings = unique([
       ...nextWarnings,
-      ...nextBlockingReasons.map((reason) => `Advisory mode: ${reason}`),
+      ...reviewBlockingReasons.map((reason) => `Advisory mode: ${reason}`),
     ]);
-    nextBlockingReasons = [];
+    nextBlockingReasons = hardBlockingReasons;
     nextScore = Math.max(nextScore, 52);
   }
 
@@ -639,6 +643,38 @@ function applyModeToResult({
     requiredManualReview:
       status === "blocked" || (mode === "strict" && status === "warning"),
   };
+}
+
+function isHardSafetyReason(reason: string) {
+  const text = reason.toLowerCase();
+
+  return (
+    text.includes("unsafe/out-of-scope") ||
+    text.includes("unsafe or out-of-scope") ||
+    text.includes("outside the project") ||
+    text.includes("outside project") ||
+    text.includes("outside workspace") ||
+    text.includes("path traversal") ||
+    text.includes("protected path") ||
+    text.includes("requested path escapes") ||
+    text.includes("../") ||
+    text.includes("..\\")
+  );
+}
+
+function hasHardSafetyPathSignal(rawTask: string, rejectedPaths: string[]) {
+  const text = [rawTask, ...rejectedPaths].join(" ").toLowerCase();
+
+  return (
+    /(^|[\s"'`([{])\.\.(?:[\\/]|$)/.test(text) ||
+    text.includes("unsafe/out-of-scope") ||
+    text.includes("unsafe or out-of-scope") ||
+    text.includes("outside the project") ||
+    text.includes("outside project") ||
+    text.includes("outside workspace") ||
+    text.includes("path traversal") ||
+    text.includes("requested path escapes")
+  );
 }
 
 export function evaluateContextSelectionQuality(
@@ -943,6 +979,18 @@ export function evaluateContextSelectionQuality(
       );
       score -= 28;
     }
+  }
+
+  if (
+    hasHardSafetyPathSignal(
+      input.rawTask,
+      input.fileSelection.rejectedModelPaths,
+    )
+  ) {
+    blockingReasons.push(
+      "Unsafe/out-of-scope path was requested. ContextForge will not create, modify, or include files outside the selected project.",
+    );
+    score -= 45;
   }
 
   const result = applyModeToResult({

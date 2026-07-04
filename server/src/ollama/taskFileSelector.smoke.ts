@@ -17,10 +17,18 @@ import { selectTaskFiles } from "./taskFileSelector.js";
 const testSettings: AppSettings = {
   ollamaUrl: "http://127.0.0.1:11434",
   generationMode: "template",
+  aiProvider: "ollama",
   defaultTargetTool: "codex",
   defaultTaskType: "general",
   defaultOllamaModel: null,
+  openAiCompatibleBaseUrl: "http://localhost:1234/v1",
+  openAiCompatibleModel: null,
+  openAiCompatibleApiKeyConfigured: false,
+  geminiBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
+  geminiModel: "gemini-1.5-flash",
+  geminiApiKeyConfigured: false,
   language: "en",
+  theme: "dark",
   composerFileLimits: {
     default: 8,
     ui: 7,

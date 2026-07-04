@@ -1,6 +1,8 @@
 import {
   siAnthropic,
   siClaude,
+  siClaudecode,
+  siGooglegemini,
   siCursor
 } from "simple-icons/icons";
 
@@ -9,6 +11,8 @@ export type AiToolId =
   | "openai"
   | "cursor"
   | "claude"
+  | "claudecode"
+  | "gemini"
   | "anthropic"
   | "generic"
   | string;
@@ -45,12 +49,16 @@ function getSimpleIcon(tool: AiToolId): SimpleIconData | null {
     return OPENAI_ICON;
   }
 
-  if (normalized === "claude") {
-    return (siClaude ?? siAnthropic) as SimpleIconData;
+  if (normalized === "claude" || normalized === "claudecode") {
+    return (siClaudecode ?? siClaude ?? siAnthropic) as SimpleIconData;
+  }
+
+  if (normalized === "gemini") {
+    return siGooglegemini as SimpleIconData;
   }
 
   if (normalized === "anthropic") {
-    return (siAnthropic ?? siClaude) as SimpleIconData;
+    return (siClaude ?? siAnthropic) as SimpleIconData;
   }
 
   if (normalized === "cursor") {
@@ -88,8 +96,12 @@ function getBrandColor(tool: AiToolId, icon?: SimpleIconData | null) {
     return "#f5f5f5";
   }
 
-  if (normalized === "claude" || normalized === "anthropic") {
+  if (normalized === "claude" || normalized === "anthropic" || normalized === "claudecode") {
     return "#d97757";
+  }
+
+  if (normalized === "gemini") {
+    return "#8ab4f8";
   }
 
   if (normalized === "cursor") {

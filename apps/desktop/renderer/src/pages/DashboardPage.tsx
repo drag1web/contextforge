@@ -9,6 +9,7 @@ import { getAppSettings } from "../api/client";
 import type { AppSettings } from "../types";
 
 import { AppTitleBar } from "../components/layout/AppTitleBar";
+import { PageTransition } from "../components/layout/PageTransition";
 import { Sidebar, type AppPageId } from "../components/layout/Sidebar";
 
 import { StatusBar } from "../components/ui/StatusBar";
@@ -28,6 +29,7 @@ import { ContextBuilderPage } from "./ContextBuilderPage";
 import { SettingsPage } from "./SettingsPage";
 import { PlaceholderPage } from "./PlaceholderPage";
 import { ReportsPage } from "./ReportsPage";
+import { IntegrationsPage } from "./IntegrationsPage";
 
 import { ContextComposerPage } from "./ContextComposerPage";
 
@@ -49,11 +51,6 @@ const PAGE_ORDER: AppPageId[] = [
   "integrations",
   "settings"
 ];
-
-const PAGE_TRANSITION = {
-  duration: 0.18,
-  ease: [0.16, 1, 0.3, 1]
-} as const;
 
 function getPageOrderIndex(page: AppPageId) {
   const index = PAGE_ORDER.indexOf(page);
@@ -257,7 +254,7 @@ function WelcomeSplashOverlay({
                   damping: 26,
                   mass: 0.8
                 }}
-                className="h-full rounded-full bg-white shadow-[0_0_18px_rgba(255,255,255,0.5)]"
+                className="h-full rounded-full bg-white"
               />
             </div>
 
@@ -566,12 +563,37 @@ export function DashboardPage() {
       return <TemplatesPage />;
     }
 
+    if (activePage === "integrations") {
+      return <IntegrationsPage />;
+    }
+
     if (activePage === "settings") {
       return <SettingsPage />;
     }
 
     return <PlaceholderPage pageId={activePage} />;
   }, [activePage, dashboard, handleNavigate]);
+
+  const contentTransitionKey = useMemo(() => {
+    if (dashboard.generatedTaskPack) {
+      return `task-pack-result-${dashboard.generatedTaskPack.id}`;
+    }
+
+    if (dashboard.contextComposerPreview) {
+      return `context-composer-${dashboard.contextComposerPreview.project.id}-${dashboard.contextComposerPreview.task.rawTask}`;
+    }
+
+    if (dashboard.taskPackDraft) {
+      return `task-pack-draft-${dashboard.taskPackDraft.projectId}-${dashboard.taskPackDraft.taskType}-${dashboard.taskPackDraft.targetTool}`;
+    }
+
+    return activePage;
+  }, [
+    activePage,
+    dashboard.contextComposerPreview,
+    dashboard.generatedTaskPack,
+    dashboard.taskPackDraft
+  ]);
 
   return (
     <main className="relative h-screen min-h-0 w-screen overflow-hidden bg-black text-neutral-100">
@@ -592,26 +614,12 @@ export function DashboardPage() {
 
           <section className="flex min-w-0 flex-1 flex-col bg-black">
             <div className="min-h-0 flex-1 overflow-auto p-7">
-              <motion.div
-                key={activePage}
-                initial={{
-                  opacity: 0,
-                  x: pageDirection > 0 ? 14 : -14,
-                  y: 6,
-                  scale: 0.998
-                }}
-                animate={{
-                  opacity: 1,
-                  x: 0,
-                  y: 0,
-                  scale: 1
-                }}
-                transition={PAGE_TRANSITION}
-                className="min-h-full"
-                style={{ willChange: "transform, opacity" }}
+              <PageTransition
+                pageKey={contentTransitionKey}
+                direction={pageDirection}
               >
                 {content}
-              </motion.div>
+              </PageTransition>
             </div>
           </section>
         </div>

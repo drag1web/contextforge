@@ -1,4 +1,4 @@
-export type TargetTool = "codex" | "cursor" | "claude" | "generic";
+export type TargetTool = "codex" | "cursor" | "claude" | "gemini" | "generic";
 
 export type TemplateTaskType =
   | "general"

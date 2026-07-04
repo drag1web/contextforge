@@ -19,12 +19,24 @@ const composerFileLimitsSchema = z.object({
 const updateSettingsSchema = z.object({
   ollamaUrl: z.string().url().optional(),
   generationMode: z.enum(["template", "ollama"]).optional(),
-  defaultTargetTool: z.enum(["codex", "cursor", "claude", "generic"]).optional(),
+  aiProvider: z.enum(["ollama", "openai-compatible", "gemini"]).optional(),
+  defaultTargetTool: z.enum(["codex", "cursor", "claude", "gemini", "generic"]).optional(),
   defaultTaskType: z
     .enum(["general", "ui", "backend", "fullstack", "build", "bugfix", "refactor", "docs", "tests"])
     .optional(),
   defaultOllamaModel: z.string().nullable().optional(),
+  openAiCompatibleBaseUrl: z.string().url().optional(),
+  openAiCompatibleModel: z.string().nullable().optional(),
+  openAiCompatibleApiKey: z.string().optional(),
+  openAiCompatibleApiKeyConfigured: z.boolean().optional(),
+  clearOpenAiCompatibleApiKey: z.boolean().optional(),
+  geminiBaseUrl: z.string().url().optional(),
+  geminiModel: z.string().nullable().optional(),
+  geminiApiKey: z.string().optional(),
+  geminiApiKeyConfigured: z.boolean().optional(),
+  clearGeminiApiKey: z.boolean().optional(),
   language: z.enum(["system", "en", "ru"]).optional(),
+  theme: z.enum(["system", "dark", "light"]).optional(),
   composerFileLimits: composerFileLimitsSchema.optional(),
   contextQualityMode: z.enum(["advisory", "balanced", "strict"]).optional(),
   sidebarShowDescriptions: z.boolean().optional()

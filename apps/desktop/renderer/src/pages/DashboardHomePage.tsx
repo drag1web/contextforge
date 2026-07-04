@@ -459,7 +459,7 @@ function BreakdownRow({ item }: { item: BreakdownItem }) {
             damping: 34,
             mass: 0.7
           }}
-          className="h-full rounded-full bg-white shadow-[0_0_18px_rgba(255,255,255,0.35)]"
+          className="h-full rounded-full bg-white"
         />
       </div>
 

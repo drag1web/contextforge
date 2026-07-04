@@ -120,18 +120,18 @@ function getReadinessWidth(score: number | null) {
 
 function getReadinessTone(score: number | null) {
     if (score === null) {
-        return "bg-neutral-500 shadow-[0_0_18px_rgba(115,115,115,0.35)]";
+        return "bg-neutral-500";
     }
 
     if (score < 50) {
-        return "bg-[#ff1744] shadow-[0_0_18px_rgba(255,23,68,0.78),0_0_38px_rgba(255,23,68,0.32)]";
+        return "bg-[#ff1744]";
     }
 
     if (score < 80) {
-        return "bg-white shadow-[0_0_18px_rgba(255,255,255,0.52),0_0_34px_rgba(255,255,255,0.20)]";
+        return "bg-white";
     }
 
-    return "bg-[#00ff9d] shadow-[0_0_18px_rgba(0,255,157,0.62),0_0_34px_rgba(0,255,157,0.22)]";
+    return "bg-[#00ff9d]";
 }
 
 export function DashboardOverview({
@@ -390,7 +390,7 @@ export function DashboardOverview({
 
                                     <div className="h-2 overflow-hidden rounded-full bg-neutral-900">
                                         <div
-                                            className="h-full rounded-full bg-white shadow-[0_0_18px_rgba(255,255,255,0.38)]"
+                                            className="h-full rounded-full bg-white"
                                             style={{ width: `${Math.max(4, (bucket.count / maxBucketCount) * 100)}%` }}
                                         />
                                     </div>

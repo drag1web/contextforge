@@ -1,7 +1,7 @@
 import type { SelectOption } from "../ui/CustomSelect";
 import { AiToolLogo } from "./AiToolLogo";
 
-export type AiToolTarget = "codex" | "cursor" | "claude" | "generic";
+export type AiToolTarget = "codex" | "cursor" | "claude" | "gemini" | "generic";
 
 export function getAiToolLabel(tool: string) {
   const normalized = String(tool || "").toLowerCase();
@@ -15,7 +15,11 @@ export function getAiToolLabel(tool: string) {
   }
 
   if (normalized === "claude") {
-    return "Claude";
+    return "Claude Code";
+  }
+
+  if (normalized === "gemini") {
+    return "Gemini";
   }
 
   if (normalized === "generic") {
@@ -37,7 +41,11 @@ export function getAiToolDescription(tool: string) {
   }
 
   if (normalized === "claude") {
-    return "Anthropic reasoning agent";
+    return "Anthropic CLI coding agent";
+  }
+
+  if (normalized === "gemini") {
+    return "Google AI coding agent";
   }
 
   if (normalized === "generic") {
@@ -62,9 +70,15 @@ export const TARGET_TOOL_OPTIONS: SelectOption<AiToolTarget>[] = [
   },
   {
     value: "claude",
-    label: "Claude",
-    description: "Anthropic reasoning agent",
+    label: "Claude Code",
+    description: "Anthropic CLI coding agent",
     icon: <AiToolLogo tool="claude" />
+  },
+  {
+    value: "gemini",
+    label: "Gemini",
+    description: "Google AI coding agent",
+    icon: <AiToolLogo tool="gemini" />
   },
   {
     value: "generic",

@@ -12,7 +12,7 @@ export interface ReadinessReport {
   issues: string[];
 }
 
-export type TargetTool = "codex" | "cursor" | "claude" | "generic";
+export type TargetTool = "codex" | "cursor" | "claude" | "gemini" | "generic";
 
 export type TemplateTaskType =
   | "general"
@@ -193,13 +193,41 @@ export interface OllamaModel {
   digest?: string;
 }
 
+export type AiProviderId = "ollama" | "openai-compatible" | "gemini";
+
+export interface AiProviderStatus {
+  provider: AiProviderId;
+  online: boolean;
+  url: string;
+  model: string | null;
+  apiKeyConfigured: boolean;
+  message: string;
+}
+
+export interface AiProviderModel {
+  id: string;
+  name: string;
+  provider: AiProviderId;
+  size?: number;
+  modifiedAt?: string;
+  description?: string;
+}
+
 export interface AppSettings {
   ollamaUrl: string;
   generationMode: "template" | "ollama";
-  defaultTargetTool: "codex" | "cursor" | "claude" | "generic";
+  aiProvider: AiProviderId;
+  defaultTargetTool: TargetTool;
   defaultTaskType: "general" | "ui" | "backend" | "fullstack" | "build" | "bugfix" | "refactor" | "docs" | "tests";
   defaultOllamaModel: string | null;
+  openAiCompatibleBaseUrl: string;
+  openAiCompatibleModel: string | null;
+  openAiCompatibleApiKeyConfigured: boolean;
+  geminiBaseUrl: string;
+  geminiModel: string | null;
+  geminiApiKeyConfigured: boolean;
   language: "system" | "en" | "ru";
+  theme: "system" | "dark" | "light";
   composerFileLimits: {
     default: number;
     ui: number;
@@ -213,6 +241,13 @@ export interface AppSettings {
   };
   contextQualityMode: "advisory" | "balanced" | "strict";
   sidebarShowDescriptions: boolean;
+}
+
+export interface UpdateAppSettingsInput extends Partial<AppSettings> {
+  openAiCompatibleApiKey?: string | null;
+  clearOpenAiCompatibleApiKey?: boolean;
+  geminiApiKey?: string | null;
+  clearGeminiApiKey?: boolean;
 }
 
 export interface GenerationMetadata {

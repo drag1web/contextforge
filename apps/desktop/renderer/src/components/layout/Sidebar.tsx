@@ -116,10 +116,10 @@ export const navigationSections: NavigationSection[] = [
         id: "integrations",
         label: "Integrations",
         labelKey: "nav.integrations",
-        description: "Future MCP, CLI, export and external agent connections.",
+        description: "AI providers, model endpoints, CLI exports and future connectors.",
         descriptionKey: "nav.integrationsDesc",
         icon: PlugZap,
-        status: "planned"
+        status: "alpha"
       },
       {
         id: "reports",
@@ -216,7 +216,7 @@ export function Sidebar({
         damping: 38,
         mass: 0.7
       }}
-      className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-neutral-900 bg-black pb-5 pt-5"
+      className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-white/[0.075] bg-black pb-5 pt-5"
     >
       <div
         className={[
@@ -239,7 +239,7 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => setIsCollapsed((current) => !current)}
-          className="group grid size-9 shrink-0 place-items-center rounded-2xl border border-neutral-900 bg-neutral-950 text-neutral-500 transition hover:border-white hover:bg-white hover:text-black"
+          className="cf-interactive group grid size-9 shrink-0 place-items-center rounded-2xl border border-white/[0.075] bg-neutral-950 text-neutral-500 hover:border-white/20 hover:bg-white/[0.075] hover:text-white"
           title={isCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
           aria-label={isCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
         >
@@ -281,7 +281,7 @@ export function Sidebar({
                     onClick={() => onNavigate(item.id)}
                     title={isCollapsed ? itemLabel : undefined}
                     className={[
-                      "group relative flex w-full items-center overflow-hidden rounded-2xl text-left transition duration-200",
+                      "cf-pressable group relative flex w-full items-center overflow-hidden rounded-2xl text-left transition duration-200",
                       isCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
                       isActive
                         ? "text-black"
@@ -291,7 +291,7 @@ export function Sidebar({
                     {isActive && (
                       <motion.span
                         layoutId="sidebar-active-page"
-                        className="absolute inset-0 rounded-2xl bg-white shadow-[0_16px_42px_rgba(255,255,255,0.10)]"
+                        className="absolute inset-0 rounded-2xl bg-white shadow-[0_12px_30px_rgba(0,0,0,0.48)]"
                         transition={{
                           type: "spring",
                           stiffness: 420,
@@ -363,13 +363,13 @@ export function Sidebar({
       <div className={isCollapsed ? "mt-5 px-3" : "mt-5 px-4"}>
         {isCollapsed ? (
           <div
-            className="grid size-10 place-items-center rounded-2xl border border-neutral-900 bg-neutral-950/60 text-neutral-500"
+            className="grid size-10 place-items-center rounded-2xl border border-white/[0.075] bg-neutral-950/60 text-neutral-500"
             title={`${appMeta.phase} — v${appMeta.version}`}
           >
             <ChevronRight size={15} />
           </div>
         ) : (
-          <div className="rounded-2xl border border-neutral-900 bg-neutral-950/60 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+          <div className="rounded-2xl border border-white/[0.075] bg-neutral-950/60 p-4 shadow-[0_10px_26px_rgba(0,0,0,0.28)]">
             <div className="mb-2 flex items-center justify-between gap-3">
               <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
                 {t("nav.mvpStatus")}

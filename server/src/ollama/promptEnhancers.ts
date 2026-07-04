@@ -32,6 +32,7 @@ function getTargetToolLabel(targetTool: string) {
         codex: "Codex",
         cursor: "Cursor",
         claude: "Claude Code",
+        gemini: "Gemini",
         generic: "Generic AI Agent"
     };
 

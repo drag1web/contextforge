@@ -11,7 +11,7 @@ import {
 
 export const templatesRouter = Router();
 
-const targetToolSchema = z.enum(["codex", "cursor", "claude", "generic"]);
+const targetToolSchema = z.enum(["codex", "cursor", "claude", "gemini", "generic"]);
 
 const taskTypeSchema = z.enum([
   "general",

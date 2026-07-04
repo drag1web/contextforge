@@ -1,17 +1,72 @@
-﻿@font-face {
-  font-family: "Bitcount Single";
-  src: url("./assets/fonts/BitcountSingle-Regular.woff2") format("woff2");
+﻿@import "tailwindcss";
+
+@font-face {
+  font-family: "Geist";
+  src: url("./assets/fonts/Geist-Regular.ttf") format("truetype");
   font-weight: 400;
   font-style: normal;
   font-display: swap;
 }
 
-@import "tailwindcss";
+@font-face {
+  font-family: "Geist";
+  src: url("./assets/fonts/Geist-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
 
+@font-face {
+  font-family: "Geist";
+  src: url("./assets/fonts/Geist-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist";
+  src: url("./assets/fonts/Geist-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./assets/fonts/GeistMono-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./assets/fonts/GeistMono-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Geist Mono";
+  src: url("./assets/fonts/GeistMono-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "Bitcount Single";
+  src: url("./assets/fonts/BitcountSingle.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
 :root {
   font-family:
-    Inter,
     Geist,
+    Inter,
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -22,16 +77,16 @@
   color-scheme: dark;
 
   --cf-bg: #000000;
-  --cf-bg-soft: #050505;
+  --cf-bg-soft: #030303;
 
-  --cf-surface: #080808;
-  --cf-surface-soft: #0d0d0d;
-  --cf-surface-elevated: #111111;
-  --cf-surface-hover: #171717;
+  --cf-surface: #070707;
+  --cf-surface-soft: #0a0a0a;
+  --cf-surface-elevated: #0f0f0f;
+  --cf-surface-hover: #121212;
 
-  --cf-border: #262626;
-  --cf-border-soft: #1a1a1a;
-  --cf-border-strong: #3a3a3a;
+  --cf-border: rgba(255, 255, 255, 0.11);
+  --cf-border-soft: rgba(255, 255, 255, 0.075);
+  --cf-border-strong: rgba(255, 255, 255, 0.18);
 
   --cf-text: #ededed;
   --cf-text-muted: #a1a1a1;
@@ -48,15 +103,32 @@
   --cf-radius-lg: 14px;
   --cf-radius-xl: 18px;
 
-  --cf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.36);
-  --cf-shadow-md: 0 14px 38px rgba(0, 0, 0, 0.42);
-  --cf-shadow-lg: 0 28px 90px rgba(0, 0, 0, 0.62);
+  --cf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.34);
+  --cf-shadow-md: 0 12px 30px rgba(0, 0, 0, 0.36);
+  --cf-shadow-lg: 0 24px 74px rgba(0, 0, 0, 0.54);
+  --cf-shadow-card: 0 12px 30px rgba(0, 0, 0, 0.28);
+  --cf-shadow-card-hover: 0 16px 42px rgba(0, 0, 0, 0.38);
 
-  --cf-transition-fast: 140ms ease;
-  --cf-transition-base: 220ms ease;
+  --cf-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
+  --cf-ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --cf-transition-fast: 140ms var(--cf-ease-standard);
+  --cf-transition-base: 220ms var(--cf-ease-out);
 }
 
 .cf-display-font {
+  font-family:
+    "Geist",
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+  letter-spacing: -0.035em;
+}
+
+.cf-brand-font {
   font-family:
     "Bitcount Single",
     "Geist Mono",
@@ -68,12 +140,11 @@
 
 .cf-tech-label {
   font-family:
-    "Bitcount Single",
     "Geist Mono",
     "JetBrains Mono",
     Consolas,
     monospace;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.075em;
 }
 
 /* Slightly smaller global scale */
@@ -83,7 +154,7 @@ html {
   margin: 0;
   font-size: 14px;
   background: var(--cf-bg);
-  text-rendering: geometricPrecision;
+  text-rendering: optimizeLegibility;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
@@ -99,9 +170,8 @@ body {
   overflow: hidden;
   color: var(--cf-text);
   background:
-    radial-gradient(circle at 50% -14rem, rgba(255, 255, 255, 0.085), transparent 34rem),
-    radial-gradient(circle at 92% 8%, rgba(255, 255, 255, 0.035), transparent 22rem),
-    linear-gradient(180deg, #050505 0%, #000000 46%, #000000 100%);
+    linear-gradient(180deg, rgba(255, 255, 255, 0.022), transparent 18rem),
+    linear-gradient(180deg, #050505 0%, #000000 42%, #000000 100%);
 }
 
 * {
@@ -128,6 +198,7 @@ select {
 button {
   border: 0;
   cursor: pointer;
+  user-select: none;
 }
 
 button:disabled,
@@ -209,97 +280,161 @@ a {
 
 /* Reusable surfaces */
 .cf-surface {
-  background: rgba(8, 8, 8, 0.82);
+  background: rgba(7, 7, 7, 0.86);
   border: 1px solid var(--cf-border-soft);
   box-shadow: var(--cf-shadow-sm);
   backdrop-filter: blur(16px);
 }
 
 .cf-surface-elevated {
-  background: rgba(15, 15, 15, 0.96);
+  background: rgba(10, 10, 10, 0.96);
   border: 1px solid var(--cf-border);
   box-shadow: var(--cf-shadow-md);
   backdrop-filter: blur(20px);
 }
 
-/* Vercel-like cards */
+/* Matte SaaS surfaces: bordered, quiet, no internal glow. */
+.cf-panel,
+.cf-hero,
 .cf-card {
   position: relative;
   isolation: isolate;
   overflow: hidden;
   border-radius: var(--cf-radius-xl);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.034), rgba(255, 255, 255, 0.01) 42%, rgba(255, 255, 255, 0.006)),
-    #080808;
-  border: 1px solid rgba(255, 255, 255, 0.075);
-  box-shadow:
-    0 16px 52px rgba(0, 0, 0, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.038);
+  background: var(--cf-surface);
+  background-image: none;
+  border: 1px solid var(--cf-border-soft);
+  box-shadow: var(--cf-shadow-card);
   transition:
+    transform var(--cf-transition-fast),
     border-color var(--cf-transition-base),
     background var(--cf-transition-base),
     box-shadow var(--cf-transition-base);
 }
 
-.cf-card::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: 0;
-  pointer-events: none;
-  background:
-    linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.055), transparent) top / 100% 1px no-repeat,
-    linear-gradient(180deg, rgba(255, 255, 255, 0.024), transparent 36%);
-  opacity: 0.72;
-  transition: opacity var(--cf-transition-base);
-}
-
+.cf-panel::before,
+.cf-panel::after,
+.cf-hero::before,
+.cf-hero::after,
+.cf-card::before,
 .cf-card::after {
-  content: "";
-  position: absolute;
-  inset: 1px;
-  z-index: 0;
-  pointer-events: none;
-  border-radius: calc(var(--cf-radius-xl) - 1px);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.018), transparent 48%);
-  opacity: 0;
-  transition: opacity var(--cf-transition-base);
+  content: none !important;
+  display: none !important;
+  opacity: 0 !important;
+  background: none !important;
+  background-image: none !important;
 }
 
+.cf-panel>*,
+.cf-hero>*,
 .cf-card>* {
   position: relative;
   z-index: 1;
 }
 
+.cf-panel:hover,
+.cf-hero:hover,
 .cf-card:hover {
-  border-color: rgba(255, 255, 255, 0.11);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.044), rgba(255, 255, 255, 0.013) 44%, rgba(255, 255, 255, 0.007)),
-    #0a0a0a;
-  box-shadow:
-    0 20px 62px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.052);
+  background: var(--cf-surface-soft);
+  background-image: none;
+  border-color: var(--cf-border);
+  box-shadow: var(--cf-shadow-card-hover);
+  transform: translateY(-1px);
 }
 
-.cf-card:hover::before {
-  opacity: 1;
-}
-
+.cf-panel:hover::before,
+.cf-panel:hover::after,
+.cf-hero:hover::before,
+.cf-hero:hover::after,
+.cf-card:hover::before,
 .cf-card:hover::after {
-  opacity: 1;
+  content: none !important;
+  display: none !important;
+  opacity: 0 !important;
+  background: none !important;
+  background-image: none !important;
 }
 
 .cf-card-menu {
   overflow: visible;
 }
 
-.cf-card-menu::before {
-  border-radius: inherit;
+.cf-card-menu::before,
+.cf-card-menu::after {
+  content: none !important;
+  display: none !important;
 }
 
-.cf-card-menu::after {
-  border-radius: inherit;
+.cf-hero {
+  border-radius: 2rem;
+  padding: 1.5rem;
+  box-shadow: var(--cf-shadow-lg);
+}
+
+.cf-toolbar {
+  background: rgba(5, 5, 5, 0.82);
+  border: 1px solid var(--cf-border-soft);
+  box-shadow: var(--cf-shadow-sm);
+  backdrop-filter: blur(18px);
+}
+
+.cf-interactive {
+  transition:
+    transform var(--cf-transition-fast),
+    border-color var(--cf-transition-base),
+    background var(--cf-transition-base),
+    color var(--cf-transition-base),
+    box-shadow var(--cf-transition-base),
+    opacity var(--cf-transition-fast);
+}
+
+.cf-interactive:hover {
+  translate: 0 -1px;
+}
+
+.cf-interactive:active {
+  scale: 0.992;
+  translate: 0 0;
+}
+
+.cf-pressable {
+  transition:
+    transform var(--cf-transition-fast),
+    opacity var(--cf-transition-fast);
+}
+
+.cf-pressable:active {
+  scale: 0.985;
+}
+
+.cf-page-shell {
+  animation: cf-page-settle 320ms var(--cf-ease-out) both;
+}
+
+.cf-list-stagger>* {
+  animation: cf-fade-up 360ms var(--cf-ease-out) both;
+}
+
+.cf-list-stagger>*:nth-child(2) {
+  animation-delay: 35ms;
+}
+
+.cf-list-stagger>*:nth-child(3) {
+  animation-delay: 70ms;
+}
+
+.cf-list-stagger>*:nth-child(4) {
+  animation-delay: 105ms;
+}
+
+.cf-list-stagger>*:nth-child(5) {
+  animation-delay: 140ms;
+}
+
+.cf-matte-inset {
+  background: rgba(0, 0, 0, 0.36);
+  border: 1px solid var(--cf-border-soft);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.026);
 }
 
 /* Buttons */
@@ -318,10 +453,11 @@ a {
   line-height: 1;
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.12),
-    0 10px 26px rgba(255, 255, 255, 0.08);
+    0 10px 26px rgba(0, 0, 0, 0.42);
   transition:
     transform var(--cf-transition-fast),
     background var(--cf-transition-fast),
+    border-color var(--cf-transition-fast),
     box-shadow var(--cf-transition-fast);
 }
 
@@ -330,11 +466,11 @@ a {
   transform: translateY(-1px);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.16),
-    0 14px 34px rgba(255, 255, 255, 0.12);
+    0 14px 34px rgba(0, 0, 0, 0.48);
 }
 
 .cf-button-primary:active {
-  transform: translateY(0);
+  transform: translateY(0) scale(0.992);
 }
 
 .cf-button-secondary {
@@ -353,6 +489,7 @@ a {
   line-height: 1;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
   transition:
+    transform 140ms var(--cf-ease-standard),
     color 180ms ease,
     background 180ms ease,
     border-color 180ms ease,
@@ -360,16 +497,18 @@ a {
 }
 
 .cf-button-secondary:hover {
-  color: #000000;
-  background: #ffffff;
-  border-color: #ffffff;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.075);
+  border-color: var(--cf-border-strong);
   box-shadow:
-    0 12px 34px rgba(255, 255, 255, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    0 10px 24px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transform: translateY(-1px);
 }
 
 .cf-button-secondary:active {
-  background: #e8e8e8;
+  transform: translateY(0) scale(0.992);
+  background: rgba(255, 255, 255, 0.095);
 }
 
 .cf-health-track {
@@ -390,23 +529,17 @@ a {
 
 .cf-health-fill-danger {
   background: #ff1744;
-  box-shadow:
-    0 0 18px rgba(255, 23, 68, 0.72),
-    0 0 38px rgba(255, 23, 68, 0.28);
+  box-shadow: none;
 }
 
 .cf-health-fill-warning {
   background: #ffffff;
-  box-shadow:
-    0 0 18px rgba(255, 255, 255, 0.48),
-    0 0 34px rgba(255, 255, 255, 0.18);
+  box-shadow: none;
 }
 
 .cf-health-fill-success {
   background: #00ff9d;
-  box-shadow:
-    0 0 18px rgba(0, 255, 157, 0.62),
-    0 0 34px rgba(0, 255, 157, 0.22);
+  box-shadow: none;
 }
 
 .cf-invert-action {
@@ -415,6 +548,7 @@ a {
   border: 1px solid var(--cf-border-soft);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
   transition:
+    transform 140ms var(--cf-ease-standard),
     color 180ms ease,
     background 180ms ease,
     border-color 180ms ease,
@@ -422,16 +556,21 @@ a {
 }
 
 .cf-invert-action:hover {
-  color: #000000;
-  background: #ffffff;
-  border-color: #ffffff;
+  color: #ffffff;
+  background: rgba(255, 255, 255, 0.075);
+  border-color: var(--cf-border-strong);
   box-shadow:
-    0 12px 34px rgba(255, 255, 255, 0.12),
-    inset 0 1px 0 rgba(255, 255, 255, 0.4);
+    0 10px 24px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  transform: translateY(-1px);
 }
 
 .cf-invert-action:hover svg {
-  color: #000000;
+  color: #ffffff;
+}
+
+.cf-invert-action:active {
+  transform: translateY(0) scale(0.992);
 }
 
 /* Inputs */
@@ -461,7 +600,7 @@ a {
 .cf-input:focus {
   border-color: #ffffff;
   background: rgba(255, 255, 255, 0.055);
-  box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.08);
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.09);
 }
 
 /* Badges */
@@ -558,12 +697,24 @@ pre::-webkit-scrollbar-thumb {
   }
 }
 
+@keyframes cf-page-settle {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.996);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
 .cf-fade-up {
-  animation: cf-fade-up 420ms ease both;
+  animation: cf-fade-up 420ms var(--cf-ease-out) both;
 }
 
 .cf-scale-in {
-  animation: cf-scale-in 180ms ease both;
+  animation: cf-scale-in 180ms var(--cf-ease-out) both;
 }
 
 @media (max-width: 1200px) {
@@ -586,8 +737,8 @@ pre::-webkit-scrollbar-thumb {
 
 .cf-select-popover {
   font-family:
-    Inter,
     Geist,
+    Inter,
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -598,8 +749,8 @@ pre::-webkit-scrollbar-thumb {
 
 .cf-floating-popover {
   font-family:
-    Inter,
     Geist,
+    Inter,
     ui-sans-serif,
     system-ui,
     -apple-system,
@@ -659,12 +810,8 @@ pre::-webkit-scrollbar-thumb {
 
 /* Settings navigation/control polish */
 .settings-control-panel {
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0.011) 52%, rgba(255, 255, 255, 0.006)),
-    rgba(0, 0, 0, 0.56);
-  box-shadow:
-    0 18px 50px rgba(0, 0, 0, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.035);
+  background: rgba(7, 7, 7, 0.9);
+  box-shadow: var(--cf-shadow-card);
 }
 
 .settings-nav-active-glow,
@@ -686,20 +833,17 @@ pre::-webkit-scrollbar-thumb {
   border: 1px solid rgba(255, 255, 255, 0.18);
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 244, 245, 0.94));
-  box-shadow:
-    0 10px 26px rgba(255, 255, 255, 0.08),
-    inset 0 1px 0 rgba(255, 255, 255, 0.9);
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.42);
 }
 
 .settings-collapsible-card {
   --settings-card-wash: rgba(255, 255, 255, 0);
-  --settings-inner-bg: rgba(0, 0, 0, 0.38);
+  --settings-inner-bg: rgba(0, 0, 0, 0.34);
   --settings-inner-border: rgba(255, 255, 255, 0.075);
   overflow: clip;
   align-self: start;
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.011) 46%, rgba(255, 255, 255, 0.006)),
-    #080808;
+  background: var(--cf-surface);
+  background-image: none;
 }
 
 .settings-collapsible-card::before,
@@ -708,18 +852,16 @@ pre::-webkit-scrollbar-thumb {
 }
 
 .settings-collapsible-card:hover {
-  --settings-card-wash: rgba(255, 255, 255, 0.034);
+  --settings-card-wash: rgba(255, 255, 255, 0);
   --settings-inner-bg: rgba(0, 0, 0, 0.30);
   --settings-inner-border: rgba(255, 255, 255, 0.12);
-  background:
-    linear-gradient(180deg, rgba(255, 255, 255, 0.041), rgba(255, 255, 255, 0.014) 48%, rgba(255, 255, 255, 0.008)),
-    #0a0a0a;
+  background: var(--cf-surface-soft);
+  background-image: none;
 }
 
 .settings-inner-surface {
-  background:
-    linear-gradient(180deg, var(--settings-card-wash), transparent 72%),
-    var(--settings-inner-bg);
+  background: var(--settings-inner-bg);
+  background-image: none;
   border-color: var(--settings-inner-border) !important;
   transition:
     background var(--cf-transition-base),
@@ -729,9 +871,7 @@ pre::-webkit-scrollbar-thumb {
 }
 
 .settings-collapsible-card:hover .settings-inner-surface {
-  box-shadow:
-    inset 0 1px 0 rgba(255, 255, 255, 0.035),
-    0 10px 28px rgba(0, 0, 0, 0.18);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.03);
 }
 
 /* Settings polish: keep text crisp while cards animate/collapse. */
@@ -743,7 +883,9 @@ pre::-webkit-scrollbar-thumb {
 }
 
 .settings-page .cf-card,
-.settings-page .cf-card:hover {
+.settings-page .cf-card:hover,
+.settings-page .cf-panel,
+.settings-page .cf-panel:hover {
   transform: none;
 }
 
@@ -755,4 +897,39 @@ pre::-webkit-scrollbar-thumb {
 .settings-page .cf-card h2,
 .settings-page .cf-card h3 {
   transform: none;
+}
+
+/* Dark-only matte normalization for older gradient-based panels. */
+#root main [class*="pointer-events-none"][class*="absolute"][class*="inset-0"][class*="bg-[linear-gradient"],
+#root main [class*="pointer-events-none"][class*="absolute"][class*="inset-0"][class*="bg-[radial-gradient"] {
+  display: none !important;
+  opacity: 0 !important;
+  background: none !important;
+  background-image: none !important;
+}
+
+#root main :is(section, article, aside, header, div):not(button):not([role="button"]):not([class*="rounded-full"]):not([class*="size-"])[class*="rounded"][class*="border"][class*="bg-[linear-gradient"],
+#root main :is(section, article, aside, header, div):not(button):not([role="button"]):not([class*="rounded-full"]):not([class*="size-"])[class*="rounded"][class*="border"][class*="bg-[radial-gradient"] {
+  background: var(--cf-surface) !important;
+  background-image: none !important;
+  border-color: var(--cf-border-soft) !important;
+  box-shadow: var(--cf-shadow-card) !important;
+}
+
+#root main :is(section, article, aside, header, div):not(button):not([role="button"]):not([class*="rounded-full"]):not([class*="size-"])[class*="rounded"][class*="border"][class*="bg-[linear-gradient"]:hover,
+#root main :is(section, article, aside, header, div):not(button):not([role="button"]):not([class*="rounded-full"]):not([class*="size-"])[class*="rounded"][class*="border"][class*="bg-[radial-gradient"]:hover {
+  background: var(--cf-surface-soft) !important;
+  border-color: var(--cf-border) !important;
+  box-shadow: var(--cf-shadow-card-hover) !important;
+}
+
+.cf-brand-tile {
+  background: #050505 !important;
+  border-color: var(--cf-border-soft) !important;
+  box-shadow: var(--cf-shadow-sm) !important;
+}
+
+.cf-performance-stable,
+.cf-performance-stable * {
+  backface-visibility: hidden;
 }

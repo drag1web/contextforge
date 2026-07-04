@@ -4,7 +4,8 @@ import { storage } from "../storage/index.js";
 export interface AppSettings {
   ollamaUrl: string;
   generationMode: "template" | "ollama";
-  defaultTargetTool: "codex" | "cursor" | "claude" | "generic";
+  aiProvider: "ollama" | "openai-compatible" | "gemini";
+  defaultTargetTool: "codex" | "cursor" | "claude" | "gemini" | "generic";
   defaultTaskType:
   | "general"
   | "ui"
@@ -16,10 +17,24 @@ export interface AppSettings {
   | "docs"
   | "tests";
   defaultOllamaModel: string | null;
+  openAiCompatibleBaseUrl: string;
+  openAiCompatibleModel: string | null;
+  openAiCompatibleApiKeyConfigured: boolean;
+  geminiBaseUrl: string;
+  geminiModel: string | null;
+  geminiApiKeyConfigured: boolean;
   language: "system" | "en" | "ru";
+  theme: "system" | "dark" | "light";
   composerFileLimits: ComposerFileLimits;
   contextQualityMode: ContextQualityMode;
   sidebarShowDescriptions: boolean;
+}
+
+export interface UpdateAppSettingsInput extends Partial<AppSettings> {
+  openAiCompatibleApiKey?: string | null;
+  clearOpenAiCompatibleApiKey?: boolean;
+  geminiApiKey?: string | null;
+  clearGeminiApiKey?: boolean;
 }
 
 export type ContextQualityMode = "advisory" | "balanced" | "strict";
@@ -39,10 +54,18 @@ export interface ComposerFileLimits {
 const defaultSettings: AppSettings = {
   ollamaUrl: config.ollamaUrl,
   generationMode: "template",
+  aiProvider: "ollama",
   defaultTargetTool: "codex",
   defaultTaskType: "general",
   defaultOllamaModel: null,
+  openAiCompatibleBaseUrl: "http://localhost:1234/v1",
+  openAiCompatibleModel: null,
+  openAiCompatibleApiKeyConfigured: false,
+  geminiBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
+  geminiModel: "gemini-1.5-flash",
+  geminiApiKeyConfigured: false,
   language: "system",
+  theme: "dark",
   composerFileLimits: {
     default: 8,
     ui: 7,
@@ -61,13 +84,26 @@ const defaultSettings: AppSettings = {
 const settingKeyMap = {
   ollamaUrl: "ollama_url",
   generationMode: "generation_mode",
+  aiProvider: "ai_provider",
   defaultTargetTool: "default_target_tool",
   defaultTaskType: "default_task_type",
   defaultOllamaModel: "default_ollama_model",
+  openAiCompatibleBaseUrl: "openai_compatible_base_url",
+  openAiCompatibleModel: "openai_compatible_model",
+  openAiCompatibleApiKeyConfigured: "openai_compatible_api_key_configured",
+  geminiBaseUrl: "gemini_base_url",
+  geminiModel: "gemini_model",
+  geminiApiKeyConfigured: "gemini_api_key_configured",
   language: "language",
+  theme: "theme",
   composerFileLimits: "composer_file_limits",
   contextQualityMode: "context_quality_mode",
   sidebarShowDescriptions: "sidebar_show_descriptions"
+} as const;
+
+const secretSettingKeys = {
+  openAiCompatibleApiKey: "openai_compatible_api_key",
+  geminiApiKey: "gemini_api_key"
 } as const;
 
 export async function getSettingValue<T>(key: string, fallback: T): Promise<T> {
@@ -75,13 +111,42 @@ export async function getSettingValue<T>(key: string, fallback: T): Promise<T> {
 }
 
 export async function getAppSettings(): Promise<AppSettings> {
+  const openAiCompatibleApiKey = await getSettingValue<string | null>(
+    secretSettingKeys.openAiCompatibleApiKey,
+    null
+  );
+  const geminiApiKey = await getSettingValue<string | null>(
+    secretSettingKeys.geminiApiKey,
+    null
+  );
+
   return {
     ollamaUrl: await getSettingValue(settingKeyMap.ollamaUrl, defaultSettings.ollamaUrl),
     generationMode: await getSettingValue(settingKeyMap.generationMode, defaultSettings.generationMode),
+    aiProvider: await getSettingValue(settingKeyMap.aiProvider, defaultSettings.aiProvider),
     defaultTargetTool: await getSettingValue(settingKeyMap.defaultTargetTool, defaultSettings.defaultTargetTool),
     defaultTaskType: await getSettingValue(settingKeyMap.defaultTaskType, defaultSettings.defaultTaskType),
     defaultOllamaModel: await getSettingValue(settingKeyMap.defaultOllamaModel, defaultSettings.defaultOllamaModel),
+    openAiCompatibleBaseUrl: await getSettingValue(
+      settingKeyMap.openAiCompatibleBaseUrl,
+      defaultSettings.openAiCompatibleBaseUrl
+    ),
+    openAiCompatibleModel: await getSettingValue(
+      settingKeyMap.openAiCompatibleModel,
+      defaultSettings.openAiCompatibleModel
+    ),
+    openAiCompatibleApiKeyConfigured: Boolean(openAiCompatibleApiKey),
+    geminiBaseUrl: await getSettingValue(
+      settingKeyMap.geminiBaseUrl,
+      defaultSettings.geminiBaseUrl
+    ),
+    geminiModel: await getSettingValue(
+      settingKeyMap.geminiModel,
+      defaultSettings.geminiModel
+    ),
+    geminiApiKeyConfigured: Boolean(geminiApiKey),
     language: await getSettingValue(settingKeyMap.language, defaultSettings.language),
+    theme: await getSettingValue(settingKeyMap.theme, defaultSettings.theme),
     composerFileLimits: await getSettingValue(
       settingKeyMap.composerFileLimits,
       defaultSettings.composerFileLimits
@@ -97,8 +162,26 @@ export async function getAppSettings(): Promise<AppSettings> {
   };
 }
 
-export async function updateAppSettings(input: Partial<AppSettings>) {
-  const entries = Object.entries(input) as Array<
+export async function getOpenAiCompatibleApiKey(): Promise<string | null> {
+  return getSettingValue(secretSettingKeys.openAiCompatibleApiKey, null);
+}
+
+export async function getGeminiApiKey(): Promise<string | null> {
+  return getSettingValue(secretSettingKeys.geminiApiKey, null);
+}
+
+export async function updateAppSettings(input: UpdateAppSettingsInput) {
+  const {
+    openAiCompatibleApiKey,
+    openAiCompatibleApiKeyConfigured: _ignoredConfiguredFlag,
+    clearOpenAiCompatibleApiKey,
+    geminiApiKey,
+    geminiApiKeyConfigured: _ignoredGeminiConfiguredFlag,
+    clearGeminiApiKey,
+    ...publicSettings
+  } = input;
+
+  const entries = Object.entries(publicSettings) as Array<
     [keyof AppSettings, AppSettings[keyof AppSettings]]
   >;
 
@@ -106,6 +189,28 @@ export async function updateAppSettings(input: Partial<AppSettings>) {
     const databaseKey = settingKeyMap[key];
 
     await storage.setSettingValue(databaseKey, value);
+  }
+
+  if (typeof openAiCompatibleApiKey === "string" && openAiCompatibleApiKey.trim()) {
+    await storage.setSettingValue(
+      secretSettingKeys.openAiCompatibleApiKey,
+      openAiCompatibleApiKey.trim()
+    );
+  }
+
+  if (clearOpenAiCompatibleApiKey) {
+    await storage.setSettingValue(secretSettingKeys.openAiCompatibleApiKey, null);
+  }
+
+  if (typeof geminiApiKey === "string" && geminiApiKey.trim()) {
+    await storage.setSettingValue(
+      secretSettingKeys.geminiApiKey,
+      geminiApiKey.trim()
+    );
+  }
+
+  if (clearGeminiApiKey) {
+    await storage.setSettingValue(secretSettingKeys.geminiApiKey, null);
   }
 
   return getAppSettings();

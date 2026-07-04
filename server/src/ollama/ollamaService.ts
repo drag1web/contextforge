@@ -1,4 +1,5 @@
 import { getAppSettings } from "../settings/settingsService.js";
+import { generateWithConfiguredAi } from "../ai/providerService.js";
 import { cleanupOllamaOutput, isUsableOllamaOutput } from "./outputCleanup.js";
 
 import {
@@ -24,11 +25,6 @@ interface GenerateWithOllamaInput {
     numPredict?: number;
     expectedHeading?: string;
     bypassCache?: boolean;
-}
-
-interface OllamaGenerateResponse {
-    response?: string;
-    done?: boolean;
 }
 
 function getDurationMs(startedAt: number) {
@@ -57,20 +53,30 @@ export async function generateWithConfiguredOllama({
         };
     }
 
-    if (!settings.defaultOllamaModel) {
+    const configuredModel =
+        settings.aiProvider === "openai-compatible"
+            ? settings.openAiCompatibleModel
+            : settings.defaultOllamaModel;
+
+    const providerLabel =
+        settings.aiProvider === "openai-compatible"
+            ? "OpenAI-compatible"
+            : "Ollama";
+
+    if (!configuredModel) {
         return {
             content: fallbackContent,
             mode: "template",
             model: null,
             usedFallback: true,
             message:
-                "Ollama mode is enabled, but no default model is selected. Used template fallback.",
+                `${providerLabel} mode is enabled, but no default model is selected. Used template fallback.`,
             durationMs: getDurationMs(startedAt)
         };
     }
 
     const cacheKey = buildGenerationCacheKey({
-        model: settings.defaultOllamaModel,
+        model: `${settings.aiProvider}:${configuredModel}`,
         prompt,
         expectedHeading,
         numPredict,
@@ -87,45 +93,20 @@ export async function generateWithConfiguredOllama({
                 model: cachedGeneration.model,
                 usedFallback: false,
                 cached: true,
-                message: `Generated from cache with Ollama model ${cachedGeneration.model}.`,
+                message: `Generated from cache with ${providerLabel} model ${cachedGeneration.model}.`,
                 durationMs: getDurationMs(startedAt)
             };
         }
     }
 
     try {
-        const response = await fetch(`${settings.ollamaUrl.replace(/\/$/, "")}/api/generate`, {
-            method: "POST",
-            headers: {
-                "Content-Type": "application/json"
-            },
-            body: JSON.stringify({
-                model: settings.defaultOllamaModel,
-                prompt,
-                stream: false,
-                options: {
-                    temperature,
-                    num_predict: numPredict,
-                    top_p: 0.9,
-                    repeat_penalty: 1.08
-                }
-            })
+        const aiResult = await generateWithConfiguredAi({
+            prompt,
+            temperature,
+            numPredict
         });
 
-        if (!response.ok) {
-            return {
-                content: fallbackContent,
-                mode: "template",
-                model: settings.defaultOllamaModel,
-                usedFallback: true,
-                message: `Ollama responded with status ${response.status}. Used template fallback.`,
-                durationMs: getDurationMs(startedAt)
-            };
-        }
-
-        const data = (await response.json()) as OllamaGenerateResponse;
-
-        const rawGeneratedContent = String(data.response ?? "").trim();
+        const rawGeneratedContent = aiResult.content.trim();
 
         const generatedContent = cleanupOllamaOutput(rawGeneratedContent, {
             expectedHeading
@@ -138,37 +119,37 @@ export async function generateWithConfiguredOllama({
             return {
                 content: fallbackContent,
                 mode: "template",
-                model: settings.defaultOllamaModel,
+                model: configuredModel,
                 usedFallback: true,
-                message: "Ollama returned unusable content. Used template fallback.",
+                message: `${providerLabel} returned unusable content. Used template fallback.`,
                 durationMs: getDurationMs(startedAt)
             };
         }
 
         setCachedGeneration(cacheKey, {
             content: generatedContent,
-            model: settings.defaultOllamaModel
+            model: aiResult.model
         });
 
         return {
             content: generatedContent,
             mode: "ollama",
-            model: settings.defaultOllamaModel,
+            model: aiResult.model,
             usedFallback: false,
             cached: false,
-            message: `Generated with Ollama model ${settings.defaultOllamaModel}.`,
+            message: `Generated with ${providerLabel} model ${aiResult.model}.`,
             durationMs: getDurationMs(startedAt)
         };
     } catch (error) {
         return {
             content: fallbackContent,
             mode: "template",
-            model: settings.defaultOllamaModel,
+            model: configuredModel,
             usedFallback: true,
             message:
                 error instanceof Error
-                    ? `Ollama generation failed: ${error.message}. Used template fallback.`
-                    : "Ollama generation failed. Used template fallback.",
+                    ? `${providerLabel} generation failed: ${error.message}. Used template fallback.`
+                    : `${providerLabel} generation failed. Used template fallback.`,
             durationMs: getDurationMs(startedAt)
         };
     }

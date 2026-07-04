@@ -38,6 +38,8 @@ function getTargetInstruction(targetTool: string) {
       return "Focus on the relevant files. Avoid broad rewrites. Keep the implementation practical and directly editable.";
     case "claude":
       return "Reason carefully about architecture before changing files. Explain risks and trade-offs clearly.";
+    case "gemini":
+      return "Use structured reasoning, stay grounded in the provided project context, and keep the implementation steps clear and verifiable.";
     default:
       return "Act as a careful AI coding agent. Keep changes focused, safe, and consistent with the project.";
   }

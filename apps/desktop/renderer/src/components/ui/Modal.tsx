@@ -1,4 +1,5 @@
 import { useEffect, useState, type ReactNode } from "react";
+import { createPortal } from "react-dom";
 import { X } from "lucide-react";
 
 interface ModalProps {
@@ -63,23 +64,21 @@ export function Modal({
     };
   }, [isClosing]);
 
-  return (
+  const modal = (
     <div
       className={[
         "fixed inset-0 z-[120] flex items-center justify-center p-8",
         "transition duration-200 ease-out",
         isVisible
-          ? "bg-black/75 backdrop-blur-xl"
+          ? "bg-black/72 backdrop-blur-sm"
           : "bg-black/0 backdrop-blur-0"
       ].join(" ")}
     >
       <div
         className={[
           "relative flex max-h-[calc(100vh-72px)] w-full flex-col overflow-hidden rounded-[2rem]",
-          "border border-white/10 bg-black/95",
-          "shadow-[0_32px_120px_rgba(0,0,0,0.78),inset_0_1px_0_rgba(255,255,255,0.045)]",
-          "before:pointer-events-none before:absolute before:inset-0 before:rounded-[2rem]",
-          "before:bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.07),transparent_24rem),linear-gradient(180deg,rgba(255,255,255,0.035),transparent_42%)]",
+          "border border-white/10 bg-neutral-950/98",
+          "shadow-[0_28px_90px_rgba(0,0,0,0.78)]",
           "transition duration-200 ease-out",
           isVisible
             ? "translate-y-0 scale-100 opacity-100"
@@ -127,4 +126,6 @@ export function Modal({
       </div>
     </div>
   );
+
+  return createPortal(modal, document.body);
 }

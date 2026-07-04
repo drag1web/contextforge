@@ -2,6 +2,8 @@ import type {
   AcceptanceCriteriaPreset,
   AppSettings,
   GenerationMetadata,
+  AiProviderModel,
+  AiProviderStatus,
   OllamaModel,
   OllamaStatus,
   Project,
@@ -14,6 +16,7 @@ import type {
   ContextComposerPreview,
   ContextComposerFileSearchResponse,
   ContextComposerFileSnippetResponse,
+  UpdateAppSettingsInput,
 } from "../types";
 
 const API_URL = "http://localhost:4000/api";
@@ -164,7 +167,7 @@ export async function getAppSettings(): Promise<AppSettings> {
 }
 
 export async function updateAppSettings(
-  input: Partial<AppSettings>
+  input: UpdateAppSettingsInput
 ): Promise<AppSettings> {
   const data = await request<{ ok: true; settings: AppSettings }>("/settings", {
     method: "PATCH",
@@ -172,6 +175,20 @@ export async function updateAppSettings(
   });
 
   return data.settings;
+}
+
+export async function getAiIntegrationStatus(): Promise<AiProviderStatus> {
+  const data = await request<{ ok: true; status: AiProviderStatus }>(
+    "/integrations/ai/status"
+  );
+  return data.status;
+}
+
+export async function getAiIntegrationModels(): Promise<AiProviderModel[]> {
+  const data = await request<{ ok: true; models: AiProviderModel[] }>(
+    "/integrations/ai/models"
+  );
+  return data.models;
 }
 
 export async function searchWorkspace(query: string): Promise<WorkspaceSearchResponse> {
