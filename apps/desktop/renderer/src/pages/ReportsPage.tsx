@@ -9,6 +9,7 @@ import {
   CircleDot,
   Clock3,
   Download,
+  FileText,
   FileWarning,
   FolderOpen,
   Gauge,
@@ -25,6 +26,7 @@ import { Button } from "../components/ui/Button";
 import { SegmentedFilter, type SegmentedFilterOption } from "../components/ui/SegmentedFilter";
 import { AiToolLogo } from "../components/ai/AiToolLogo";
 import { getAiToolLabel } from "../components/ai/aiToolOptions";
+import { exportWorkspaceReport, type WorkspaceReportExportFormat } from "../utils/workspaceReportExport";
 
 interface ReportsPageProps {
   projects: Project[];
@@ -515,8 +517,27 @@ export function ReportsPage({
   onOpenTaskPack
 }: ReportsPageProps) {
   const [projectLens, setProjectLens] = useState<ProjectLens>("attention");
+  const [exportStatusMessage, setExportStatusMessage] = useState<string | null>(null);
 
   const averageReadiness = readinessScore ?? getAverageReadiness(projects);
+
+  const handleExportReport = (format: WorkspaceReportExportFormat) => {
+    const fileName = exportWorkspaceReport(
+      {
+        projects,
+        taskPacks,
+        readinessScore: averageReadiness
+      },
+      format
+    );
+
+    setExportStatusMessage(`Exported ${fileName}`);
+
+    window.setTimeout(() => {
+      setExportStatusMessage(null);
+    }, 3200);
+  };
+
   const topIssues = useMemo(() => getTopIssues(projects), [projects]);
   const recommendedActions = useMemo(() => getRecommendedActions(projects, topIssues), [projects, topIssues]);
 
@@ -633,11 +654,21 @@ export function ReportsPage({
                 <Archive size={15} />
                 Open Task Packs
               </Button>
-              <Button variant="ghost" disabled title="Report export will be added later">
+              <Button variant="ghost" onClick={() => handleExportReport("md")}>
+                <FileText size={15} />
+                Export .md
+              </Button>
+              <Button variant="ghost" onClick={() => handleExportReport("txt")}>
                 <Download size={15} />
-                Export later
+                Export .txt
               </Button>
             </div>
+
+            {exportStatusMessage && (
+              <p className="mt-4 inline-flex rounded-full border border-emerald-400/20 bg-emerald-400/10 px-3 py-1.5 text-xs font-medium text-emerald-200">
+                {exportStatusMessage}
+              </p>
+            )}
           </div>
 
           <aside className="rounded-[1.5rem] border border-neutral-900 bg-black/40 p-5">
@@ -906,8 +937,18 @@ export function ReportsPage({
 
           <div className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
             <Clock3 size={18} className="mb-4 text-neutral-500" />
-            <p className="text-sm font-semibold text-white">Future report exports</p>
-            <p className="mt-2 text-sm leading-6 text-neutral-500">Next iterations can add markdown reports, readiness history, diff review summaries and shareable workspace snapshots.</p>
+            <p className="text-sm font-semibold text-white">Export workspace snapshot</p>
+            <p className="mt-2 text-sm leading-6 text-neutral-500">Download a local markdown or text report with readiness gaps, next actions and Task Pack activity.</p>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Button variant="secondary" onClick={() => handleExportReport("md")}>
+                <FileText size={14} />
+                .md
+              </Button>
+              <Button variant="secondary" onClick={() => handleExportReport("txt")}>
+                <Download size={14} />
+                .txt
+              </Button>
+            </div>
           </div>
         </div>
       </article>
