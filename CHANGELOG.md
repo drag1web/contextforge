@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.4-alpha
+
+### Added
+
+- Added Project Memory / Decision Log support for persistent project rules and decisions.
+- Added Claude API as an internal AI provider while keeping Claude Code as an external agent target.
+- Added polished Reports analytics with workspace readiness, Task Pack activity and `.md` / `.txt` export.
+- Added a dedicated Scanners workbench for deep scanner/readiness diagnostics.
+- Added scanner signal details for packages, commands, docs, tests, environment examples, CI, configs and inventory.
+
+### Changed
+
+- Improved generic scanner detection for nested package manifests, scripts, docs, tests, env examples and CI files.
+- Made Projects more compact by moving full scanner evidence to the Scanners page.
+- Softened CI readiness weighting for local MVP projects.
+- Updated the active app phase to `Phase 0.5.4 — Scanner Workbench & Reports`.
+- Synced root, server, renderer, shared package, lockfile, README and app metadata to `0.5.4-alpha`.
+
+### Fixed
+
+- Stabilized Scanners page motion so project switching no longer makes the right column jump.
+
 ## 0.5.3-alpha
 
 ### Added

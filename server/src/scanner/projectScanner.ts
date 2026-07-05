@@ -527,7 +527,9 @@ function buildReadinessReport(signals: ScannerSignals, files: string[], scripts:
   const hasDocs = signals.docs.length > 0;
   const hasEnvExample = signals.envExamples.length > 0;
   const hasTsConfig = files.some((file) => /^tsconfig(?:\..+)?\.json$/i.test(baseName(file)));
-  const hasTestStructure = signals.testFiles.length > 0 || signals.testConfigs.length > 0;
+  const hasTestFiles = signals.testFiles.length > 0;
+  const hasTestConfigs = signals.testConfigs.length > 0;
+  const hasTestStructure = hasTestFiles || hasTestConfigs;
   const hasCi = signals.ciFiles.length > 0;
 
   const checks: ReadinessCheck[] = [
@@ -564,7 +566,11 @@ function buildReadinessReport(signals: ScannerSignals, files: string[], scripts:
       label: "Test command",
       passed: Boolean(signals.commands.test),
       points: 10,
-      message: signals.commands.test ? `Detected test command: ${signals.commands.test}.` : "Add a test script or document manual verification."
+      message: signals.commands.test
+        ? `Detected test command: ${signals.commands.test}.`
+        : hasTestStructure
+          ? "Test files or config were found, but no package script exposes them. Add a test script for repeatable AI verification."
+          : "Add a test script or document manual verification in README/AGENTS.md."
     },
     {
       key: "env-example",
@@ -585,21 +591,29 @@ function buildReadinessReport(signals: ScannerSignals, files: string[], scripts:
       label: "Tests structure",
       passed: hasTestStructure,
       points: 10,
-      message: hasTestStructure ? "Detected test files or test runner configuration." : "Add tests, test config, or document test strategy."
+      message: hasTestStructure
+        ? hasTestFiles && hasTestConfigs
+          ? "Detected test files and test runner configuration."
+          : hasTestFiles
+            ? "Detected test files. Add runner config if the project needs one."
+            : "Detected test runner configuration. Add test files as coverage grows."
+        : "Add tests, test config, or document the manual test strategy."
     },
     {
       key: "docs",
       label: "Documentation",
       passed: hasDocs,
-      points: 6,
-      message: hasDocs ? "Documentation/context files were detected." : "Add docs or context files to explain the project."
+      points: 9,
+      message: hasDocs ? "Documentation/context files were detected." : "Add docs or context files to explain setup, architecture and verification."
     },
     {
       key: "ci",
       label: "CI workflow",
       passed: hasCi,
-      points: 7,
-      message: hasCi ? "CI workflow configuration was detected." : "Add CI or document release verification when the project is ready."
+      points: 4,
+      message: hasCi
+        ? "CI workflow configuration was detected."
+        : "CI is optional for local MVP projects. Add it later or document manual release checks."
     }
   ];
 
@@ -628,11 +642,12 @@ function buildReadinessReport(signals: ScannerSignals, files: string[], scripts:
         case "dev-script":
           return "Dev command is missing.";
         case "ci":
-          return "No CI workflow detected. Add CI later or document manual release checks.";
+          return null;
         default:
           return `${check.label} is missing.`;
       }
-    });
+    })
+    .filter((issue): issue is string => Boolean(issue));
 
   if (signals.inventory.truncated) {
     issues.push(`Project scan was truncated after ${signals.inventory.maxEntries} entries or depth ${signals.inventory.maxDepth}. Some readiness signals may be incomplete.`);

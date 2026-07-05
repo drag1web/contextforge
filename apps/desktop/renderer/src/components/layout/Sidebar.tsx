@@ -13,6 +13,7 @@ import {
   PanelLeftClose,
   PanelLeftOpen,
   PlugZap,
+  Search,
   Settings,
   WandSparkles,
   type LucideIcon
@@ -24,6 +25,7 @@ import { SlidingSelectionIndicator } from "../ui/SlidingSelectionIndicator";
 export type AppPageId =
   | "dashboard"
   | "projects"
+  | "scanners"
   | "context"
   | "taskPacks"
   | "agents"
@@ -69,6 +71,15 @@ export const navigationSections: NavigationSection[] = [
         description: "Scanned local repositories, stack signals, readiness reports.",
         descriptionKey: "nav.projectsDesc",
         icon: FolderKanban,
+        status: "alpha"
+      },
+      {
+        id: "scanners",
+        label: "Scanners",
+        labelKey: "nav.scanners",
+        description: "Detailed scanner evidence, commands, docs, tests, CI and structure signals.",
+        descriptionKey: "nav.scannersDesc",
+        icon: Search,
         status: "alpha"
       },
       {

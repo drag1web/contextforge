@@ -4,8 +4,8 @@
 
 It scans local repositories, detects stack and scripts, builds project context, generates `AGENTS.md`, and creates structured Task Packs for tools like **Codex**, **Cursor**, **Claude Code**, and other AI coding assistants.
 
-Current version: **v0.5.3-alpha**  
-Current app phase: **Phase 0.5.3 — MVP Stabilization**
+Current version: **v0.5.4-alpha**  
+Current app phase: **Phase 0.5.4 — Scanner Workbench & Reports**
 
 ---
 
@@ -100,7 +100,7 @@ STORAGE_DRIVER=sqlite
 SQLITE_DB_PATH=./data/contextforge.sqlite
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.5.3-alpha
+APP_VERSION=0.5.4-alpha
 ```
 
 To test the PostgreSQL adapter instead:
@@ -110,7 +110,7 @@ STORAGE_DRIVER=postgres
 DATABASE_URL=postgresql://contextforge:contextforge@127.0.0.1:5433/contextforge
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.5.3-alpha
+APP_VERSION=0.5.4-alpha
 ```
 
 ---
@@ -162,7 +162,7 @@ Expected `/api/health` version:
 {
   "ok": true,
   "service": "contextforge-server",
-  "version": "0.5.3-alpha"
+  "version": "0.5.4-alpha"
 }
 ```
 

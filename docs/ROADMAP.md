@@ -7,7 +7,7 @@ Goal: make the repository honestly describe the current v0.5 alpha state.
 - [x] Sync root package version.
 - [x] Sync server package version.
 - [x] Sync renderer package version.
-- [x] Keep shared package at `0.5.3-alpha`.
+- [x] Keep shared package version synced.
 - [x] Update `/api/health` version.
 - [x] Rewrite root README.
 - [x] Add MVP documentation.
@@ -31,38 +31,28 @@ Goal: move desktop storage to SQLite while keeping PostgreSQL available for futu
 
 Goal: finish practical output/export features.
 
-- [ ] Export Task Pack to `.md`.
-- [ ] Export Task Pack to `.txt`.
-- [ ] Use safe readable filenames.
-- [ ] Show toast after export.
-- [ ] Show clear write errors.
-- [ ] Make `AGENTS.md` preview editable.
-- [ ] Warn when `AGENTS.md` already exists.
-- [ ] Support overwrite / save as copy / cancel.
+- [x] Export Task Pack to `.md`.
+- [x] Export Task Pack to `.txt`.
+- [x] Use safe readable filenames.
+- [x] Make `AGENTS.md` preview editable.
+- [x] Warn when `AGENTS.md` already exists.
+- [x] Support overwrite / save as copy / cancel.
 
-## v0.5.4 — Project Memory / Decision Log
+## v0.5.4 — Scanner Workbench & Reports
 
-Goal: let users store long-term project rules and decisions.
+Goal: close the MVP stabilization pass with project memory, provider clarity, workspace analytics and scanner diagnostics.
 
-- [ ] Add `project_memories` table.
-- [ ] Add CRUD API routes.
-- [ ] Add categories and priorities.
-- [ ] Add enable/disable toggle.
-- [ ] Include enabled memories in Task Packs.
-- [ ] Show which memories were used.
+- [x] Add Project Memory / Decision Log.
+- [x] Include enabled memories in Task Packs and `AGENTS.md`.
+- [x] Add Claude API provider and clarify provider vs agent target selection.
+- [x] Polish Integrations provider and agent target UI.
+- [x] Add Reports analytics and workspace report export.
+- [x] Improve generic scanner/readiness detection.
+- [x] Add Scanners workbench for detailed diagnostics.
+- [x] Keep Projects compact with scanner snapshots.
+- [x] Polish scanner motion and readiness explanations.
 
-## v0.5.5 — Scanner and readiness stabilization
-
-Goal: make scanning universal and project-agnostic.
-
-- [ ] Use project inventory scanner as primary fact source.
-- [ ] Keep scanner generic; no hardcoded domain rules.
-- [ ] Improve stack detection.
-- [ ] Improve script/config/env/docs/tests detection.
-- [ ] Improve readiness report.
-- [ ] Add readable recommendations and status.
-
-## v0.5.6 — Task Pack Quality Score
+## v0.5.5 — Task Pack Quality Score
 
 Goal: warn users when a task is too vague or too broad.
 
@@ -70,7 +60,7 @@ Goal: warn users when a task is too vague or too broad.
 - [ ] Check goal, scope, constraints, files, criteria and verification.
 - [ ] Show warnings without blocking generation.
 
-## v0.5.7 — Context Drift Detector
+## v0.5.6 — Context Drift Detector
 
 Goal: detect when generated context may be outdated.
 

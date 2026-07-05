@@ -6,10 +6,44 @@ export interface ReadinessCheck {
   message: string;
 }
 
+export interface ScannerPackageSummary {
+  path: string;
+  name: string | null;
+  scripts: Record<string, string>;
+}
+
+export interface ScannerSignals {
+  packageFiles: string[];
+  docs: string[];
+  envExamples: string[];
+  testFiles: string[];
+  testConfigs: string[];
+  ciFiles: string[];
+  lockFiles: string[];
+  configs: string[];
+  directories: string[];
+  commands: {
+    dev: string | null;
+    build: string | null;
+    test: string | null;
+    typecheck: string | null;
+    lint: string | null;
+  };
+  packages: ScannerPackageSummary[];
+  inventory: {
+    totalFiles: number;
+    totalDirectories: number;
+    truncated: boolean;
+    maxDepth: number;
+    maxEntries: number;
+  };
+}
+
 export interface ReadinessReport {
   score: number;
   checks: ReadinessCheck[];
   issues: string[];
+  signals?: ScannerSignals;
 }
 
 export type TargetTool = "codex" | "cursor" | "claude" | "gemini" | "generic";

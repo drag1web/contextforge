@@ -29,6 +29,7 @@ import { ContextBuilderPage } from "./ContextBuilderPage";
 import { SettingsPage } from "./SettingsPage";
 import { PlaceholderPage } from "./PlaceholderPage";
 import { ReportsPage } from "./ReportsPage";
+import { ScannersPage } from "./ScannersPage";
 import { IntegrationsPage } from "./IntegrationsPage";
 
 import { ContextComposerPage } from "./ContextComposerPage";
@@ -43,6 +44,7 @@ import i18n, { applyAppLanguage } from "../i18n";
 const PAGE_ORDER: AppPageId[] = [
   "dashboard",
   "projects",
+  "scanners",
   "context",
   "taskPacks",
   "reports",
@@ -538,6 +540,22 @@ export function DashboardPage() {
           <TaskPacksPage
             taskPacks={dashboard.taskPacks}
             onOpenTaskPack={dashboard.setGeneratedTaskPack}
+          />
+        </>
+      );
+    }
+
+    if (activePage === "scanners") {
+      return (
+        <>
+          {renderPageStatus()}
+
+          <ScannersPage
+            projects={dashboard.projects}
+            isLoading={dashboard.isLoading}
+            onAddProject={dashboard.handleSelectProject}
+            onRescanProject={dashboard.handleRescanProject}
+            onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
           />
         </>
       );

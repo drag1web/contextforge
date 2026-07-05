@@ -108,13 +108,13 @@ Not required for the MVP:
 
 ## MVP release checklist
 
-- [ ] Versions are synced to `0.5.3-alpha`.
-- [ ] README describes the actual project state.
-- [ ] `/api/health` returns the current version.
+- [x] Versions are synced to `0.5.4-alpha`.
+- [x] README describes the actual project state.
+- [x] `/api/health` returns the current version.
 - [x] SQLite storage is available for desktop.
 - [x] Docker is not needed for normal user flow.
-- [ ] Exports work for Task Packs.
-- [ ] `AGENTS.md` edit/save flow is polished.
-- [ ] Project Memory is implemented.
-- [ ] Scanner is stable across several project types.
+- [x] Exports work for Task Packs and workspace reports.
+- [x] `AGENTS.md` edit/save flow is polished.
+- [x] Project Memory is implemented.
+- [x] Scanner is stable across several project types.
 - [ ] Portable/installer build is tested.
