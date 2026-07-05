@@ -64,6 +64,7 @@ const TARGET_TOOL_SELECT_OPTIONS: SelectOption<TargetTool>[] =
     label: getAiToolLabel(option.value),
     description: getAiToolDescription(option.value),
     icon: <AiToolLogo tool={option.value} size="sm" />,
+    activeIcon: <AiToolLogo tool={option.value} size="sm" contrast="onLight" />,
   }));
 
 const PRIMARY_CODING_TARGETS: TargetTool[] = ["codex", "cursor", "claude"];
@@ -131,6 +132,7 @@ const PROVIDER_CARD_OPTIONS: Array<{
   meta: string;
   notes: string[];
   icon: ReactNode;
+  activeIcon?: ReactNode;
 }> = [
   {
     provider: "ollama",
@@ -149,6 +151,7 @@ const PROVIDER_CARD_OPTIONS: Array<{
     meta: "Endpoint",
     notes: ["Flexible gateway", "Optional API key"],
     icon: <AiToolLogo tool="openai" size="lg" />,
+    activeIcon: <AiToolLogo tool="openai" size="lg" contrast="onLight" />,
   },
   {
     provider: "anthropic",
@@ -158,6 +161,7 @@ const PROVIDER_CARD_OPTIONS: Array<{
     meta: "Cloud",
     notes: ["Server-side key", "Strong coding context"],
     icon: <AiToolLogo tool="anthropic" size="lg" />,
+    activeIcon: <AiToolLogo tool="anthropic" size="lg" contrast="onLight" />,
   },
   {
     provider: "gemini",
@@ -167,6 +171,7 @@ const PROVIDER_CARD_OPTIONS: Array<{
     meta: "Cloud",
     notes: ["Server-side key", "Manual model id supported"],
     icon: <AiToolLogo tool="gemini" size="lg" />,
+    activeIcon: <AiToolLogo tool="gemini" size="lg" contrast="onLight" />,
   },
 ];
 
@@ -326,7 +331,7 @@ function ProviderCardSelector({
                       : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/15 group-hover:text-white",
                   ].join(" ")}
                 >
-                  {option.icon}
+                  {active && option.activeIcon ? option.activeIcon : option.icon}
                 </span>
 
                 {active && <CheckCircle2 size={17} className="text-black" />}
@@ -433,7 +438,12 @@ function AgentTargetCard({
           : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white/20 hover:bg-neutral-950 hover:text-white",
       ].join(" ")}
     >
-      <AiToolLogo tool={tool} size="lg" />
+      <AiToolLogo
+        tool={tool}
+        size="lg"
+        contrast={active ? "onLight" : "default"}
+        className={active ? "border-black/10 bg-black/5" : ""}
+      />
 
       <span className="min-w-0 flex-1">
         <span

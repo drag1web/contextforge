@@ -31,6 +31,7 @@ import { PlaceholderPage } from "./PlaceholderPage";
 import { ReportsPage } from "./ReportsPage";
 import { ScannersPage } from "./ScannersPage";
 import { IntegrationsPage } from "./IntegrationsPage";
+import { AgentsPage } from "./AgentsPage";
 
 import { ContextComposerPage } from "./ContextComposerPage";
 
@@ -588,6 +589,15 @@ export function DashboardPage() {
       );
     }
 
+    if (activePage === "agents") {
+      return (
+        <AgentsPage
+          onOpenContextBuilder={() => handleNavigate("context")}
+          onOpenTemplates={() => handleNavigate("templates")}
+        />
+      );
+    }
+
     if (activePage === "templates") {
       return <TemplatesPage />;
     }
@@ -613,7 +623,7 @@ export function DashboardPage() {
     }
 
     if (dashboard.taskPackDraft) {
-      return `task-pack-draft-${dashboard.taskPackDraft.projectId}-${dashboard.taskPackDraft.taskType}-${dashboard.taskPackDraft.targetTool}`;
+      return `task-pack-draft-${dashboard.taskPackDraft.projectId}`;
     }
 
     return activePage;

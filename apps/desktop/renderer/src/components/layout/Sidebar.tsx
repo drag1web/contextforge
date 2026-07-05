@@ -110,10 +110,10 @@ export const navigationSections: NavigationSection[] = [
         id: "agents",
         label: "Agents",
         labelKey: "nav.agents",
-        description: "Future profiles for Claude, Codex, Cursor, Ollama and custom tools.",
+        description: "Agent profiles for Codex, Cursor, Claude Code, Gemini and Generic Task Packs.",
         descriptionKey: "nav.agentsDesc",
         icon: Bot,
-        status: "soon"
+        status: "alpha"
       },
       {
         id: "templates",

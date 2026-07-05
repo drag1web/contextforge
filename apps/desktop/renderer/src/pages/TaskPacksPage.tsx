@@ -391,13 +391,15 @@ export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps)
     const targets = [...new Set(taskPacks.map((taskPack) => taskPack.targetTool))]
       .filter(Boolean)
       .sort();
+    const allAgentsIcon = makeAiToolSelectOption("generic");
 
     return [
       {
         value: "all",
         label: t("taskPacksPage.allAgents"),
         description: "Codex, Cursor, Claude, Generic",
-        icon: makeAiToolSelectOption("generic").icon
+        icon: allAgentsIcon.icon,
+        activeIcon: allAgentsIcon.activeIcon
       },
       ...targets.map((target) => makeAiToolSelectOption(target))
     ];

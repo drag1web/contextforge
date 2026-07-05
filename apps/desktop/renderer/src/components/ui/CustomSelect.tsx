@@ -14,6 +14,7 @@ export interface SelectOption<TValue extends string = string> {
   label: string;
   description?: string;
   icon?: ReactNode;
+  activeIcon?: ReactNode;
   disabled?: boolean;
 }
 
@@ -245,6 +246,8 @@ export function CustomSelect<TValue extends string = string>({
                 <div className="max-h-[320px] overflow-auto">
                   {options.map((option) => {
                     const isSelected = option.value === value;
+                    const renderedIcon =
+                      isSelected && option.activeIcon ? option.activeIcon : option.icon;
 
                     return (
                       <button
@@ -263,9 +266,14 @@ export function CustomSelect<TValue extends string = string>({
                         ].join(" ")}
                       >
                         <span className="flex min-w-0 items-start gap-3">
-                          {option.icon && (
-                            <span className="mt-0.5 shrink-0">
-                              {option.icon}
+                          {renderedIcon && (
+                            <span
+                              className={[
+                                "mt-0.5 shrink-0 transition",
+                                isSelected ? "text-black" : "text-current"
+                              ].join(" ")}
+                            >
+                              {renderedIcon}
                             </span>
                           )}
 

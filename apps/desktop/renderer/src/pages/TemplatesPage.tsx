@@ -1,18 +1,35 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode
+} from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import {
   AlertTriangle,
+  BookOpen,
+  Bug,
   Check,
+  ClipboardCheck,
+  Code2,
   Copy,
   FileText,
   Layers3,
   Loader2,
+  Palette,
   Plus,
   RefreshCcw,
+  Repeat2,
+  Rocket,
   Search,
+  ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  TestTube2,
   Trash2,
   WandSparkles,
   X
@@ -61,6 +78,204 @@ const TASK_TYPE_OPTIONS: Array<{
     { value: "docs", label: "Docs", description: "Documentation" },
     { value: "tests", label: "Tests", description: "Verification" }
   ];
+
+interface TemplatePreset {
+  id: string;
+  title: string;
+  eyebrow: string;
+  description: string;
+  taskType: TemplateTaskType;
+  recommendedTargets: string;
+  icon: ReactNode;
+  focus: string[];
+  acceptance: string[];
+  outputContract: string;
+}
+
+type PresetIndicatorRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+};
+
+const TEMPLATE_PRESET_TRANSITION = {
+  type: "spring",
+  stiffness: 520,
+  damping: 44,
+  mass: 0.55
+} as const;
+
+const TEMPLATE_PRESETS: TemplatePreset[] = [
+  {
+    id: "ui-redesign",
+    title: "UI/UX redesign",
+    eyebrow: "Interface",
+    description:
+      "Improve layout, interaction states and visual hierarchy while preserving behavior.",
+    taskType: "ui",
+    recommendedTargets: "Codex, Cursor",
+    icon: <Palette size={16} />,
+    focus: [
+      "Use existing UI components and motion patterns.",
+      "Keep backend/API behavior unchanged.",
+      "Preserve routing, data flow and localization boundaries."
+    ],
+    acceptance: [
+      "Visual states are consistent with the current design system.",
+      "No backend contracts or persistence behavior were changed.",
+      "Final response lists changed UI files and manual checks."
+    ],
+    outputContract: "UI summary, changed files, screenshots/manual checks, risks"
+  },
+  {
+    id: "bug-fix",
+    title: "Bug fix",
+    eyebrow: "Repair",
+    description:
+      "Find the cause, apply a narrow fix and leave unrelated code untouched.",
+    taskType: "bugfix",
+    recommendedTargets: "Codex, Claude Code",
+    icon: <Bug size={16} />,
+    focus: [
+      "Start from reproduction steps and observed behavior.",
+      "Prefer the smallest safe code change.",
+      "Avoid broad refactors unless the bug requires it."
+    ],
+    acceptance: [
+      "Root cause is explained briefly.",
+      "Regression path is covered by a test or manual check.",
+      "No unrelated files were reformatted or rewritten."
+    ],
+    outputContract: "Root cause, patch summary, verification, remaining edge cases"
+  },
+  {
+    id: "backend-api",
+    title: "Backend API change",
+    eyebrow: "Server",
+    description:
+      "Change routes, services or persistence with validation and client compatibility in mind.",
+    taskType: "backend",
+    recommendedTargets: "Claude Code, Codex",
+    icon: <Code2 size={16} />,
+    focus: [
+      "Update API behavior intentionally and document response shape.",
+      "Validate input and keep safe error handling.",
+      "Touch client bridges/types only when contracts change."
+    ],
+    acceptance: [
+      "Request/response behavior is clear.",
+      "Validation and error states are handled.",
+      "Build or route-level verification is listed."
+    ],
+    outputContract: "API changes, affected clients, validation, verification"
+  },
+  {
+    id: "add-tests",
+    title: "Add tests",
+    eyebrow: "Verification",
+    description:
+      "Add focused tests using the project’s existing test style and commands.",
+    taskType: "tests",
+    recommendedTargets: "Codex, Cursor",
+    icon: <TestTube2 size={16} />,
+    focus: [
+      "Detect current test framework before adding files.",
+      "Prefer behavior-focused coverage over snapshot noise.",
+      "Do not invent test commands that are not in scripts/config."
+    ],
+    acceptance: [
+      "Tests follow existing naming and folder conventions.",
+      "Verification command is real and listed.",
+      "New tests cover the task’s risky behavior."
+    ],
+    outputContract: "Test files, covered behavior, command used, gaps"
+  },
+  {
+    id: "refactor-component",
+    title: "Refactor component",
+    eyebrow: "Cleanup",
+    description:
+      "Improve structure and readability without changing user-visible behavior.",
+    taskType: "refactor",
+    recommendedTargets: "Cursor, Codex",
+    icon: <Repeat2 size={16} />,
+    focus: [
+      "Keep public props, API contracts and behavior stable.",
+      "Split only when it reduces complexity.",
+      "Avoid cosmetic rewrites outside the target area."
+    ],
+    acceptance: [
+      "External behavior remains unchanged.",
+      "Refactor boundaries are explained.",
+      "Build/typecheck verification is listed."
+    ],
+    outputContract: "Refactor intent, files changed, preserved behavior, checks"
+  },
+  {
+    id: "docs-update",
+    title: "Docs update",
+    eyebrow: "Documentation",
+    description:
+      "Update docs from real project behavior, scripts and current architecture.",
+    taskType: "docs",
+    recommendedTargets: "Gemini, Claude Code",
+    icon: <BookOpen size={16} />,
+    focus: [
+      "Use real files, scripts and project metadata only.",
+      "Avoid claiming unsupported features.",
+      "Keep docs practical and developer-readable."
+    ],
+    acceptance: [
+      "Docs match current scripts/config.",
+      "No speculative roadmap is presented as shipped behavior.",
+      "Changed docs and assumptions are listed."
+    ],
+    outputContract: "Docs changed, source facts used, assumptions, checks"
+  },
+  {
+    id: "security-audit",
+    title: "Security audit",
+    eyebrow: "Safety",
+    description:
+      "Review sensitive surfaces, secrets, auth and unsafe changes before implementation.",
+    taskType: "backend",
+    recommendedTargets: "Claude Code, Gemini",
+    icon: <ShieldAlert size={16} />,
+    focus: [
+      "Inspect auth, validation, secrets and permission boundaries.",
+      "Prefer report-first guidance before changing code.",
+      "Do not weaken existing security checks."
+    ],
+    acceptance: [
+      "Findings are separated by severity.",
+      "No secrets are printed or copied into prompts.",
+      "Recommended fixes are scoped and verifiable."
+    ],
+    outputContract: "Findings, affected files, safe fixes, verification plan"
+  },
+  {
+    id: "release-checklist",
+    title: "Release checklist",
+    eyebrow: "Ship",
+    description:
+      "Prepare build, docs and verification steps for a clean desktop release.",
+    taskType: "build",
+    recommendedTargets: "Codex, Generic",
+    icon: <Rocket size={16} />,
+    focus: [
+      "Check build scripts, packaging notes and release docs.",
+      "Keep dev-only requirements away from end-user flow.",
+      "List verification commands and manual smoke checks."
+    ],
+    acceptance: [
+      "Build commands are explicit.",
+      "Release risks and manual checks are listed.",
+      "No product version bump happens unless requested."
+    ],
+    outputContract: "Release steps, commands, smoke checks, risks"
+  }
+];
 
 const EMPTY_TEMPLATE_CONTENT = `# AI Task Pack
 
@@ -131,6 +346,48 @@ function getBadgeClass(isBuiltin: boolean) {
   return isBuiltin
     ? "border-white/12 bg-white/[0.075] text-white"
     : "border-emerald-400/20 bg-emerald-400/10 text-emerald-300";
+}
+
+function getTaskTypeLabel(taskType: string) {
+  return (
+    TASK_TYPE_OPTIONS.find((option) => option.value === taskType)?.label ??
+    taskType
+  );
+}
+
+function getTargetToolLabel(targetTool: string) {
+  return (
+    TARGET_TOOL_OPTIONS.find((option) => option.value === targetTool)?.label ??
+    targetTool
+  );
+}
+
+function getTargetToolDescription(targetTool: string) {
+  return (
+    TARGET_TOOL_OPTIONS.find((option) => option.value === targetTool)?.description ??
+    "Target coding agent"
+  );
+}
+
+function getTargetToolIcon(targetTool: string) {
+  return TARGET_TOOL_OPTIONS.find((option) => option.value === targetTool)?.icon;
+}
+
+function sortTemplatesByTaskType(items: PromptTemplate[]) {
+  const order = new Map(
+    TASK_TYPE_OPTIONS.map((option, index) => [option.value, index])
+  );
+
+  return [...items].sort((a, b) => {
+    const taskDiff =
+      (order.get(a.taskType) ?? 99) - (order.get(b.taskType) ?? 99);
+
+    if (taskDiff !== 0) {
+      return taskDiff;
+    }
+
+    return a.name.localeCompare(b.name);
+  });
 }
 
 function EmptyState({
@@ -217,7 +474,284 @@ function StatCard({
   );
 }
 
-function TemplateRow({
+
+function TemplatePresetLibrary({
+  activePreset,
+  onSelect,
+  onApply
+}: {
+  activePreset: TemplatePreset;
+  onSelect: (preset: TemplatePreset) => void;
+  onApply: (preset: TemplatePreset) => void;
+}) {
+  const gridRef = useRef<HTMLDivElement | null>(null);
+  const itemRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+  const [indicatorRect, setIndicatorRect] = useState<PresetIndicatorRect | null>(null);
+
+  const updateIndicator = useCallback(() => {
+    const container = gridRef.current;
+    const activeItem = itemRefs.current[activePreset.id];
+
+    if (!container || !activeItem) {
+      return;
+    }
+
+    const containerRect = container.getBoundingClientRect();
+    const itemRect = activeItem.getBoundingClientRect();
+
+    setIndicatorRect({
+      x: itemRect.left - containerRect.left,
+      y: itemRect.top - containerRect.top,
+      width: itemRect.width,
+      height: itemRect.height
+    });
+  }, [activePreset.id]);
+
+  useLayoutEffect(() => {
+    updateIndicator();
+  }, [updateIndicator]);
+
+  useEffect(() => {
+    updateIndicator();
+
+    if (typeof ResizeObserver === "undefined") {
+      window.addEventListener("resize", updateIndicator);
+      return () => window.removeEventListener("resize", updateIndicator);
+    }
+
+    const observer = new ResizeObserver(updateIndicator);
+
+    if (gridRef.current) {
+      observer.observe(gridRef.current);
+    }
+
+    Object.values(itemRefs.current).forEach((item) => {
+      if (item) {
+        observer.observe(item);
+      }
+    });
+
+    window.addEventListener("resize", updateIndicator);
+
+    return () => {
+      observer.disconnect();
+      window.removeEventListener("resize", updateIndicator);
+    };
+  }, [updateIndicator]);
+
+  return (
+    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/45 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+      <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
+        <div>
+          <div className="mb-2 flex flex-wrap gap-2">
+            <Pill>
+              <ClipboardCheck size={12} />
+              Stage 9.2
+            </Pill>
+            <Pill>Template library</Pill>
+            <Pill>{TEMPLATE_PRESETS.length} presets</Pill>
+          </div>
+
+          <h2 className="text-xl font-semibold tracking-[-0.04em] text-white">
+            Pick a task preset before choosing the exact prompt template.
+          </h2>
+
+          <p className="mt-2 max-w-3xl text-xs leading-5 text-neutral-600">
+            Presets explain the job type, recommended agent fit and acceptance checks. Stage 9.3 will connect this directly to Context Builder.
+          </p>
+        </div>
+
+        <Button variant="secondary" onClick={() => onApply(activePreset)}>
+          <Search size={15} />
+          Show matching templates
+        </Button>
+      </div>
+
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_410px] xl:items-start">
+        <div
+          ref={gridRef}
+          className="relative grid gap-1.5 overflow-hidden rounded-[1.65rem] border border-white/10 bg-black/55 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] sm:grid-cols-2 2xl:grid-cols-4"
+        >
+          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.01)_44%,rgba(255,255,255,0.004))]" />
+
+          {indicatorRect && (
+            <motion.span
+              aria-hidden="true"
+              className="absolute rounded-[1.35rem] bg-white shadow-[0_18px_46px_rgba(255,255,255,0.14)]"
+              initial={false}
+              animate={{
+                x: indicatorRect.x,
+                y: indicatorRect.y,
+                width: indicatorRect.width,
+                height: indicatorRect.height
+              }}
+              transition={TEMPLATE_PRESET_TRANSITION}
+              style={{ willChange: "transform,width,height" }}
+            />
+          )}
+
+          {TEMPLATE_PRESETS.map((preset) => {
+            const isActive = preset.id === activePreset.id;
+
+            return (
+              <button
+                key={preset.id}
+                ref={(node) => {
+                  itemRefs.current[preset.id] = node;
+                }}
+                type="button"
+                onClick={() => onSelect(preset)}
+                className={[
+                  "group relative z-10 min-h-[112px] rounded-[1.35rem] p-3.5 text-left transition-colors duration-150",
+                  isActive ? "text-black" : "text-neutral-500 hover:text-white"
+                ].join(" ")}
+              >
+                <span className="flex h-full flex-col justify-between gap-3">
+                  <span className="flex items-start justify-between gap-3">
+                    <span
+                      className={[
+                        "grid size-9 shrink-0 place-items-center rounded-xl border transition-colors duration-150",
+                        isActive
+                          ? "border-black/10 bg-black/[0.045] text-black"
+                          : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/15 group-hover:text-white"
+                      ].join(" ")}
+                    >
+                      {preset.icon}
+                    </span>
+
+                    <span
+                      className={[
+                        "cf-tech-label rounded-full border px-2 py-1 text-[9px] uppercase transition-colors duration-150",
+                        isActive
+                          ? "border-black/10 bg-black/[0.035] text-neutral-600"
+                          : "border-neutral-900 bg-black/25 text-neutral-600 group-hover:text-neutral-500"
+                      ].join(" ")}
+                    >
+                      {preset.eyebrow}
+                    </span>
+                  </span>
+
+                  <span>
+                    <span
+                      className={[
+                        "block text-sm font-semibold transition-colors duration-150",
+                        isActive ? "text-black" : "text-white group-hover:text-white"
+                      ].join(" ")}
+                    >
+                      {preset.title}
+                    </span>
+
+                    <span
+                      className={[
+                        "mt-1 line-clamp-2 block text-xs leading-5 transition-colors duration-150",
+                        isActive ? "text-black/58" : "text-neutral-600 group-hover:text-neutral-400"
+                      ].join(" ")}
+                    >
+                      {preset.description}
+                    </span>
+                  </span>
+                </span>
+              </button>
+            );
+          })}
+        </div>
+
+        <motion.aside
+          initial={false}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.16 }}
+          className="rounded-2xl border border-neutral-900 bg-black/40 p-4"
+        >
+          <div className="flex items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-400">
+              {activePreset.icon}
+            </span>
+
+            <div className="min-w-0">
+              <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                Selected preset
+              </p>
+
+              <h3 className="mt-1 truncate text-lg font-semibold tracking-[-0.035em] text-white">
+                {activePreset.title}
+              </h3>
+
+              <p className="mt-1 line-clamp-1 text-xs leading-5 text-neutral-500">
+                {activePreset.description}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-2 sm:grid-cols-2">
+            <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
+              <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                Task type
+              </p>
+              <p className="mt-1 text-sm font-semibold text-white">
+                {TASK_TYPE_OPTIONS.find((option) => option.value === activePreset.taskType)?.label ?? activePreset.taskType}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
+              <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                Agent fit
+              </p>
+              <p className="mt-1 truncate text-sm font-semibold text-white">
+                {activePreset.recommendedTargets}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 grid gap-3 sm:grid-cols-2">
+            <div>
+              <p className="mb-2 text-xs font-semibold text-white">
+                Focus
+              </p>
+              <ul className="space-y-1.5">
+                {activePreset.focus.map((item) => (
+                  <li
+                    key={item}
+                    className="flex gap-2 rounded-xl border border-neutral-900 bg-black/35 px-3 py-1.5 text-[11px] leading-4 text-neutral-400"
+                  >
+                    <Check size={12} className="mt-0.5 shrink-0 text-emerald-300" />
+                    <span className="line-clamp-2">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+
+            <div>
+              <p className="mb-2 text-xs font-semibold text-white">
+                Checks
+              </p>
+              <ul className="space-y-1.5">
+                {activePreset.acceptance.slice(0, 2).map((item) => (
+                  <li
+                    key={item}
+                    className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-1.5 text-[11px] leading-4 text-neutral-500"
+                  >
+                    <span className="line-clamp-2">{item}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.035] p-3">
+            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+              Expected final response
+            </p>
+            <p className="mt-1 truncate text-xs leading-5 text-neutral-400">
+              {activePreset.outputContract}
+            </p>
+          </div>
+        </motion.aside>
+      </div>
+    </section>
+  );
+}
+
+function TemplateCard({
   template,
   onCopy,
   onDelete
@@ -228,59 +762,71 @@ function TemplateRow({
 }) {
   return (
     <motion.article
-      layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6 }}
       transition={{ duration: 0.14 }}
-      className="group rounded-[1.25rem] border border-neutral-900 bg-black/35 p-4 transition hover:border-white/15 hover:bg-white/[0.035]"
+      className="group flex min-h-[178px] flex-col rounded-[1.25rem] border border-neutral-900 bg-black/35 p-4 transition hover:border-white/15 hover:bg-white/[0.035]"
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_260px_auto] xl:items-center">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="mb-2 flex flex-wrap gap-2">
+          <div className="mb-2 flex flex-wrap gap-1.5">
             <span
               className={[
-                "rounded-full border px-2.5 py-1 text-[10px] font-medium",
+                "rounded-full border px-2 py-0.5 text-[10px] font-medium",
                 getBadgeClass(template.isBuiltin)
               ].join(" ")}
             >
               {template.isBuiltin ? "Built-in" : "Custom"}
             </span>
 
-            <Pill>{template.targetTool}</Pill>
-            <Pill>{template.taskType}</Pill>
+            <Pill>{getTaskTypeLabel(template.taskType)}</Pill>
           </div>
 
-          <h3 className="truncate text-sm font-semibold text-white">
+          <h3 className="line-clamp-1 text-sm font-semibold text-white">
             {template.name}
           </h3>
 
-          <p className="mt-1 line-clamp-1 text-xs leading-5 text-neutral-500">
-            {template.description || "No description."}
-          </p>
-
-          <p className="mt-2 truncate text-[11px] text-neutral-700">
-            {template.id}
+          <p className="mt-1 line-clamp-2 min-h-10 text-xs leading-5 text-neutral-500">
+            {template.description || "Reusable Task Pack structure."}
           </p>
         </div>
 
-        <div className="hidden min-w-0 rounded-2xl border border-neutral-900 bg-black/45 p-3 xl:block">
-          <pre className="line-clamp-3 whitespace-pre-wrap font-mono text-[10px] leading-4 text-neutral-600">
-            {template.content}
-          </pre>
-        </div>
+        <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500 transition group-hover:border-white/15 group-hover:text-white">
+          <FileText size={14} />
+        </span>
+      </div>
 
-        <div className="flex shrink-0 justify-end gap-2">
-          <Button variant="secondary" onClick={() => onCopy(template)}>
-            <Copy size={14} />
+      <div className="mt-3 rounded-2xl border border-neutral-900 bg-black/45 px-3 py-2">
+        <pre className="line-clamp-2 whitespace-pre-wrap font-mono text-[10px] leading-4 text-neutral-600">
+          {template.content}
+        </pre>
+      </div>
+
+      <div className="mt-auto flex items-center justify-between gap-3 pt-4">
+        <p className="min-w-0 truncate text-[11px] text-neutral-700">
+          {template.id}
+        </p>
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onCopy(template)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-neutral-900 bg-black/45 px-3 text-[11px] font-semibold text-neutral-300 transition hover:border-white hover:bg-white hover:text-black"
+          >
+            <Copy size={13} />
             Copy
-          </Button>
+          </button>
 
           {!template.isBuiltin && (
-            <Button variant="secondary" onClick={() => onDelete(template)}>
-              <Trash2 size={14} />
-              Delete
-            </Button>
+            <button
+              type="button"
+              onClick={() => onDelete(template)}
+              className="grid size-8 place-items-center rounded-full border border-neutral-900 bg-black/45 text-neutral-500 transition hover:border-red-300/40 hover:bg-red-500/10 hover:text-red-200"
+              aria-label={`Delete ${template.name}`}
+            >
+              <Trash2 size={13} />
+            </button>
           )}
         </div>
       </div>
@@ -288,7 +834,60 @@ function TemplateRow({
   );
 }
 
-function ProfileRow({
+function TemplateTargetGroup({
+  targetTool,
+  templates,
+  onCopy,
+  onDelete
+}: {
+  targetTool: string;
+  templates: PromptTemplate[];
+  onCopy: (template: PromptTemplate) => void;
+  onDelete: (template: PromptTemplate) => void;
+}) {
+  const icon = getTargetToolIcon(targetTool);
+
+  return (
+    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.026)]">
+      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-400">
+            {icon ?? <FileText size={15} />}
+          </span>
+
+          <div className="min-w-0">
+            <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+              Agent template set
+            </p>
+
+            <h3 className="mt-1 truncate text-base font-semibold tracking-[-0.035em] text-white">
+              {getTargetToolLabel(targetTool)}
+            </h3>
+
+            <p className="mt-1 text-xs text-neutral-600">
+              {getTargetToolDescription(targetTool)}
+            </p>
+          </div>
+        </div>
+
+        <Pill>{templates.length} templates</Pill>
+      </div>
+
+      <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
+        {sortTemplatesByTaskType(templates).map((template) => (
+          <TemplateCard
+            key={template.id}
+            template={template}
+            onCopy={onCopy}
+            onDelete={onDelete}
+          />
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function ProfileCard({
   profile,
   ruleItems,
   preset,
@@ -307,73 +906,85 @@ function ProfileRow({
 
   return (
     <motion.article
-      layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6 }}
       transition={{ duration: 0.14 }}
-      className="rounded-[1.25rem] border border-neutral-900 bg-black/35 p-4 transition hover:border-white/15 hover:bg-white/[0.035]"
+      className="group flex min-h-[196px] flex-col rounded-[1.25rem] border border-neutral-900 bg-black/35 p-4 transition hover:border-white/15 hover:bg-white/[0.035]"
     >
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px_auto] xl:items-center">
+      <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <div className="mb-2 flex flex-wrap gap-2">
+          <div className="mb-2 flex flex-wrap gap-1.5">
             <span
               className={[
-                "rounded-full border px-2.5 py-1 text-[10px] font-medium",
+                "rounded-full border px-2 py-0.5 text-[10px] font-medium",
                 getBadgeClass(profile.isBuiltin)
               ].join(" ")}
             >
               {profile.isBuiltin ? "Built-in" : "Custom"}
             </span>
 
-            <Pill>{profile.taskType}</Pill>
+            <Pill>{getTaskTypeLabel(profile.taskType)}</Pill>
             <Pill>{profile.enabledRuleIds.length} rules</Pill>
-            {preset && <Pill tone="success">{preset.name}</Pill>}
           </div>
 
-          <h3 className="truncate text-sm font-semibold text-white">
+          <h3 className="line-clamp-1 text-sm font-semibold text-white">
             {profile.name}
           </h3>
 
-          <p className="mt-1 line-clamp-1 text-xs leading-5 text-neutral-500">
-            {profile.description || "No description."}
-          </p>
-
-          <p className="mt-2 truncate text-[11px] text-neutral-700">
-            {profile.id}
+          <p className="mt-1 line-clamp-2 min-h-10 text-xs leading-5 text-neutral-500">
+            {profile.description || "Reusable safety profile."}
           </p>
         </div>
 
-        <div className="hidden min-w-0 xl:block">
-          <div className="flex flex-wrap gap-1.5">
-            {enabledRules.slice(0, 5).map((rule) => (
-              <span
-                key={rule.id}
-                className="rounded-full border border-neutral-900 bg-neutral-950 px-2 py-1 text-[10px] text-neutral-500"
-              >
-                {rule.title}
-              </span>
-            ))}
+        <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500 transition group-hover:border-white/15 group-hover:text-white">
+          <ShieldCheck size={14} />
+        </span>
+      </div>
 
-            {enabledRules.length > 5 && (
-              <span className="rounded-full border border-neutral-900 bg-neutral-950 px-2 py-1 text-[10px] text-neutral-600">
-                +{enabledRules.length - 5}
-              </span>
-            )}
-          </div>
-        </div>
+      <div className="mt-3 flex flex-wrap gap-1.5">
+        {preset && <Pill tone="success">{preset.name}</Pill>}
 
-        <div className="flex shrink-0 justify-end gap-2">
-          <Button variant="secondary" onClick={() => onCopy(profile)}>
-            <Copy size={14} />
+        {enabledRules.slice(0, 4).map((rule) => (
+          <span
+            key={rule.id}
+            className="rounded-full border border-neutral-900 bg-neutral-950 px-2 py-1 text-[10px] text-neutral-500"
+          >
+            {rule.title}
+          </span>
+        ))}
+
+        {enabledRules.length > 4 && (
+          <span className="rounded-full border border-neutral-900 bg-neutral-950 px-2 py-1 text-[10px] text-neutral-600">
+            +{enabledRules.length - 4}
+          </span>
+        )}
+      </div>
+
+      <div className="mt-auto flex items-center justify-between gap-3 pt-4">
+        <p className="min-w-0 truncate text-[11px] text-neutral-700">
+          {profile.id}
+        </p>
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onCopy(profile)}
+            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-neutral-900 bg-black/45 px-3 text-[11px] font-semibold text-neutral-300 transition hover:border-white hover:bg-white hover:text-black"
+          >
+            <Copy size={13} />
             Copy
-          </Button>
+          </button>
 
           {!profile.isBuiltin && (
-            <Button variant="secondary" onClick={() => onDelete(profile)}>
-              <Trash2 size={14} />
-              Delete
-            </Button>
+            <button
+              type="button"
+              onClick={() => onDelete(profile)}
+              className="grid size-8 place-items-center rounded-full border border-neutral-900 bg-black/45 text-neutral-500 transition hover:border-red-300/40 hover:bg-red-500/10 hover:text-red-200"
+              aria-label={`Delete ${profile.name}`}
+            >
+              <Trash2 size={13} />
+            </button>
           )}
         </div>
       </div>
@@ -384,7 +995,6 @@ function ProfileRow({
 function RuleCard({ rule }: { rule: RuleItem }) {
   return (
     <motion.article
-      layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6 }}
@@ -430,7 +1040,6 @@ function RuleCard({ rule }: { rule: RuleItem }) {
 function CriteriaCard({ preset }: { preset: AcceptanceCriteriaPreset }) {
   return (
     <motion.article
-      layout
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
       exit={{ opacity: 0, y: -6 }}
@@ -825,6 +1434,7 @@ export function TemplatesPage() {
     AcceptanceCriteriaPreset[]
   >([]);
   const [activeTab, setActiveTab] = useState<TemplatesTab>("templates");
+  const [activePresetId, setActivePresetId] = useState("ui-redesign");
   const [query, setQuery] = useState("");
   const [taskTypeFilter, setTaskTypeFilter] = useState("all");
   const [draftKind, setDraftKind] = useState<DraftKind>(null);
@@ -908,6 +1518,26 @@ export function TemplatesPage() {
       }),
     [normalizedQuery, taskTypeFilter, templates]
   );
+
+  const templateGroups = useMemo(() => {
+    const order = TARGET_TOOL_OPTIONS.map((option) => String(option.value));
+    const groups = filteredTemplates.reduce<Record<string, PromptTemplate[]>>(
+      (acc, template) => {
+        const key = template.targetTool || "generic";
+        acc[key] = acc[key] ?? [];
+        acc[key].push(template);
+        return acc;
+      },
+      {}
+    );
+
+    return Object.entries(groups).sort(([a], [b]) => {
+      const aIndex = order.indexOf(a);
+      const bIndex = order.indexOf(b);
+
+      return (aIndex === -1 ? 99 : aIndex) - (bIndex === -1 ? 99 : bIndex);
+    });
+  }, [filteredTemplates]);
 
   const filteredProfiles = useMemo(
     () =>
@@ -1038,6 +1668,18 @@ export function TemplatesPage() {
     }
   }
 
+  const activePreset =
+    TEMPLATE_PRESETS.find((preset) => preset.id === activePresetId) ??
+    TEMPLATE_PRESETS[0];
+
+  function handleApplyPreset(preset: TemplatePreset) {
+    setActivePresetId(preset.id);
+    setActiveTab("templates");
+    setTaskTypeFilter(preset.taskType);
+    setQuery("");
+    setToast(`Showing ${preset.title} templates`);
+  }
+
   const visibleCount =
     activeTab === "templates"
       ? filteredTemplates.length
@@ -1048,7 +1690,7 @@ export function TemplatesPage() {
           : filteredCriteria.length;
 
   return (
-    <section className="grid h-[calc(100vh-96px)] min-h-0 grid-rows-[auto_auto_minmax(0,1fr)] gap-4 overflow-hidden">
+    <section className="space-y-4 pb-8">
       <div className="grid shrink-0 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
         <div className="rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012))] p-5 shadow-[0_16px_52px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.045)]">
           <div className="mb-4 flex flex-wrap gap-2">
@@ -1126,6 +1768,12 @@ export function TemplatesPage() {
           />
         </div>
       </div>
+
+      <TemplatePresetLibrary
+        activePreset={activePreset}
+        onSelect={(preset) => setActivePresetId(preset.id)}
+        onApply={handleApplyPreset}
+      />
 
       <div className="shrink-0 rounded-[1.5rem] border border-neutral-900 bg-black/45 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
         <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
@@ -1218,8 +1866,7 @@ export function TemplatesPage() {
         </div>
       </div>
 
-      <div className="min-h-0 overflow-hidden">
-        <AnimatePresence mode="wait" initial={false}>
+      <div className="min-h-[420px]">
           {activeTab === "templates" && (
             <motion.div
               key="templates"
@@ -1227,7 +1874,7 @@ export function TemplatesPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.16 }}
-              className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden"
+              className="space-y-3"
             >
               <div className="mb-3 shrink-0">
                 <Pill>
@@ -1240,21 +1887,24 @@ export function TemplatesPage() {
                 </h2>
               </div>
 
-              <div className="min-h-0 space-y-3 overflow-y-auto pr-2">
+              <div className="pr-2">
                 {filteredTemplates.length === 0 ? (
                   <EmptyState
                     title="No templates found"
                     description="Try another search query or task type filter."
                   />
                 ) : (
-                  filteredTemplates.map((template) => (
-                    <TemplateRow
-                      key={template.id}
-                      template={template}
-                      onCopy={handleCopyTemplate}
-                      onDelete={handleDeleteTemplate}
-                    />
-                  ))
+                  <div className="space-y-4">
+                    {templateGroups.map(([targetTool, items]) => (
+                      <TemplateTargetGroup
+                        key={targetTool}
+                        targetTool={targetTool}
+                        templates={items}
+                        onCopy={handleCopyTemplate}
+                        onDelete={handleDeleteTemplate}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
             </motion.div>
@@ -1267,7 +1917,7 @@ export function TemplatesPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.16 }}
-              className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden"
+              className="space-y-3"
             >
               <div className="mb-3 shrink-0">
                 <Pill>
@@ -1280,25 +1930,27 @@ export function TemplatesPage() {
                 </h2>
               </div>
 
-              <div className="min-h-0 space-y-3 overflow-y-auto pr-2">
+              <div className="pr-2">
                 {filteredProfiles.length === 0 ? (
                   <EmptyState
                     title="No profiles found"
                     description="Try another search query or task type filter."
                   />
                 ) : (
-                  filteredProfiles.map((profile) => (
-                    <ProfileRow
-                      key={profile.id}
-                      profile={profile}
-                      ruleItems={ruleItems}
-                      preset={acceptancePresets.find(
-                        (preset) => preset.id === profile.acceptanceCriteriaPresetId
-                      )}
-                      onCopy={handleCopyProfile}
-                      onDelete={handleDeleteProfile}
-                    />
-                  ))
+                  <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
+                    {filteredProfiles.map((profile) => (
+                      <ProfileCard
+                        key={profile.id}
+                        profile={profile}
+                        ruleItems={ruleItems}
+                        preset={acceptancePresets.find(
+                          (preset) => preset.id === profile.acceptanceCriteriaPresetId
+                        )}
+                        onCopy={handleCopyProfile}
+                        onDelete={handleDeleteProfile}
+                      />
+                    ))}
+                  </div>
                 )}
               </div>
             </motion.div>
@@ -1311,7 +1963,7 @@ export function TemplatesPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.16 }}
-              className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden"
+              className="space-y-3"
             >
               <div className="mb-3 shrink-0">
                 <Pill>
@@ -1324,7 +1976,7 @@ export function TemplatesPage() {
                 </h2>
               </div>
 
-              <div className="min-h-0 overflow-y-auto pr-2">
+              <div className="pr-2">
                 {filteredRules.length === 0 ? (
                   <EmptyState
                     title="No rules found"
@@ -1348,7 +2000,7 @@ export function TemplatesPage() {
               animate={{ opacity: 1, y: 0 }}
               exit={{ opacity: 0, y: -8 }}
               transition={{ duration: 0.16 }}
-              className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] overflow-hidden"
+              className="space-y-3"
             >
               <div className="mb-3 shrink-0">
                 <Pill>
@@ -1361,7 +2013,7 @@ export function TemplatesPage() {
                 </h2>
               </div>
 
-              <div className="min-h-0 overflow-y-auto pr-2">
+              <div className="pr-2">
                 {filteredCriteria.length === 0 ? (
                   <EmptyState
                     title="No criteria found"
@@ -1377,7 +2029,6 @@ export function TemplatesPage() {
               </div>
             </motion.div>
           )}
-        </AnimatePresence>
       </div>
 
       <AnimatePresence>
