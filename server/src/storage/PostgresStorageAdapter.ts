@@ -1,11 +1,14 @@
 import { pool } from "../db/pool.js";
 import type { ScannedProject } from "../scanner/projectScanner.js";
 import type {
+  CreateProjectMemoryInput,
   CreateTaskPackInput,
+  ProjectMemoryRecord,
   ProjectRecord,
   StorageAdapter,
   StorageHealth,
-  TaskPackRecord
+  TaskPackRecord,
+  UpdateProjectMemoryInput
 } from "./types.js";
 
 function mapProjectRow(row: any): ProjectRecord {
@@ -40,6 +43,19 @@ function mapTaskPackRow(row: any): TaskPackRecord {
     generationUsedFallback: Boolean(row.generationUsedFallback),
     generationDurationMs: row.generationDurationMs ?? null,
     generationRecipe: row.generationRecipe ?? null,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function mapProjectMemoryRow(row: any): ProjectMemoryRecord {
+  return {
+    id: row.id,
+    projectId: row.projectId,
+    title: row.title,
+    content: row.content,
+    category: row.category ?? "custom",
+    isEnabled: Boolean(row.isEnabled),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   };
@@ -90,6 +106,19 @@ export class PostgresStorageAdapter implements StorageAdapter {
         task_type TEXT NOT NULL DEFAULT 'general',
         target_tool TEXT NOT NULL DEFAULT 'generic',
         generated_prompt TEXT NOT NULL,
+        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+      );
+    `);
+
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS project_memories (
+        id SERIAL PRIMARY KEY,
+        project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+        title TEXT NOT NULL,
+        content TEXT NOT NULL,
+        category TEXT NOT NULL DEFAULT 'custom',
+        is_enabled BOOLEAN NOT NULL DEFAULT TRUE,
         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
       );
@@ -327,6 +356,124 @@ export class PostgresStorageAdapter implements StorageAdapter {
     );
 
     return mapTaskPackRow(result.rows[0]);
+  }
+
+  async listProjectMemories(projectId: number): Promise<ProjectMemoryRecord[]> {
+    const result = await pool.query(
+      `
+      SELECT
+        id,
+        project_id AS "projectId",
+        title,
+        content,
+        category,
+        is_enabled AS "isEnabled",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt"
+      FROM project_memories
+      WHERE project_id = $1
+      ORDER BY is_enabled DESC, updated_at DESC, id DESC;
+      `,
+      [projectId]
+    );
+
+    return result.rows.map(mapProjectMemoryRow);
+  }
+
+  async createProjectMemory(input: CreateProjectMemoryInput): Promise<ProjectMemoryRecord> {
+    const result = await pool.query(
+      `
+      INSERT INTO project_memories (
+        project_id,
+        title,
+        content,
+        category,
+        is_enabled
+      )
+      VALUES ($1, $2, $3, $4, $5)
+      RETURNING
+        id,
+        project_id AS "projectId",
+        title,
+        content,
+        category,
+        is_enabled AS "isEnabled",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt";
+      `,
+      [
+        input.projectId,
+        input.title,
+        input.content,
+        input.category,
+        input.isEnabled !== false
+      ]
+    );
+
+    return mapProjectMemoryRow(result.rows[0]);
+  }
+
+  async updateProjectMemory(
+    projectId: number,
+    memoryId: number,
+    input: UpdateProjectMemoryInput
+  ): Promise<ProjectMemoryRecord | null> {
+    const existing = await pool.query(
+      `
+      SELECT id
+      FROM project_memories
+      WHERE id = $1 AND project_id = $2;
+      `,
+      [memoryId, projectId]
+    );
+
+    if (existing.rowCount === 0) {
+      return null;
+    }
+
+    const result = await pool.query(
+      `
+      UPDATE project_memories
+      SET
+        title = COALESCE($3, title),
+        content = COALESCE($4, content),
+        category = COALESCE($5, category),
+        is_enabled = COALESCE($6, is_enabled),
+        updated_at = NOW()
+      WHERE id = $1 AND project_id = $2
+      RETURNING
+        id,
+        project_id AS "projectId",
+        title,
+        content,
+        category,
+        is_enabled AS "isEnabled",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt";
+      `,
+      [
+        memoryId,
+        projectId,
+        input.title ?? null,
+        input.content ?? null,
+        input.category ?? null,
+        typeof input.isEnabled === "boolean" ? input.isEnabled : null
+      ]
+    );
+
+    return result.rows[0] ? mapProjectMemoryRow(result.rows[0]) : null;
+  }
+
+  async deleteProjectMemory(projectId: number, memoryId: number): Promise<boolean> {
+    const result = await pool.query(
+      `
+      DELETE FROM project_memories
+      WHERE id = $1 AND project_id = $2;
+      `,
+      [memoryId, projectId]
+    );
+
+    return (result.rowCount ?? 0) > 0;
   }
 
   async getSettingValue<T>(key: string, fallback: T): Promise<T> {

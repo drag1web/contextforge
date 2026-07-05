@@ -21,6 +21,29 @@ const saveAgentsSchema = z.object({
   fileName: z.enum(AGENTS_FILE_NAMES).optional()
 });
 
+const projectMemoryCategorySchema = z.enum([
+  "architecture",
+  "do_not_change",
+  "style",
+  "verification",
+  "workflow",
+  "custom"
+]);
+
+const createProjectMemorySchema = z.object({
+  title: z.string().trim().min(1).max(120),
+  content: z.string().trim().min(1).max(1200),
+  category: projectMemoryCategorySchema.default("custom"),
+  isEnabled: z.boolean().optional()
+});
+
+const updateProjectMemorySchema = z.object({
+  title: z.string().trim().min(1).max(120).optional(),
+  content: z.string().trim().min(1).max(1200).optional(),
+  category: projectMemoryCategorySchema.optional(),
+  isEnabled: z.boolean().optional()
+});
+
 async function pathExists(filePath: string) {
   try {
     await fs.access(filePath);
@@ -250,6 +273,184 @@ projectsRouter.get("/:id/context-files/:fileName", async (req, res) => {
     res.status(500).json({
       ok: false,
       message: "Failed to read project context file",
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+projectsRouter.get("/:id/memories", async (req, res) => {
+  const projectId = Number(req.params.id);
+
+  if (!Number.isInteger(projectId)) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid project id"
+    });
+    return;
+  }
+
+  try {
+    const project = await getProjectById(projectId);
+
+    if (!project) {
+      res.status(404).json({
+        ok: false,
+        message: "Project not found"
+      });
+      return;
+    }
+
+    const memories = await storage.listProjectMemories(projectId);
+
+    res.json({
+      ok: true,
+      memories
+    });
+  } catch (error) {
+    console.error("Failed to list project memories:", error);
+
+    res.status(500).json({
+      ok: false,
+      message: "Failed to list project memories",
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+projectsRouter.post("/:id/memories", async (req, res) => {
+  const projectId = Number(req.params.id);
+
+  if (!Number.isInteger(projectId)) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid project id"
+    });
+    return;
+  }
+
+  const parsed = createProjectMemorySchema.safeParse(req.body ?? {});
+
+  if (!parsed.success) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid request body",
+      issues: parsed.error.issues
+    });
+    return;
+  }
+
+  try {
+    const project = await getProjectById(projectId);
+
+    if (!project) {
+      res.status(404).json({
+        ok: false,
+        message: "Project not found"
+      });
+      return;
+    }
+
+    const memory = await storage.createProjectMemory({
+      projectId,
+      ...parsed.data
+    });
+
+    res.json({
+      ok: true,
+      memory
+    });
+  } catch (error) {
+    console.error("Failed to create project memory:", error);
+
+    res.status(500).json({
+      ok: false,
+      message: "Failed to create project memory",
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+projectsRouter.patch("/:id/memories/:memoryId", async (req, res) => {
+  const projectId = Number(req.params.id);
+  const memoryId = Number(req.params.memoryId);
+
+  if (!Number.isInteger(projectId) || !Number.isInteger(memoryId)) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid project or memory id"
+    });
+    return;
+  }
+
+  const parsed = updateProjectMemorySchema.safeParse(req.body ?? {});
+
+  if (!parsed.success) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid request body",
+      issues: parsed.error.issues
+    });
+    return;
+  }
+
+  try {
+    const memory = await storage.updateProjectMemory(projectId, memoryId, parsed.data);
+
+    if (!memory) {
+      res.status(404).json({
+        ok: false,
+        message: "Project memory not found"
+      });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      memory
+    });
+  } catch (error) {
+    console.error("Failed to update project memory:", error);
+
+    res.status(500).json({
+      ok: false,
+      message: "Failed to update project memory",
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+projectsRouter.delete("/:id/memories/:memoryId", async (req, res) => {
+  const projectId = Number(req.params.id);
+  const memoryId = Number(req.params.memoryId);
+
+  if (!Number.isInteger(projectId) || !Number.isInteger(memoryId)) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid project or memory id"
+    });
+    return;
+  }
+
+  try {
+    const deleted = await storage.deleteProjectMemory(projectId, memoryId);
+
+    if (!deleted) {
+      res.status(404).json({
+        ok: false,
+        message: "Project memory not found"
+      });
+      return;
+    }
+
+    res.json({
+      ok: true
+    });
+  } catch (error) {
+    console.error("Failed to delete project memory:", error);
+
+    res.status(500).json({
+      ok: false,
+      message: "Failed to delete project memory",
       error: error instanceof Error ? error.message : String(error)
     });
   }

@@ -158,6 +158,33 @@ export interface TaskPack {
 }
 
 
+
+export type ProjectMemoryCategory =
+  | "architecture"
+  | "do_not_change"
+  | "style"
+  | "verification"
+  | "workflow"
+  | "custom";
+
+export interface ProjectMemory {
+  id: number;
+  projectId: number;
+  title: string;
+  content: string;
+  category: ProjectMemoryCategory;
+  isEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProjectMemoryInput {
+  title: string;
+  content: string;
+  category: ProjectMemoryCategory;
+  isEnabled?: boolean;
+}
+
 export interface ProjectContextFile {
   fileName: "AGENTS.md" | "AGENTS.generated.md";
   path: string;

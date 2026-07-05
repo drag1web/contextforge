@@ -8,6 +8,8 @@ import type {
   OllamaStatus,
   Project,
   ProjectContextFile,
+  ProjectMemory,
+  ProjectMemoryInput,
   PromptTemplate,
   RuleItem,
   RuleProfile,
@@ -107,6 +109,54 @@ export async function getProjectContextFile(
     markdown: data.markdown,
     contextFile: data.contextFile
   };
+}
+
+export async function getProjectMemories(projectId: number): Promise<ProjectMemory[]> {
+  const data = await request<{ ok: true; memories: ProjectMemory[] }>(
+    `/projects/${projectId}/memories`
+  );
+
+  return data.memories;
+}
+
+export async function createProjectMemory(
+  projectId: number,
+  input: ProjectMemoryInput
+): Promise<ProjectMemory> {
+  const data = await request<{ ok: true; memory: ProjectMemory }>(
+    `/projects/${projectId}/memories`,
+    {
+      method: "POST",
+      body: JSON.stringify(input)
+    }
+  );
+
+  return data.memory;
+}
+
+export async function updateProjectMemory(
+  projectId: number,
+  memoryId: number,
+  input: Partial<ProjectMemoryInput>
+): Promise<ProjectMemory> {
+  const data = await request<{ ok: true; memory: ProjectMemory }>(
+    `/projects/${projectId}/memories/${memoryId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input)
+    }
+  );
+
+  return data.memory;
+}
+
+export async function deleteProjectMemory(
+  projectId: number,
+  memoryId: number
+): Promise<void> {
+  await request<{ ok: true }>(`/projects/${projectId}/memories/${memoryId}`, {
+    method: "DELETE"
+  });
 }
 
 export async function getAgentsPreview(

@@ -30,6 +30,7 @@ import {
   type ContextSelectionQuality,
 } from "../selection/contextQuality.js";
 import { isSecretLikePath } from "../selection/safetyPolicy.js";
+import type { ProjectMemoryRecord } from "../storage/types.js";
 
 export const taskPacksRouter = Router();
 
@@ -96,6 +97,7 @@ interface UniversalTaskPackContext {
   taskIntent?: TaskIntentAnalysis;
   fileSelection: TaskFileSelection;
   selectionQuality: ContextSelectionQuality;
+  projectMemories: ProjectMemoryRecord[];
   inventorySummary: {
     totalFiles: number;
     scannedFiles: number;
@@ -144,6 +146,7 @@ const MAX_SNIPPET_CHARS = 1600;
 const MAX_TEXT_FILE_SIZE_BYTES = 120_000;
 
 const PROTECTED_SECTION_TITLES = new Set([
+  "Project Memory",
   "Relevant File Candidates",
   "Code Context Snippets",
   "Non-Text / Asset References",
@@ -725,6 +728,7 @@ function buildUniversalTaskPackContext({
   selectionQuality,
   fileSnippets,
   fileReferences,
+  projectMemories,
 }: {
   taskType: string;
   inventory: ProjectInventory;
@@ -733,6 +737,7 @@ function buildUniversalTaskPackContext({
   selectionQuality: ContextSelectionQuality;
   fileSnippets: TaskContextSnippet[];
   fileReferences: TaskContextFileReference[];
+  projectMemories: ProjectMemoryRecord[];
 }): UniversalTaskPackContext {
   return {
     taskType,
@@ -744,6 +749,7 @@ function buildUniversalTaskPackContext({
     relevantFiles: fileSelection.selectedFiles.map((file) => file.path),
     fileSnippets,
     fileReferences,
+    projectMemories,
     taskIntent,
     fileSelection,
     selectionQuality,
@@ -772,6 +778,54 @@ function formatFileSize(sizeBytes: number) {
   }
 
   return `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+function formatProjectMemoryCategory(category: ProjectMemoryRecord["category"]) {
+  switch (category) {
+    case "architecture":
+      return "Architecture";
+    case "do_not_change":
+      return "Do not change";
+    case "style":
+      return "Style";
+    case "verification":
+      return "Verification";
+    case "workflow":
+      return "Workflow";
+    default:
+      return "Custom";
+  }
+}
+
+function buildProjectMemorySection(context: UniversalTaskPackContext) {
+  const enabledMemories = context.projectMemories.filter((memory) => memory.isEnabled);
+
+  if (enabledMemories.length === 0) {
+    return "";
+  }
+
+  const rows = enabledMemories.map((memory) => {
+    const contentLines = memory.content
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter(Boolean);
+    const content = contentLines.length > 0
+      ? contentLines.map((line) => `  - ${line}`).join("\n")
+      : `  - ${memory.title}`;
+
+    return [
+      `- [${formatProjectMemoryCategory(memory.category)}] ${memory.title}`,
+      content
+    ].join("\n");
+  });
+
+  return `
+## Project Memory
+
+Persistent decisions and rules saved for this project. Treat them as stable context unless the user explicitly overrides them.
+
+${rows.join("\n")}
+`.trim();
 }
 
 function buildRelevantFilesSection(context: UniversalTaskPackContext) {
@@ -981,6 +1035,7 @@ ${notes}
 
 function buildProtectedContextBlock(context: UniversalTaskPackContext) {
   return [
+    buildProjectMemorySection(context),
     buildRelevantFilesSection(context),
     buildCodeSnippetsSection(context),
     buildAssetReferenceSection(context),
@@ -1155,6 +1210,7 @@ Important:
 - Do not replace snippets with placeholder comments.
 - Do not remove file candidates selected by ContextForge.
 - Protected context sections are backend-generated and will be restored after your generation:
+  - Project Memory
   - Relevant File Candidates
   - Code Context Snippets
   - Non-Text / Asset References
@@ -1185,6 +1241,7 @@ Required document structure:
 ## Task Type
 ## Task
 ## Project Context
+## Project Memory
 ## Relevant File Candidates
 ## Code Context Snippets
 ## Agent Instructions
@@ -1226,6 +1283,12 @@ Validated task context summary:
 ${JSON.stringify(
   {
     relevantFiles: context.relevantFiles,
+    projectMemories: context.projectMemories
+      .filter((memory) => memory.isEnabled)
+      .map((memory) => ({
+        title: memory.title,
+        category: memory.category,
+      })),
     fileReferences: context.fileReferences,
     taskIntent: context.taskIntent,
     fileSelection: {
@@ -1358,6 +1421,7 @@ taskPacksRouter.post("/", async (req, res) => {
 
     const inventory = await scanProjectInventory(project.localPath);
     const settings = await getAppSettings();
+    const projectMemories = await storage.listProjectMemories(project.id);
 
     const taskIntent = await analyzeTaskIntent({
       rawTask: parsed.data.rawTask,
@@ -1439,6 +1503,7 @@ taskPacksRouter.post("/", async (req, res) => {
       selectionQuality,
       fileSnippets,
       fileReferences,
+      projectMemories: projectMemories.filter((memory) => memory.isEnabled),
     });
 
     const projectForPrompt = {

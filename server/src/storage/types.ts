@@ -16,6 +16,41 @@ export interface ProjectRecord {
   lastScanAt: string | null;
 }
 
+
+export type ProjectMemoryCategory =
+  | "architecture"
+  | "do_not_change"
+  | "style"
+  | "verification"
+  | "workflow"
+  | "custom";
+
+export interface ProjectMemoryRecord {
+  id: number;
+  projectId: number;
+  title: string;
+  content: string;
+  category: ProjectMemoryCategory;
+  isEnabled: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CreateProjectMemoryInput {
+  projectId: number;
+  title: string;
+  content: string;
+  category: ProjectMemoryCategory;
+  isEnabled?: boolean;
+}
+
+export interface UpdateProjectMemoryInput {
+  title?: string;
+  content?: string;
+  category?: ProjectMemoryCategory;
+  isEnabled?: boolean;
+}
+
 export interface TaskPackRecord {
   id: number;
   projectId: number;
@@ -68,6 +103,15 @@ export interface StorageAdapter {
 
   listTaskPacks(): Promise<TaskPackRecord[]>;
   createTaskPack(input: CreateTaskPackInput): Promise<TaskPackRecord>;
+
+  listProjectMemories(projectId: number): Promise<ProjectMemoryRecord[]>;
+  createProjectMemory(input: CreateProjectMemoryInput): Promise<ProjectMemoryRecord>;
+  updateProjectMemory(
+    projectId: number,
+    memoryId: number,
+    input: UpdateProjectMemoryInput
+  ): Promise<ProjectMemoryRecord | null>;
+  deleteProjectMemory(projectId: number, memoryId: number): Promise<boolean>;
 
   getSettingValue<T>(key: string, fallback: T): Promise<T>;
   setSettingValue(key: string, value: unknown): Promise<void>;

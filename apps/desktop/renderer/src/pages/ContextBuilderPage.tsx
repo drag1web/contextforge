@@ -3,6 +3,7 @@ import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
+  Brain,
   Bot,
   CheckCircle2,
   Eye,
@@ -16,9 +17,16 @@ import {
   XCircle
 } from "lucide-react";
 
-import type { Project, ProjectContextFile } from "../types";
-import { getProjectContextFiles } from "../api/client";
+import type { Project, ProjectContextFile, ProjectMemory, ProjectMemoryInput } from "../types";
+import {
+  createProjectMemory,
+  deleteProjectMemory,
+  getProjectContextFiles,
+  getProjectMemories,
+  updateProjectMemory
+} from "../api/client";
 import { Button } from "../components/ui/Button";
+import { ProjectMemoryModal } from "../components/modals/ProjectMemoryModal";
 
 interface ContextBuilderPageProps {
   projects: Project[];
@@ -328,6 +336,103 @@ function ProjectContextHistory({
   );
 }
 
+function getProjectMemoryCategoryLabel(category: ProjectMemory["category"]) {
+  switch (category) {
+    case "architecture":
+      return "Architecture";
+    case "do_not_change":
+      return "Do not change";
+    case "style":
+      return "Style";
+    case "verification":
+      return "Verification";
+    case "workflow":
+      return "Workflow";
+    default:
+      return "Custom";
+  }
+}
+
+function ProjectMemoryPanel({
+  memories,
+  isLoading,
+  onManage
+}: {
+  memories: ProjectMemory[];
+  isLoading: boolean;
+  onManage: () => void;
+}) {
+  const activeMemories = memories.filter((memory) => memory.isEnabled);
+  const previewMemories = activeMemories.slice(0, 3);
+
+  return (
+    <article className="cf-card p-5">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <p className="cf-tech-label mb-2 text-xs uppercase text-neutral-600">
+            Project Memory
+          </p>
+
+          <h3 className="text-base font-semibold text-white">
+            Decision Log
+          </h3>
+
+          <p className="mt-1 text-sm leading-5 text-neutral-500">
+            Persistent project rules automatically included in future Task Packs.
+          </p>
+        </div>
+
+        <span className="cf-badge">{activeMemories.length} active</span>
+      </div>
+
+      <div className="space-y-2">
+        {previewMemories.length === 0 ? (
+          <div className="rounded-2xl border border-neutral-900 bg-black/25 p-4">
+            <div className="mb-3 grid size-9 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+              <Brain size={16} />
+            </div>
+            <p className="text-sm font-medium text-white">No active memory yet</p>
+            <p className="mt-1 text-sm leading-5 text-neutral-600">
+              Save decisions like “do not change backend API” or “verify with npm run build”.
+            </p>
+          </div>
+        ) : (
+          previewMemories.map((memory) => (
+            <div
+              key={memory.id}
+              className="rounded-2xl border border-neutral-900 bg-black/35 p-3"
+            >
+              <div className="mb-2 flex flex-wrap items-center gap-2">
+                <span className="cf-badge">
+                  {getProjectMemoryCategoryLabel(memory.category)}
+                </span>
+              </div>
+
+              <p className="truncate text-sm font-semibold text-white">
+                {memory.title}
+              </p>
+              <p className="mt-1 line-clamp-2 text-sm leading-5 text-neutral-600">
+                {memory.content}
+              </p>
+            </div>
+          ))
+        )}
+      </div>
+
+      <Button
+        type="button"
+        variant="secondary"
+        disabled={isLoading}
+        onClick={onManage}
+        className="mt-4 w-full justify-center rounded-xl"
+      >
+        <Brain size={15} />
+        Manage memory
+      </Button>
+    </article>
+  );
+}
+
 export function ContextBuilderPage({
   projects,
   isLoading,
@@ -343,6 +448,9 @@ export function ContextBuilderPage({
   );
   const [contextFiles, setContextFiles] = useState<ProjectContextFile[]>([]);
   const [isContextHistoryLoading, setIsContextHistoryLoading] = useState(false);
+  const [projectMemories, setProjectMemories] = useState<ProjectMemory[]>([]);
+  const [isProjectMemoryLoading, setIsProjectMemoryLoading] = useState(false);
+  const [isProjectMemoryModalOpen, setIsProjectMemoryModalOpen] = useState(false);
 
   const filteredProjects = useMemo(() => {
     const normalizedQuery = normalize(query).trim();
@@ -374,6 +482,11 @@ export function ContextBuilderPage({
       null
     );
   }, [filteredProjects, projects, selectedProjectId]);
+
+  const activeProjectMemories = useMemo(
+    () => projectMemories.filter((memory) => memory.isEnabled),
+    [projectMemories]
+  );
 
   useEffect(() => {
     if (projects.length === 0) {
@@ -420,6 +533,88 @@ export function ContextBuilderPage({
     };
   }, [selectedProject]);
 
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!selectedProject) {
+      setProjectMemories([]);
+      return;
+    }
+
+    setIsProjectMemoryLoading(true);
+
+    getProjectMemories(selectedProject.id)
+      .then((memories) => {
+        if (isMounted) {
+          setProjectMemories(memories);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setProjectMemories([]);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsProjectMemoryLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedProject]);
+
+  async function refreshProjectMemories(projectId: number) {
+    const memories = await getProjectMemories(projectId);
+    setProjectMemories(memories);
+  }
+
+  async function handleCreateProjectMemory(input: ProjectMemoryInput) {
+    if (!selectedProject) {
+      return;
+    }
+
+    setIsProjectMemoryLoading(true);
+    try {
+      await createProjectMemory(selectedProject.id, input);
+      await refreshProjectMemories(selectedProject.id);
+    } finally {
+      setIsProjectMemoryLoading(false);
+    }
+  }
+
+  async function handleUpdateProjectMemory(
+    memoryId: number,
+    input: Partial<ProjectMemoryInput>
+  ) {
+    if (!selectedProject) {
+      return;
+    }
+
+    setIsProjectMemoryLoading(true);
+    try {
+      await updateProjectMemory(selectedProject.id, memoryId, input);
+      await refreshProjectMemories(selectedProject.id);
+    } finally {
+      setIsProjectMemoryLoading(false);
+    }
+  }
+
+  async function handleDeleteProjectMemory(memoryId: number) {
+    if (!selectedProject) {
+      return;
+    }
+
+    setIsProjectMemoryLoading(true);
+    try {
+      await deleteProjectMemory(selectedProject.id, memoryId);
+      await refreshProjectMemories(selectedProject.id);
+    } finally {
+      setIsProjectMemoryLoading(false);
+    }
+  }
+
   if (projects.length === 0) {
     return (
       <motion.section
@@ -454,7 +649,8 @@ export function ContextBuilderPage({
   }
 
   return (
-    <section className="space-y-5">
+    <>
+      <section className="space-y-5">
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -650,6 +846,19 @@ export function ContextBuilderPage({
                       <WandSparkles size={15} />
                       {t("contextBuilder.createTaskPack")}
                     </Button>
+
+                    <Button
+                      variant="secondary"
+                      disabled={isLoading || isProjectMemoryLoading}
+                      onClick={() => setIsProjectMemoryModalOpen(true)}
+                      className="justify-center rounded-xl"
+                    >
+                      <Brain size={15} />
+                      Project Memory
+                      <span className="ml-1 rounded-full border border-neutral-800 bg-black/35 px-2 py-0.5 text-[11px] text-neutral-500">
+                        {activeProjectMemories.length} active
+                      </span>
+                    </Button>
                   </div>
                 </aside>
               </div>
@@ -727,6 +936,12 @@ export function ContextBuilderPage({
                   </div>
                 </article>
 
+                <ProjectMemoryPanel
+                  memories={projectMemories}
+                  isLoading={isLoading || isProjectMemoryLoading}
+                  onManage={() => setIsProjectMemoryModalOpen(true)}
+                />
+
                 <ProjectContextHistory
                   files={contextFiles}
                   isLoading={isLoading || isContextHistoryLoading}
@@ -740,5 +955,17 @@ export function ContextBuilderPage({
         )}
       </div>
     </section>
+      {selectedProject && isProjectMemoryModalOpen && (
+        <ProjectMemoryModal
+          project={selectedProject}
+          memories={projectMemories}
+          isLoading={isLoading || isProjectMemoryLoading}
+          onClose={() => setIsProjectMemoryModalOpen(false)}
+          onCreate={handleCreateProjectMemory}
+          onUpdate={handleUpdateProjectMemory}
+          onDelete={handleDeleteProjectMemory}
+        />
+      )}
+    </>
   );
 }

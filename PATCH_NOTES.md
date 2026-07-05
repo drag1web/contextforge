@@ -1,37 +1,23 @@
-# ContextForge Stage 4.2 — Layout & Sidebar Hover Polish
-
-## Scope
-Small UI-only patch.
+# ContextForge Stage 5.2 — Project Memory UX polish
 
 ## Changes
 
-- Removes the empty reserved status-banner space on Projects and Task Packs when there is no real status message.
-- Keeps real transient status messages available when the app actually needs to show one.
-- Keeps Dashboard and Context Builder layout untouched.
-- Changes Sidebar hover behavior so inactive items no longer flash a white background.
-- Keeps the sliding active selection animation in the Sidebar.
-- Makes Sidebar hover match Settings Control Center behavior more closely: text and icon brighten, but no white hover pill appears.
+- Replaced the native category `<select>` in the Project Memory modal with the shared `CustomSelect` component.
+- Added a visible `Project Memory` action button to the top project readiness/action card in Context Builder.
+- Moved the compact Project Memory panel above Project Context History in the right-side rail so users can find it sooner.
 
 ## Files changed
 
-- `apps/desktop/renderer/src/pages/DashboardPage.tsx`
-- `apps/desktop/renderer/src/components/ui/StatusBar.tsx`
-- `apps/desktop/renderer/src/hooks/useDashboardController.ts`
-- `apps/desktop/renderer/src/components/layout/Sidebar.tsx`
+- `apps/desktop/renderer/src/components/modals/ProjectMemoryModal.tsx`
+- `apps/desktop/renderer/src/pages/ContextBuilderPage.tsx`
 
 ## Verification
 
-Run:
+- `npx tsc -b apps/desktop/renderer --pretty false` passed in the patch workspace.
 
-```powershell
-npm run build -w @contextforge/renderer
-```
+## Not touched
 
-Expected manual checks:
-
-1. Projects page starts at the same visual height as the rest of the main pages.
-2. Task Packs page starts at the same visual height as the rest of the main pages.
-3. Dashboard and Context Builder remain unchanged.
-4. Sidebar active item still slides smoothly.
-5. Sidebar inactive hover no longer turns the item background white.
-6. Real loading/saved/status messages can still appear when set.
+- Server routes/storage
+- Ollama selector
+- Context composer core
+- Safety policy

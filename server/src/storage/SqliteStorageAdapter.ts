@@ -7,11 +7,14 @@ import type { Database, SqlJsStatic, SqlValue } from "sql.js";
 import type { ScannedProject } from "../scanner/projectScanner.js";
 import { parseJsonValue, stringifyJsonValue } from "./json.js";
 import type {
+  CreateProjectMemoryInput,
   CreateTaskPackInput,
+  ProjectMemoryRecord,
   ProjectRecord,
   StorageAdapter,
   StorageHealth,
-  TaskPackRecord
+  TaskPackRecord,
+  UpdateProjectMemoryInput
 } from "./types.js";
 
 type BindValue = SqlValue;
@@ -45,6 +48,18 @@ type TaskPackRow = {
   generation_used_fallback: number | boolean | null;
   generation_duration_ms: number | null;
   generation_recipe: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+
+type ProjectMemoryRow = {
+  id: number;
+  project_id: number;
+  title: string;
+  content: string;
+  category: ProjectMemoryRecord["category"];
+  is_enabled: number | boolean;
   created_at: string;
   updated_at: string;
 };
@@ -92,6 +107,19 @@ function mapTaskPackRow(row: TaskPackRow): TaskPackRecord {
     generationUsedFallback: Boolean(row.generation_used_fallback),
     generationDurationMs: row.generation_duration_ms,
     generationRecipe: parseJsonValue(row.generation_recipe, null),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function mapProjectMemoryRow(row: ProjectMemoryRow): ProjectMemoryRecord {
+  return {
+    id: row.id,
+    projectId: row.project_id,
+    title: row.title,
+    content: row.content,
+    category: row.category ?? "custom",
+    isEnabled: Boolean(row.is_enabled),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -203,7 +231,7 @@ export class SqliteStorageAdapter implements StorageAdapter {
         project_id INTEGER NOT NULL,
         title TEXT NOT NULL,
         content TEXT NOT NULL,
-        category TEXT NOT NULL DEFAULT 'Custom',
+        category TEXT NOT NULL DEFAULT 'custom',
         priority TEXT NOT NULL DEFAULT 'normal',
         is_enabled INTEGER NOT NULL DEFAULT 1,
         created_at TEXT NOT NULL,
@@ -464,6 +492,148 @@ export class SqliteStorageAdapter implements StorageAdapter {
     }
 
     return mapTaskPackRow(row);
+  }
+
+  async listProjectMemories(projectId: number): Promise<ProjectMemoryRecord[]> {
+    const rows = await this.getAll<ProjectMemoryRow>(
+      `
+      SELECT *
+      FROM project_memories
+      WHERE project_id = ?
+      ORDER BY is_enabled DESC, updated_at DESC, id DESC;
+      `,
+      [projectId]
+    );
+
+    return rows.map(mapProjectMemoryRow);
+  }
+
+  async createProjectMemory(input: CreateProjectMemoryInput): Promise<ProjectMemoryRecord> {
+    const timestamp = nowIso();
+
+    await this.run(
+      `
+      INSERT INTO project_memories (
+        project_id,
+        title,
+        content,
+        category,
+        is_enabled,
+        created_at,
+        updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?);
+      `,
+      [
+        input.projectId,
+        input.title,
+        input.content,
+        input.category,
+        input.isEnabled === false ? 0 : 1,
+        timestamp,
+        timestamp
+      ],
+      false
+    );
+
+    const memoryId = await this.getLastInsertRowId();
+    this.persist();
+
+    const row = await this.getOne<ProjectMemoryRow>(
+      `
+      SELECT *
+      FROM project_memories
+      WHERE id = ? AND project_id = ?;
+      `,
+      [memoryId, input.projectId]
+    );
+
+    if (!row) {
+      throw new Error("Failed to read created project memory from SQLite.");
+    }
+
+    return mapProjectMemoryRow(row);
+  }
+
+  async updateProjectMemory(
+    projectId: number,
+    memoryId: number,
+    input: UpdateProjectMemoryInput
+  ): Promise<ProjectMemoryRecord | null> {
+    const existing = await this.getOne<ProjectMemoryRow>(
+      `
+      SELECT *
+      FROM project_memories
+      WHERE id = ? AND project_id = ?;
+      `,
+      [memoryId, projectId]
+    );
+
+    if (!existing) {
+      return null;
+    }
+
+    await this.run(
+      `
+      UPDATE project_memories
+      SET
+        title = ?,
+        content = ?,
+        category = ?,
+        is_enabled = ?,
+        updated_at = ?
+      WHERE id = ? AND project_id = ?;
+      `,
+      [
+        input.title ?? existing.title,
+        input.content ?? existing.content,
+        input.category ?? existing.category,
+        typeof input.isEnabled === "boolean"
+          ? input.isEnabled ? 1 : 0
+          : existing.is_enabled ? 1 : 0,
+        nowIso(),
+        memoryId,
+        projectId
+      ],
+      true
+    );
+
+    const updated = await this.getOne<ProjectMemoryRow>(
+      `
+      SELECT *
+      FROM project_memories
+      WHERE id = ? AND project_id = ?;
+      `,
+      [memoryId, projectId]
+    );
+
+    return updated ? mapProjectMemoryRow(updated) : null;
+  }
+
+  async deleteProjectMemory(projectId: number, memoryId: number): Promise<boolean> {
+    const existing = await this.getOne<{ id: number }>(
+      `
+      SELECT id
+      FROM project_memories
+      WHERE id = ? AND project_id = ?;
+      `,
+      [memoryId, projectId]
+    );
+
+    if (!existing) {
+      return false;
+    }
+
+    await this.run(
+      `
+      DELETE FROM project_memories
+      WHERE id = ? AND project_id = ?;
+      `,
+      [memoryId, projectId],
+      true
+    );
+
+    return true;
   }
 
   async getSettingValue<T>(key: string, fallback: T): Promise<T> {
