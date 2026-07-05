@@ -1,19 +1,49 @@
-# Stage 6.2 — Claude API provider + animated provider selector
+# ContextForge Stage 7 — Reports workspace analytics polish
 
-## Changed
-- Added Anthropic Claude API as an internal AI provider.
-- Added server-side settings fields for Claude API base URL, model id, API key configured state, and key clearing.
-- Added Claude API status/model listing/generation support through Anthropic Messages API.
-- Fixed assisted-generation provider model selection so OpenAI-compatible, Claude API, Gemini and Ollama each use their own configured model.
-- Updated Integrations UI provider selector into a smooth sliding card selector inspired by the existing segmented filter animation.
-- Clarified wording: internal AI providers are separate from exported coding-agent targets.
+## Scope
 
-## Build checks run
-- npm run build -w @contextforge/server
-- npx tsc -b apps/desktop/renderer
+Frontend-only polish for the Reports page.
 
-## Not touched
-- Task file selector logic
-- Context selection/fallback logic
-- Context quality scoring
-- Project Memory backend/flow
+## Changed files
+
+- `apps/desktop/renderer/src/pages/ReportsPage.tsx`
+
+## What changed
+
+- Reworked Reports into a workspace analytics page.
+- Added polished hero with workspace status and actions.
+- Added six metric cards: projects, average readiness, attention projects, Task Packs, top target, missing AGENTS.md.
+- Added readiness map with a `SegmentedFilter` lens: Needs attention / All projects / Ready.
+- Added readiness distribution cards with animated CSS width bars.
+- Added top readiness issues aggregated from project readiness checks/issues.
+- Added next best actions derived from weakest projects and repeated issues.
+- Added recent Task Pack activity cards.
+- Added agent target usage and task category analytics.
+- Added polished empty states and local-first/future export notes.
+
+## Safety
+
+- No backend changes.
+- No selector/Ollama/context composer/safety policy changes.
+- No storage/schema changes.
+- Uses existing UI components: `Button`, `SegmentedFilter`, `AiToolLogo`.
+
+## Verification
+
+- TypeScript passed as part of `npm run build -w @contextforge/renderer` before Vite started.
+- Full Vite build could not run in the container because the uploaded Windows `node_modules/.bin/vite` is not executable on Linux (`vite: Permission denied`).
+
+Run on Windows:
+
+```powershell
+npm run build -w @contextforge/renderer
+```
+
+## Manual checks
+
+- Open Reports.
+- Check metric cards render correctly.
+- Switch Readiness map filters.
+- Open a recent Task Pack from Reports.
+- Check empty states if no projects/task packs exist.
+- Confirm no black screen or navigation overlay returns.
