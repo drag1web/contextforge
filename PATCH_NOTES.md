@@ -1,34 +1,40 @@
-# ContextForge Stage 7.2 — Reports Export
+# ContextForge Stage 8.1 — Scanner Detection Upgrade
 
-Scope: finish Reports polish with local workspace report exports.
+## Scope
 
-Changed files:
+Backend-only scanner/readiness improvement. This patch does not change AI selector, Ollama file selection, context composer selection logic, safety policy, or UI layout.
 
-- `apps/desktop/renderer/src/pages/ReportsPage.tsx`
-  - Replaced the disabled `Export later` action with live `Export .md` and `Export .txt` actions.
-  - Added a small success message after export.
-  - Updated the bottom report card from “Future report exports” to a real workspace snapshot export card.
+## Changed files
 
-- `apps/desktop/renderer/src/utils/workspaceReportExport.ts`
-  - Added markdown/text export formatting for workspace reports.
-  - Includes summary metrics, next best actions, projects needing attention, top readiness issues, target usage, task categories and recent Task Packs.
-  - Uses the existing browser Blob download helper; no Electron IPC or backend changes.
+- `server/src/scanner/projectScanner.ts`
 
-Not changed:
+## What changed
 
-- No server changes.
-- No selector/fallback/Ollama changes.
-- No Project Memory backend changes.
+- Replaced top-level-only scan with a bounded recursive inventory scanner.
+- Ignores heavy/generated folders such as `node_modules`, `.git`, `dist`, `build`, `.next`, coverage, caches and similar paths.
+- Detects nested `package.json` files in monorepos and multi-package projects.
+- Aggregates scripts from root and nested packages while keeping prefixed script names for traceability.
+- Detects practical dev commands such as `app`, `start`, `desktop`, `electron`, `dev:*` and `serve`.
+- Detects build commands such as `build`, `compile`, `dist`, `package`, `make`, `vite build`, `tsc`, and `electron-builder`.
+- Detects test commands such as `test`, `test:*`, `unit`, `e2e`, `vitest`, `jest`, `playwright`, and `cypress`.
+- Detects docs/context files: `README.md`, `AGENTS.md`, `AGENTS.generated.md`, `CLAUDE.md`, `CONTRIBUTING.md`, `CHANGELOG.md`, and `docs/`.
+- Detects safe env examples: `.env.example`, `.env.sample`, `.env.template`, `.env.local.example`, `.env.development.example`, `.env.production.example`.
+- Does not read `.env`, `.env.local`, private keys, or secret files.
+- Detects test files/configs: `tests/`, `__tests__/`, `*.test.*`, `*.spec.*`, `vitest.config.*`, `jest.config.*`, `playwright.config.*`, `cypress.config.*`.
+- Detects CI files: `.github/workflows/*.yml`, `.github/workflows/*.yaml`, `.gitlab-ci.yml`, `azure-pipelines.yml`, `bitbucket-pipelines.yml`.
+- Adds scanner signals into `readinessReport.signals` for future UI/readiness display.
+- Makes readiness issue messages more actionable.
 
-Checks run:
+## Verification performed
 
-- `npx tsc -b apps/desktop/renderer` — passed in the patch workspace.
+- `npm run build -w @contextforge/server` — passed.
+- `npx tsc -b apps/desktop/renderer` — passed.
+- `npm run build -w @contextforge/renderer` could not complete inside the sandbox because `vite` from Windows `node_modules` is not executable on Linux (`vite: Permission denied`).
 
-Manual checks recommended:
+## Manual verification after applying
 
-1. Open Reports.
-2. Click `Export .md`.
-3. Open the downloaded markdown file and verify summary/issues/task pack sections.
-4. Click `Export .txt`.
-5. Open the downloaded text file.
-6. Confirm Reports page still renders and filters still work.
+1. Rescan projects from the app.
+2. Check Projects/Reports readiness scores.
+3. Check that projects with `app`, `dev:client`, `dev:server`, `electron`, or nested package scripts no longer incorrectly show only `Dev command missing`.
+4. Check that `.env.example`, test configs/files, docs, and CI are detected when present.
+5. Confirm Task Pack generation still works normally.
