@@ -352,6 +352,7 @@ export function AgentsPreviewModal({
     [preview]
   );
 
+  const activeMemoryCount = (preview.projectMemories ?? []).filter((memory) => memory.isEnabled).length;
   const hasEdits = editedMarkdown !== preview.markdown;
   const canSave = editedMarkdown.trim().length > 0 && !isLoading;
   const targetExists = Boolean(preview.agentsFile?.exists);
@@ -455,6 +456,12 @@ export function AgentsPreviewModal({
 
               <span className="cf-badge">AGENTS.md</span>
 
+              {activeMemoryCount > 0 && (
+                <span className="cf-badge border-emerald-400/20 bg-emerald-400/10 text-emerald-100">
+                  {activeMemoryCount} memory
+                </span>
+              )}
+
               {hasEdits && <span className="cf-badge">Edited</span>}
 
               {preview.generation?.model && (
@@ -492,11 +499,23 @@ export function AgentsPreviewModal({
 
             <InfoTile
               icon={<Sparkles size={15} />}
-              label="Cache"
-              value={preview.generation?.cached ? "Cached" : "Fresh"}
+              label="Memory"
+              value={activeMemoryCount > 0 ? `${activeMemoryCount} active` : "None"}
             />
           </section>
         </div>
+
+        {activeMemoryCount > 0 && (
+          <div className="mb-4 flex shrink-0 items-start gap-3 rounded-[1.25rem] border border-emerald-400/20 bg-emerald-400/10 p-4 text-sm leading-6 text-emerald-100">
+            <Sparkles size={17} className="mt-0.5 shrink-0 text-emerald-200" />
+            <div className="min-w-0">
+              <p className="font-medium text-emerald-50">Project Memory included</p>
+              <p className="mt-1 text-emerald-100/75">
+                {activeMemoryCount} active project decision{activeMemoryCount === 1 ? "" : "s"} will be written into this AGENTS.md preview.
+              </p>
+            </div>
+          </div>
+        )}
 
         {targetExists && (
           <div className="mb-4 flex shrink-0 items-start gap-3 rounded-[1.25rem] border border-amber-400/20 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100">

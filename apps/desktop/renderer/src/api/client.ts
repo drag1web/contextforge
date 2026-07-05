@@ -165,6 +165,7 @@ export async function getAgentsPreview(
 ): Promise<{
   markdown: string;
   generation?: GenerationMetadata;
+  projectMemories?: ProjectMemory[];
   agentsFile?: { path: string; exists: boolean };
 }> {
   const searchParams = new URLSearchParams();
@@ -180,12 +181,14 @@ export async function getAgentsPreview(
     ok: true;
     markdown: string;
     generation?: GenerationMetadata;
+    projectMemories?: ProjectMemory[];
     agentsFile?: { path: string; exists: boolean };
   }>(url);
 
   return {
     markdown: data.markdown,
     generation: data.generation,
+    projectMemories: data.projectMemories ?? [],
     agentsFile: data.agentsFile
   };
 }

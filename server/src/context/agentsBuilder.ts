@@ -1,3 +1,10 @@
+type AgentsProjectMemory = {
+  title: string;
+  content: string;
+  category: "architecture" | "do_not_change" | "style" | "verification" | "workflow" | "custom";
+  isEnabled?: boolean;
+};
+
 interface BuildAgentsInput {
   name: string;
   localPath: string;
@@ -15,6 +22,7 @@ interface BuildAgentsInput {
     }[];
     issues: string[];
   };
+  projectMemories?: AgentsProjectMemory[];
 }
 
 function formatScripts(scripts: Record<string, string>) {
@@ -45,10 +53,90 @@ function formatIssues(issues: string[]) {
   return issues.map((issue) => `- ${issue}`).join("\n");
 }
 
+function formatMemoryCategory(category: AgentsProjectMemory["category"]) {
+  const labels: Record<AgentsProjectMemory["category"], string> = {
+    architecture: "Architecture",
+    do_not_change: "Do not change",
+    style: "Style",
+    verification: "Verification",
+    workflow: "Workflow",
+    custom: "Custom"
+  };
+
+  return labels[category] ?? "Custom";
+}
+
+function getActiveProjectMemories(project: BuildAgentsInput) {
+  return (project.projectMemories ?? []).filter((memory) => memory.isEnabled !== false);
+}
+
+function formatProjectMemories(memories: AgentsProjectMemory[]) {
+  if (memories.length === 0) {
+    return "";
+  }
+
+  return memories
+    .map((memory) => [
+      `- [${formatMemoryCategory(memory.category)}] ${memory.title}`,
+      `  - ${memory.content}`
+    ].join("\n"))
+    .join("\n");
+}
+
+function buildProjectMemorySection(memories: AgentsProjectMemory[]) {
+  if (memories.length === 0) {
+    return "";
+  }
+
+  return `## Project Memory / Decision Log
+
+Persistent project decisions saved in ContextForge. Treat these as stable project rules unless the user explicitly overrides them in the current task.
+
+${formatProjectMemories(memories)}
+
+---
+
+`;
+}
+
+export function ensureAgentsProjectMemorySection(
+  markdown: string,
+  memories: AgentsProjectMemory[] = []
+) {
+  const activeMemories = memories.filter((memory) => memory.isEnabled !== false);
+
+  if (activeMemories.length === 0) {
+    return markdown;
+  }
+
+  const memorySection = buildProjectMemorySection(activeMemories).trim();
+  const sectionPattern = /\n## Project Memory \/ Decision Log\n[\s\S]*?(?=\n## |$)/;
+  const replacement = `\n${memorySection}\n`;
+
+  if (sectionPattern.test(markdown)) {
+    return markdown.replace(sectionPattern, replacement);
+  }
+
+  const beforeReadiness = "\n## AI Readiness Issues";
+
+  if (markdown.includes(beforeReadiness)) {
+    return markdown.replace(beforeReadiness, `${replacement}${beforeReadiness}`);
+  }
+
+  const beforeOutput = "\n## Output Expectations";
+
+  if (markdown.includes(beforeOutput)) {
+    return markdown.replace(beforeOutput, `${replacement}${beforeOutput}`);
+  }
+
+  return `${markdown.trim()}\n\n${memorySection}\n`;
+}
+
 export function buildAgentsMarkdown(project: BuildAgentsInput) {
   const hasBuild = Boolean(project.scripts.build);
   const hasDev = Boolean(project.scripts.dev);
   const hasTest = Boolean(project.scripts.test);
+  const activeProjectMemories = getActiveProjectMemories(project);
 
   return `# AGENTS.md
 
@@ -125,7 +213,7 @@ AI agents must follow these rules:
 
 ---
 
-## AI Readiness Issues
+${buildProjectMemorySection(activeProjectMemories)}## AI Readiness Issues
 
 ${formatIssues(project.readinessReport.issues)}
 

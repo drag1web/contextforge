@@ -198,6 +198,7 @@ export interface AgentsPreview {
   projectName: string;
   markdown: string;
   generation?: GenerationMetadata;
+  projectMemories?: ProjectMemory[];
   agentsFile?: {
     path: string;
     exists: boolean;

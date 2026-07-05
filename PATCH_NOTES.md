@@ -1,23 +1,45 @@
-# ContextForge Stage 5.2 — Project Memory UX polish
+# ContextForge Stage 5.3 — Project Memory in AGENTS.md
 
-## Changes
+## Scope
 
-- Replaced the native category `<select>` in the Project Memory modal with the shared `CustomSelect` component.
-- Added a visible `Project Memory` action button to the top project readiness/action card in Context Builder.
-- Moved the compact Project Memory panel above Project Context History in the right-side rail so users can find it sooner.
+Adds active Project Memory / Decision Log entries to generated AGENTS.md previews and saved AGENTS.md output.
 
-## Files changed
+## Changed files
 
-- `apps/desktop/renderer/src/components/modals/ProjectMemoryModal.tsx`
-- `apps/desktop/renderer/src/pages/ContextBuilderPage.tsx`
+- `server/src/context/agentsBuilder.ts`
+  - Adds Project Memory formatting helpers.
+  - Adds a `## Project Memory / Decision Log` section when a project has active memories.
+  - Adds a safety post-processor to ensure Ollama cannot accidentally omit saved memory from AGENTS.md output.
 
-## Verification
+- `server/src/routes/projects.ts`
+  - Loads active project memories during `/api/projects/:id/agents-preview`.
+  - Passes memories into AGENTS.md generation.
+  - Returns active memories to the renderer for UI hints.
 
-- `npx tsc -b apps/desktop/renderer --pretty false` passed in the patch workspace.
+- `server/src/ollama/promptEnhancers.ts`
+  - Tells Ollama to preserve the Project Memory section when it exists in the template.
 
-## Not touched
+- `apps/desktop/renderer/src/types/index.ts`
+  - Extends `AgentsPreview` with optional `projectMemories`.
 
-- Server routes/storage
-- Ollama selector
-- Context composer core
-- Safety policy
+- `apps/desktop/renderer/src/api/client.ts`
+  - Reads `projectMemories` from AGENTS.md preview responses.
+
+- `apps/desktop/renderer/src/components/modals/AgentsPreviewModal.tsx`
+  - Shows a compact memory badge/tile when active project memories are included.
+  - Adds a small info banner explaining that active memories will be written into AGENTS.md.
+
+## Verification run
+
+- `npm run build -w @contextforge/server` — passed.
+- `npx tsc -b apps/desktop/renderer` — passed.
+- Full renderer Vite build was not used in the Linux container because the project has Windows node_modules permissions here.
+
+## Manual checks
+
+1. Add at least one enabled Project Memory item.
+2. Generate AGENTS.md from Context Builder.
+3. Confirm the preview includes `## Project Memory / Decision Log`.
+4. Save AGENTS.md.
+5. Open the saved file and confirm active memories are included.
+6. Disable a memory item and regenerate; disabled items should not appear.

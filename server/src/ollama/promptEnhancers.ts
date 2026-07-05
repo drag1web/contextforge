@@ -81,6 +81,7 @@ Output contract:
 - Add a short "ContextForge Assisted Notes" section with project-specific advice.
 - Keep existing project rules strict and review-friendly.
 - Do not remove important warnings from the template.
+- If the template contains a "Project Memory / Decision Log" section, preserve it and its saved decisions exactly.
 
 Required document structure:
 # AGENTS.md
@@ -89,6 +90,7 @@ Required document structure:
 ## Recommended Workflow for AI Agents
 ## Verification Commands
 ## Project Rules
+## Project Memory / Decision Log (only if present in the template)
 ## AI Readiness Issues
 ## ContextForge Assisted Notes
 ## Output Expectations

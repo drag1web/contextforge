@@ -4,7 +4,7 @@ import { Router } from "express";
 import { z } from "zod";
 import { storage } from "../storage/index.js";
 import { scanProject } from "../scanner/projectScanner.js";
-import { buildAgentsMarkdown } from "../context/agentsBuilder.js";
+import { buildAgentsMarkdown, ensureAgentsProjectMemorySection } from "../context/agentsBuilder.js";
 import { generateWithConfiguredOllama } from "../ollama/ollamaService.js";
 import { buildAgentsEnhancementPrompt } from "../ollama/promptEnhancers.js";
 
@@ -481,7 +481,13 @@ projectsRouter.get("/:id/agents-preview", async (req, res) => {
       return;
     }
 
-    const templateMarkdown = buildAgentsMarkdown(project);
+    const projectMemories = (await storage.listProjectMemories(projectId)).filter(
+      (memory) => memory.isEnabled
+    );
+    const templateMarkdown = buildAgentsMarkdown({
+      ...project,
+      projectMemories
+    });
 
     const generation = await generateWithConfiguredOllama({
       fallbackContent: templateMarkdown,
@@ -493,12 +499,14 @@ projectsRouter.get("/:id/agents-preview", async (req, res) => {
         templateMarkdown
       })
     });
+    const markdown = ensureAgentsProjectMemorySection(generation.content, projectMemories);
     const agentsPath = path.join(project.localPath, "AGENTS.md");
 
     res.json({
       ok: true,
-      markdown: generation.content,
+      markdown,
       generation,
+      projectMemories,
       agentsFile: {
         path: agentsPath,
         exists: await pathExists(agentsPath)
