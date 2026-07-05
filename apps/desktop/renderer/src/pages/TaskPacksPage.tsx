@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 
 import type { TaskPack } from "../types";
+import { TaskPackExportActions } from "../components/taskPacks/TaskPackExportActions";
 import { Button } from "../components/ui/Button";
 import {
   makeAiToolSelectOption
@@ -318,6 +319,8 @@ function TaskPackCard({
         </p>
 
         <div className="flex shrink-0 items-center gap-2">
+          <TaskPackExportActions taskPack={taskPack} compact />
+
           <Button
             variant="secondary"
             onClick={onCopy}

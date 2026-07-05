@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 
 import type { TaskPack } from "../types";
+import { TaskPackExportActions } from "../components/taskPacks/TaskPackExportActions";
 import { Button } from "../components/ui/Button";
 
 interface TaskPackResultPageProps {
@@ -604,6 +605,8 @@ export function TaskPackResultPage({
               <Archive size={15} />
               {t("taskPackResult.openArchive")}
             </Button>
+
+            <TaskPackExportActions taskPack={taskPack} compact />
 
             <Button variant="primary" onClick={handleCopyPrompt}>
               {isCopied ? <Check size={15} /> : <Copy size={15} />}

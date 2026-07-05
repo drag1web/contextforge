@@ -16,6 +16,7 @@ import {
 } from "lucide-react";
 
 import type { TaskPack } from "../../types";
+import { TaskPackExportActions } from "../taskPacks/TaskPackExportActions";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 
@@ -296,10 +297,14 @@ export function GeneratedTaskPackModal({
             Copy uses raw Markdown, ready for Codex, Claude Code, Cursor or another AI agent.
           </p>
 
-          <Button variant="primary" onClick={handleCopyPrompt}>
-            {isCopied ? <Check size={15} /> : <Copy size={15} />}
-            {isCopied ? "Copied" : "Copy prompt"}
-          </Button>
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
+            <TaskPackExportActions taskPack={taskPack} compact />
+
+            <Button variant="primary" onClick={handleCopyPrompt}>
+              {isCopied ? <Check size={15} /> : <Copy size={15} />}
+              {isCopied ? "Copied" : "Copy prompt"}
+            </Button>
+          </div>
         </div>
       }
     >

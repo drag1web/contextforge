@@ -411,6 +411,12 @@ const resources = {
         fallbackDescriptionWithMessage: "{{message}} Intent analysis and file selection may still use Ollama; the final markdown body was kept stable by ContextForge.",
         fallbackDescription: "The final markdown body was rendered with ContextForge's safe template. Intent analysis and file selection may still use Ollama."
       },
+      taskPackExport: {
+        markdown: "Export .md",
+        text: "Export .txt",
+        markdownDone: ".md exported",
+        textDone: ".txt exported"
+      },
       settings: {
         title: "Settings",
         controlCenter: "Control Center",
@@ -934,6 +940,12 @@ const resources = {
         ollamaDescription: "Финальное body Task Pack было улучшено Ollama и валидировано ContextForge.",
         fallbackDescriptionWithMessage: "{{message}} Intent analysis и file selection всё ещё могут использовать Ollama; финальное markdown body было оставлено стабильным ContextForge.",
         fallbackDescription: "Финальное markdown body было создано через safe template ContextForge. Intent analysis и file selection всё ещё могут использовать Ollama."
+      },
+      taskPackExport: {
+        markdown: "Экспорт .md",
+        text: "Экспорт .txt",
+        markdownDone: ".md сохранён",
+        textDone: ".txt сохранён"
       },
       settings: {
         title: "Настройки",

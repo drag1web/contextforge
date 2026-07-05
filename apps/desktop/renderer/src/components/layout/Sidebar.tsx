@@ -301,20 +301,16 @@ export function Sidebar({
                       isCollapsed ? "justify-center px-0" : "gap-3 px-3",
                       isActive
                         ? "text-black"
-                        : "text-neutral-500 hover:text-black"
+                        : "text-neutral-500 hover:text-white"
                     ].join(" ")}
                     style={{ height: SIDEBAR_NAV_ITEM_HEIGHT }}
                   >
-                    {!isActive && (
-                      <span className="absolute inset-0 rounded-2xl bg-white opacity-0 transition duration-200 group-hover:opacity-100" />
-                    )}
-
                     <span
                       className={[
                         "relative z-10 grid size-8 shrink-0 place-items-center rounded-xl border transition",
                         isActive
                           ? "border-black/10 bg-black/5 text-black"
-                          : "border-neutral-900 bg-neutral-950/70 text-neutral-500 group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black"
+                          : "border-neutral-900 bg-neutral-950/70 text-neutral-500 group-hover:border-white/15 group-hover:bg-neutral-950 group-hover:text-white"
                       ].join(" ")}
                     >
                       <Icon size={15} />
@@ -333,7 +329,7 @@ export function Sidebar({
                                 "mt-0.5 block truncate text-[11px]",
                                 isActive
                                   ? "text-black/55"
-                                  : "text-neutral-700 group-hover:text-black/55"
+                                  : "text-neutral-700 group-hover:text-neutral-400"
                               ].join(" ")}
                             >
                               {item.status === "alpha"
@@ -349,7 +345,7 @@ export function Sidebar({
                               "relative z-10 shrink-0 rounded-full px-2 py-0.5 text-[10px]",
                               isActive
                                 ? "bg-black/10 text-black/60"
-                                : "border border-neutral-900 bg-neutral-950 text-neutral-600 group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black/55"
+                                : "border border-neutral-900 bg-neutral-950 text-neutral-600 group-hover:border-white/15 group-hover:text-neutral-300"
                             ].join(" ")}
                           >
                             {statusLabel}

@@ -72,9 +72,7 @@ export function useDashboardController() {
   const [taskPacks, setTaskPacks] = useState<TaskPack[]>([]);
   const [expandedProjectId, setExpandedProjectId] = useState<number | null>(null);
   const [isLoading, setIsLoading] = useState(false);
-  const [statusMessage, setStatusMessage] = useState(
-    i18n.t("common.statusReady")
-  );
+  const [statusMessage, setStatusMessage] = useState("");
 
   const [agentsPreview, setAgentsPreview] = useState<AgentsPreview | null>(null);
   const [taskPackDraft, setTaskPackDraft] = useState<TaskPackDraft | null>(null);

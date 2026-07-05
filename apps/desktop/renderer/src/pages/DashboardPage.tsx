@@ -282,6 +282,20 @@ export function DashboardPage() {
   const [bootProgress, setBootProgress] = useState(12);
   const [bootStatus, setBootStatus] = useState(() => i18n.t("splash.starting"));
 
+  const renderPageStatus = useCallback(() => {
+    const normalizedMessage = dashboard.statusMessage.trim();
+
+    if (!normalizedMessage) {
+      return null;
+    }
+
+    return (
+      <div className="mb-6">
+        <StatusBar message={normalizedMessage} />
+      </div>
+    );
+  }, [dashboard.statusMessage]);
+
   useKeyboardShortcuts({
     globalSearch: () => setIsGlobalSearchOpen(true)
   });
@@ -500,9 +514,7 @@ export function DashboardPage() {
     if (activePage === "projects") {
       return (
         <>
-          <div className="mb-6">
-            <StatusBar message={dashboard.statusMessage} />
-          </div>
+          {renderPageStatus()}
 
           <ProjectsSection
             projects={dashboard.projects}
@@ -521,9 +533,7 @@ export function DashboardPage() {
     if (activePage === "taskPacks") {
       return (
         <>
-          <div className="mb-6">
-            <StatusBar message={dashboard.statusMessage} />
-          </div>
+          {renderPageStatus()}
 
           <TaskPacksPage
             taskPacks={dashboard.taskPacks}
@@ -573,7 +583,7 @@ export function DashboardPage() {
     }
 
     return <PlaceholderPage pageId={activePage} />;
-  }, [activePage, dashboard, handleNavigate]);
+  }, [activePage, dashboard, handleNavigate, renderPageStatus]);
 
   const contentTransitionKey = useMemo(() => {
     if (dashboard.generatedTaskPack) {
