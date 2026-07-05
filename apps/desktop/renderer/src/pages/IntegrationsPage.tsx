@@ -1,42 +1,104 @@
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
+  Bot,
   CheckCircle2,
+  Cloud,
+  Code2,
   Cpu,
+  GitBranch,
   KeyRound,
   Loader2,
+  LockKeyhole,
   PlugZap,
+  Puzzle,
   RefreshCw,
   Save,
   Server,
   ShieldCheck,
   Sparkles,
-  WifiOff
+  WifiOff,
+  Workflow,
 } from "lucide-react";
 
 import {
   getAiIntegrationModels,
   getAiIntegrationStatus,
   getAppSettings,
-  updateAppSettings
+  updateAppSettings,
 } from "../api/client";
 import { AiToolLogo } from "../components/ai/AiToolLogo";
 import {
   getAiToolDescription,
   getAiToolLabel,
-  TARGET_TOOL_OPTIONS
+  TARGET_TOOL_OPTIONS,
 } from "../components/ai/aiToolOptions";
+import { Button } from "../components/ui/Button";
+import { CustomSelect, type SelectOption } from "../components/ui/CustomSelect";
 import type {
   AiProviderId,
   AiProviderModel,
   AiProviderStatus,
   AppSettings,
-  TargetTool
+  TargetTool,
 } from "../types";
+
+const GENERATION_MODE_OPTIONS: SelectOption<AppSettings["generationMode"]>[] = [
+  {
+    value: "template",
+    label: "Template only",
+    description: "Deterministic prompts without AI calls.",
+    icon: <ShieldCheck size={15} />,
+  },
+  {
+    value: "ollama",
+    label: "AI-assisted",
+    description: "Use the selected provider with template fallback.",
+    icon: <Sparkles size={15} />,
+  },
+];
+
+const TARGET_TOOL_SELECT_OPTIONS: SelectOption<TargetTool>[] =
+  TARGET_TOOL_OPTIONS.map((option) => ({
+    value: option.value,
+    label: getAiToolLabel(option.value),
+    description: getAiToolDescription(option.value),
+    icon: <AiToolLogo tool={option.value} size="sm" />,
+  }));
+
+const PRIMARY_CODING_TARGETS: TargetTool[] = ["codex", "cursor", "claude"];
+
+const CONNECTORS = [
+  {
+    title: "GitHub",
+    description:
+      "Create issues from Task Packs and link work back to repositories.",
+    status: "v0.6 planned",
+    icon: <GitBranch size={16} />,
+  },
+  {
+    title: "MCP / Tool permissions",
+    description:
+      "Future control layer for safe tool access and approval flows.",
+    status: "later",
+    icon: <Puzzle size={16} />,
+  },
+  {
+    title: "Cloud sync",
+    description:
+      "Optional account sync for templates, devices and shared settings.",
+    status: "later",
+    icon: <Cloud size={16} />,
+  },
+];
 
 function providerLabel(provider: AiProviderId) {
   if (provider === "openai-compatible") {
     return "OpenAI-compatible";
+  }
+
+  if (provider === "anthropic") {
+    return "Claude API";
   }
 
   if (provider === "gemini") {
@@ -45,6 +107,75 @@ function providerLabel(provider: AiProviderId) {
 
   return "Ollama";
 }
+
+function providerTagline(provider: AiProviderId) {
+  if (provider === "openai-compatible") {
+    return "Local proxy or compatible /v1 gateway";
+  }
+
+  if (provider === "anthropic") {
+    return "Anthropic provider with server-side key storage";
+  }
+
+  if (provider === "gemini") {
+    return "Google model provider with server-side key storage";
+  }
+
+  return "Local-first model provider for private workflows";
+}
+
+const PROVIDER_CARD_OPTIONS: Array<{
+  provider: AiProviderId;
+  title: string;
+  description: string;
+  meta: string;
+  notes: string[];
+  icon: ReactNode;
+}> = [
+  {
+    provider: "ollama",
+    title: "Ollama",
+    description:
+      "Run local models on your machine. Best when privacy and offline work matter.",
+    meta: "Local",
+    notes: ["No cloud by default", "Great for private repos"],
+    icon: <Cpu size={18} />,
+  },
+  {
+    provider: "openai-compatible",
+    title: "OpenAI-compatible",
+    description:
+      "Use any /v1-compatible endpoint, local gateway, proxy, or hosted provider.",
+    meta: "Endpoint",
+    notes: ["Flexible gateway", "Optional API key"],
+    icon: <AiToolLogo tool="openai" size="lg" />,
+  },
+  {
+    provider: "anthropic",
+    title: "Claude API",
+    description:
+      "Connect Anthropic Claude for prompt refinement, summaries, and future review flows.",
+    meta: "Cloud",
+    notes: ["Server-side key", "Strong coding context"],
+    icon: <AiToolLogo tool="anthropic" size="lg" />,
+  },
+  {
+    provider: "gemini",
+    title: "Gemini",
+    description:
+      "Connect Google Gemini for assisted prompt refinement and future review flows.",
+    meta: "Cloud",
+    notes: ["Server-side key", "Manual model id supported"],
+    icon: <AiToolLogo tool="gemini" size="lg" />,
+  },
+];
+
+const PROVIDER_CARD_TRANSITION = {
+  type: "spring",
+  stiffness: 560,
+  damping: 44,
+  mass: 0.55,
+} as const;
 
 function formatModelSize(size?: number) {
   if (!size) {
@@ -70,15 +201,20 @@ function withSettingsDefaults(settings: AppSettings): AppSettings {
     openAiCompatibleApiKeyConfigured:
       settings.openAiCompatibleApiKeyConfigured ?? false,
     geminiBaseUrl:
-      settings.geminiBaseUrl ?? "https://generativelanguage.googleapis.com/v1beta",
+      settings.geminiBaseUrl ??
+      "https://generativelanguage.googleapis.com/v1beta",
     geminiModel: settings.geminiModel ?? "gemini-1.5-flash",
-    geminiApiKeyConfigured: settings.geminiApiKeyConfigured ?? false
+    geminiApiKeyConfigured: settings.geminiApiKeyConfigured ?? false,
+    anthropicBaseUrl:
+      settings.anthropicBaseUrl ?? "https://api.anthropic.com/v1",
+    anthropicModel: settings.anthropicModel ?? "claude-3-5-sonnet-latest",
+    anthropicApiKeyConfigured: settings.anthropicApiKeyConfigured ?? false,
   };
 }
 
 function StatusPill({
   pending = false,
-  status
+  status,
 }: {
   pending?: boolean;
   status: AiProviderStatus | null;
@@ -87,7 +223,7 @@ function StatusPill({
     return (
       <span className="inline-flex items-center gap-2 rounded-full border border-amber-400/20 bg-amber-400/10 px-3 py-1 text-xs font-medium text-amber-200">
         <RefreshCw size={13} />
-        Not checked
+        Save needed
       </span>
     );
   }
@@ -100,7 +236,7 @@ function StatusPill({
         "inline-flex items-center gap-2 rounded-full border px-3 py-1 text-xs font-medium",
         online
           ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
-          : "border-neutral-800 bg-neutral-950 text-neutral-500"
+          : "border-neutral-800 bg-neutral-950 text-neutral-500",
       ].join(" ")}
     >
       {online ? <CheckCircle2 size={13} /> : <WifiOff size={13} />}
@@ -109,130 +245,217 @@ function StatusPill({
   );
 }
 
-function ProviderCard({
-  provider,
-  active,
-  title,
-  description,
+function MiniMetric({
+  label,
+  value,
+  caption,
   icon,
-  meta,
-  onSelect
 }: {
-  provider: AiProviderId;
-  active: boolean;
-  title: string;
-  description: string;
+  label: string;
+  value: string;
+  caption: string;
   icon: ReactNode;
-  meta: string;
-  onSelect: (provider: AiProviderId) => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={() => onSelect(provider)}
-      className={[
-        "group relative overflow-hidden rounded-[1.5rem] border p-5 text-left transition duration-200",
-        active
-          ? "border-white bg-white text-black shadow-[0_18px_52px_rgba(255,255,255,0.08)]"
-          : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white/20 hover:bg-neutral-950 hover:text-white"
-      ].join(" ")}
-    >
-      <div className="mb-5 flex items-start justify-between gap-4">
-        <span
-          className={[
-            "grid size-11 place-items-center rounded-2xl border transition",
-            active
-              ? "border-black/10 bg-black/5 text-black"
-              : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/15 group-hover:text-white"
-          ].join(" ")}
-        >
+    <div className="rounded-[1.35rem] border border-neutral-900 bg-black/35 p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <span className="grid size-9 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-400">
           {icon}
         </span>
-
-        {active && <CheckCircle2 size={18} className="text-black" />}
+        <span className="cf-tech-label text-[9px] uppercase text-neutral-700">
+          {label}
+        </span>
       </div>
+      <p className="truncate text-lg font-semibold text-white">{value}</p>
+      <p className="mt-1 truncate text-xs text-neutral-600">{caption}</p>
+    </div>
+  );
+}
 
-      <span
-        className={[
-          "mb-3 inline-flex rounded-full border px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em]",
-          active
-            ? "border-black/10 text-black/55"
-            : "border-neutral-800 text-neutral-600"
-        ].join(" ")}
-      >
-        {meta}
-      </span>
+function ProviderCardSelector({
+  value,
+  disabled = false,
+  onChange,
+}: {
+  value: AiProviderId;
+  disabled?: boolean;
+  onChange: (provider: AiProviderId) => void;
+}) {
+  const activeIndex = Math.max(
+    0,
+    PROVIDER_CARD_OPTIONS.findIndex((option) => option.provider === value),
+  );
 
-      <h3
-        className={[
-          "text-base font-semibold",
-          active ? "text-black" : "text-white"
-        ].join(" ")}
-      >
-        {title}
-      </h3>
+  return (
+    <div className="overflow-x-auto pb-1">
+      <div className="relative grid min-w-[760px] grid-cols-4 overflow-hidden rounded-[1.65rem] border border-white/10 bg-black/55 p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)]">
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.01)_44%,rgba(255,255,255,0.004))]" />
 
-      <p
-        className={[
-          "mt-2 text-sm leading-6",
-          active ? "text-black/60" : "text-neutral-500"
-        ].join(" ")}
-      >
-        {description}
-      </p>
-    </button>
+        <motion.div
+          aria-hidden="true"
+          className="absolute bottom-1 left-1 top-1 rounded-[1.35rem] bg-white shadow-[0_18px_46px_rgba(255,255,255,0.14)]"
+          style={{
+            width: `calc((100% - 8px) / ${PROVIDER_CARD_OPTIONS.length})`,
+            willChange: "transform",
+          }}
+          initial={false}
+          animate={{ x: `${activeIndex * 100}%` }}
+          transition={PROVIDER_CARD_TRANSITION}
+        />
+
+        {PROVIDER_CARD_OPTIONS.map((option) => {
+          const active = option.provider === value;
+
+          return (
+            <button
+              key={option.provider}
+              type="button"
+              onClick={() => onChange(option.provider)}
+              disabled={disabled}
+              className={[
+                "group relative z-10 min-w-0 rounded-[1.35rem] p-4 text-left transition-colors duration-150 disabled:pointer-events-none disabled:opacity-45",
+                active ? "text-black" : "text-neutral-500 hover:text-white",
+              ].join(" ")}
+            >
+              <div className="mb-4 flex items-start justify-between gap-4">
+                <span
+                  className={[
+                    "grid size-10 place-items-center rounded-2xl border transition-colors duration-150",
+                    active
+                      ? "border-black/10 bg-black/5 text-black"
+                      : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/15 group-hover:text-white",
+                  ].join(" ")}
+                >
+                  {option.icon}
+                </span>
+
+                {active && <CheckCircle2 size={17} className="text-black" />}
+              </div>
+
+              <span
+                className={[
+                  "mb-3 inline-flex rounded-full border px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] transition-colors duration-150",
+                  active
+                    ? "border-black/10 text-black/55"
+                    : "border-neutral-800 text-neutral-600 group-hover:text-neutral-400",
+                ].join(" ")}
+              >
+                {option.meta}
+              </span>
+
+              <h3
+                className={[
+                  "truncate text-base font-semibold transition-colors duration-150",
+                  active ? "text-black" : "text-white group-hover:text-white",
+                ].join(" ")}
+              >
+                {option.title}
+              </h3>
+
+              <p
+                className={[
+                  "mt-2 line-clamp-2 text-sm leading-6 transition-colors duration-150",
+                  active
+                    ? "text-black/60"
+                    : "text-neutral-600 group-hover:text-neutral-400",
+                ].join(" ")}
+              >
+                {option.description}
+              </p>
+
+              <div className="mt-5 space-y-2">
+                {option.notes.map((note) => (
+                  <span
+                    key={note}
+                    className={[
+                      "flex items-center gap-2 text-xs transition-colors duration-150",
+                      active
+                        ? "text-black/55"
+                        : "text-neutral-700 group-hover:text-neutral-500",
+                    ].join(" ")}
+                  >
+                    <span
+                      className={[
+                        "size-1.5 rounded-full",
+                        active ? "bg-black/35" : "bg-neutral-700",
+                      ].join(" ")}
+                    />
+                    {note}
+                  </span>
+                ))}
+              </div>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function AgentTargetPreview({ tool }: { tool: TargetTool }) {
+  return (
+    <div className="rounded-[1.35rem] border border-neutral-900 bg-black/35 p-4">
+      <div className="flex items-start gap-3">
+        <AiToolLogo tool={tool} size="lg" />
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white">
+            {getAiToolLabel(tool)} format
+          </p>
+          <p className="mt-1 text-xs leading-5 text-neutral-500">
+            {getAiToolDescription(tool)}
+          </p>
+        </div>
+      </div>
+    </div>
   );
 }
 
 function AgentTargetCard({
   tool,
   active,
-  onSelect
+  disabled = false,
+  onSelect,
 }: {
   tool: TargetTool;
   active: boolean;
+  disabled?: boolean;
   onSelect: (tool: TargetTool) => void;
 }) {
-  const label = getAiToolLabel(tool);
-  const description = getAiToolDescription(tool);
-
   return (
     <button
       type="button"
       onClick={() => onSelect(tool)}
+      disabled={disabled}
       className={[
-        "group flex min-w-0 items-center gap-3 rounded-2xl border px-4 py-3 text-left transition duration-200",
+        "group flex min-w-0 items-start gap-3 rounded-[1.2rem] border p-4 text-left transition duration-200 disabled:pointer-events-none disabled:opacity-50",
         active
-          ? "border-white bg-white text-black"
-          : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white/20 hover:bg-neutral-950 hover:text-white"
+          ? "border-white bg-white text-black shadow-[0_18px_52px_rgba(255,255,255,0.08)]"
+          : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white/20 hover:bg-neutral-950 hover:text-white",
       ].join(" ")}
     >
-      <AiToolLogo
-        tool={tool}
-        size="lg"
-        className={active ? "border-black/10 bg-black/5" : ""}
-      />
+      <AiToolLogo tool={tool} size="lg" />
 
       <span className="min-w-0 flex-1">
         <span
           className={[
-            "block truncate text-sm font-semibold",
-            active ? "text-black" : "text-white"
+            "flex items-center gap-2 text-sm font-semibold",
+            active ? "text-black" : "text-white",
           ].join(" ")}
         >
-          {label}
+          {getAiToolLabel(tool)}
+          {active && <CheckCircle2 size={14} />}
         </span>
         <span
           className={[
-            "block truncate text-xs",
-            active ? "text-black/55" : "text-neutral-600"
+            "mt-1 block text-xs leading-5",
+            active
+              ? "text-black/55"
+              : "text-neutral-600 group-hover:text-neutral-400",
           ].join(" ")}
         >
-          {description}
+          {getAiToolDescription(tool)}
         </span>
       </span>
-
-      {active && <CheckCircle2 size={16} className="shrink-0 text-black" />}
     </button>
   );
 }
@@ -240,7 +463,7 @@ function AgentTargetCard({
 function Field({
   label,
   children,
-  caption
+  caption,
 }: {
   label: string;
   children: ReactNode;
@@ -259,6 +482,64 @@ function Field({
   );
 }
 
+function PipelineStep({
+  index,
+  title,
+  description,
+  active = false,
+}: {
+  index: number;
+  title: string;
+  description: string;
+  active?: boolean;
+}) {
+  return (
+    <div className="flex gap-3">
+      <span
+        className={[
+          "grid size-8 shrink-0 place-items-center rounded-xl border text-xs font-semibold",
+          active
+            ? "border-white bg-white text-black"
+            : "border-neutral-800 bg-neutral-950 text-neutral-500",
+        ].join(" ")}
+      >
+        {index}
+      </span>
+      <div className="min-w-0 pb-4">
+        <p className="text-sm font-semibold text-white">{title}</p>
+        <p className="mt-1 text-xs leading-5 text-neutral-500">{description}</p>
+      </div>
+    </div>
+  );
+}
+
+function ConnectorTile({
+  title,
+  description,
+  status,
+  icon,
+}: {
+  title: string;
+  description: string;
+  status: string;
+  icon: ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <span className="grid size-9 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500">
+          {icon}
+        </span>
+        <span className="rounded-full border border-neutral-800 bg-black/40 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.14em] text-neutral-600">
+          {status}
+        </span>
+      </div>
+      <p className="text-sm font-semibold text-white">{title}</p>
+      <p className="mt-2 text-xs leading-5 text-neutral-500">{description}</p>
+    </div>
+  );
+}
+
 export function IntegrationsPage() {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [draft, setDraft] = useState<AppSettings | null>(null);
@@ -266,11 +547,13 @@ export function IntegrationsPage() {
   const [models, setModels] = useState<AiProviderModel[]>([]);
   const [apiKeyDraft, setApiKeyDraft] = useState("");
   const [geminiApiKeyDraft, setGeminiApiKeyDraft] = useState("");
+  const [anthropicApiKeyDraft, setAnthropicApiKeyDraft] = useState("");
   const [clearApiKey, setClearApiKey] = useState(false);
   const [clearGeminiApiKey, setClearGeminiApiKey] = useState(false);
+  const [clearAnthropicApiKey, setClearAnthropicApiKey] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [activeAction, setActiveAction] = useState<"refresh" | "save" | null>(
-    null
+    null,
   );
   const [error, setError] = useState<string | null>(null);
 
@@ -281,6 +564,10 @@ export function IntegrationsPage() {
 
     if (draft.aiProvider === "gemini") {
       return draft.geminiModel;
+    }
+
+    if (draft.aiProvider === "anthropic") {
+      return draft.anthropicModel;
     }
 
     return draft.aiProvider === "openai-compatible"
@@ -303,10 +590,17 @@ export function IntegrationsPage() {
 
     if (draft.aiProvider === "openai-compatible") {
       return (
-        settings.openAiCompatibleBaseUrl !==
-          draft.openAiCompatibleBaseUrl ||
+        settings.openAiCompatibleBaseUrl !== draft.openAiCompatibleBaseUrl ||
         apiKeyDraft.trim().length > 0 ||
         clearApiKey
+      );
+    }
+
+    if (draft.aiProvider === "anthropic") {
+      return (
+        settings.anthropicBaseUrl !== draft.anthropicBaseUrl ||
+        anthropicApiKeyDraft.trim().length > 0 ||
+        clearAnthropicApiKey
       );
     }
 
@@ -323,16 +617,18 @@ export function IntegrationsPage() {
     apiKeyDraft,
     clearApiKey,
     clearGeminiApiKey,
+    clearAnthropicApiKey,
     draft,
     geminiApiKeyDraft,
-    settings
+    anthropicApiKeyDraft,
+    settings,
   ]);
 
   const statusMatchesDraft = Boolean(
     draft &&
-      status &&
-      status.provider === draft.aiProvider &&
-      !providerConfigChanged
+    status &&
+    status.provider === draft.aiProvider &&
+    !providerConfigChanged,
   );
 
   const visibleStatus = statusMatchesDraft ? status : null;
@@ -368,10 +664,43 @@ export function IntegrationsPage() {
       JSON.stringify(settings) !== JSON.stringify(draft) ||
       apiKeyDraft.trim().length > 0 ||
       geminiApiKeyDraft.trim().length > 0 ||
+      anthropicApiKeyDraft.trim().length > 0 ||
       clearApiKey ||
-      clearGeminiApiKey
+      clearGeminiApiKey ||
+      clearAnthropicApiKey
     );
-  }, [apiKeyDraft, clearApiKey, clearGeminiApiKey, draft, geminiApiKeyDraft, settings]);
+  }, [
+    apiKeyDraft,
+    anthropicApiKeyDraft,
+    clearApiKey,
+    clearAnthropicApiKey,
+    clearGeminiApiKey,
+    draft,
+    geminiApiKeyDraft,
+    settings,
+  ]);
+
+  const providerSecurityLabel = useMemo(() => {
+    if (!draft) {
+      return "Loading";
+    }
+
+    if (draft.aiProvider === "ollama") {
+      return "No API key";
+    }
+
+    if (draft.aiProvider === "openai-compatible") {
+      return draft.openAiCompatibleApiKeyConfigured
+        ? "Key saved"
+        : "No key saved";
+    }
+
+    if (draft.aiProvider === "anthropic") {
+      return draft.anthropicApiKeyConfigured ? "Key saved" : "No key saved";
+    }
+
+    return draft.geminiApiKeyConfigured ? "Key saved" : "No key saved";
+  }, [draft]);
 
   async function refresh() {
     try {
@@ -382,7 +711,7 @@ export function IntegrationsPage() {
       const [nextSettings, nextStatus, nextModels] = await Promise.all([
         getAppSettings(),
         getAiIntegrationStatus(),
-        getAiIntegrationModels()
+        getAiIntegrationModels(),
       ]);
 
       const normalized = withSettingsDefaults(nextSettings);
@@ -393,13 +722,15 @@ export function IntegrationsPage() {
       setModels(nextModels);
       setApiKeyDraft("");
       setGeminiApiKeyDraft("");
+      setAnthropicApiKeyDraft("");
       setClearApiKey(false);
       setClearGeminiApiKey(false);
+      setClearAnthropicApiKey(false);
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Failed to load integrations."
+          : "Failed to load integrations.",
       );
     } finally {
       setIsLoading(false);
@@ -423,19 +754,21 @@ export function IntegrationsPage() {
           openAiCompatibleApiKey: apiKeyDraft.trim() || undefined,
           clearOpenAiCompatibleApiKey: clearApiKey,
           geminiApiKey: geminiApiKeyDraft.trim() || undefined,
-          clearGeminiApiKey
-        })
+          clearGeminiApiKey,
+          anthropicApiKey: anthropicApiKeyDraft.trim() || undefined,
+          clearAnthropicApiKey,
+        }),
       );
 
       window.dispatchEvent(
         new CustomEvent("contextforge:settings-updated", {
-          detail: updatedSettings
-        })
+          detail: updatedSettings,
+        }),
       );
 
       const [nextStatus, nextModels] = await Promise.all([
         getAiIntegrationStatus(),
-        getAiIntegrationModels()
+        getAiIntegrationModels(),
       ]);
 
       setSettings(updatedSettings);
@@ -444,13 +777,15 @@ export function IntegrationsPage() {
       setModels(nextModels);
       setApiKeyDraft("");
       setGeminiApiKeyDraft("");
+      setAnthropicApiKeyDraft("");
       setClearApiKey(false);
       setClearGeminiApiKey(false);
+      setClearAnthropicApiKey(false);
     } catch (requestError) {
       setError(
         requestError instanceof Error
           ? requestError.message
-          : "Failed to save integrations."
+          : "Failed to save integrations.",
       );
     } finally {
       setIsLoading(false);
@@ -463,9 +798,7 @@ export function IntegrationsPage() {
   }
 
   function selectProvider(provider: AiProviderId) {
-    updateDraft({
-      aiProvider: provider
-    });
+    updateDraft({ aiProvider: provider });
   }
 
   function selectModel(modelName: string | null) {
@@ -483,6 +816,11 @@ export function IntegrationsPage() {
       return;
     }
 
+    if (draft.aiProvider === "anthropic") {
+      updateDraft({ anthropicModel: modelName });
+      return;
+    }
+
     updateDraft({ defaultOllamaModel: modelName });
   }
 
@@ -492,7 +830,7 @@ export function IntegrationsPage() {
 
   return (
     <section className="space-y-5 text-render-crisp">
-      <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012)_48%,rgba(255,255,255,0.006))] p-6 shadow-[0_16px_52px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.045)]">
+      <div className="cf-hero">
         <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
           <div className="min-w-0">
             <div className="mb-4 flex flex-wrap gap-2">
@@ -500,18 +838,19 @@ export function IntegrationsPage() {
                 <PlugZap size={13} />
                 Integrations
               </span>
-              <span className="cf-badge">Model providers</span>
-              <span className="cf-badge">Agent targets</span>
+              <span className="cf-badge">Local-first</span>
+              <span className="cf-badge">Provider safe</span>
             </div>
 
             <h2 className="max-w-4xl text-[34px] font-semibold leading-[1.05] tracking-[-0.05em] text-white">
-              Connect the models and coding agents around ContextForge.
+              Connect internal AI providers and prepare Task Packs for the right
+              coding agent.
             </h2>
 
             <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-400">
-              Model providers power analysis and refinement. Agent targets shape
-              the final Task Pack for Codex, Claude Code, Cursor, Gemini, or a
-              generic coding assistant.
+              Internal providers can refine prompts when AI-assisted mode is
+              enabled. Agent targets only control the final Task Pack format for
+              Codex, Cursor, Claude Code, Gemini, or a generic coding assistant.
             </p>
           </div>
 
@@ -521,11 +860,11 @@ export function IntegrationsPage() {
               pending={providerConfigChanged}
             />
 
-            <button
+            <Button
               type="button"
+              variant="secondary"
               onClick={refresh}
               disabled={isLoading}
-              className="inline-flex h-10 items-center gap-2 rounded-full border border-neutral-800 bg-black/40 px-4 text-sm font-medium text-neutral-300 transition hover:border-white/20 hover:bg-white hover:text-black disabled:pointer-events-none disabled:opacity-50"
             >
               {activeAction === "refresh" ? (
                 <Loader2 size={15} className="animate-spin" />
@@ -533,13 +872,14 @@ export function IntegrationsPage() {
                 <RefreshCw size={15} />
               )}
               Refresh
-            </button>
+            </Button>
 
-            <button
+            <Button
               type="button"
+              variant="primary"
               onClick={save}
               disabled={isLoading || !draft || !hasUnsavedChanges}
-              className="inline-flex h-10 items-center gap-2 rounded-full border border-white bg-white px-4 text-sm font-semibold text-black transition disabled:pointer-events-none disabled:opacity-45"
+              className="disabled:pointer-events-none disabled:opacity-45"
             >
               {activeAction === "save" ? (
                 <Loader2 size={15} className="animate-spin" />
@@ -547,8 +887,39 @@ export function IntegrationsPage() {
                 <Save size={15} />
               )}
               Save integration
-            </button>
+            </Button>
           </div>
+        </div>
+
+        <div className="mt-6 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+          <MiniMetric
+            label="Provider"
+            value={draft ? providerLabel(draft.aiProvider) : "Loading"}
+            caption={
+              draft ? providerTagline(draft.aiProvider) : "Loading settings"
+            }
+            icon={<Server size={16} />}
+          />
+          <MiniMetric
+            label="Mode"
+            value={
+              draft?.generationMode === "ollama" ? "AI-assisted" : "Template"
+            }
+            caption="How prompts are generated"
+            icon={<Workflow size={16} />}
+          />
+          <MiniMetric
+            label="Target"
+            value={draft ? getAiToolLabel(draft.defaultTargetTool) : "Loading"}
+            caption="Default Task Pack format"
+            icon={<Bot size={16} />}
+          />
+          <MiniMetric
+            label="Secrets"
+            value={providerSecurityLabel}
+            caption="Keys are stored server-side"
+            icon={<LockKeyhole size={16} />}
+          />
         </div>
       </div>
 
@@ -558,7 +929,7 @@ export function IntegrationsPage() {
         </div>
       )}
 
-      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+      <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
           <article className="cf-card p-5">
             <div className="mb-5 flex flex-wrap items-end justify-between gap-4">
@@ -567,54 +938,33 @@ export function IntegrationsPage() {
                   Model providers
                 </p>
                 <h3 className="mt-2 text-lg font-semibold text-white">
-                  Choose which LLM ContextForge uses internally.
+                  Choose the internal AI provider for ContextForge.
                 </h3>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-neutral-500">
+                  Providers can refine prompts, improve AGENTS.md and assist
+                  with context analysis. They are separate from the coding agent
+                  you export to.
+                </p>
               </div>
 
               <span className="rounded-full border border-neutral-800 bg-black/40 px-3 py-1 text-xs text-neutral-500">
-                {providerConfigChanged ? "Selected" : "Active"}:{" "}
+                {providerConfigChanged ? "Draft" : "Active"}:{" "}
                 {draft ? providerLabel(draft.aiProvider) : "Loading"}
               </span>
             </div>
 
-            <div className="grid gap-4 lg:grid-cols-3">
-              <ProviderCard
-                provider="ollama"
-                active={draft?.aiProvider === "ollama"}
-                title="Ollama"
-                description="Local models running on your machine. Best for private and offline workflows."
-                meta="Local"
-                icon={<Cpu size={18} />}
-                onSelect={selectProvider}
-              />
-
-              <ProviderCard
-                provider="openai-compatible"
-                active={draft?.aiProvider === "openai-compatible"}
-                title="OpenAI-compatible"
-                description="Any endpoint with /v1/models and /v1/chat/completions, including local proxies."
-                meta="Endpoint"
-                icon={<AiToolLogo tool="openai" size="lg" />}
-                onSelect={selectProvider}
-              />
-
-              <ProviderCard
-                provider="gemini"
-                active={draft?.aiProvider === "gemini"}
-                title="Gemini"
-                description="Google Gemini API through a server-side key. Useful when you want Google models."
-                meta="Cloud"
-                icon={<AiToolLogo tool="gemini" size="lg" />}
-                onSelect={selectProvider}
-              />
-            </div>
+            <ProviderCardSelector
+              value={draft?.aiProvider ?? "ollama"}
+              disabled={!draft}
+              onChange={selectProvider}
+            />
           </article>
 
           <article className="cf-card p-5">
             <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
               <div>
                 <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                  Active provider
+                  Provider setup
                 </p>
                 <h3 className="mt-2 text-lg font-semibold text-white">
                   {draft ? providerLabel(draft.aiProvider) : "Loading provider"}
@@ -648,21 +998,15 @@ export function IntegrationsPage() {
 
                 <Field
                   label="Generation mode"
-                  caption="Template remains the safe fallback. AI-assisted uses the selected provider."
+                  caption="Template mode is safest. AI-assisted uses the selected provider and keeps template fallback."
                 >
-                  <select
-                    className="cf-input"
+                  <CustomSelect
                     value={draft.generationMode}
-                    onChange={(event) =>
-                      updateDraft({
-                        generationMode:
-                          event.target.value as AppSettings["generationMode"]
-                      })
+                    options={GENERATION_MODE_OPTIONS}
+                    onChange={(generationMode) =>
+                      updateDraft({ generationMode })
                     }
-                  >
-                    <option value="template">Template only</option>
-                    <option value="ollama">AI-assisted</option>
-                  </select>
+                  />
                 </Field>
               </div>
             )}
@@ -678,7 +1022,7 @@ export function IntegrationsPage() {
                     value={draft.openAiCompatibleBaseUrl}
                     onChange={(event) =>
                       updateDraft({
-                        openAiCompatibleBaseUrl: event.target.value
+                        openAiCompatibleBaseUrl: event.target.value,
                       })
                     }
                     placeholder="http://localhost:1234/v1"
@@ -721,6 +1065,87 @@ export function IntegrationsPage() {
                     </button>
                   </div>
                 </Field>
+
+                <Field
+                  label="Generation mode"
+                  caption="Cloud-compatible providers are only used when AI-assisted generation is enabled."
+                >
+                  <CustomSelect
+                    value={draft.generationMode}
+                    options={GENERATION_MODE_OPTIONS}
+                    onChange={(generationMode) =>
+                      updateDraft({ generationMode })
+                    }
+                  />
+                </Field>
+              </div>
+            )}
+
+            {draft?.aiProvider === "anthropic" && (
+              <div className="grid gap-4 md:grid-cols-2">
+                <Field
+                  label="Claude API base URL"
+                  caption="Default is https://api.anthropic.com/v1 for the Anthropic Messages API."
+                >
+                  <input
+                    className="cf-input"
+                    value={draft.anthropicBaseUrl}
+                    onChange={(event) =>
+                      updateDraft({ anthropicBaseUrl: event.target.value })
+                    }
+                    placeholder="https://api.anthropic.com/v1"
+                  />
+                </Field>
+
+                <Field
+                  label="Claude API key"
+                  caption={
+                    draft.anthropicApiKeyConfigured
+                      ? "A Claude API key is saved locally. Enter a new key to replace it, or clear it below."
+                      : "Required for Claude API requests. The key is stored server-side and is not returned to the UI."
+                  }
+                >
+                  <div className="flex gap-2">
+                    <input
+                      className="cf-input"
+                      type="password"
+                      value={anthropicApiKeyDraft}
+                      onChange={(event) => {
+                        setAnthropicApiKeyDraft(event.target.value);
+                        setClearAnthropicApiKey(false);
+                      }}
+                      placeholder={
+                        draft.anthropicApiKeyConfigured
+                          ? "Saved key configured"
+                          : "Claude API key"
+                      }
+                    />
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAnthropicApiKeyDraft("");
+                        setClearAnthropicApiKey(true);
+                      }}
+                      disabled={!draft.anthropicApiKeyConfigured}
+                      className="rounded-xl border border-neutral-800 px-3 text-xs text-neutral-400 transition hover:border-white/20 hover:text-white disabled:pointer-events-none disabled:opacity-40"
+                    >
+                      Clear
+                    </button>
+                  </div>
+                </Field>
+
+                <Field
+                  label="Generation mode"
+                  caption="Keep template mode if you only want to store Claude settings for later."
+                >
+                  <CustomSelect
+                    value={draft.generationMode}
+                    options={GENERATION_MODE_OPTIONS}
+                    onChange={(generationMode) =>
+                      updateDraft({ generationMode })
+                    }
+                  />
+                </Field>
               </div>
             )}
 
@@ -734,9 +1159,7 @@ export function IntegrationsPage() {
                     className="cf-input"
                     value={draft.geminiBaseUrl}
                     onChange={(event) =>
-                      updateDraft({
-                        geminiBaseUrl: event.target.value
-                      })
+                      updateDraft({ geminiBaseUrl: event.target.value })
                     }
                     placeholder="https://generativelanguage.googleapis.com/v1beta"
                   />
@@ -778,6 +1201,19 @@ export function IntegrationsPage() {
                     </button>
                   </div>
                 </Field>
+
+                <Field
+                  label="Generation mode"
+                  caption="Keep template mode if you only want to store Gemini settings for later."
+                >
+                  <CustomSelect
+                    value={draft.generationMode}
+                    options={GENERATION_MODE_OPTIONS}
+                    onChange={(generationMode) =>
+                      updateDraft({ generationMode })
+                    }
+                  />
+                </Field>
               </div>
             )}
           </article>
@@ -791,6 +1227,10 @@ export function IntegrationsPage() {
                 <h3 className="mt-2 text-lg font-semibold text-white">
                   Select the default assisted generation model.
                 </h3>
+                <p className="mt-1 text-sm leading-6 text-neutral-500">
+                  Detected models come from the active provider. Manual model
+                  ids are available for cloud-compatible endpoints.
+                </p>
               </div>
 
               <span className="rounded-full border border-neutral-800 bg-black/40 px-3 py-1 text-xs text-neutral-500">
@@ -808,14 +1248,20 @@ export function IntegrationsPage() {
                     className="cf-input"
                     value={
                       draft?.aiProvider === "gemini"
-                        ? draft.geminiModel ?? ""
-                        : draft?.openAiCompatibleModel ?? ""
+                        ? (draft.geminiModel ?? "")
+                        : draft?.aiProvider === "anthropic"
+                          ? (draft.anthropicModel ?? "")
+                          : (draft?.openAiCompatibleModel ?? "")
                     }
-                    onChange={(event) => selectModel(event.target.value || null)}
+                    onChange={(event) =>
+                      selectModel(event.target.value || null)
+                    }
                     placeholder={
                       draft?.aiProvider === "gemini"
                         ? "gemini-1.5-flash"
-                        : "model-id"
+                        : draft?.aiProvider === "anthropic"
+                          ? "claude-3-5-sonnet-latest"
+                          : "model-id"
                     }
                   />
                 </Field>
@@ -839,8 +1285,9 @@ export function IntegrationsPage() {
                   No models detected yet.
                 </p>
                 <p className="mt-2 text-sm leading-6 text-neutral-500">
-                  Check the provider URL, start the local service, add a provider
-                  key, or type a model id manually for cloud-compatible endpoints.
+                  Check the provider URL, start the local service, add a
+                  provider key, or type a model id manually for cloud-compatible
+                  endpoints.
                 </p>
               </div>
             ) : (
@@ -857,7 +1304,7 @@ export function IntegrationsPage() {
                         "group flex min-w-0 items-center gap-3 rounded-2xl border px-4 py-3 text-left transition duration-200",
                         isActive
                           ? "border-white bg-white text-black"
-                          : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white/20 hover:bg-neutral-950 hover:text-white"
+                          : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white/20 hover:bg-neutral-950 hover:text-white",
                       ].join(" ")}
                     >
                       <span
@@ -865,7 +1312,7 @@ export function IntegrationsPage() {
                           "grid size-9 shrink-0 place-items-center rounded-xl border",
                           isActive
                             ? "border-black/10 bg-black/5 text-black"
-                            : "border-neutral-800 bg-neutral-950 text-neutral-500"
+                            : "border-neutral-800 bg-neutral-950 text-neutral-500",
                         ].join(" ")}
                       >
                         <Server size={15} />
@@ -875,7 +1322,7 @@ export function IntegrationsPage() {
                         <span
                           className={[
                             "block truncate text-sm font-semibold",
-                            isActive ? "text-black" : "text-white"
+                            isActive ? "text-black" : "text-white",
                           ].join(" ")}
                         >
                           {model.name}
@@ -883,11 +1330,13 @@ export function IntegrationsPage() {
                         <span
                           className={[
                             "block truncate text-xs",
-                            isActive ? "text-black/55" : "text-neutral-600"
+                            isActive ? "text-black/55" : "text-neutral-600",
                           ].join(" ")}
                         >
                           {model.description ?? providerLabel(model.provider)}
-                          {model.size ? ` · ${formatModelSize(model.size)}` : ""}
+                          {model.size
+                            ? ` · ${formatModelSize(model.size)}`
+                            : ""}
                         </span>
                       </span>
                     </button>
@@ -898,34 +1347,70 @@ export function IntegrationsPage() {
           </article>
 
           <article className="cf-card p-5">
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-              <div>
+            <div className="mb-5 flex flex-wrap items-start justify-between gap-4">
+              <div className="max-w-2xl">
                 <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
                   Agent targets
                 </p>
                 <h3 className="mt-2 text-lg font-semibold text-white">
-                  Choose the default agent format for generated Task Packs.
+                  Choose the default output format for generated Task Packs.
                 </h3>
                 <p className="mt-1 text-sm leading-6 text-neutral-500">
-                  This does not change the model provider. It changes how the
-                  final prompt is framed for the coding tool you plan to use.
+                  The target changes prompt framing only. It does not choose the
+                  model provider or send code anywhere.
                 </p>
               </div>
 
-              <span className="rounded-full border border-neutral-800 bg-black/40 px-3 py-1 text-xs text-neutral-500">
-                Default: {draft ? getAiToolLabel(draft.defaultTargetTool) : "Loading"}
-              </span>
+              <div className="w-full sm:w-[320px]">
+                <CustomSelect
+                  value={draft?.defaultTargetTool ?? "generic"}
+                  options={TARGET_TOOL_SELECT_OPTIONS}
+                  onChange={(defaultTargetTool) =>
+                    updateDraft({ defaultTargetTool })
+                  }
+                  disabled={!draft}
+                />
+              </div>
+            </div>
+
+            <div className="mb-4 grid gap-3 lg:grid-cols-3">
+              {PRIMARY_CODING_TARGETS.map((tool) => (
+                <AgentTargetCard
+                  key={tool}
+                  tool={tool}
+                  active={draft?.defaultTargetTool === tool}
+                  disabled={!draft}
+                  onSelect={(defaultTargetTool) =>
+                    updateDraft({ defaultTargetTool })
+                  }
+                />
+              ))}
+            </div>
+
+            <div className="mb-4 rounded-2xl border border-neutral-900 bg-black/25 px-4 py-3 text-xs leading-5 text-neutral-500">
+              Codex, Cursor and Claude Code are the primary coding-agent
+              formats. Gemini and Generic remain available in the dropdown for
+              broader workflows.
             </div>
 
             <div className="grid gap-3 md:grid-cols-2">
-              {TARGET_TOOL_OPTIONS.map((option) => (
-                <AgentTargetCard
-                  key={option.value}
-                  tool={option.value}
-                  active={draft?.defaultTargetTool === option.value}
-                  onSelect={(tool) => updateDraft({ defaultTargetTool: tool })}
-                />
-              ))}
+              {draft && <AgentTargetPreview tool={draft.defaultTargetTool} />}
+              <div className="rounded-[1.35rem] border border-neutral-900 bg-black/35 p-4">
+                <div className="flex items-start gap-3">
+                  <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-400">
+                    <Code2 size={16} />
+                  </span>
+                  <div>
+                    <p className="text-sm font-semibold text-white">
+                      Export-only workflow
+                    </p>
+                    <p className="mt-1 text-xs leading-5 text-neutral-500">
+                      ContextForge prepares prompts, rules and context. The
+                      external agent still performs the coding work.
+                    </p>
+                  </div>
+                </div>
+              </div>
             </div>
           </article>
         </div>
@@ -933,7 +1418,7 @@ export function IntegrationsPage() {
         <aside className="space-y-5">
           <article className="cf-card p-5">
             <div className="mb-4 flex size-10 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-              <Sparkles size={18} />
+              <Workflow size={18} />
             </div>
             <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
               Current pipeline
@@ -945,25 +1430,30 @@ export function IntegrationsPage() {
             </h3>
             <p className="mt-2 text-sm leading-6 text-neutral-500">
               {draft?.generationMode === "ollama"
-                ? `ContextForge will try ${providerLabel(draft.aiProvider)} first and use template fallback if the provider fails.`
+                ? `ContextForge will try ${draft ? providerLabel(draft.aiProvider) : "the provider"} and keep template fallback if the request fails.`
                 : "ContextForge will use deterministic templates. Provider settings stay ready for later."}
             </p>
-          </article>
 
-          <article className="cf-card p-5">
-            <div className="mb-4 flex size-10 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-              <ShieldCheck size={18} />
+            <div className="mt-5 space-y-1">
+              <PipelineStep
+                index={1}
+                title="Local project context"
+                description="Scanner, AGENTS.md, Project Memory and selected files stay local."
+                active
+              />
+              <PipelineStep
+                index={2}
+                title="Optional provider"
+                description="Only AI-assisted mode calls the selected model provider."
+                active={draft?.generationMode === "ollama"}
+              />
+              <PipelineStep
+                index={3}
+                title="Agent-ready output"
+                description="Task Pack is formatted for the selected external coding agent."
+                active
+              />
             </div>
-            <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-              Safety
-            </p>
-            <h3 className="mt-2 text-base font-semibold text-white">
-              Keys stay server-side.
-            </h3>
-            <p className="mt-2 text-sm leading-6 text-neutral-500">
-              Provider keys are accepted only through settings updates and are
-              never returned by settings, status, model, or generation responses.
-            </p>
           </article>
 
           <article className="cf-card p-5">
@@ -971,12 +1461,34 @@ export function IntegrationsPage() {
               <KeyRound size={18} />
             </div>
             <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-              Integration map
+              Safety model
             </p>
-            <div className="mt-3 space-y-3 text-sm text-neutral-500">
-              <p>Ollama, OpenAI-compatible and Gemini can power AI-assisted generation.</p>
-              <p>Codex, Claude Code, Cursor, Gemini and Generic define output format.</p>
-              <p>MCP connectors and CLI launch actions can plug into this page later.</p>
+            <h3 className="mt-2 text-base font-semibold text-white">
+              Keys stay server-side.
+            </h3>
+            <div className="mt-3 space-y-2 text-sm text-neutral-500">
+              <p>API keys are accepted only through settings updates.</p>
+              <p>
+                Saved keys are not returned to the renderer or exported prompts.
+              </p>
+              <p>Template generation still works without any provider.</p>
+            </div>
+          </article>
+
+          <article className="cf-card p-5">
+            <div className="mb-4 flex size-10 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+              <PlugZap size={18} />
+            </div>
+            <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+              Connectors later
+            </p>
+            <h3 className="mt-2 text-base font-semibold text-white">
+              Next integration layer.
+            </h3>
+            <div className="mt-4 grid gap-3">
+              {CONNECTORS.map((connector) => (
+                <ConnectorTile key={connector.title} {...connector} />
+              ))}
             </div>
           </article>
         </aside>

@@ -27,6 +27,9 @@ const testSettings: AppSettings = {
   geminiBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
   geminiModel: "gemini-1.5-flash",
   geminiApiKeyConfigured: false,
+  anthropicBaseUrl: "https://api.anthropic.com/v1",
+  anthropicModel: "claude-3-5-sonnet-latest",
+  anthropicApiKeyConfigured: false,
   language: "en",
   theme: "dark",
   composerFileLimits: {
@@ -1946,7 +1949,6 @@ async function testCreateMissingExplicitPagePathCreatesPlannedFile() {
   );
 }
 
-
 async function testCreateMissingTeamPageExactPathCreatesPlannedFile() {
   const result = await selectTaskFiles({
     rawTask:
@@ -1999,7 +2001,9 @@ async function testCreateMissingTeamPageExactPathCreatesPlannedFile() {
   );
   assert.equal(
     result.notes.some((note) =>
-      note.includes("missing safe in-project path(s) were kept as planned files"),
+      note.includes(
+        "missing safe in-project path(s) were kept as planned files",
+      ),
     ),
     true,
   );
@@ -2046,12 +2050,16 @@ async function testConditionalCreateOrEditWithoutExplicitTargetRequiresReview() 
       structuredIntent: {
         schemaVersion: 1,
         primaryTargets: [],
-        positiveActions: ["if existing page exists improve it, otherwise create it"],
+        positiveActions: [
+          "if existing page exists improve it, otherwise create it",
+        ],
         protectedScopes: ["backend", "api", "AuthContext", ".env"],
         allowedEditScope: "target_with_supporting_context",
         needsStyles: true,
         needsBackend: false,
-        ambiguities: ["subscription screen may map to billing, pricing, or usage"],
+        ambiguities: [
+          "subscription screen may map to billing, pricing, or usage",
+        ],
         modelNotes: [],
       },
     }),
@@ -2059,7 +2067,9 @@ async function testConditionalCreateOrEditWithoutExplicitTargetRequiresReview() 
 
   assert.equal(result.selectedFiles.length, 0);
   assert.equal(
-    result.notes.some((note) => note.includes("Manual target review is required")),
+    result.notes.some((note) =>
+      note.includes("Manual target review is required"),
+    ),
     true,
   );
 }

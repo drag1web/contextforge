@@ -157,8 +157,6 @@ export interface TaskPack {
   updatedAt: string;
 }
 
-
-
 export type ProjectMemoryCategory =
   | "architecture"
   | "do_not_change"
@@ -234,7 +232,8 @@ export interface OllamaModel {
   digest?: string;
 }
 
-export type AiProviderId = "ollama" | "openai-compatible" | "gemini";
+export type AiProviderId =
+  "ollama" | "openai-compatible" | "anthropic" | "gemini";
 
 export interface AiProviderStatus {
   provider: AiProviderId;
@@ -259,7 +258,16 @@ export interface AppSettings {
   generationMode: "template" | "ollama";
   aiProvider: AiProviderId;
   defaultTargetTool: TargetTool;
-  defaultTaskType: "general" | "ui" | "backend" | "fullstack" | "build" | "bugfix" | "refactor" | "docs" | "tests";
+  defaultTaskType:
+    | "general"
+    | "ui"
+    | "backend"
+    | "fullstack"
+    | "build"
+    | "bugfix"
+    | "refactor"
+    | "docs"
+    | "tests";
   defaultOllamaModel: string | null;
   openAiCompatibleBaseUrl: string;
   openAiCompatibleModel: string | null;
@@ -267,6 +275,9 @@ export interface AppSettings {
   geminiBaseUrl: string;
   geminiModel: string | null;
   geminiApiKeyConfigured: boolean;
+  anthropicBaseUrl: string;
+  anthropicModel: string | null;
+  anthropicApiKeyConfigured: boolean;
   language: "system" | "en" | "ru";
   theme: "system" | "dark" | "light";
   composerFileLimits: {
@@ -289,6 +300,8 @@ export interface UpdateAppSettingsInput extends Partial<AppSettings> {
   clearOpenAiCompatibleApiKey?: boolean;
   geminiApiKey?: string | null;
   clearGeminiApiKey?: boolean;
+  anthropicApiKey?: string | null;
+  clearAnthropicApiKey?: boolean;
 }
 
 export interface GenerationMetadata {
@@ -332,7 +345,6 @@ export interface ContextComposerFileReference {
   canReadText: boolean;
   sizeBytes: number;
 }
-
 
 export interface ContextSelectionQuality {
   status: "ready" | "warning" | "blocked";
@@ -430,8 +442,7 @@ export interface ContextComposerPreview {
   notes: string[];
 }
 
-export interface ContextComposerFileSearchResult
-  extends ContextComposerFileReference {
+export interface ContextComposerFileSearchResult extends ContextComposerFileReference {
   score: number;
   alreadySelected: boolean;
 }

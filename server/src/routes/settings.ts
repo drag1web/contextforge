@@ -1,6 +1,9 @@
 import { Router } from "express";
 import { z } from "zod";
-import { getAppSettings, updateAppSettings } from "../settings/settingsService.js";
+import {
+  getAppSettings,
+  updateAppSettings,
+} from "../settings/settingsService.js";
 
 export const settingsRouter = Router();
 
@@ -13,16 +16,30 @@ const composerFileLimitsSchema = z.object({
   bugfix: z.number().int().min(3).max(24),
   refactor: z.number().int().min(3).max(24),
   docs: z.number().int().min(3).max(24),
-  tests: z.number().int().min(3).max(24)
+  tests: z.number().int().min(3).max(24),
 });
 
 const updateSettingsSchema = z.object({
   ollamaUrl: z.string().url().optional(),
   generationMode: z.enum(["template", "ollama"]).optional(),
-  aiProvider: z.enum(["ollama", "openai-compatible", "gemini"]).optional(),
-  defaultTargetTool: z.enum(["codex", "cursor", "claude", "gemini", "generic"]).optional(),
+  aiProvider: z
+    .enum(["ollama", "openai-compatible", "anthropic", "gemini"])
+    .optional(),
+  defaultTargetTool: z
+    .enum(["codex", "cursor", "claude", "gemini", "generic"])
+    .optional(),
   defaultTaskType: z
-    .enum(["general", "ui", "backend", "fullstack", "build", "bugfix", "refactor", "docs", "tests"])
+    .enum([
+      "general",
+      "ui",
+      "backend",
+      "fullstack",
+      "build",
+      "bugfix",
+      "refactor",
+      "docs",
+      "tests",
+    ])
     .optional(),
   defaultOllamaModel: z.string().nullable().optional(),
   openAiCompatibleBaseUrl: z.string().url().optional(),
@@ -35,11 +52,16 @@ const updateSettingsSchema = z.object({
   geminiApiKey: z.string().optional(),
   geminiApiKeyConfigured: z.boolean().optional(),
   clearGeminiApiKey: z.boolean().optional(),
+  anthropicBaseUrl: z.string().url().optional(),
+  anthropicModel: z.string().nullable().optional(),
+  anthropicApiKey: z.string().optional(),
+  anthropicApiKeyConfigured: z.boolean().optional(),
+  clearAnthropicApiKey: z.boolean().optional(),
   language: z.enum(["system", "en", "ru"]).optional(),
   theme: z.enum(["system", "dark", "light"]).optional(),
   composerFileLimits: composerFileLimitsSchema.optional(),
   contextQualityMode: z.enum(["advisory", "balanced", "strict"]).optional(),
-  sidebarShowDescriptions: z.boolean().optional()
+  sidebarShowDescriptions: z.boolean().optional(),
 });
 
 settingsRouter.get("/", async (_req, res) => {
@@ -48,7 +70,7 @@ settingsRouter.get("/", async (_req, res) => {
 
     res.json({
       ok: true,
-      settings
+      settings,
     });
   } catch (error) {
     console.error("Failed to load settings:", error);
@@ -56,7 +78,7 @@ settingsRouter.get("/", async (_req, res) => {
     res.status(500).json({
       ok: false,
       message: "Failed to load settings",
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 });
@@ -68,7 +90,7 @@ settingsRouter.patch("/", async (req, res) => {
     res.status(400).json({
       ok: false,
       message: "Invalid settings payload",
-      issues: parsed.error.issues
+      issues: parsed.error.issues,
     });
     return;
   }
@@ -78,7 +100,7 @@ settingsRouter.patch("/", async (req, res) => {
 
     res.json({
       ok: true,
-      settings
+      settings,
     });
   } catch (error) {
     console.error("Failed to update settings:", error);
@@ -86,7 +108,7 @@ settingsRouter.patch("/", async (req, res) => {
     res.status(500).json({
       ok: false,
       message: "Failed to update settings",
-      error: error instanceof Error ? error.message : String(error)
+      error: error instanceof Error ? error.message : String(error),
     });
   }
 });

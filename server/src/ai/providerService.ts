@@ -1,11 +1,13 @@
 import {
+  getAnthropicApiKey,
   getAppSettings,
   getGeminiApiKey,
   getOpenAiCompatibleApiKey,
-  type AppSettings
+  type AppSettings,
 } from "../settings/settingsService.js";
 
-export type AiProviderId = "ollama" | "openai-compatible" | "gemini";
+export type AiProviderId =
+  "ollama" | "openai-compatible" | "anthropic" | "gemini";
 
 export interface AiProviderStatus {
   provider: AiProviderId;
@@ -67,6 +69,21 @@ interface OpenAiChatResponse {
   }>;
 }
 
+interface AnthropicModelsResponse {
+  data?: Array<{
+    id?: string;
+    display_name?: string;
+    created_at?: string;
+  }>;
+}
+
+interface AnthropicMessagesResponse {
+  content?: Array<{
+    type?: string;
+    text?: string;
+  }>;
+}
+
 interface GeminiModelsResponse {
   models?: Array<{
     name?: string;
@@ -96,7 +113,9 @@ function normalizeUrl(value: string) {
   return trimTrailingSlash(value.trim());
 }
 
-function readOpenAiContent(content: NonNullable<OpenAiChatResponse["choices"]>[number]) {
+function readOpenAiContent(
+  content: NonNullable<OpenAiChatResponse["choices"]>[number],
+) {
   const messageContent = content.message?.content;
 
   if (typeof messageContent === "string") {
@@ -105,7 +124,9 @@ function readOpenAiContent(content: NonNullable<OpenAiChatResponse["choices"]>[n
 
   if (Array.isArray(messageContent)) {
     return messageContent
-      .map((part) => (part.type === "text" || !part.type ? part.text ?? "" : ""))
+      .map((part) =>
+        part.type === "text" || !part.type ? (part.text ?? "") : "",
+      )
       .join("")
       .trim();
   }
@@ -118,6 +139,10 @@ function getConfiguredModel(settings: AppSettings) {
     return settings.geminiModel;
   }
 
+  if (settings.aiProvider === "anthropic") {
+    return settings.anthropicModel;
+  }
+
   if (settings.aiProvider === "openai-compatible") {
     return settings.openAiCompatibleModel;
   }
@@ -125,8 +150,12 @@ function getConfiguredModel(settings: AppSettings) {
   return settings.defaultOllamaModel;
 }
 
-async function getGeminiUrl(settings: AppSettings) {
+function getGeminiUrl(settings: AppSettings) {
   return normalizeUrl(settings.geminiBaseUrl);
+}
+
+function getAnthropicUrl(settings: AppSettings) {
+  return normalizeUrl(settings.anthropicBaseUrl);
 }
 
 function getGeminiModelPath(model: string) {
@@ -145,17 +174,35 @@ function readGeminiContent(data: GeminiGenerateResponse) {
     .trim();
 }
 
+function readAnthropicContent(data: AnthropicMessagesResponse) {
+  return (data.content ?? [])
+    .filter((part) => part.type === "text" || !part.type)
+    .map((part) => part.text ?? "")
+    .join("")
+    .trim();
+}
+
 async function getOpenAiHeaders() {
   const apiKey = await getOpenAiCompatibleApiKey();
 
   return {
     "Content-Type": "application/json",
-    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {})
+    ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+  };
+}
+
+async function getAnthropicHeaders() {
+  const apiKey = await getAnthropicApiKey();
+
+  return {
+    "Content-Type": "application/json",
+    "anthropic-version": "2023-06-01",
+    ...(apiKey ? { "x-api-key": apiKey } : {}),
   };
 }
 
 export async function getAiProviderStatus(
-  settingsInput?: AppSettings
+  settingsInput?: AppSettings,
 ): Promise<AiProviderStatus> {
   const settings = settingsInput ?? (await getAppSettings());
 
@@ -165,7 +212,7 @@ export async function getAiProviderStatus(
 
     try {
       const response = await fetch(`${url}/models`, {
-        headers: await getOpenAiHeaders()
+        headers: await getOpenAiHeaders(),
       });
 
       return {
@@ -176,7 +223,7 @@ export async function getAiProviderStatus(
         apiKeyConfigured: Boolean(apiKey),
         message: response.ok
           ? "OpenAI-compatible endpoint is available."
-          : `OpenAI-compatible endpoint responded with status ${response.status}.`
+          : `OpenAI-compatible endpoint responded with status ${response.status}.`,
       };
     } catch (error) {
       return {
@@ -188,13 +235,58 @@ export async function getAiProviderStatus(
         message:
           error instanceof Error
             ? error.message
-            : "OpenAI-compatible endpoint is not available."
+            : "OpenAI-compatible endpoint is not available.",
+      };
+    }
+  }
+
+  if (settings.aiProvider === "anthropic") {
+    const url = getAnthropicUrl(settings);
+    const apiKey = await getAnthropicApiKey();
+
+    if (!apiKey) {
+      return {
+        provider: "anthropic",
+        online: false,
+        url,
+        model: settings.anthropicModel,
+        apiKeyConfigured: false,
+        message: "Claude API key is not configured.",
+      };
+    }
+
+    try {
+      const response = await fetch(`${url}/models`, {
+        headers: await getAnthropicHeaders(),
+      });
+
+      return {
+        provider: "anthropic",
+        online: response.ok,
+        url,
+        model: settings.anthropicModel,
+        apiKeyConfigured: true,
+        message: response.ok
+          ? "Claude API is available."
+          : `Claude API responded with status ${response.status}.`,
+      };
+    } catch (error) {
+      return {
+        provider: "anthropic",
+        online: false,
+        url,
+        model: settings.anthropicModel,
+        apiKeyConfigured: true,
+        message:
+          error instanceof Error
+            ? error.message
+            : "Claude API is not available.",
       };
     }
   }
 
   if (settings.aiProvider === "gemini") {
-    const url = await getGeminiUrl(settings);
+    const url = getGeminiUrl(settings);
     const apiKey = await getGeminiApiKey();
 
     if (!apiKey) {
@@ -204,12 +296,14 @@ export async function getAiProviderStatus(
         url,
         model: settings.geminiModel,
         apiKeyConfigured: false,
-        message: "Gemini API key is not configured."
+        message: "Gemini API key is not configured.",
       };
     }
 
     try {
-      const response = await fetch(`${url}/models?key=${encodeURIComponent(apiKey)}`);
+      const response = await fetch(
+        `${url}/models?key=${encodeURIComponent(apiKey)}`,
+      );
 
       return {
         provider: "gemini",
@@ -219,7 +313,7 @@ export async function getAiProviderStatus(
         apiKeyConfigured: true,
         message: response.ok
           ? "Gemini API is available."
-          : `Gemini API responded with status ${response.status}.`
+          : `Gemini API responded with status ${response.status}.`,
       };
     } catch (error) {
       return {
@@ -231,7 +325,7 @@ export async function getAiProviderStatus(
         message:
           error instanceof Error
             ? error.message
-            : "Gemini API is not available."
+            : "Gemini API is not available.",
       };
     }
   }
@@ -249,7 +343,7 @@ export async function getAiProviderStatus(
       apiKeyConfigured: false,
       message: response.ok
         ? "Ollama is available."
-        : `Ollama responded with status ${response.status}.`
+        : `Ollama responded with status ${response.status}.`,
     };
   } catch (error) {
     return {
@@ -259,13 +353,13 @@ export async function getAiProviderStatus(
       model: settings.defaultOllamaModel,
       apiKeyConfigured: false,
       message:
-        error instanceof Error ? error.message : "Ollama is not available."
+        error instanceof Error ? error.message : "Ollama is not available.",
     };
   }
 }
 
 export async function listAiProviderModels(
-  settingsInput?: AppSettings
+  settingsInput?: AppSettings,
 ): Promise<AiProviderModel[]> {
   const settings = settingsInput ?? (await getAppSettings());
 
@@ -274,7 +368,7 @@ export async function listAiProviderModels(
 
     try {
       const response = await fetch(`${url}/models`, {
-        headers: await getOpenAiHeaders()
+        headers: await getOpenAiHeaders(),
       });
 
       if (!response.ok) {
@@ -289,7 +383,48 @@ export async function listAiProviderModels(
         .map((id) => ({
           id,
           name: id,
-          provider: "openai-compatible" as const
+          provider: "openai-compatible" as const,
+        }));
+    } catch {
+      return [];
+    }
+  }
+
+  if (settings.aiProvider === "anthropic") {
+    const url = getAnthropicUrl(settings);
+    const apiKey = await getAnthropicApiKey();
+
+    if (!apiKey) {
+      return [];
+    }
+
+    try {
+      const response = await fetch(`${url}/models`, {
+        headers: await getAnthropicHeaders(),
+      });
+
+      if (!response.ok) {
+        return [];
+      }
+
+      const data = (await response.json()) as AnthropicModelsResponse;
+
+      return (Array.isArray(data.data) ? data.data : [])
+        .filter(
+          (
+            model,
+          ): model is {
+            id: string;
+            display_name?: string;
+            created_at?: string;
+          } => Boolean(model.id),
+        )
+        .map((model) => ({
+          id: model.id,
+          name: model.id,
+          provider: "anthropic" as const,
+          description: model.display_name,
+          modifiedAt: model.created_at,
         }));
     } catch {
       return [];
@@ -297,7 +432,7 @@ export async function listAiProviderModels(
   }
 
   if (settings.aiProvider === "gemini") {
-    const url = await getGeminiUrl(settings);
+    const url = getGeminiUrl(settings);
     const apiKey = await getGeminiApiKey();
 
     if (!apiKey) {
@@ -305,7 +440,9 @@ export async function listAiProviderModels(
     }
 
     try {
-      const response = await fetch(`${url}/models?key=${encodeURIComponent(apiKey)}`);
+      const response = await fetch(
+        `${url}/models?key=${encodeURIComponent(apiKey)}`,
+      );
 
       if (!response.ok) {
         return [];
@@ -316,8 +453,8 @@ export async function listAiProviderModels(
       return (Array.isArray(data.models) ? data.models : [])
         .filter((model) =>
           (model.supportedGenerationMethods ?? []).some(
-            (method) => method === "generateContent"
-          )
+            (method) => method === "generateContent",
+          ),
         )
         .map((model) => {
           const rawName = model.name ?? "";
@@ -327,7 +464,7 @@ export async function listAiProviderModels(
             id: name,
             name,
             provider: "gemini" as const,
-            description: model.displayName ?? model.description
+            description: model.displayName ?? model.description,
           };
         })
         .filter((model) => Boolean(model.name));
@@ -350,21 +487,21 @@ export async function listAiProviderModels(
     const models: AiProviderModel[] = [];
 
     for (const model of Array.isArray(data.models) ? data.models : []) {
-        const name = model.name ?? model.model;
+      const name = model.name ?? model.model;
 
-        if (!name) {
-          continue;
-        }
-
-        models.push({
-          id: name,
-          name,
-          provider: "ollama",
-          size: model.size,
-          modifiedAt: model.modified_at,
-          description: model.model
-        });
+      if (!name) {
+        continue;
       }
+
+      models.push({
+        id: name,
+        name,
+        provider: "ollama",
+        size: model.size,
+        modifiedAt: model.modified_at,
+        description: model.model,
+      });
+    }
 
     return models;
   } catch {
@@ -375,7 +512,7 @@ export async function listAiProviderModels(
 export async function generateWithConfiguredAi({
   prompt,
   temperature = 0.1,
-  numPredict = 1600
+  numPredict = 1600,
 }: AiGenerateInput): Promise<AiGenerateResult> {
   const settings = await getAppSettings();
   const model = getConfiguredModel(settings);
@@ -394,16 +531,18 @@ export async function generateWithConfiguredAi({
         messages: [
           {
             role: "user",
-            content: prompt
-          }
+            content: prompt,
+          },
         ],
         temperature,
-        max_tokens: numPredict
-      })
+        max_tokens: numPredict,
+      }),
     });
 
     if (!response.ok) {
-      throw new Error(`OpenAI-compatible endpoint responded with status ${response.status}.`);
+      throw new Error(
+        `OpenAI-compatible endpoint responded with status ${response.status}.`,
+      );
     }
 
     const data = (await response.json()) as OpenAiChatResponse;
@@ -416,7 +555,49 @@ export async function generateWithConfiguredAi({
     return {
       content,
       provider: "openai-compatible",
-      model
+      model,
+    };
+  }
+
+  if (settings.aiProvider === "anthropic") {
+    const apiKey = await getAnthropicApiKey();
+
+    if (!apiKey) {
+      throw new Error("Claude API key is not configured.");
+    }
+
+    const url = getAnthropicUrl(settings);
+    const response = await fetch(`${url}/messages`, {
+      method: "POST",
+      headers: await getAnthropicHeaders(),
+      body: JSON.stringify({
+        model,
+        max_tokens: numPredict,
+        temperature,
+        messages: [
+          {
+            role: "user",
+            content: prompt,
+          },
+        ],
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Claude API responded with status ${response.status}.`);
+    }
+
+    const data = (await response.json()) as AnthropicMessagesResponse;
+    const content = readAnthropicContent(data);
+
+    if (!content) {
+      throw new Error("Claude API returned an empty response.");
+    }
+
+    return {
+      content,
+      provider: "anthropic",
+      model,
     };
   }
 
@@ -427,14 +608,14 @@ export async function generateWithConfiguredAi({
       throw new Error("Gemini API key is not configured.");
     }
 
-    const url = await getGeminiUrl(settings);
+    const url = getGeminiUrl(settings);
     const modelPath = getGeminiModelPath(model);
     const response = await fetch(
       `${url}/${modelPath}:generateContent?key=${encodeURIComponent(apiKey)}`,
       {
         method: "POST",
         headers: {
-          "Content-Type": "application/json"
+          "Content-Type": "application/json",
         },
         body: JSON.stringify({
           contents: [
@@ -442,17 +623,17 @@ export async function generateWithConfiguredAi({
               role: "user",
               parts: [
                 {
-                  text: prompt
-                }
-              ]
-            }
+                  text: prompt,
+                },
+              ],
+            },
           ],
           generationConfig: {
             temperature,
-            maxOutputTokens: numPredict
-          }
-        })
-      }
+            maxOutputTokens: numPredict,
+          },
+        }),
+      },
     );
 
     if (!response.ok) {
@@ -469,7 +650,7 @@ export async function generateWithConfiguredAi({
     return {
       content,
       provider: "gemini",
-      model
+      model,
     };
   }
 
@@ -477,7 +658,7 @@ export async function generateWithConfiguredAi({
   const response = await fetch(`${url}/api/generate`, {
     method: "POST",
     headers: {
-      "Content-Type": "application/json"
+      "Content-Type": "application/json",
     },
     body: JSON.stringify({
       model,
@@ -487,9 +668,9 @@ export async function generateWithConfiguredAi({
         temperature,
         num_predict: numPredict,
         top_p: 0.9,
-        repeat_penalty: 1.08
-      }
-    })
+        repeat_penalty: 1.08,
+      },
+    }),
   });
 
   if (!response.ok) {
@@ -506,6 +687,6 @@ export async function generateWithConfiguredAi({
   return {
     content,
     provider: "ollama",
-    model
+    model,
   };
 }

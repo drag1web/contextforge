@@ -4,18 +4,18 @@ import { storage } from "../storage/index.js";
 export interface AppSettings {
   ollamaUrl: string;
   generationMode: "template" | "ollama";
-  aiProvider: "ollama" | "openai-compatible" | "gemini";
+  aiProvider: "ollama" | "openai-compatible" | "anthropic" | "gemini";
   defaultTargetTool: "codex" | "cursor" | "claude" | "gemini" | "generic";
   defaultTaskType:
-  | "general"
-  | "ui"
-  | "backend"
-  | "fullstack"
-  | "build"
-  | "bugfix"
-  | "refactor"
-  | "docs"
-  | "tests";
+    | "general"
+    | "ui"
+    | "backend"
+    | "fullstack"
+    | "build"
+    | "bugfix"
+    | "refactor"
+    | "docs"
+    | "tests";
   defaultOllamaModel: string | null;
   openAiCompatibleBaseUrl: string;
   openAiCompatibleModel: string | null;
@@ -23,6 +23,9 @@ export interface AppSettings {
   geminiBaseUrl: string;
   geminiModel: string | null;
   geminiApiKeyConfigured: boolean;
+  anthropicBaseUrl: string;
+  anthropicModel: string | null;
+  anthropicApiKeyConfigured: boolean;
   language: "system" | "en" | "ru";
   theme: "system" | "dark" | "light";
   composerFileLimits: ComposerFileLimits;
@@ -35,6 +38,8 @@ export interface UpdateAppSettingsInput extends Partial<AppSettings> {
   clearOpenAiCompatibleApiKey?: boolean;
   geminiApiKey?: string | null;
   clearGeminiApiKey?: boolean;
+  anthropicApiKey?: string | null;
+  clearAnthropicApiKey?: boolean;
 }
 
 export type ContextQualityMode = "advisory" | "balanced" | "strict";
@@ -64,6 +69,9 @@ const defaultSettings: AppSettings = {
   geminiBaseUrl: "https://generativelanguage.googleapis.com/v1beta",
   geminiModel: "gemini-1.5-flash",
   geminiApiKeyConfigured: false,
+  anthropicBaseUrl: "https://api.anthropic.com/v1",
+  anthropicModel: "claude-3-5-sonnet-latest",
+  anthropicApiKeyConfigured: false,
   language: "system",
   theme: "dark",
   composerFileLimits: {
@@ -75,10 +83,10 @@ const defaultSettings: AppSettings = {
     bugfix: 7,
     refactor: 8,
     docs: 6,
-    tests: 7
+    tests: 7,
   },
   contextQualityMode: "balanced",
-  sidebarShowDescriptions: false
+  sidebarShowDescriptions: false,
 };
 
 const settingKeyMap = {
@@ -94,16 +102,20 @@ const settingKeyMap = {
   geminiBaseUrl: "gemini_base_url",
   geminiModel: "gemini_model",
   geminiApiKeyConfigured: "gemini_api_key_configured",
+  anthropicBaseUrl: "anthropic_base_url",
+  anthropicModel: "anthropic_model",
+  anthropicApiKeyConfigured: "anthropic_api_key_configured",
   language: "language",
   theme: "theme",
   composerFileLimits: "composer_file_limits",
   contextQualityMode: "context_quality_mode",
-  sidebarShowDescriptions: "sidebar_show_descriptions"
+  sidebarShowDescriptions: "sidebar_show_descriptions",
 } as const;
 
 const secretSettingKeys = {
   openAiCompatibleApiKey: "openai_compatible_api_key",
-  geminiApiKey: "gemini_api_key"
+  geminiApiKey: "gemini_api_key",
+  anthropicApiKey: "anthropic_api_key",
 } as const;
 
 export async function getSettingValue<T>(key: string, fallback: T): Promise<T> {
@@ -113,52 +125,86 @@ export async function getSettingValue<T>(key: string, fallback: T): Promise<T> {
 export async function getAppSettings(): Promise<AppSettings> {
   const openAiCompatibleApiKey = await getSettingValue<string | null>(
     secretSettingKeys.openAiCompatibleApiKey,
-    null
+    null,
   );
   const geminiApiKey = await getSettingValue<string | null>(
     secretSettingKeys.geminiApiKey,
-    null
+    null,
+  );
+  const anthropicApiKey = await getSettingValue<string | null>(
+    secretSettingKeys.anthropicApiKey,
+    null,
   );
 
   return {
-    ollamaUrl: await getSettingValue(settingKeyMap.ollamaUrl, defaultSettings.ollamaUrl),
-    generationMode: await getSettingValue(settingKeyMap.generationMode, defaultSettings.generationMode),
-    aiProvider: await getSettingValue(settingKeyMap.aiProvider, defaultSettings.aiProvider),
-    defaultTargetTool: await getSettingValue(settingKeyMap.defaultTargetTool, defaultSettings.defaultTargetTool),
-    defaultTaskType: await getSettingValue(settingKeyMap.defaultTaskType, defaultSettings.defaultTaskType),
-    defaultOllamaModel: await getSettingValue(settingKeyMap.defaultOllamaModel, defaultSettings.defaultOllamaModel),
+    ollamaUrl: await getSettingValue(
+      settingKeyMap.ollamaUrl,
+      defaultSettings.ollamaUrl,
+    ),
+    generationMode: await getSettingValue(
+      settingKeyMap.generationMode,
+      defaultSettings.generationMode,
+    ),
+    aiProvider: await getSettingValue(
+      settingKeyMap.aiProvider,
+      defaultSettings.aiProvider,
+    ),
+    defaultTargetTool: await getSettingValue(
+      settingKeyMap.defaultTargetTool,
+      defaultSettings.defaultTargetTool,
+    ),
+    defaultTaskType: await getSettingValue(
+      settingKeyMap.defaultTaskType,
+      defaultSettings.defaultTaskType,
+    ),
+    defaultOllamaModel: await getSettingValue(
+      settingKeyMap.defaultOllamaModel,
+      defaultSettings.defaultOllamaModel,
+    ),
     openAiCompatibleBaseUrl: await getSettingValue(
       settingKeyMap.openAiCompatibleBaseUrl,
-      defaultSettings.openAiCompatibleBaseUrl
+      defaultSettings.openAiCompatibleBaseUrl,
     ),
     openAiCompatibleModel: await getSettingValue(
       settingKeyMap.openAiCompatibleModel,
-      defaultSettings.openAiCompatibleModel
+      defaultSettings.openAiCompatibleModel,
     ),
     openAiCompatibleApiKeyConfigured: Boolean(openAiCompatibleApiKey),
     geminiBaseUrl: await getSettingValue(
       settingKeyMap.geminiBaseUrl,
-      defaultSettings.geminiBaseUrl
+      defaultSettings.geminiBaseUrl,
     ),
     geminiModel: await getSettingValue(
       settingKeyMap.geminiModel,
-      defaultSettings.geminiModel
+      defaultSettings.geminiModel,
     ),
     geminiApiKeyConfigured: Boolean(geminiApiKey),
-    language: await getSettingValue(settingKeyMap.language, defaultSettings.language),
+    anthropicBaseUrl: await getSettingValue(
+      settingKeyMap.anthropicBaseUrl,
+      defaultSettings.anthropicBaseUrl,
+    ),
+    anthropicModel: await getSettingValue(
+      settingKeyMap.anthropicModel,
+      defaultSettings.anthropicModel,
+    ),
+    anthropicApiKeyConfigured: Boolean(anthropicApiKey),
+    language: await getSettingValue(
+      settingKeyMap.language,
+      defaultSettings.language,
+    ),
     theme: await getSettingValue(settingKeyMap.theme, defaultSettings.theme),
     composerFileLimits: await getSettingValue(
       settingKeyMap.composerFileLimits,
-      defaultSettings.composerFileLimits
+      defaultSettings.composerFileLimits,
     ),
     contextQualityMode: await getSettingValue(
       settingKeyMap.contextQualityMode,
-      defaultSettings.contextQualityMode
+      defaultSettings.contextQualityMode,
     ),
     sidebarShowDescriptions: await getSettingValue(
       settingKeyMap.sidebarShowDescriptions,
-      defaultSettings.sidebarShowDescriptions
-    )
+      defaultSettings.sidebarShowDescriptions,
+    ),
   };
 }
 
@@ -170,6 +216,10 @@ export async function getGeminiApiKey(): Promise<string | null> {
   return getSettingValue(secretSettingKeys.geminiApiKey, null);
 }
 
+export async function getAnthropicApiKey(): Promise<string | null> {
+  return getSettingValue(secretSettingKeys.anthropicApiKey, null);
+}
+
 export async function updateAppSettings(input: UpdateAppSettingsInput) {
   const {
     openAiCompatibleApiKey,
@@ -178,6 +228,9 @@ export async function updateAppSettings(input: UpdateAppSettingsInput) {
     geminiApiKey,
     geminiApiKeyConfigured: _ignoredGeminiConfiguredFlag,
     clearGeminiApiKey,
+    anthropicApiKey,
+    anthropicApiKeyConfigured: _ignoredAnthropicConfiguredFlag,
+    clearAnthropicApiKey,
     ...publicSettings
   } = input;
 
@@ -191,26 +244,43 @@ export async function updateAppSettings(input: UpdateAppSettingsInput) {
     await storage.setSettingValue(databaseKey, value);
   }
 
-  if (typeof openAiCompatibleApiKey === "string" && openAiCompatibleApiKey.trim()) {
+  if (
+    typeof openAiCompatibleApiKey === "string" &&
+    openAiCompatibleApiKey.trim()
+  ) {
     await storage.setSettingValue(
       secretSettingKeys.openAiCompatibleApiKey,
-      openAiCompatibleApiKey.trim()
+      openAiCompatibleApiKey.trim(),
     );
   }
 
   if (clearOpenAiCompatibleApiKey) {
-    await storage.setSettingValue(secretSettingKeys.openAiCompatibleApiKey, null);
+    await storage.setSettingValue(
+      secretSettingKeys.openAiCompatibleApiKey,
+      null,
+    );
   }
 
   if (typeof geminiApiKey === "string" && geminiApiKey.trim()) {
     await storage.setSettingValue(
       secretSettingKeys.geminiApiKey,
-      geminiApiKey.trim()
+      geminiApiKey.trim(),
     );
   }
 
   if (clearGeminiApiKey) {
     await storage.setSettingValue(secretSettingKeys.geminiApiKey, null);
+  }
+
+  if (typeof anthropicApiKey === "string" && anthropicApiKey.trim()) {
+    await storage.setSettingValue(
+      secretSettingKeys.anthropicApiKey,
+      anthropicApiKey.trim(),
+    );
+  }
+
+  if (clearAnthropicApiKey) {
+    await storage.setSettingValue(secretSettingKeys.anthropicApiKey, null);
   }
 
   return getAppSettings();
