@@ -1,4 +1,3 @@
-import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import {
   ChevronDown,
@@ -214,15 +213,21 @@ export function ProjectCard({
         </aside>
       </div>
 
-      {isExpanded && (
-        <motion.div
-          initial={{ opacity: 0, height: 0 }}
-          animate={{ opacity: 1, height: "auto" }}
-          transition={{ duration: 0.22 }}
-        >
+      <div
+        aria-hidden={!isExpanded}
+        className="overflow-hidden"
+        style={{
+          display: "grid",
+          gridTemplateRows: isExpanded ? "1fr" : "0fr",
+          opacity: isExpanded ? 1 : 0,
+          transition:
+            "grid-template-rows 220ms cubic-bezier(0.16, 1, 0.3, 1), opacity 160ms ease"
+        }}
+      >
+        <div className="min-h-0 overflow-hidden">
           <ProjectReadinessReport report={project.readinessReport} />
-        </motion.div>
-      )}
+        </div>
+      </div>
     </article>
   );
 }

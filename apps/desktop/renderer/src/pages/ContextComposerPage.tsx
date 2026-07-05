@@ -178,7 +178,6 @@ function ComposerActionButton({
     <motion.button
       type="button"
       onClick={onClick}
-      whileHover={{ y: -1 }}
       whileTap={{ scale: 0.96 }}
       transition={{ duration: 0.14 }}
       className={[
@@ -1157,7 +1156,6 @@ export function ContextComposerPage({
                     key={snippet.relativePath}
                     type="button"
                     onClick={() => setActiveSnippetPath(snippet.relativePath)}
-                    whileHover={{ y: -1 }}
                     whileTap={{ scale: 0.97 }}
                     className={[
                       "group relative shrink-0 overflow-hidden rounded-full border px-3 py-1.5 text-xs font-medium transition duration-200",

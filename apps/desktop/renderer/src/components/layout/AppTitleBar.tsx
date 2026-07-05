@@ -1,6 +1,5 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { motion } from "framer-motion";
 import {
     ChevronDown,
     ChevronRight,
@@ -50,7 +49,7 @@ export function AppTitleBar({
 
     return (
         <>
-            <header className="app-drag relative z-50 flex h-12 shrink-0 items-center justify-between border-b border-white/[0.075] bg-black/88 px-3 shadow-[0_1px_0_rgba(255,255,255,0.025)] backdrop-blur-xl">
+            <header className="app-drag relative z-50 flex h-12 shrink-0 items-center justify-between border-b border-white/[0.075] bg-black px-3 shadow-[0_1px_0_rgba(255,255,255,0.025)]">
                 <div className="flex min-w-0 items-center gap-3">
                     <div className="cf-brand-tile cf-interactive flex size-8 items-center justify-center rounded-xl border bg-neutral-950">
                         <img
@@ -76,15 +75,15 @@ export function AppTitleBar({
                     type="button"
                     onClick={() => setIsNavigationOpen(true)}
                     disabled={!onNavigate}
-                    className="app-no-drag group absolute left-1/2 top-1/2 hidden h-7 w-[238px] -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-1.5 overflow-hidden rounded-full border border-white/10 bg-white/[0.035] px-2.5 text-[11px] text-neutral-500 shadow-[0_8px_22px_rgba(0,0,0,0.34)] transition-[border-color,background-color,color,box-shadow,opacity] duration-200 hover:border-white/20 hover:bg-white/[0.075] hover:text-white hover:shadow-[0_10px_26px_rgba(0,0,0,0.4)] disabled:pointer-events-none disabled:opacity-60 lg:flex"
+                    className="app-no-drag group absolute left-1/2 top-1/2 hidden h-7 w-[238px] -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-1.5 overflow-hidden rounded-full border border-white/10 bg-white/[0.035] px-2.5 text-[11px] text-neutral-500 shadow-[0_8px_22px_rgba(0,0,0,0.30)] transition-[border-color,background-color,color,box-shadow,opacity] duration-200 hover:border-white hover:bg-white hover:text-black hover:shadow-[0_10px_26px_rgba(0,0,0,0.38)] disabled:pointer-events-none disabled:opacity-60 lg:flex"
                     title={t("titlebar.openNavigationAssistant")}
                 >
-                    <span className="shrink-0 transition-colors group-hover:text-neutral-300">ContextForge</span>
-                    <ChevronRight size={11} className="text-neutral-700 transition group-hover:text-neutral-500" />
-                    <span className="min-w-0 truncate font-medium text-neutral-200 transition-colors group-hover:text-white">
+                    <span className="shrink-0 transition-colors group-hover:text-black/70">ContextForge</span>
+                    <ChevronRight size={11} className="text-neutral-700 transition group-hover:text-black/45" />
+                    <span className="min-w-0 truncate font-medium text-neutral-200 transition-colors group-hover:text-black">
                         {currentPageLabel}
                     </span>
-                    <ChevronDown size={11} className="shrink-0 text-neutral-700 transition group-hover:text-neutral-500" />
+                    <ChevronDown size={11} className="shrink-0 text-neutral-700 transition group-hover:text-black/45" />
                 </button>
 
                 <div className="app-no-drag flex items-center gap-2">
@@ -100,47 +99,15 @@ export function AppTitleBar({
                         </button>
                     )}
 
-                    <motion.div
-                        className="mr-2 hidden items-center gap-2 overflow-hidden rounded-full border border-white/12 bg-white/[0.035] px-3 py-1 text-[11px] text-neutral-200 shadow-[0_8px_22px_rgba(0,0,0,0.34)] xl:flex"
-                        animate={{
-                            borderColor: [
-                                "rgba(255,255,255,0.12)",
-                                "rgba(255,255,255,0.22)",
-                                "rgba(255,255,255,0.12)"
-                            ]
-                        }}
-                        transition={{
-                            duration: 3.6,
-                            repeat: Infinity,
-                            ease: "easeInOut"
-                        }}
-                    >
-                        <span className="relative grid size-3 place-items-center">
-                            <motion.span
-                                className="absolute size-3 rounded-full border border-white/25"
-                                animate={{ scale: [0.9, 1.45], opacity: [0.4, 0] }}
-                                transition={{ duration: 2.4, repeat: Infinity, ease: "easeOut" }}
-                            />
-                            <motion.span
-                                className="size-1.5 rounded-full bg-white"
-                                animate={{ scale: [1, 1.12, 1], opacity: [0.82, 1, 0.82] }}
-                                transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
-                            />
-                        </span>
-                        <span className="relative">
-                            {t("titlebar.aiWorkflowReady")}
-                            <motion.span
-                                className="pointer-events-none absolute -bottom-1 left-0 h-px w-full bg-gradient-to-r from-transparent via-white/55 to-transparent"
-                                animate={{ x: ["-110%", "110%"], opacity: [0, 1, 0] }}
-                                transition={{ duration: 2.8, repeat: Infinity, ease: "easeInOut", repeatDelay: 0.7 }}
-                            />
-                        </span>
-                    </motion.div>
+                    <div className="cf-workflow-ready mr-2 hidden items-center gap-2 overflow-hidden rounded-full px-3 py-1 text-[11px] text-neutral-200 xl:flex">
+                        <span className="cf-workflow-ready-dot size-1.5 shrink-0 rounded-full" />
+                        <span>{t("titlebar.aiWorkflowReady")}</span>
+                    </div>
 
                     <button
                         type="button"
                         onClick={minimizeWindow}
-                        className="cf-pressable grid size-8 place-items-center rounded-lg text-neutral-500 transition hover:bg-neutral-900 hover:text-white"
+                        className="cf-pressable grid size-8 place-items-center rounded-lg text-neutral-500 transition hover:bg-white hover:text-black"
                         aria-label={t("titlebar.minimizeWindow")}
                     >
                         <Minus size={15} />
@@ -149,7 +116,7 @@ export function AppTitleBar({
                     <button
                         type="button"
                         onClick={toggleMaximizeWindow}
-                        className="cf-pressable grid size-8 place-items-center rounded-lg text-neutral-500 transition hover:bg-neutral-900 hover:text-white"
+                        className="cf-pressable grid size-8 place-items-center rounded-lg text-neutral-500 transition hover:bg-white hover:text-black"
                         aria-label={t("titlebar.maximizeWindow")}
                     >
                         <Maximize2 size={14} />

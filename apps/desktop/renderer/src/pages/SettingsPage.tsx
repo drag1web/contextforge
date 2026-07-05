@@ -35,6 +35,7 @@ import {
 
 import type { AppSettings, OllamaModel, OllamaStatus } from "../types";
 import { CustomSelect } from "../components/ui/CustomSelect";
+import { SlidingSelectionIndicator } from "../components/ui/SlidingSelectionIndicator";
 import { appMeta } from "../config/appMeta";
 import { keyboardShortcuts } from "../config/keyboardShortcuts";
 import { TARGET_TOOL_OPTIONS } from "../components/ai/aiToolOptions";
@@ -543,7 +544,6 @@ function SettingsActionButton({
       type="button"
       onClick={onClick}
       disabled={disabled}
-      whileHover={disabled ? undefined : { y: -1 }}
       whileTap={disabled ? undefined : { scale: 0.97 }}
       className={[
         "group relative h-10 overflow-hidden rounded-full border px-4 text-sm font-medium transition duration-200",
@@ -556,23 +556,10 @@ function SettingsActionButton({
           : ""
       ].join(" ")}
     >
-      <span className="pointer-events-none absolute inset-0 opacity-0 transition duration-300 group-hover:opacity-100">
-        <span className="absolute inset-y-0 -left-10 w-10 rotate-12 bg-white/30 blur-md transition duration-500 group-hover:left-[115%]" />
-      </span>
-
       {pulse && !loading && !disabled && (
-        <motion.span
+        <span
           aria-hidden="true"
-          className="absolute inset-0 rounded-full border border-white/30"
-          animate={{
-            opacity: [0.45, 0],
-            scale: [1, 1.12]
-          }}
-          transition={{
-            duration: 1.4,
-            repeat: Infinity,
-            ease: "easeOut"
-          }}
+          className="absolute inset-0 rounded-full border border-white/20"
         />
       )}
 
@@ -643,46 +630,12 @@ function SettingsSidebar({
         className="relative grid gap-1 overflow-hidden"
         style={{ height: navHeight }}
       >
-        <motion.span
-          aria-hidden="true"
-          className="settings-nav-active-glow"
-          style={{
-            height: SETTINGS_NAV_ITEM_HEIGHT,
-            willChange: "transform"
-          }}
-          initial={false}
-          animate={{
-            y:
-              activeIndex *
-              (SETTINGS_NAV_ITEM_HEIGHT + SETTINGS_NAV_ITEM_GAP)
-          }}
-          transition={{
-            type: "spring",
-            stiffness: 500,
-            damping: 42,
-            mass: 0.55
-          }}
-        />
-
-        <motion.span
-          aria-hidden="true"
+        <SlidingSelectionIndicator
+          activeIndex={activeIndex}
+          itemHeight={SETTINGS_NAV_ITEM_HEIGHT}
+          itemGap={SETTINGS_NAV_ITEM_GAP}
+          glowClassName="settings-nav-active-glow"
           className="settings-nav-active-pill"
-          style={{
-            height: SETTINGS_NAV_ITEM_HEIGHT,
-            willChange: "transform"
-          }}
-          initial={false}
-          animate={{
-            y:
-              activeIndex *
-              (SETTINGS_NAV_ITEM_HEIGHT + SETTINGS_NAV_ITEM_GAP)
-          }}
-          transition={{
-            type: "spring",
-            stiffness: 500,
-            damping: 42,
-            mass: 0.55
-          }}
         />
 
         {SETTINGS_SECTIONS.map((section) => {

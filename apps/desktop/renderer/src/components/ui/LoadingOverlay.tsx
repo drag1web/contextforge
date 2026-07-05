@@ -65,7 +65,7 @@ export function LoadingOverlay({ isVisible, message }: LoadingOverlayProps) {
       const slowCap = isOllamaGeneration ? 92 : 88;
       const next = Math.min(slowCap, 12 + Math.log10(1 + elapsed / 180) * 34 + elapsed / 2400);
       setProgress(next);
-    }, 220);
+    }, 420);
 
     return () => window.clearInterval(timer);
   }, [isOllamaGeneration, isVisible]);
@@ -82,7 +82,7 @@ export function LoadingOverlay({ isVisible, message }: LoadingOverlayProps) {
     <AnimatePresence>
       {isVisible && (
         <motion.div
-          className="fixed inset-0 z-[9997] flex items-center justify-center bg-black/62 px-6 backdrop-blur-sm"
+          className="fixed inset-0 z-[9997] flex items-center justify-center bg-black/78 px-6"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
@@ -108,7 +108,7 @@ export function LoadingOverlay({ isVisible, message }: LoadingOverlayProps) {
                         {isPromptGeneration ? "Generating Task Pack" : isOllamaGeneration ? "Ollama is generating" : "Working"}
                       </p>
                       <p className="mt-1 text-xs text-neutral-500">
-                        {activeStage.label} · {Math.round(safeProgress)}%
+                        {activeStage.label} - {Math.round(safeProgress)}%
                       </p>
                     </div>
 

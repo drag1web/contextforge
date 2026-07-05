@@ -19,6 +19,7 @@ import {
 } from "lucide-react";
 
 import { appMeta } from "../../config/appMeta";
+import { SlidingSelectionIndicator } from "../ui/SlidingSelectionIndicator";
 
 export type AppPageId =
   | "dashboard"
@@ -159,6 +160,9 @@ export const pageMetaMap = navigationSections
     {} as Record<AppPageId, NavigationItem>
   );
 
+const SIDEBAR_NAV_ITEM_HEIGHT = 52;
+const SIDEBAR_NAV_ITEM_GAP = 4;
+
 interface SidebarProps {
   activePage: AppPageId;
   showDescriptions?: boolean;
@@ -211,10 +215,8 @@ export function Sidebar({
     <motion.aside
       animate={{ width: isCollapsed ? 76 : 256 }}
       transition={{
-        type: "spring",
-        stiffness: 420,
-        damping: 38,
-        mass: 0.7
+        duration: 0.18,
+        ease: [0.16, 1, 0.3, 1]
       }}
       className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-white/[0.075] bg-black pb-5 pt-5"
     >
@@ -239,7 +241,7 @@ export function Sidebar({
         <button
           type="button"
           onClick={() => setIsCollapsed((current) => !current)}
-          className="cf-interactive group grid size-9 shrink-0 place-items-center rounded-2xl border border-white/[0.075] bg-neutral-950 text-neutral-500 hover:border-white/20 hover:bg-white/[0.075] hover:text-white"
+          className="cf-pressable group grid size-9 shrink-0 place-items-center rounded-2xl border border-white/[0.075] bg-neutral-950 text-neutral-500 transition hover:border-white hover:bg-white hover:text-black"
           title={isCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
           aria-label={isCollapsed ? t("nav.expandSidebar") : t("nav.collapseSidebar")}
         >
@@ -267,7 +269,21 @@ export function Sidebar({
               </p>
             )}
 
-            <div className="space-y-1">
+            <div
+              className="relative grid gap-1 overflow-hidden"
+              style={{
+                height:
+                  section.items.length * SIDEBAR_NAV_ITEM_HEIGHT +
+                  (section.items.length - 1) * SIDEBAR_NAV_ITEM_GAP
+              }}
+            >
+              <SlidingSelectionIndicator
+                activeIndex={section.items.findIndex((item) => item.id === activePage)}
+                itemHeight={SIDEBAR_NAV_ITEM_HEIGHT}
+                itemGap={SIDEBAR_NAV_ITEM_GAP}
+                className="sidebar-nav-active-pill"
+              />
+
               {section.items.map((item) => {
                 const Icon = item.icon;
                 const isActive = activePage === item.id;
@@ -281,25 +297,14 @@ export function Sidebar({
                     onClick={() => onNavigate(item.id)}
                     title={isCollapsed ? itemLabel : undefined}
                     className={[
-                      "cf-pressable group relative flex w-full items-center overflow-hidden rounded-2xl text-left transition duration-200",
-                      isCollapsed ? "justify-center px-0 py-2.5" : "gap-3 px-3 py-2.5",
+                      "cf-pressable group relative z-10 flex w-full items-center overflow-hidden rounded-2xl text-left transition-colors duration-150",
+                      isCollapsed ? "justify-center px-0" : "gap-3 px-3",
                       isActive
                         ? "text-black"
                         : "text-neutral-500 hover:text-black"
                     ].join(" ")}
+                    style={{ height: SIDEBAR_NAV_ITEM_HEIGHT }}
                   >
-                    {isActive && (
-                      <motion.span
-                        layoutId="sidebar-active-page"
-                        className="absolute inset-0 rounded-2xl bg-white shadow-[0_12px_30px_rgba(0,0,0,0.48)]"
-                        transition={{
-                          type: "spring",
-                          stiffness: 420,
-                          damping: 34
-                        }}
-                      />
-                    )}
-
                     {!isActive && (
                       <span className="absolute inset-0 rounded-2xl bg-white opacity-0 transition duration-200 group-hover:opacity-100" />
                     )}

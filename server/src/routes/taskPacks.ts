@@ -29,6 +29,7 @@ import {
   evaluateContextSelectionQuality,
   type ContextSelectionQuality,
 } from "../selection/contextQuality.js";
+import { isSecretLikePath } from "../selection/safetyPolicy.js";
 
 export const taskPacksRouter = Router();
 
@@ -291,6 +292,10 @@ function normalizeTaskTypeSection(
 
 function shouldReadSnippet(file: ProjectInventoryFile) {
   if (!file.canReadText) {
+    return false;
+  }
+
+  if (isSecretLikePath(file.path)) {
     return false;
   }
 

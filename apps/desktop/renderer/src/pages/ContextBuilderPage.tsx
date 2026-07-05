@@ -1,10 +1,12 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   Bot,
   CheckCircle2,
+  Eye,
+  FileClock,
   FileText,
   FolderOpen,
   Gauge,
@@ -14,7 +16,8 @@ import {
   XCircle
 } from "lucide-react";
 
-import type { Project } from "../types";
+import type { Project, ProjectContextFile } from "../types";
+import { getProjectContextFiles } from "../api/client";
 import { Button } from "../components/ui/Button";
 
 interface ContextBuilderPageProps {
@@ -22,6 +25,7 @@ interface ContextBuilderPageProps {
   isLoading: boolean;
   onAddProject: () => void;
   onGenerateAgents: (project: Project) => void;
+  onOpenContextFile: (project: Project, fileName: ProjectContextFile["fileName"]) => void;
   onCreateTaskPack: (project: Project) => void;
 }
 
@@ -154,24 +158,16 @@ function MetricCard({
         {label}
       </p>
 
-      <motion.p
-        key={String(value)}
-        initial={{ opacity: 0.55, y: 4 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={PAGE_TRANSITION}
-        className="cf-display-font mt-1 text-2xl font-semibold text-white"
-      >
+      <p className="cf-display-font mt-1 text-2xl font-semibold text-white">
         {value}
-      </motion.p>
+      </p>
     </div>
   );
 }
 
 function ReadinessCheckCard({
   check,
-  index,
-  missingLabel,
-  selectedProjectId
+  missingLabel
 }: {
   check: Project["readinessReport"]["checks"][number];
   index: number;
@@ -179,35 +175,10 @@ function ReadinessCheckCard({
   selectedProjectId: number;
 }) {
   return (
-    <motion.div
-      layout
-      transition={{
-        layout: {
-          duration: 0.2,
-          ease: [0.16, 1, 0.3, 1]
-        }
-      }}
-      className="relative overflow-hidden rounded-2xl border border-neutral-900 bg-black/40 p-4"
-    >
-      <motion.span
-        key={`${selectedProjectId}-${check.key}-sweep`}
-        aria-hidden="true"
-        initial={{ x: "-120%", opacity: 0 }}
-        animate={{ x: "140%", opacity: [0, 0.18, 0] }}
-        transition={{
-          delay: 0.015 * index,
-          duration: 0.42,
-          ease: [0.16, 1, 0.3, 1]
-        }}
-        className="pointer-events-none absolute inset-y-0 left-0 w-20 rotate-12 bg-white/20 blur-2xl"
-      />
-
-      <div className="relative z-10 flex items-start gap-3">
+    <div className="relative overflow-hidden rounded-2xl border border-neutral-900 bg-black/40 p-4">
+      <div className="flex items-start gap-3">
         {check.passed ? (
-          <CheckCircle2
-            size={16}
-            className="mt-0.5 text-emerald-300"
-          />
+          <CheckCircle2 size={16} className="mt-0.5 text-emerald-300" />
         ) : (
           <XCircle size={16} className="mt-0.5 text-neutral-600" />
         )}
@@ -228,7 +199,132 @@ function ReadinessCheckCard({
           </p>
         </div>
       </div>
-    </motion.div>
+    </div>
+  );
+}
+
+function formatContextFileSize(sizeBytes: number) {
+  if (sizeBytes <= 0) {
+    return "0 B";
+  }
+
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+
+  return `${Math.round(sizeBytes / 1024)} KB`;
+}
+
+function formatContextFileDate(value: string | null) {
+  if (!value) {
+    return "not saved yet";
+  }
+
+  try {
+    return new Intl.DateTimeFormat(undefined, {
+      month: "short",
+      day: "numeric",
+      hour: "2-digit",
+      minute: "2-digit"
+    }).format(new Date(value));
+  } catch {
+    return value;
+  }
+}
+
+function ProjectContextHistory({
+  files,
+  isLoading,
+  t,
+  onGenerateAgents,
+  onOpenFile
+}: {
+  files: ProjectContextFile[];
+  isLoading: boolean;
+  t: (key: string) => string;
+  onGenerateAgents: () => void;
+  onOpenFile: (fileName: ProjectContextFile["fileName"]) => void;
+}) {
+  const existingFiles = files.filter((file) => file.exists);
+
+  return (
+    <article className="cf-card p-5">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div>
+          <p className="cf-tech-label mb-2 text-xs uppercase text-neutral-600">
+            {t("contextBuilder.contextHistoryKicker")}
+          </p>
+
+          <h3 className="text-base font-semibold text-white">
+            {t("contextBuilder.contextHistoryTitle")}
+          </h3>
+
+          <p className="mt-1 text-sm leading-5 text-neutral-500">
+            {t("contextBuilder.contextHistoryDescription")}
+          </p>
+        </div>
+
+        <span className="cf-badge">{existingFiles.length}</span>
+      </div>
+
+      <div className="space-y-2">
+        {files.map((file) => (
+          <div
+            key={file.fileName}
+            className={[
+              "rounded-2xl border p-3 transition",
+              file.exists
+                ? "border-neutral-800 bg-black/35"
+                : "border-neutral-900 bg-black/20 opacity-75"
+            ].join(" ")}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div className="flex min-w-0 items-start gap-3">
+                <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+                  <FileClock size={16} />
+                </span>
+
+                <div className="min-w-0">
+                  <p className="truncate text-sm font-semibold text-white">
+                    {file.fileName}
+                  </p>
+
+                  <p className="mt-1 truncate text-xs text-neutral-600">
+                    {file.exists
+                      ? `${formatContextFileSize(file.sizeBytes)} · ${formatContextFileDate(file.updatedAt)}`
+                      : t("contextBuilder.contextHistoryNotGenerated")}
+                  </p>
+                </div>
+              </div>
+
+              {file.exists ? (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  disabled={isLoading}
+                  onClick={() => onOpenFile(file.fileName)}
+                  className="shrink-0 rounded-xl"
+                >
+                  <Eye size={14} />
+                  {t("contextBuilder.contextHistoryPreview")}
+                </Button>
+              ) : null}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <Button
+        type="button"
+        variant="secondary"
+        disabled={isLoading}
+        onClick={onGenerateAgents}
+        className="mt-4 w-full justify-center rounded-xl"
+      >
+        <FileText size={15} />
+        {t("contextBuilder.contextHistoryGenerate")}
+      </Button>
+    </article>
   );
 }
 
@@ -237,6 +333,7 @@ export function ContextBuilderPage({
   isLoading,
   onAddProject,
   onGenerateAgents,
+  onOpenContextFile,
   onCreateTaskPack
 }: ContextBuilderPageProps) {
   const { t } = useTranslation();
@@ -244,6 +341,8 @@ export function ContextBuilderPage({
   const [selectedProjectId, setSelectedProjectId] = useState<number | null>(
     projects[0]?.id ?? null
   );
+  const [contextFiles, setContextFiles] = useState<ProjectContextFile[]>([]);
+  const [isContextHistoryLoading, setIsContextHistoryLoading] = useState(false);
 
   const filteredProjects = useMemo(() => {
     const normalizedQuery = normalize(query).trim();
@@ -275,6 +374,51 @@ export function ContextBuilderPage({
       null
     );
   }, [filteredProjects, projects, selectedProjectId]);
+
+  useEffect(() => {
+    if (projects.length === 0) {
+      setSelectedProjectId(null);
+      return;
+    }
+
+    if (selectedProjectId && projects.some((project) => project.id === selectedProjectId)) {
+      return;
+    }
+
+    setSelectedProjectId(projects[0].id);
+  }, [projects, selectedProjectId]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    if (!selectedProject) {
+      setContextFiles([]);
+      return;
+    }
+
+    setIsContextHistoryLoading(true);
+
+    getProjectContextFiles(selectedProject.id)
+      .then((files) => {
+        if (isMounted) {
+          setContextFiles(files);
+        }
+      })
+      .catch(() => {
+        if (isMounted) {
+          setContextFiles([]);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setIsContextHistoryLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [selectedProject]);
 
   if (projects.length === 0) {
     return (
@@ -403,18 +547,6 @@ export function ContextBuilderPage({
         {selectedProject && (
           <div className="space-y-5">
             <div className="cf-card relative overflow-hidden p-5">
-              <motion.span
-                key={`project-card-sweep-${selectedProject.id}`}
-                aria-hidden="true"
-                initial={{ x: "-120%", opacity: 0 }}
-                animate={{ x: "140%", opacity: [0, 0.16, 0] }}
-                transition={{
-                  duration: 0.48,
-                  ease: [0.16, 1, 0.3, 1]
-                }}
-                className="pointer-events-none absolute inset-y-0 left-0 w-28 rotate-12 bg-white/20 blur-3xl"
-              />
-
               <div className="relative z-10 grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
                 <div className="min-w-0">
                   <div className="mb-3 flex items-start gap-3">
@@ -423,25 +555,13 @@ export function ContextBuilderPage({
                     </div>
 
                     <div className="min-w-0">
-                      <motion.h3
-                        key={`title-${selectedProject.id}`}
-                        initial={{ opacity: 0.65, y: 4 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={PAGE_TRANSITION}
-                        className="truncate text-xl font-semibold tracking-[-0.03em] text-white"
-                      >
+                      <h3 className="truncate text-xl font-semibold tracking-[-0.03em] text-white">
                         {selectedProject.name}
-                      </motion.h3>
+                      </h3>
 
-                      <motion.p
-                        key={`path-${selectedProject.id}`}
-                        initial={{ opacity: 0.55, y: 3 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={PAGE_TRANSITION}
-                        className="mt-1 truncate text-sm text-neutral-600"
-                      >
+                      <p className="mt-1 truncate text-sm text-neutral-600">
                         {selectedProject.localPath}
-                      </motion.p>
+                      </p>
                     </div>
                   </div>
 
@@ -486,26 +606,14 @@ export function ContextBuilderPage({
                         {t("contextBuilder.contextReadiness")}
                       </p>
 
-                      <motion.p
-                        key={`status-${selectedProject.id}`}
-                        initial={{ opacity: 0.65, y: 3 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={PAGE_TRANSITION}
-                        className="mt-1 text-sm font-medium text-white"
-                      >
+                      <p className="mt-1 text-sm font-medium text-white">
                         {getProjectStatus(selectedProject.readinessScore, t)}
-                      </motion.p>
+                      </p>
                     </div>
 
-                    <motion.span
-                      key={`score-${selectedProject.id}`}
-                      initial={{ opacity: 0.6, y: 6 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={PAGE_TRANSITION}
-                      className="cf-display-font text-3xl font-semibold leading-none text-white"
-                    >
+                    <span className="cf-display-font text-3xl font-semibold leading-none text-white">
                       {selectedProject.readinessScore}
-                    </motion.span>
+                    </span>
                   </div>
 
                   <div className="mb-5 rounded-full border border-white/10 bg-black p-1 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)]">
@@ -564,17 +672,11 @@ export function ContextBuilderPage({
                     </p>
                   </div>
 
-                  <motion.span
-                    key={`passed-${selectedProject.id}`}
-                    initial={{ opacity: 0.6, y: 4 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={PAGE_TRANSITION}
-                    className="cf-badge"
-                  >
+                  <span className="cf-badge">
                     {t("contextBuilder.passed", {
                       count: getPassedChecks(selectedProject)
                     })}
-                  </motion.span>
+                  </span>
                 </div>
 
                 <div className="grid gap-3 md:grid-cols-2">
@@ -592,19 +694,6 @@ export function ContextBuilderPage({
 
               <aside className="space-y-5">
                 <article className="cf-card relative overflow-hidden p-5">
-                  <motion.span
-                    key={`recommendation-sweep-${selectedProject.id}`}
-                    aria-hidden="true"
-                    initial={{ x: "-120%", opacity: 0 }}
-                    animate={{ x: "140%", opacity: [0, 0.13, 0] }}
-                    transition={{
-                      duration: 0.42,
-                      ease: [0.16, 1, 0.3, 1],
-                      delay: 0.04
-                    }}
-                    className="pointer-events-none absolute inset-y-0 left-0 w-20 rotate-12 bg-white/20 blur-2xl"
-                  />
-
                   <div className="relative z-10">
                     <div className="mb-4 flex size-9 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-200">
                       <Gauge size={18} />
@@ -614,32 +703,13 @@ export function ContextBuilderPage({
                       {t("contextBuilder.mainRecommendation")}
                     </p>
 
-                    <motion.p
-                      key={`main-issue-${selectedProject.id}`}
-                      initial={{ opacity: 0.55, y: 4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={PAGE_TRANSITION}
-                      className="mt-3 text-sm leading-6 text-neutral-400"
-                    >
+                    <p className="mt-3 text-sm leading-6 text-neutral-400">
                       {getMainIssue(selectedProject, t)}
-                    </motion.p>
+                    </p>
                   </div>
                 </article>
 
                 <article className="cf-card relative overflow-hidden p-5">
-                  <motion.span
-                    key={`action-sweep-${selectedProject.id}`}
-                    aria-hidden="true"
-                    initial={{ x: "-120%", opacity: 0 }}
-                    animate={{ x: "140%", opacity: [0, 0.13, 0] }}
-                    transition={{
-                      duration: 0.42,
-                      ease: [0.16, 1, 0.3, 1],
-                      delay: 0.08
-                    }}
-                    className="pointer-events-none absolute inset-y-0 left-0 w-20 rotate-12 bg-white/20 blur-2xl"
-                  />
-
                   <div className="relative z-10">
                     <div className="mb-4 flex size-9 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-200">
                       <AlertTriangle size={18} />
@@ -649,19 +719,21 @@ export function ContextBuilderPage({
                       {t("contextBuilder.nextBestAction")}
                     </p>
 
-                    <motion.p
-                      key={`next-action-${selectedProject.id}`}
-                      initial={{ opacity: 0.55, y: 4 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={PAGE_TRANSITION}
-                      className="mt-3 text-sm leading-6 text-neutral-400"
-                    >
+                    <p className="mt-3 text-sm leading-6 text-neutral-400">
                       {selectedProject.readinessScore >= 70
                         ? t("contextBuilder.readyAction")
                         : t("contextBuilder.improveAction")}
-                    </motion.p>
+                    </p>
                   </div>
                 </article>
+
+                <ProjectContextHistory
+                  files={contextFiles}
+                  isLoading={isLoading || isContextHistoryLoading}
+                  t={t}
+                  onGenerateAgents={() => onGenerateAgents(selectedProject)}
+                  onOpenFile={(fileName) => onOpenContextFile(selectedProject, fileName)}
+                />
               </aside>
             </div>
           </div>

@@ -108,7 +108,7 @@ Not required for the MVP:
 
 ## MVP release checklist
 
-- [ ] Versions are synced to `0.5.2-alpha`.
+- [ ] Versions are synced to `0.5.3-alpha`.
 - [ ] README describes the actual project state.
 - [ ] `/api/health` returns the current version.
 - [x] SQLite storage is available for desktop.

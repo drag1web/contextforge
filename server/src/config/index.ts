@@ -1,4 +1,4 @@
-﻿import path from "node:path";
+import path from "node:path";
 import dotenv from "dotenv";
 
 import type { StorageDriver } from "../storage/types.js";
@@ -10,7 +10,7 @@ function readStorageDriver(): StorageDriver {
 }
 
 export const config = {
-  appVersion: process.env.APP_VERSION ?? "0.5.2-alpha",
+  appVersion: process.env.APP_VERSION ?? "0.5.3-alpha",
   port: Number(process.env.SERVER_PORT ?? 4000),
   storageDriver: readStorageDriver(),
   sqliteDatabasePath:

@@ -1,6 +1,10 @@
 import { getAppSettings } from "../settings/settingsService.js";
 import { resolveExplicitFileMentions } from "../selection/explicitFileMentions.js";
 import { buildProjectSemanticGraph } from "../selection/projectSemanticGraph.js";
+import {
+  detectHardTaskSafetyIssue,
+  isSecretLikePath,
+} from "../selection/safetyPolicy.js";
 import type {
   ProjectInventory,
   ProjectInventoryFile,
@@ -2596,6 +2600,10 @@ function isSensitiveEnvPath(pathValue: string) {
   return false;
 }
 
+function isSensitivePath(pathValue: string) {
+  return isSensitiveEnvPath(pathValue) || isSecretLikePath(pathValue);
+}
+
 function isAssetReferenceControllerPath(pathValue: string) {
   const filePath = normalizeForCompare(pathValue);
   const fileName = filePath.split("/").pop() ?? filePath;
@@ -3471,7 +3479,7 @@ function canUseSemanticPageTargetFile(
   const positiveTokens = getPositiveTargetTokens(input);
 
   if (!isPageLikeTargetFile(file)) return false;
-  if (isSensitiveEnvPath(file.path)) return false;
+  if (isSensitivePath(file.path)) return false;
   if (isSystemSeoFile(file) && !isSystemSeoRelevantForTask(input)) return false;
   if (file.kind === "runtime" || file.kind === "asset" || file.kind === "data")
     return false;
@@ -4136,7 +4144,7 @@ function canUsePageImportFile(
   imported: ProjectInventoryFile,
   area: EffectiveTaskArea,
 ) {
-  if (isSensitiveEnvPath(imported.path)) return false;
+  if (isSensitivePath(imported.path)) return false;
   if (isSystemSeoFile(imported) && !isSystemSeoRelevantForTask(input))
     return false;
   if (
@@ -4443,7 +4451,7 @@ function isLocalStateDataPath(pathValue: string) {
 
 function isDangerousAutoEditPath(pathValue: string) {
   return (
-    isSensitiveEnvPath(pathValue) ||
+    isSensitivePath(pathValue) ||
     isLocalStateDataPath(pathValue) ||
     isAgentSkillPath(pathValue) ||
     isLockFilePath(pathValue)
@@ -4813,7 +4821,7 @@ function applyReferenceOnlySafetyGuard(
         );
       if (explicitPaths.has(normalizeForCompare(inventoryFile.path)))
         return true;
-      if (isSensitiveEnvPath(inventoryFile.path)) return false;
+      if (isSensitivePath(inventoryFile.path)) return false;
       if (isLocalStateDataPath(inventoryFile.path)) return false;
       return true;
     })
@@ -4971,7 +4979,7 @@ function isSafePlannedCreatePath(pathValue: string) {
   if (
     isDangerousAutoEditPath(comparable) ||
     isGeneratedDoNotEditPath(comparable) ||
-    isSensitiveEnvPath(comparable)
+    isSensitivePath(comparable)
   )
     return false;
   if (
@@ -5437,8 +5445,34 @@ function finalizeSelectedFilesForSafety(
   input: SelectTaskFilesInput,
 ) {
   const notes: string[] = [];
+  const hardSafety = detectHardTaskSafetyIssue(input.rawTask);
+  if (hardSafety.blocked) {
+    notes.push(
+      "Hard safety policy blocked selected files after validation; no snippets will be included.",
+      ...hardSafety.reasons,
+    );
+    return { selectedFiles: [], notes };
+  }
+
   const createPlan = getPlannedCreateTargets(input);
   let selectedFiles = dedupeSelectedFilesByPath(selection.selectedFiles);
+  const terminalManualReview =
+    selectedFiles.length === 0 &&
+    selection.notes.some((note) =>
+      includesAny(normalizeForCompare(note), [
+        "stopped automatic selection",
+        "manual target selection is required",
+        "manual target selection or a more specific task is required",
+        "task type conflict stopped automatic selection",
+      ]),
+    );
+
+  if (terminalManualReview) {
+    notes.push(
+      "Final safety guard preserved the manual-review/block state and did not add fallback seed files.",
+    );
+    return { selectedFiles: [], notes };
+  }
 
   if (
     hasCreateTargetIntent(input) &&
@@ -5864,6 +5898,137 @@ function isSpecificPageOrFileTask(
   )
     return true;
   return false;
+}
+
+function isBroadUiScopeTask(
+  input: SelectTaskFilesInput,
+  area: EffectiveTaskArea,
+) {
+  if (area !== "ui" && area !== "general" && area !== "fullstack")
+    return false;
+  if (hasExplicitPrimaryTarget(input, area)) return false;
+
+  const text = normalizeForCompare(getPositiveTaskText(input.rawTask));
+  return (
+    includesAny(text, [
+      "across the site",
+      "whole site",
+      "site-wide",
+      "all pages",
+      "every page",
+      "global layout",
+      "mobile responsiveness",
+      "responsive layout",
+      "adaptive layout",
+      "\u0432\u0435\u0441\u044c \u0441\u0430\u0439\u0442",
+      "\u043f\u043e \u0432\u0441\u0435\u043c\u0443 \u0441\u0430\u0439\u0442\u0443",
+      "\u0432\u0441\u0435 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u044b",
+      "\u043d\u0430 \u0432\u0441\u0435\u0445 \u0441\u0442\u0440\u0430\u043d\u0438\u0446\u0430\u0445",
+      "\u0430\u0434\u0430\u043f\u0442\u0438\u0432\u043d\u043e\u0441\u0442\u044c \u0441\u0430\u0439\u0442\u0430",
+      "\u043c\u043e\u0431\u0438\u043b\u044c\u043d\u0430\u044f \u0432\u0435\u0440\u0441\u0438\u044f",
+    ]) ||
+    (includesAny(text, [
+      "responsive",
+      "mobile",
+      "\u0430\u0434\u0430\u043f\u0442\u0438\u0432",
+      "\u043c\u043e\u0431\u0438\u043b",
+    ]) &&
+      includesAny(text, [
+        "site",
+        "layout",
+        "pages",
+        "\u0441\u0430\u0439\u0442",
+        "\u043b\u0435\u0439\u0430\u0443\u0442",
+        "\u0441\u0442\u0440\u0430\u043d\u0438\u0446",
+      ]))
+  );
+}
+
+function isAmbiguousLowSignalTask(
+  input: SelectTaskFilesInput,
+  area: EffectiveTaskArea,
+  tokenContext: TokenContext,
+) {
+  if (area === "docs" || area === "tests" || area === "build") return false;
+  if (hasExplicitPrimaryTarget(input, area)) return false;
+  if (tokenContext.explicitExistingPaths.length > 0) return false;
+  if (tokenContext.explicitMissingPaths.length > 0) return false;
+  if (tokenContext.routeMentions.length > 0) return false;
+  if (hasCreateTargetIntent(input)) return false;
+
+  const text = normalizeForCompare(getPositiveTaskText(input.rawTask));
+  const specificTokens = getSpecificPositiveTokens(input).filter(
+    (token) =>
+      token.length >= 4 &&
+      ![
+        "make",
+        "project",
+        "better",
+        "good",
+        "nice",
+        "improve",
+        "update",
+        "change",
+        "fix",
+        "code",
+      ].includes(token),
+  );
+
+  return (
+    specificTokens.length < 2 &&
+    includesAny(text, [
+      "make",
+      "improve",
+      "better",
+      "fix",
+      "update",
+      "change",
+      "\u0441\u0434\u0435\u043b\u0430\u0439",
+      "\u0443\u043b\u0443\u0447\u0448",
+      "\u043b\u0443\u0447\u0448\u0435",
+      "\u0438\u0441\u043f\u0440\u0430\u0432",
+      "\u043e\u0431\u043d\u043e\u0432",
+      "\u0438\u0437\u043c\u0435\u043d",
+    ])
+  );
+}
+
+function isUiTaskWithBackendMutationConflict(input: SelectTaskFilesInput) {
+  const selectedType = normalizeForCompare(input.taskType);
+  if (selectedType !== "ui" && selectedType !== "frontend") return false;
+
+  const text = normalizeForCompare(getPositiveTaskText(input.rawTask));
+  const asksBackendMutation =
+    includesAny(text, [
+      "backend endpoint",
+      "server endpoint",
+      "api endpoint",
+      "new endpoint",
+      "add endpoint",
+      "create endpoint",
+      "backend route",
+      "api route",
+      "server route",
+      "\u0431\u044d\u043a\u0435\u043d\u0434",
+      "\u0431\u0435\u043a\u0435\u043d\u0434",
+      "\u044d\u043d\u0434\u043f\u043e\u0438\u043d\u0442",
+      "\u0440\u043e\u0443\u0442",
+      "\u043c\u0430\u0440\u0448\u0440\u0443\u0442 api",
+    ]) &&
+    includesAny(text, [
+      "add",
+      "create",
+      "implement",
+      "build",
+      "write",
+      "new",
+      "\u0434\u043e\u0431\u0430\u0432",
+      "\u0441\u043e\u0437\u0434",
+      "\u0440\u0435\u0430\u043b\u0438\u0437",
+      "\u043d\u043e\u0432",
+    ]);
+
+  return asksBackendMutation;
 }
 
 function getStrongTokenMatchCountForFile(
@@ -6754,9 +6919,7 @@ function trimLowValueFallbackCandidates(
     return false;
   });
 
-  return trimmed.length > 0
-    ? trimmed
-    : items.slice(0, MIN_MODEL_SELECTED_FILES);
+  return trimmed;
 }
 
 function findInventoryFile(inventory: ProjectInventory, filePath: string) {
@@ -6781,6 +6944,44 @@ function findInventoryFileByLoosePath(
       normalized.endsWith(`/${comparable}`)
     );
   });
+}
+
+function stripKnownExtension(pathValue: string) {
+  return pathValue.replace(/\.[a-z0-9]+$/i, "");
+}
+
+function extractExplicitSymbolTargetNames(rawTask: string) {
+  return uniqueStrings(
+    Array.from(
+      rawTask.matchAll(
+        /\b[A-Z][A-Za-z0-9]*(?:Page|Component|Form|Modal|View|Screen|Layout|Provider|Context|Service|Controller|Repository|Store|Hook)\b/g,
+      ),
+    )
+      .map((match) => match[0])
+      .filter(Boolean),
+  );
+}
+
+function inventoryHasExplicitSymbolTarget(
+  inventory: ProjectInventory,
+  targetName: string,
+) {
+  const target = normalizeForCompare(targetName);
+  return inventory.files.some((file) => {
+    const fileName = normalizeForCompare(stripKnownExtension(file.name));
+    if (fileName === target) return true;
+    if (normalizeForCompare(file.path).includes(`/${target}.`)) return true;
+    return [...(file.symbols ?? []), ...(file.exports ?? [])].some(
+      (symbol) => normalizeForCompare(symbol) === target,
+    );
+  });
+}
+
+function getMissingExplicitSymbolTargets(input: SelectTaskFilesInput) {
+  if (hasCreateTargetIntent(input)) return [];
+  return extractExplicitSymbolTargetNames(input.rawTask).filter(
+    (targetName) => !inventoryHasExplicitSymbolTarget(input.inventory, targetName),
+  );
 }
 
 function getStructuredIntentTargets(input: SelectTaskFilesInput) {
@@ -8224,7 +8425,7 @@ function canUseSelectedFile(
 
   if (isProtectedByUserConstraint(file, input, area)) return false;
   if (isUnsupportedStructuredTargetPath(input, file)) return false;
-  if (isSensitiveEnvPath(file.path)) return false;
+  if (isSensitivePath(file.path)) return false;
   if (isSystemSeoFile(file) && !isSystemSeoRelevantForTask(input)) return false;
   if (file.kind === "runtime") return false;
   if (file.isLikelyGenerated) return false;
@@ -8266,9 +8467,7 @@ function canUseSelectedFile(
   }
 
   if (area === "docs") {
-    if (file.kind === "asset" || file.kind === "data") return false;
-    if (file.kind === "source" && !isEntryOrFrameworkPath(file.path))
-      return false;
+    return file.kind === "docs" || isPackageOrConfigPath(file.path);
   }
 
   return true;
@@ -8734,6 +8933,8 @@ function getRouteAwareSeedFiles(
   tokenContext: TokenContext,
   selected: SelectedTaskFile[],
 ) {
+  if (area === "docs") return [];
+  if (isBroadUiScopeTask(input, area)) return [];
   if (tokenContext.routeMentions.length === 0) return [];
 
   const seen = new Set(selected.map((file) => normalizeForCompare(file.path)));
@@ -8825,6 +9026,121 @@ function getRouteAwareSeedFiles(
   );
 }
 
+function isTestPlanningTask(input: SelectTaskFilesInput, area: EffectiveTaskArea) {
+  if (area !== "tests" && area !== "general") return false;
+  const text = normalizeForCompare(buildTaskText(input));
+  const testIntent =
+    /\b(?:test|tests|testing|coverage|scenarios|strategy)\b/i.test(text) ||
+    /(?:\u0442\u0435\u0441\u0442|\u0442\u0435\u0441\u0442\u044b|\u0441\u0446\u0435\u043d\u0430\u0440|\u043f\u0440\u043e\u0432\u0435\u0440)/i.test(
+      text,
+    );
+  const planningIntent =
+    /\b(?:find|where|recommend|prepare|plan|strategy|describe|outline|review)\b/i.test(
+      text,
+    ) ||
+    /(?:\u043d\u0430\u0439\u0434\u0438|\u0433\u0434\u0435|\u043b\u0443\u0447\u0448\u0435|\u043f\u043e\u0434\u0433\u043e\u0442\u043e\u0432|\u043e\u043f\u0438\u0448\u0438|\u0441\u0446\u0435\u043d\u0430\u0440|\u0441\u0442\u0440\u0430\u0442\u0435\u0433)/i.test(
+      text,
+    );
+  const directTestWrite =
+    /\b(?:write|implement|create)\s+(?:unit\s+|e2e\s+|integration\s+)?tests?\b/i.test(
+      text,
+    ) ||
+    /(?:\u043d\u0430\u043f\u0438\u0448\u0438|\u0441\u043e\u0437\u0434\u0430\u0439)\s+[^.!?\n]{0,80}\u0442\u0435\u0441\u0442/i.test(
+      text,
+    );
+
+  return testIntent && planningIntent && !directTestWrite;
+}
+
+function getTestPlanningReferenceFiles(
+  input: SelectTaskFilesInput,
+): SelectedTaskFile[] {
+  const tokenContext = buildTokenContext(input);
+  const infraCandidates = input.inventory.files
+    .filter((file) => {
+      const filePath = normalizeForCompare(file.path);
+      const fileName = filePath.split("/").pop() ?? filePath;
+      return (
+        file.kind === "test" ||
+        file.kind === "docs" ||
+        file.kind === "config" ||
+        fileName === "package.json" ||
+        fileName.startsWith("vitest.config") ||
+        fileName.startsWith("jest.config") ||
+        fileName.startsWith("playwright.config") ||
+        fileName.startsWith("cypress.config") ||
+        fileName.startsWith("tsconfig") ||
+        fileName === "readme.md" ||
+        fileName === "agents.md"
+      );
+    })
+    .filter((file) => canUseSelectedFile(input, file, "tests", "none"))
+    .map((file) => {
+      const filePath = normalizeForCompare(file.path);
+      const fileName = filePath.split("/").pop() ?? filePath;
+      let priority = 20;
+      if (fileName === "package.json") priority += 100;
+      if (file.kind === "test") priority += 90;
+      if (fileName.includes("vitest") || fileName.includes("jest"))
+        priority += 84;
+      if (fileName.includes("playwright") || fileName.includes("cypress"))
+        priority += 76;
+      if (file.kind === "docs") priority += 58;
+      if (file.kind === "config") priority += 36;
+      if (fileName === "agents.md") priority += 24;
+      return { file, priority };
+    })
+    .sort((a, b) => b.priority - a.priority)
+    .slice(0, Math.max(2, getSelectionLimitFromSettings(input, "tests", "none") - 3));
+
+  const sourceCandidates = input.inventory.files
+    .filter((file) => canUseSelectedFile(input, file, "tests", "none"))
+    .filter((file) => file.kind === "source")
+    .filter((file) => !isSensitivePath(file.path))
+    .map((file) => ({
+      file,
+      score: scoreFileFallback(file, tokenContext, input, "tests", "none"),
+      strongMatches: getStrongTokenMatchCountForFile(
+        file,
+        tokenContext.strongTokens,
+      ),
+    }))
+    .filter((item) => {
+      if (isPageLikeTargetFile(item.file) && item.strongMatches === 0)
+        return false;
+      return item.score >= 48 || item.strongMatches >= 2;
+    })
+    .sort((a, b) => b.score - a.score)
+    .slice(0, 3)
+    .map((item) => ({
+      file: item.file,
+      priority: Math.min(118, Math.max(54, item.score)),
+    }));
+
+  const candidates = [...sourceCandidates, ...infraCandidates]
+    .filter(
+      (item, index, all) =>
+        all.findIndex(
+          (other) =>
+            normalizeForCompare(other.file.path) ===
+            normalizeForCompare(item.file.path),
+        ) === index,
+    )
+    .slice(0, getSelectionLimitFromSettings(input, "tests", "none"));
+
+  return candidates.map(({ file, priority }) =>
+    makeSelectedFile(
+      file,
+      "Selected as test-planning reference context. Planning tasks should inspect scripts, test config, docs, and existing tests before choosing edit targets.",
+      Math.min(0.88, Math.max(0.58, priority / 150)),
+      file.kind === "config" ||
+        normalizeForCompare(file.path).endsWith("package.json")
+        ? "config-reference"
+        : "inspect-only",
+    ),
+  );
+}
+
 function buildFallbackSelection(
   input: SelectTaskFilesInput,
 ): TaskFileSelection {
@@ -8907,6 +9223,126 @@ function buildFallbackSelection(
   const tokenContext = buildTokenContext(input);
   const constraints = getTaskConstraints(input);
   const selected: SelectedTaskFile[] = [];
+  const hardSafety = detectHardTaskSafetyIssue(input.rawTask);
+  const missingExplicitSymbolTargets = getMissingExplicitSymbolTargets(input);
+
+  if (hardSafety.blocked) {
+    return {
+      selectedFiles: [],
+      rejectedModelPaths: tokenContext.explicitMissingPaths,
+      source: "fallback",
+      usedFallback: true,
+      durationMs: getDurationMs(startedAt),
+      effectiveTaskArea,
+      assetMode,
+      conflictNote,
+      notes: [
+        "Fallback file selection was used.",
+        "Hard safety policy stopped automatic file selection before reading snippets.",
+        ...hardSafety.reasons,
+        `Effective task area: ${effectiveTaskArea}.`,
+        `Asset mode: ${assetMode}.`,
+        conflictNote ?? "No task type conflict detected.",
+        ...constraints.notes,
+      ],
+    };
+  }
+
+  if (isUiTaskWithBackendMutationConflict(input)) {
+    return {
+      selectedFiles: [],
+      rejectedModelPaths: tokenContext.explicitMissingPaths,
+      source: "fallback",
+      usedFallback: true,
+      durationMs: getDurationMs(startedAt),
+      effectiveTaskArea,
+      assetMode,
+      conflictNote:
+        conflictNote ??
+        "Selected task type is UI, but the task text asks for backend/API mutation.",
+      notes: [
+        "Fallback file selection was used.",
+        "Task type conflict stopped automatic selection: UI-only mode was selected, but the request asks to add or modify backend/API behavior.",
+        "Choose a full-stack/backend task type or remove the backend/API request before generating.",
+        `Effective task area: ${effectiveTaskArea}.`,
+        `Asset mode: ${assetMode}.`,
+        conflictNote ?? "Selected task type is UI, but backend/API mutation was requested.",
+        ...constraints.notes,
+      ],
+    };
+  }
+
+  if (missingExplicitSymbolTargets.length > 0) {
+    return {
+      selectedFiles: [],
+      rejectedModelPaths: [
+        ...tokenContext.explicitMissingPaths,
+        ...missingExplicitSymbolTargets,
+      ],
+      source: "fallback",
+      usedFallback: true,
+      durationMs: getDurationMs(startedAt),
+      effectiveTaskArea,
+      assetMode,
+      conflictNote,
+      notes: [
+        "Fallback file selection was used.",
+        `Explicit target name(s) were mentioned but not found in the real project inventory: ${missingExplicitSymbolTargets.join(", ")}.`,
+        "Manual target selection is required; ContextForge will not replace a missing explicit target with a similar page or component.",
+        `Effective task area: ${effectiveTaskArea}.`,
+        `Asset mode: ${assetMode}.`,
+        conflictNote ?? "No task type conflict detected.",
+        ...constraints.notes,
+      ],
+    };
+  }
+
+  if (isAmbiguousLowSignalTask(input, effectiveTaskArea, tokenContext)) {
+    return {
+      selectedFiles: [],
+      rejectedModelPaths: tokenContext.explicitMissingPaths,
+      source: "fallback",
+      usedFallback: true,
+      durationMs: getDurationMs(startedAt),
+      effectiveTaskArea,
+      assetMode,
+      conflictNote,
+      notes: [
+        "Fallback file selection was used.",
+        "Automatic selection stopped because the task is too broad and does not name a concrete page, component, file, route, feature, test target, or documentation target.",
+        "Manual target selection or a more specific task is required before generating a Task Pack.",
+        `Effective task area: ${effectiveTaskArea}.`,
+        `Asset mode: ${assetMode}.`,
+        conflictNote ?? "No task type conflict detected.",
+        ...constraints.notes,
+      ],
+    };
+  }
+
+  if (isTestPlanningTask(input, effectiveTaskArea)) {
+    const referenceFiles = getTestPlanningReferenceFiles(input);
+    return {
+      selectedFiles: referenceFiles,
+      rejectedModelPaths: tokenContext.explicitMissingPaths,
+      source: "fallback",
+      usedFallback: true,
+      durationMs: getDurationMs(startedAt),
+      effectiveTaskArea,
+      assetMode,
+      conflictNote,
+      notes: [
+        "Fallback file selection was used.",
+        "Test-planning intent detected; ContextForge selected scripts, test config, docs, and existing tests as reference context instead of editing random production pages.",
+        `Effective task area: ${effectiveTaskArea}.`,
+        `Asset mode: ${assetMode}.`,
+        conflictNote ?? "No task type conflict detected.",
+        ...constraints.notes,
+        referenceFiles.length > 0
+          ? "No direct edit target was selected because the task asks for planning/review rather than implementing tests."
+          : "No package, docs, test, or test-config context was found for this planning task.",
+      ],
+    };
+  }
 
   for (const explicitPath of tokenContext.explicitExistingPaths) {
     const inventoryFile = findInventoryFile(input.inventory, explicitPath);
@@ -9452,6 +9888,11 @@ function buildFallbackSelection(
   );
 
   for (const { file, score } of trimmed) {
+    const requestedUsage =
+      isBroadUiScopeTask(input, effectiveTaskArea) && isPageLikeTargetFile(file)
+        ? "inspect-only"
+        : defaultUsageForFile(file);
+
     selected.push(
       makeSelectedFile(
         file,
@@ -9459,6 +9900,7 @@ function buildFallbackSelection(
           ? "Selected by universal fallback ranking based on task meaning, file kind, path overlap, and technical role."
           : "Selected by universal fallback ranking as potentially useful context.",
         Math.min(0.84, Math.max(0.35, score / 120)),
+        requestedUsage,
       ),
     );
   }

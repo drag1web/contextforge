@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.5.3-alpha
+
+### Added
+
+- Added editable `AGENTS.md` preview flow with Preview, Edit and Raw modes.
+- Added safer save choices for `AGENTS.md`, including overwrite warning and `AGENTS.generated.md` copy option.
+
+### Changed
+
+- Synced root, server, renderer, shared package, lockfile, README and app metadata to `0.5.3-alpha`.
+- Updated the active app phase to `Phase 0.5.3 — MVP Stabilization`.
+
 ## 0.5.2-alpha
 
 ### Added

@@ -22,6 +22,7 @@ import {
   evaluateContextSelectionQuality,
   type ContextSelectionQuality
 } from "../selection/contextQuality.js";
+import { isSecretLikePath } from "../selection/safetyPolicy.js";
 
 interface ProjectReadinessReport {
   issues: string[];
@@ -170,6 +171,7 @@ function findInventoryFile(inventory: ProjectInventory, relativePath: string) {
 
 function shouldReadSnippet(file: ProjectInventoryFile) {
   if (!file.canReadText) return false;
+  if (isSecretLikePath(file.path)) return false;
   if (file.kind === "asset") return false;
   if (file.kind === "runtime") return false;
   if (file.kind === "data") return false;

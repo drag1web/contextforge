@@ -540,6 +540,7 @@ export function DashboardPage() {
           isLoading={dashboard.isLoading}
           onAddProject={dashboard.handleSelectProject}
           onGenerateAgents={dashboard.handleGenerateAgentsPreview}
+          onOpenContextFile={dashboard.handleOpenProjectContextFile}
           onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
         />
       );

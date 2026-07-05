@@ -79,10 +79,10 @@
   --cf-bg: #000000;
   --cf-bg-soft: #030303;
 
-  --cf-surface: #070707;
-  --cf-surface-soft: #0a0a0a;
-  --cf-surface-elevated: #0f0f0f;
-  --cf-surface-hover: #121212;
+  --cf-surface: #060606;
+  --cf-surface-soft: #0b0b0b;
+  --cf-surface-elevated: #101010;
+  --cf-surface-hover: #151515;
 
   --cf-border: rgba(255, 255, 255, 0.11);
   --cf-border-soft: rgba(255, 255, 255, 0.075);
@@ -103,16 +103,16 @@
   --cf-radius-lg: 14px;
   --cf-radius-xl: 18px;
 
-  --cf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.34);
-  --cf-shadow-md: 0 12px 30px rgba(0, 0, 0, 0.36);
-  --cf-shadow-lg: 0 24px 74px rgba(0, 0, 0, 0.54);
-  --cf-shadow-card: 0 12px 30px rgba(0, 0, 0, 0.28);
-  --cf-shadow-card-hover: 0 16px 42px rgba(0, 0, 0, 0.38);
+  --cf-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.32);
+  --cf-shadow-md: 0 10px 26px rgba(0, 0, 0, 0.34);
+  --cf-shadow-lg: 0 22px 60px rgba(0, 0, 0, 0.50);
+  --cf-shadow-card: 0 10px 28px rgba(0, 0, 0, 0.24);
+  --cf-shadow-card-hover: 0 14px 34px rgba(0, 0, 0, 0.32);
 
   --cf-ease-out: cubic-bezier(0.16, 1, 0.3, 1);
   --cf-ease-standard: cubic-bezier(0.2, 0, 0, 1);
-  --cf-transition-fast: 140ms var(--cf-ease-standard);
-  --cf-transition-base: 220ms var(--cf-ease-out);
+  --cf-transition-fast: 120ms var(--cf-ease-standard);
+  --cf-transition-base: 180ms var(--cf-ease-out);
 }
 
 .cf-display-font {
@@ -199,6 +199,7 @@ button {
   border: 0;
   cursor: pointer;
   user-select: none;
+  -webkit-tap-highlight-color: transparent;
 }
 
 button:disabled,
@@ -217,6 +218,15 @@ a {
 img,
 svg {
   display: block;
+}
+
+[class*="backdrop-blur"] {
+  -webkit-backdrop-filter: none !important;
+  backdrop-filter: none !important;
+}
+
+[class*="will-change"] {
+  will-change: auto !important;
 }
 
 code,
@@ -280,17 +290,15 @@ a {
 
 /* Reusable surfaces */
 .cf-surface {
-  background: rgba(7, 7, 7, 0.86);
+  background: var(--cf-surface);
   border: 1px solid var(--cf-border-soft);
   box-shadow: var(--cf-shadow-sm);
-  backdrop-filter: blur(16px);
 }
 
 .cf-surface-elevated {
-  background: rgba(10, 10, 10, 0.96);
+  background: var(--cf-surface-elevated);
   border: 1px solid var(--cf-border);
   box-shadow: var(--cf-shadow-md);
-  backdrop-filter: blur(20px);
 }
 
 /* Matte SaaS surfaces: bordered, quiet, no internal glow. */
@@ -306,7 +314,6 @@ a {
   border: 1px solid var(--cf-border-soft);
   box-shadow: var(--cf-shadow-card);
   transition:
-    transform var(--cf-transition-fast),
     border-color var(--cf-transition-base),
     background var(--cf-transition-base),
     box-shadow var(--cf-transition-base);
@@ -339,7 +346,6 @@ a {
   background-image: none;
   border-color: var(--cf-border);
   box-shadow: var(--cf-shadow-card-hover);
-  transform: translateY(-1px);
 }
 
 .cf-panel:hover::before,
@@ -375,12 +381,10 @@ a {
   background: rgba(5, 5, 5, 0.82);
   border: 1px solid var(--cf-border-soft);
   box-shadow: var(--cf-shadow-sm);
-  backdrop-filter: blur(18px);
 }
 
 .cf-interactive {
   transition:
-    transform var(--cf-transition-fast),
     border-color var(--cf-transition-base),
     background var(--cf-transition-base),
     color var(--cf-transition-base),
@@ -389,12 +393,11 @@ a {
 }
 
 .cf-interactive:hover {
-  translate: 0 -1px;
+  border-color: var(--cf-border-strong);
 }
 
 .cf-interactive:active {
   scale: 0.992;
-  translate: 0 0;
 }
 
 .cf-pressable {
@@ -455,7 +458,6 @@ a {
     0 0 0 1px rgba(255, 255, 255, 0.12),
     0 10px 26px rgba(0, 0, 0, 0.42);
   transition:
-    transform var(--cf-transition-fast),
     background var(--cf-transition-fast),
     border-color var(--cf-transition-fast),
     box-shadow var(--cf-transition-fast);
@@ -463,14 +465,13 @@ a {
 
 .cf-button-primary:hover {
   background: #e8e8e8;
-  transform: translateY(-1px);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.16),
     0 14px 34px rgba(0, 0, 0, 0.48);
 }
 
 .cf-button-primary:active {
-  transform: translateY(0) scale(0.992);
+  transform: scale(0.992);
 }
 
 .cf-button-secondary {
@@ -489,7 +490,6 @@ a {
   line-height: 1;
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
   transition:
-    transform 140ms var(--cf-ease-standard),
     color 180ms ease,
     background 180ms ease,
     border-color 180ms ease,
@@ -497,18 +497,17 @@ a {
 }
 
 .cf-button-secondary:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.075);
-  border-color: var(--cf-border-strong);
+  color: #000000;
+  background: #ffffff;
+  border-color: #ffffff;
   box-shadow:
     0 10px 24px rgba(0, 0, 0, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  transform: translateY(-1px);
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .cf-button-secondary:active {
-  transform: translateY(0) scale(0.992);
-  background: rgba(255, 255, 255, 0.095);
+  transform: scale(0.992);
+  background: #ededed;
 }
 
 .cf-health-track {
@@ -548,7 +547,6 @@ a {
   border: 1px solid var(--cf-border-soft);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.025);
   transition:
-    transform 140ms var(--cf-ease-standard),
     color 180ms ease,
     background 180ms ease,
     border-color 180ms ease,
@@ -556,21 +554,20 @@ a {
 }
 
 .cf-invert-action:hover {
-  color: #ffffff;
-  background: rgba(255, 255, 255, 0.075);
-  border-color: var(--cf-border-strong);
+  color: #000000;
+  background: #ffffff;
+  border-color: #ffffff;
   box-shadow:
     0 10px 24px rgba(0, 0, 0, 0.34),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  transform: translateY(-1px);
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
 }
 
 .cf-invert-action:hover svg {
-  color: #ffffff;
+  color: #000000;
 }
 
 .cf-invert-action:active {
-  transform: translateY(0) scale(0.992);
+  transform: scale(0.992);
 }
 
 /* Inputs */
@@ -735,6 +732,16 @@ pre::-webkit-scrollbar-thumb {
   }
 }
 
+@media (update: slow) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
+}
+
 .cf-select-popover {
   font-family:
     Geist,
@@ -763,7 +770,37 @@ pre::-webkit-scrollbar-thumb {
   box-shadow:
     0 18px 60px rgba(0, 0, 0, 0.72),
     0 0 0 1px rgba(255, 255, 255, 0.03);
-  backdrop-filter: blur(18px);
+}
+
+.cf-workflow-ready {
+  border: 1px solid var(--cf-border-soft);
+  background: rgba(255, 255, 255, 0.035);
+  box-shadow: 0 8px 22px rgba(0, 0, 0, 0.30);
+  transition:
+    background var(--cf-transition-base),
+    border-color var(--cf-transition-base),
+    color var(--cf-transition-base),
+    box-shadow var(--cf-transition-base);
+}
+
+.cf-workflow-ready:hover {
+  color: #000000;
+  background: #ffffff;
+  border-color: #ffffff;
+  box-shadow: 0 12px 28px rgba(0, 0, 0, 0.38);
+}
+
+.cf-workflow-ready-dot {
+  background: #ffffff;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.08);
+  transition:
+    background var(--cf-transition-base),
+    box-shadow var(--cf-transition-base);
+}
+
+.cf-workflow-ready:hover .cf-workflow-ready-dot {
+  background: #000000;
+  box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.10);
 }
 
 .cf-menu-item {
@@ -834,6 +871,20 @@ pre::-webkit-scrollbar-thumb {
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 244, 245, 0.94));
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.42);
+}
+
+.sidebar-nav-active-pill {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  z-index: 1;
+  pointer-events: none;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.98), rgba(244, 244, 245, 0.94));
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.48);
 }
 
 .settings-collapsible-card {

@@ -157,11 +157,24 @@ export interface TaskPack {
   updatedAt: string;
 }
 
+
+export interface ProjectContextFile {
+  fileName: "AGENTS.md" | "AGENTS.generated.md";
+  path: string;
+  exists: boolean;
+  sizeBytes: number;
+  updatedAt: string | null;
+}
+
 export interface AgentsPreview {
   projectId: number;
   projectName: string;
   markdown: string;
   generation?: GenerationMetadata;
+  agentsFile?: {
+    path: string;
+    exists: boolean;
+  };
 }
 
 export interface TaskPackDraft {

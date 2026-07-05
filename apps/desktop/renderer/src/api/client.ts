@@ -7,6 +7,7 @@ import type {
   OllamaModel,
   OllamaStatus,
   Project,
+  ProjectContextFile,
   PromptTemplate,
   RuleItem,
   RuleProfile,
@@ -81,12 +82,40 @@ export async function rescanProject(projectId: number): Promise<Project> {
   return data.project;
 }
 
+export async function getProjectContextFiles(
+  projectId: number
+): Promise<ProjectContextFile[]> {
+  const data = await request<{
+    ok: true;
+    files: ProjectContextFile[];
+  }>(`/projects/${projectId}/context-files`);
+
+  return data.files;
+}
+
+export async function getProjectContextFile(
+  projectId: number,
+  fileName: ProjectContextFile["fileName"]
+): Promise<{ markdown: string; contextFile: ProjectContextFile }> {
+  const data = await request<{
+    ok: true;
+    markdown: string;
+    contextFile: ProjectContextFile;
+  }>(`/projects/${projectId}/context-files/${encodeURIComponent(fileName)}`);
+
+  return {
+    markdown: data.markdown,
+    contextFile: data.contextFile
+  };
+}
+
 export async function getAgentsPreview(
   projectId: number,
   options: { bypassCache?: boolean } = {}
 ): Promise<{
   markdown: string;
   generation?: GenerationMetadata;
+  agentsFile?: { path: string; exists: boolean };
 }> {
   const searchParams = new URLSearchParams();
 
@@ -101,15 +130,21 @@ export async function getAgentsPreview(
     ok: true;
     markdown: string;
     generation?: GenerationMetadata;
+    agentsFile?: { path: string; exists: boolean };
   }>(url);
 
   return {
     markdown: data.markdown,
-    generation: data.generation
+    generation: data.generation,
+    agentsFile: data.agentsFile
   };
 }
 
-export async function saveAgentsFile(projectId: number, markdown?: string) {
+export async function saveAgentsFile(
+  projectId: number,
+  markdown?: string,
+  options: { fileName?: "AGENTS.md" | "AGENTS.generated.md" } = {}
+) {
   const data = await request<{
     ok: true;
     message: string;
@@ -117,7 +152,8 @@ export async function saveAgentsFile(projectId: number, markdown?: string) {
   }>(`/projects/${projectId}/agents-save`, {
     method: "POST",
     body: JSON.stringify({
-      markdown
+      markdown,
+      fileName: options.fileName
     })
   });
 

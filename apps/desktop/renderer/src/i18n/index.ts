@@ -203,7 +203,13 @@ const resources = {
         nextBestAction: "Next best action",
         noMajorIssues: "No major AI-readiness issues detected.",
         readyAction: "Generate AGENTS.md first, then create a task-specific Task Pack.",
-        improveAction: "Improve project context files first, then rescan the project."
+        improveAction: "Improve project context files first, then rescan the project.",
+        contextHistoryKicker: "Project Context History",
+        contextHistoryTitle: "Saved AGENTS.md files",
+        contextHistoryDescription: "Compact history of saved context files in this project root.",
+        contextHistoryNotGenerated: "Not generated yet",
+        contextHistoryPreview: "Preview",
+        contextHistoryGenerate: "Generate fresh AGENTS.md"
       },
       labels: {
         projectFallback: "Project #{{id}}",
@@ -721,7 +727,13 @@ const resources = {
         nextBestAction: "Следующее лучшее действие",
         noMajorIssues: "Крупных AI-readiness проблем не найдено.",
         readyAction: "Сначала создайте AGENTS.md, затем task-specific Task Pack.",
-        improveAction: "Сначала улучшите context-файлы проекта, затем пересканируйте проект."
+        improveAction: "Сначала улучшите context-файлы проекта, затем пересканируйте проект.",
+        contextHistoryKicker: "История контекста проекта",
+        contextHistoryTitle: "Сохранённые AGENTS.md файлы",
+        contextHistoryDescription: "Компактная история context-файлов, сохранённых в корне проекта.",
+        contextHistoryNotGenerated: "Ещё не создан",
+        contextHistoryPreview: "Открыть",
+        contextHistoryGenerate: "Создать свежий AGENTS.md"
       },
       labels: {
         projectFallback: "Проект #{{id}}",

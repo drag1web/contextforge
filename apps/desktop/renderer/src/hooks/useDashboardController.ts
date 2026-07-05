@@ -6,6 +6,7 @@ import {
   createTaskPack,
   getAgentsPreview,
   getAppSettings,
+  getProjectContextFile,
   getProjects,
   getTaskPacks,
   rescanProject,
@@ -16,6 +17,7 @@ import type {
   AgentsPreview,
   ContextComposerPreview,
   Project,
+  ProjectContextFile,
   TaskPack,
   TaskPackDraft
 } from "../types";
@@ -156,10 +158,46 @@ export function useDashboardController() {
         projectId: project.id,
         projectName: project.name,
         markdown: preview.markdown,
-        generation: preview.generation
+        generation: preview.generation,
+        agentsFile: preview.agentsFile
       });
 
       setStatusMessage(i18n.t("common.statusAgentsGenerated", { name: project.name }));
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleOpenProjectContextFile(
+    project: Project,
+    fileName: ProjectContextFile["fileName"]
+  ) {
+    try {
+      setIsLoading(true);
+      setStatusMessage(i18n.t("common.statusLoadingContextFile", { name: fileName }));
+
+      const { markdown, contextFile } = await getProjectContextFile(project.id, fileName);
+
+      setAgentsPreview({
+        projectId: project.id,
+        projectName: project.name,
+        markdown,
+        generation: {
+          content: markdown,
+          mode: "template",
+          model: null,
+          usedFallback: false,
+          message: `Loaded ${fileName} from project context history.`
+        },
+        agentsFile: {
+          path: contextFile.path,
+          exists: contextFile.exists
+        }
+      });
+
+      setStatusMessage(i18n.t("common.statusContextFileLoaded", { name: fileName }));
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
     } finally {
@@ -191,7 +229,8 @@ export function useDashboardController() {
         projectId: agentsPreview.projectId,
         projectName: agentsPreview.projectName,
         markdown: preview.markdown,
-        generation: preview.generation
+        generation: preview.generation,
+        agentsFile: preview.agentsFile
       });
 
       setStatusMessage(i18n.t("common.statusAgentsRegenerated", { name: agentsPreview.projectName }));
@@ -202,7 +241,10 @@ export function useDashboardController() {
     }
   }
 
-  async function handleSaveAgentsFile() {
+  async function handleSaveAgentsFile(
+    markdown?: string,
+    fileName: "AGENTS.md" | "AGENTS.generated.md" = "AGENTS.md"
+  ) {
     if (!agentsPreview) {
       return;
     }
@@ -211,7 +253,9 @@ export function useDashboardController() {
       setIsLoading(true);
       setStatusMessage(i18n.t("common.statusSavingAgents", { name: agentsPreview.projectName }));
 
-      await saveAgentsFile(agentsPreview.projectId, agentsPreview.markdown);
+      await saveAgentsFile(agentsPreview.projectId, markdown ?? agentsPreview.markdown, {
+        fileName
+      });
 
       await refreshDashboard();
       setStatusMessage(i18n.t("common.statusAgentsSaved", { name: agentsPreview.projectName }));
@@ -415,6 +459,7 @@ export function useDashboardController() {
     handleSelectProject,
     handleRescanProject,
     handleGenerateAgentsPreview,
+    handleOpenProjectContextFile,
     handleRegenerateAgentsPreview,
     handleSaveAgentsFile,
     handleCreateTaskPackDraft,

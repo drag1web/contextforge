@@ -399,7 +399,6 @@ function AttentionProjectRow({
 
   return (
     <motion.div
-      whileHover={{ y: -1 }}
       transition={CARD_TRANSITION}
       className="grid gap-3 rounded-2xl border border-neutral-900 bg-black/35 px-4 py-3 transition hover:border-white/15 hover:bg-white/[0.035] md:grid-cols-[minmax(0,1.1fr)_86px_minmax(0,1.35fr)_auto]"
     >

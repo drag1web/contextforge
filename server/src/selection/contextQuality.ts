@@ -5,6 +5,10 @@ import type {
 import type { TaskArea } from "../ollama/taskIntentAnalyzer.js";
 import type { TaskFileSelection } from "../ollama/taskFileSelector.js";
 import { resolveExplicitFileMentions } from "./explicitFileMentions.js";
+import {
+  detectHardTaskSafetyIssue,
+  isSecretLikePath,
+} from "./safetyPolicy.js";
 
 export type ContextSelectionQualityStatus = "ready" | "warning" | "blocked";
 export type ContextQualityMode = "advisory" | "balanced" | "strict";
@@ -320,6 +324,34 @@ function isImplementationIntent(rawTask: string) {
     "через api",
     "внешн",
   ]);
+}
+
+function isTestPlanningIntent(rawTask: string, area: string) {
+  if (area !== "tests" && area !== "general") return false;
+  const text = normalizeForCompare(rawTask);
+  const testIntent =
+    /\b(?:test|tests|testing|coverage|scenarios|strategy|where\s+to\s+add\s+tests)\b/i.test(
+      text,
+    ) ||
+    /(?:\u0442\u0435\u0441\u0442|\u0442\u0435\u0441\u0442\u044b|\u0441\u0446\u0435\u043d\u0430\u0440|\u043f\u0440\u043e\u0432\u0435\u0440|\u0433\u0434\u0435\s+\u0434\u043e\u0431\u0430\u0432\u0438\u0442\u044c\s+\u0442\u0435\u0441\u0442)/i.test(
+      text,
+    );
+  const planningIntent =
+    /\b(?:find|where|recommend|prepare|plan|strategy|describe|outline)\b/i.test(
+      text,
+    ) ||
+    /(?:\u043d\u0430\u0439\u0434\u0438|\u0433\u0434\u0435|\u043b\u0443\u0447\u0448\u0435|\u043f\u043e\u0434\u0433\u043e\u0442\u043e\u0432|\u043e\u043f\u0438\u0448\u0438|\u0441\u0446\u0435\u043d\u0430\u0440|\u0441\u0442\u0440\u0430\u0442\u0435\u0433)/i.test(
+      text,
+    );
+  const directImplementation =
+    /\b(?:write|implement|add|create)\s+(?:unit\s+|e2e\s+|integration\s+)?tests?\b/i.test(
+      text,
+    ) ||
+    /(?:\u0434\u043e\u0431\u0430\u0432\u044c|\u0441\u043e\u0437\u0434\u0430\u0439|\u043d\u0430\u043f\u0438\u0448\u0438)\s+[^.!?\n]{0,60}\u0442\u0435\u0441\u0442/i.test(
+      text,
+    );
+
+  return testIntent && planningIntent && !directImplementation;
 }
 
 function isDocsPrimaryIntent(rawTask: string, area: string) {
@@ -657,6 +689,10 @@ function isHardSafetyReason(reason: string) {
     text.includes("path traversal") ||
     text.includes("protected path") ||
     text.includes("requested path escapes") ||
+    text.includes("secret or .env content request") ||
+    text.includes("secret-like file") ||
+    text.includes("prompt-injection request") ||
+    text.includes("destructive project-wide") ||
     text.includes("../") ||
     text.includes("..\\")
   );
@@ -704,7 +740,10 @@ export function evaluateContextSelectionQuality(
   ]);
   const implementationIntent = isImplementationIntent(input.rawTask);
   const docsPrimaryIntent = isDocsPrimaryIntent(input.rawTask, area);
-  const isCodeTask = codeTaskAreas.has(area) || implementationIntent;
+  const testPlanningIntent = isTestPlanningIntent(input.rawTask, area);
+  const isCodeTask =
+    (codeTaskAreas.has(area) || implementationIntent) && !testPlanningIntent;
+  const hardTaskSafety = detectHardTaskSafetyIssue(input.rawTask);
 
   const hasEditableCode =
     selectedFiles.some(isEditableCodeLike) || hasCreateTarget;
@@ -777,7 +816,26 @@ export function evaluateContextSelectionQuality(
       return false;
     }).length + createTargetCount;
 
+  const selectedSecretFiles = input.fileSelection.selectedFiles.filter((file) =>
+    isSecretLikePath(file.path),
+  );
+
   let score = 62;
+
+  if (hardTaskSafety.blocked) {
+    blockingReasons.push(...hardTaskSafety.reasons);
+    score -= 70;
+  }
+
+  if (selectedSecretFiles.length > 0) {
+    blockingReasons.push(
+      `Secret-like file(s) were selected and must not be included in a Task Pack: ${selectedSecretFiles
+        .map((file) => file.path)
+        .slice(0, 6)
+        .join(", ")}.`,
+    );
+    score -= 70;
+  }
 
   if (selectedFiles.length === 0 && !hasCreateTarget) {
     blockingReasons.push("No real project files were selected for this task.");
@@ -907,7 +965,7 @@ export function evaluateContextSelectionQuality(
     warnings.push(
       "File selection used fallback logic. The selection is allowed when the ranked files look plausible, but review it if the task is high-risk.",
     );
-    score -= mode === "strict" ? 10 : 4;
+    score -= mode === "strict" ? 22 : 12;
   }
 
   if (
@@ -917,7 +975,18 @@ export function evaluateContextSelectionQuality(
     warnings.push(
       "AI file selector failed or returned invalid output; ranked fallback context was used instead.",
     );
-    score -= mode === "strict" ? 10 : 5;
+    score -= mode === "strict" ? 35 : 24;
+  }
+
+  if (
+    input.fileSelection.selectedFiles.some(
+      (file) => file.usage === "inspect-and-edit" && file.confidence < 0.55,
+    )
+  ) {
+    warnings.push(
+      "One or more edit targets have low selector confidence. Treat them as manual-review candidates instead of high-confidence context.",
+    );
+    score -= mode === "strict" ? 24 : 16;
   }
 
   if (
@@ -991,6 +1060,17 @@ export function evaluateContextSelectionQuality(
       "Unsafe/out-of-scope path was requested. ContextForge will not create, modify, or include files outside the selected project.",
     );
     score -= 45;
+  }
+
+  if (input.fileSelection.usedFallback) {
+    score = Math.min(score, mode === "advisory" ? 92 : mode === "strict" ? 84 : 88);
+  }
+
+  if (
+    selectionNotes.includes("invalid or empty json") ||
+    selectionNotes.includes("ollama file selector failed")
+  ) {
+    score = Math.min(score, mode === "advisory" ? 78 : mode === "strict" ? 62 : 70);
   }
 
   const result = applyModeToResult({

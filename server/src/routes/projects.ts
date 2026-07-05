@@ -14,9 +14,61 @@ const createProjectSchema = z.object({
   localPath: z.string().min(1)
 });
 
+const AGENTS_FILE_NAMES = ["AGENTS.md", "AGENTS.generated.md"] as const;
+
 const saveAgentsSchema = z.object({
-  markdown: z.string().min(1).optional()
+  markdown: z.string().min(1).optional(),
+  fileName: z.enum(AGENTS_FILE_NAMES).optional()
 });
+
+async function pathExists(filePath: string) {
+  try {
+    await fs.access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function getAgentsContextFile(projectRoot: string, fileName: typeof AGENTS_FILE_NAMES[number]) {
+  const filePath = path.join(projectRoot, fileName);
+
+  try {
+    const stats = await fs.stat(filePath);
+
+    if (!stats.isFile()) {
+      return {
+        fileName,
+        path: filePath,
+        exists: false,
+        sizeBytes: 0,
+        updatedAt: null
+      };
+    }
+
+    return {
+      fileName,
+      path: filePath,
+      exists: true,
+      sizeBytes: stats.size,
+      updatedAt: stats.mtime.toISOString()
+    };
+  } catch {
+    return {
+      fileName,
+      path: filePath,
+      exists: false,
+      sizeBytes: 0,
+      updatedAt: null
+    };
+  }
+}
+
+async function listAgentsContextFiles(projectRoot: string) {
+  return Promise.all(
+    AGENTS_FILE_NAMES.map((fileName) => getAgentsContextFile(projectRoot, fileName))
+  );
+}
 
 async function getProjectById(projectId: number) {
   return storage.getProjectById(projectId);
@@ -105,6 +157,104 @@ projectsRouter.post("/:id/rescan", async (req, res) => {
   }
 });
 
+projectsRouter.get("/:id/context-files", async (req, res) => {
+  const projectId = Number(req.params.id);
+
+  if (!Number.isInteger(projectId)) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid project id"
+    });
+    return;
+  }
+
+  try {
+    const project = await getProjectById(projectId);
+
+    if (!project) {
+      res.status(404).json({
+        ok: false,
+        message: "Project not found"
+      });
+      return;
+    }
+
+    const files = await listAgentsContextFiles(project.localPath);
+
+    res.json({
+      ok: true,
+      files
+    });
+  } catch (error) {
+    console.error("Failed to list project context files:", error);
+
+    res.status(500).json({
+      ok: false,
+      message: "Failed to list project context files",
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+projectsRouter.get("/:id/context-files/:fileName", async (req, res) => {
+  const projectId = Number(req.params.id);
+  const parsedFileName = z.enum(AGENTS_FILE_NAMES).safeParse(req.params.fileName);
+
+  if (!Number.isInteger(projectId)) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid project id"
+    });
+    return;
+  }
+
+  if (!parsedFileName.success) {
+    res.status(400).json({
+      ok: false,
+      message: "Unsupported context file"
+    });
+    return;
+  }
+
+  try {
+    const project = await getProjectById(projectId);
+
+    if (!project) {
+      res.status(404).json({
+        ok: false,
+        message: "Project not found"
+      });
+      return;
+    }
+
+    const contextFile = await getAgentsContextFile(project.localPath, parsedFileName.data);
+
+    if (!contextFile.exists) {
+      res.status(404).json({
+        ok: false,
+        message: "Context file not found"
+      });
+      return;
+    }
+
+    const markdown = await fs.readFile(contextFile.path, "utf-8");
+
+    res.json({
+      ok: true,
+      markdown,
+      contextFile
+    });
+  } catch (error) {
+    console.error("Failed to read project context file:", error);
+
+    res.status(500).json({
+      ok: false,
+      message: "Failed to read project context file",
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
 projectsRouter.get("/:id/agents-preview", async (req, res) => {
   const projectId = Number(req.params.id);
 
@@ -142,10 +292,16 @@ projectsRouter.get("/:id/agents-preview", async (req, res) => {
         templateMarkdown
       })
     });
+    const agentsPath = path.join(project.localPath, "AGENTS.md");
+
     res.json({
       ok: true,
       markdown: generation.content,
-      generation
+      generation,
+      agentsFile: {
+        path: agentsPath,
+        exists: await pathExists(agentsPath)
+      }
     });
 
   } catch (error) {
@@ -210,7 +366,8 @@ projectsRouter.post("/:id/agents-save", async (req, res) => {
         });
 
     const markdown = generation.content;
-    const agentsPath = path.join(project.localPath, "AGENTS.md");
+    const fileName = parsed.data.fileName ?? "AGENTS.md";
+    const agentsPath = path.join(project.localPath, fileName);
 
     await fs.writeFile(agentsPath, markdown, "utf-8");
 
@@ -220,6 +377,7 @@ projectsRouter.post("/:id/agents-save", async (req, res) => {
       ok: true,
       message: "AGENTS.md saved successfully",
       path: agentsPath,
+      fileName,
       project: updatedProject,
       generation
     });

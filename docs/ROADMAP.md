@@ -7,7 +7,7 @@ Goal: make the repository honestly describe the current v0.5 alpha state.
 - [x] Sync root package version.
 - [x] Sync server package version.
 - [x] Sync renderer package version.
-- [x] Keep shared package at `0.5.2-alpha`.
+- [x] Keep shared package at `0.5.3-alpha`.
 - [x] Update `/api/health` version.
 - [x] Rewrite root README.
 - [x] Add MVP documentation.

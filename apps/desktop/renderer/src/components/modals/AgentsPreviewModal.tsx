@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -8,11 +8,15 @@ import {
   Clock3,
   Code2,
   Copy,
+  Edit3,
   Eye,
   FileText,
+  FilePlus2,
   RefreshCw,
   Save,
-  Sparkles
+  Sparkles,
+  TriangleAlert,
+  Undo2
 } from "lucide-react";
 
 import type { AgentsPreview } from "../../types";
@@ -23,11 +27,11 @@ interface AgentsPreviewModalProps {
   preview: AgentsPreview;
   isLoading: boolean;
   onClose: () => void;
-  onSave: () => void;
+  onSave: (markdown: string, fileName?: "AGENTS.md" | "AGENTS.generated.md") => void;
   onRegenerate: () => void;
 }
 
-type AgentsViewMode = "preview" | "raw";
+type AgentsViewMode = "preview" | "edit" | "raw";
 
 const VIEW_SWITCH_TRANSITION = {
   type: "spring",
@@ -258,6 +262,74 @@ function InfoTile({
   );
 }
 
+function ViewModeButton({
+  mode,
+  activeMode,
+  label,
+  caption,
+  icon,
+  onClick
+}: {
+  mode: AgentsViewMode;
+  activeMode: AgentsViewMode;
+  label: string;
+  caption: string;
+  icon: React.ReactNode;
+  onClick: () => void;
+}) {
+  const isActive = activeMode === mode;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "group relative z-10 flex min-w-[154px] items-center gap-3 rounded-[1.05rem] px-4 py-2.5 text-left transition duration-200",
+        isActive ? "text-black" : "text-neutral-500 hover:text-white"
+      ].join(" ")}
+    >
+      {isActive && (
+        <motion.span
+          layoutId="agents-view-active-pill"
+          className="absolute inset-0 rounded-[1.05rem] bg-white shadow-[0_14px_34px_rgba(255,255,255,0.16)]"
+          transition={VIEW_SWITCH_TRANSITION}
+        />
+      )}
+
+      <span
+        className={[
+          "relative z-10 grid size-8 shrink-0 place-items-center rounded-xl border transition",
+          isActive
+            ? "border-black/10 bg-black/5 text-black"
+            : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/20 group-hover:text-white"
+        ].join(" ")}
+      >
+        {icon}
+      </span>
+
+      <span className="relative z-10 min-w-0">
+        <span
+          className={[
+            "block text-xs font-semibold transition",
+            isActive ? "text-black" : "text-neutral-300 group-hover:text-white"
+          ].join(" ")}
+        >
+          {label}
+        </span>
+
+        <span
+          className={[
+            "mt-0.5 block text-[10px] leading-none transition",
+            isActive ? "text-black/55" : "text-neutral-700 group-hover:text-neutral-500"
+          ].join(" ")}
+        >
+          {caption}
+        </span>
+      </span>
+    </button>
+  );
+}
+
 export function AgentsPreviewModal({
   preview,
   isLoading,
@@ -267,6 +339,12 @@ export function AgentsPreviewModal({
 }: AgentsPreviewModalProps) {
   const [viewMode, setViewMode] = useState<AgentsViewMode>("preview");
   const [isCopied, setIsCopied] = useState(false);
+  const [editedMarkdown, setEditedMarkdown] = useState(preview.markdown);
+
+  useEffect(() => {
+    setEditedMarkdown(preview.markdown);
+    setViewMode("preview");
+  }, [preview.projectId, preview.markdown]);
 
   const generationLabel = useMemo(() => getGenerationLabel(preview), [preview]);
   const generationDescription = useMemo(
@@ -274,13 +352,26 @@ export function AgentsPreviewModal({
     [preview]
   );
 
+  const hasEdits = editedMarkdown !== preview.markdown;
+  const canSave = editedMarkdown.trim().length > 0 && !isLoading;
+  const targetExists = Boolean(preview.agentsFile?.exists);
+  const targetPath = preview.agentsFile?.path ?? "AGENTS.md";
+
   async function handleCopy() {
-    await navigator.clipboard.writeText(preview.markdown);
+    await navigator.clipboard.writeText(editedMarkdown);
     setIsCopied(true);
 
     window.setTimeout(() => {
       setIsCopied(false);
     }, 1400);
+  }
+
+  function handleResetEdits() {
+    setEditedMarkdown(preview.markdown);
+  }
+
+  function handleSave(fileName: "AGENTS.md" | "AGENTS.generated.md" = "AGENTS.md") {
+    onSave(editedMarkdown, fileName);
   }
 
   return (
@@ -291,19 +382,32 @@ export function AgentsPreviewModal({
       scrollable={false}
       onClose={onClose}
       footer={
-        <div className="flex w-full items-center justify-between gap-4">
-          <p className="hidden text-xs leading-5 text-neutral-600 md:block">
-            Save writes AGENTS.md into the selected local project folder.
+        <div className="flex w-full flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+          <p className="text-xs leading-5 text-neutral-600">
+            {targetExists
+              ? "AGENTS.md already exists. Review edits, then overwrite it or save a generated copy."
+              : "Review and edit the generated instructions before saving AGENTS.md into the project."}
           </p>
 
-          <div className="flex items-center gap-3">
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            {hasEdits && (
+              <Button
+                variant="secondary"
+                onClick={handleResetEdits}
+                disabled={isLoading}
+              >
+                <Undo2 size={15} />
+                Reset edits
+              </Button>
+            )}
+
             <Button
               variant="secondary"
               onClick={handleCopy}
               disabled={isLoading}
             >
               {isCopied ? <Check size={15} /> : <Copy size={15} />}
-              {isCopied ? "Copied" : "Copy"}
+              {isCopied ? "Copied" : "Copy edited"}
             </Button>
 
             <Button
@@ -315,13 +419,24 @@ export function AgentsPreviewModal({
               Regenerate
             </Button>
 
+            {targetExists && (
+              <Button
+                variant="secondary"
+                onClick={() => handleSave("AGENTS.generated.md")}
+                disabled={!canSave}
+              >
+                <FilePlus2 size={15} />
+                Save copy
+              </Button>
+            )}
+
             <Button
               variant="primary"
-              onClick={onSave}
-              disabled={isLoading}
+              onClick={() => handleSave("AGENTS.md")}
+              disabled={!canSave}
             >
               <Save size={15} />
-              Save to project
+              {targetExists ? "Overwrite AGENTS.md" : "Save to project"}
             </Button>
           </div>
         </div>
@@ -339,6 +454,8 @@ export function AgentsPreviewModal({
               </span>
 
               <span className="cf-badge">AGENTS.md</span>
+
+              {hasEdits && <span className="cf-badge">Edited</span>}
 
               {preview.generation?.model && (
                 <span className="cf-badge">{preview.generation.model}</span>
@@ -370,7 +487,7 @@ export function AgentsPreviewModal({
             <InfoTile
               icon={<FileText size={15} />}
               label="File"
-              value="AGENTS.md"
+              value={targetExists ? "AGENTS.md exists" : "AGENTS.md"}
             />
 
             <InfoTile
@@ -381,123 +498,58 @@ export function AgentsPreviewModal({
           </section>
         </div>
 
+        {targetExists && (
+          <div className="mb-4 flex shrink-0 items-start gap-3 rounded-[1.25rem] border border-amber-400/20 bg-amber-400/10 p-4 text-sm leading-6 text-amber-100">
+            <TriangleAlert size={17} className="mt-0.5 shrink-0 text-amber-200" />
+            <div className="min-w-0">
+              <p className="font-medium text-amber-50">Existing AGENTS.md detected</p>
+              <p className="mt-1 text-amber-100/75">
+                Saving to AGENTS.md will overwrite the file at {targetPath}. Use Save copy to write AGENTS.generated.md instead.
+              </p>
+            </div>
+          </div>
+        )}
+
         <div className="mb-4 flex shrink-0 flex-wrap items-center justify-between gap-4">
           <div className="relative flex overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/70 p-1 shadow-[0_18px_52px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.055)]">
             <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.06),rgba(255,255,255,0.012)_45%,rgba(255,255,255,0.004))]" />
 
-            <button
-              type="button"
+            <ViewModeButton
+              mode="preview"
+              activeMode={viewMode}
+              label="Preview"
+              caption="Rendered Markdown"
+              icon={<Eye size={14} />}
               onClick={() => setViewMode("preview")}
-              className={[
-                "group relative z-10 flex min-w-[154px] items-center gap-3 rounded-[1.05rem] px-4 py-2.5 text-left transition duration-200",
-                viewMode === "preview" ? "text-black" : "text-neutral-500 hover:text-white"
-              ].join(" ")}
-            >
-              {viewMode === "preview" && (
-                <motion.span
-                  layoutId="agents-view-active-pill"
-                  className="absolute inset-0 rounded-[1.05rem] bg-white shadow-[0_14px_34px_rgba(255,255,255,0.16)]"
-                  transition={VIEW_SWITCH_TRANSITION}
-                />
-              )}
+            />
 
-              <span
-                className={[
-                  "relative z-10 grid size-8 shrink-0 place-items-center rounded-xl border transition",
-                  viewMode === "preview"
-                    ? "border-black/10 bg-black/5 text-black"
-                    : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/20 group-hover:text-white"
-                ].join(" ")}
-              >
-                <Eye size={14} />
-              </span>
+            <ViewModeButton
+              mode="edit"
+              activeMode={viewMode}
+              label="Edit"
+              caption="Editable source"
+              icon={<Edit3 size={14} />}
+              onClick={() => setViewMode("edit")}
+            />
 
-              <span className="relative z-10 min-w-0">
-                <span
-                  className={[
-                    "block text-xs font-semibold transition",
-                    viewMode === "preview"
-                      ? "text-black"
-                      : "text-neutral-300 group-hover:text-white"
-                  ].join(" ")}
-                >
-                  Preview
-                </span>
-
-                <span
-                  className={[
-                    "mt-0.5 block text-[10px] leading-none transition",
-                    viewMode === "preview"
-                      ? "text-black/55"
-                      : "text-neutral-700 group-hover:text-neutral-500"
-                  ].join(" ")}
-                >
-                  Rendered Markdown
-                </span>
-              </span>
-            </button>
-
-            <button
-              type="button"
+            <ViewModeButton
+              mode="raw"
+              activeMode={viewMode}
+              label="Raw Markdown"
+              caption="Read-only source"
+              icon={<Code2 size={14} />}
               onClick={() => setViewMode("raw")}
-              className={[
-                "group relative z-10 flex min-w-[178px] items-center gap-3 rounded-[1.05rem] px-4 py-2.5 text-left transition duration-200",
-                viewMode === "raw" ? "text-black" : "text-neutral-500 hover:text-white"
-              ].join(" ")}
-            >
-              {viewMode === "raw" && (
-                <motion.span
-                  layoutId="agents-view-active-pill"
-                  className="absolute inset-0 rounded-[1.05rem] bg-white shadow-[0_14px_34px_rgba(255,255,255,0.16)]"
-                  transition={VIEW_SWITCH_TRANSITION}
-                />
-              )}
-
-              <span
-                className={[
-                  "relative z-10 grid size-8 shrink-0 place-items-center rounded-xl border transition",
-                  viewMode === "raw"
-                    ? "border-black/10 bg-black/5 text-black"
-                    : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/20 group-hover:text-white"
-                ].join(" ")}
-              >
-                <Code2 size={14} />
-              </span>
-
-              <span className="relative z-10 min-w-0">
-                <span
-                  className={[
-                    "block text-xs font-semibold transition",
-                    viewMode === "raw"
-                      ? "text-black"
-                      : "text-neutral-300 group-hover:text-white"
-                  ].join(" ")}
-                >
-                  Raw Markdown
-                </span>
-
-                <span
-                  className={[
-                    "mt-0.5 block text-[10px] leading-none transition",
-                    viewMode === "raw"
-                      ? "text-black/55"
-                      : "text-neutral-700 group-hover:text-neutral-500"
-                  ].join(" ")}
-                >
-                  File-ready source
-                </span>
-              </span>
-            </button>
+            />
           </div>
 
           <p className="hidden max-w-md text-right text-xs leading-5 text-neutral-600 lg:block">
-            Review the generated instructions before saving them into the project.
+            Preview uses the edited markdown, so you can check formatting before writing the file.
           </p>
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/30 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
           <AnimatePresence mode="wait">
-            {viewMode === "preview" ? (
+            {viewMode === "preview" && (
               <motion.article
                 key="preview"
                 className="h-full min-h-0 overflow-y-auto rounded-[1.1rem] bg-neutral-950/45 px-6 py-5 text-sm"
@@ -508,11 +560,32 @@ export function AgentsPreviewModal({
               >
                 <div className="cf-agents-markdown-preview">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                    {preview.markdown}
+                    {editedMarkdown}
                   </ReactMarkdown>
                 </div>
               </motion.article>
-            ) : (
+            )}
+
+            {viewMode === "edit" && (
+              <motion.div
+                key="edit"
+                className="h-full min-h-0 overflow-hidden rounded-[1.1rem] bg-black/75"
+                initial={{ opacity: 0, y: 8, scale: 0.995 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.995 }}
+                transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <textarea
+                  value={editedMarkdown}
+                  onChange={(event) => setEditedMarkdown(event.target.value)}
+                  spellCheck={false}
+                  className="h-full w-full resize-none rounded-[1.1rem] border border-transparent bg-transparent p-5 font-mono text-sm leading-6 text-neutral-200 outline-none transition placeholder:text-neutral-700 focus:border-white/10 focus:bg-black/40"
+                  placeholder="Write AGENTS.md instructions here..."
+                />
+              </motion.div>
+            )}
+
+            {viewMode === "raw" && (
               <motion.pre
                 key="raw"
                 className="h-full min-h-0 overflow-y-auto whitespace-pre-wrap rounded-[1.1rem] bg-black/75 p-5 text-sm leading-6 text-neutral-300"
@@ -521,7 +594,7 @@ export function AgentsPreviewModal({
                 exit={{ opacity: 0, y: -8, scale: 0.995 }}
                 transition={{ duration: 0.16, ease: [0.16, 1, 0.3, 1] }}
               >
-                {preview.markdown}
+                {editedMarkdown}
               </motion.pre>
             )}
           </AnimatePresence>
