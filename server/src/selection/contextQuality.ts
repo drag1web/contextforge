@@ -117,6 +117,63 @@ function includesAny(value: string, terms: string[]) {
   return terms.some((term) => normalized.includes(normalizeForCompare(term)));
 }
 
+function formatTaskAreaForUser(area: string) {
+  const normalized = String(area || "general").toLowerCase();
+
+  if (normalized === "ui") return "UI / UX";
+  if (normalized === "backend") return "Backend";
+  if (normalized === "fullstack") return "Full-stack";
+  if (normalized === "tests") return "Tests";
+  if (normalized === "docs") return "Docs";
+  if (normalized === "build") return "Build";
+  if (normalized === "bugfix") return "Bug fix";
+  if (normalized === "refactor") return "Refactor";
+
+  return "General";
+}
+
+function getMissingTargetWording(area: string) {
+  const normalized = String(area || "general").toLowerCase();
+
+  if (normalized === "ui") {
+    return {
+      warning: "No clear UI page/component/style file was selected, but editable files are present.",
+      blocking: "No UI page/component/style target was selected for this UI task.",
+      specific: "Consider adding the exact page, component, layout, or style file if available."
+    };
+  }
+
+  if (normalized === "backend") {
+    return {
+      warning: "No clear backend endpoint/service/module was selected. If this is frontend-only, document the expected API contract instead of inventing server files.",
+      blocking: "No backend-capable source file was selected for this backend task.",
+      specific: "Consider adding the exact endpoint, route, service, validation, database, or API module if available."
+    };
+  }
+
+  if (normalized === "tests") {
+    return {
+      warning: "No clear test/spec/source-under-test file was selected, but editable files are present.",
+      blocking: "No test target or source-under-test file was selected for this testing task.",
+      specific: "Consider adding the exact spec, test file, fixture, or source file under test if available."
+    };
+  }
+
+  if (normalized === "docs") {
+    return {
+      warning: "No clear documentation/source-of-truth file was selected, but project files are present.",
+      blocking: "No documentation target or source-of-truth file was selected for this docs task.",
+      specific: "Consider adding the exact README, docs page, changelog, config, or source file used as evidence."
+    };
+  }
+
+  return {
+    warning: "No clear task-specific target file was selected, but editable files are present.",
+    blocking: "No task-specific source file was selected for this task.",
+    specific: "Consider adding a more specific task target file if available."
+  };
+}
+
 function tokenize(value: string) {
   return normalizeForCompare(value)
     .replace(/([a-z])([A-Z])/g, "$1 $2")
@@ -924,12 +981,12 @@ export function evaluateContextSelectionQuality(
   ) {
     if (hasEditableCode) {
       warnings.push(
-        "No clear UI page/component/style file was selected, but editable source files are present.",
+        getMissingTargetWording("ui").warning,
       );
       score -= 12;
     } else {
       blockingReasons.push(
-        "No UI page/component/style file was selected for a UI-related task.",
+        getMissingTargetWording("ui").blocking,
       );
       score -= 30;
     }
@@ -943,12 +1000,12 @@ export function evaluateContextSelectionQuality(
   ) {
     if (hasEditableCode) {
       warnings.push(
-        "No clear backend route/service file was selected. If this is frontend-only, document the expected API contract instead of inventing server files.",
+        getMissingTargetWording("backend").warning,
       );
       score -= 10;
     } else {
       blockingReasons.push(
-        "No source file that could support backend/full-stack work was selected.",
+        area === "fullstack" ? "No source file that could support full-stack work was selected." : getMissingTargetWording("backend").blocking,
       );
       score -= 28;
     }
@@ -956,7 +1013,7 @@ export function evaluateContextSelectionQuality(
 
   if (requestedArea !== "general" && requestedArea !== area) {
     warnings.push(
-      `Selected task type is "${input.requestedTaskType}", but ContextForge inferred "${area}". Review this before generation.`,
+      `Selected task type is ${formatTaskAreaForUser(requestedArea)}, but ContextForge inferred ${formatTaskAreaForUser(area)}. Review this before generation.`,
     );
     score -= 6;
   }
@@ -1018,12 +1075,12 @@ export function evaluateContextSelectionQuality(
   ) {
     if (hasOverlappingFile) {
       warnings.push(
-        "Selected context is mostly generic/global, but it overlaps with the task. Consider adding a more specific page/component/service if available.",
+        `Selected context is mostly generic/global, but it overlaps with the task. ${getMissingTargetWording(area).specific}`,
       );
       score -= 12;
     } else {
       blockingReasons.push(
-        "Selected context looks generic/global only. A specific page, component, service, route, or state file may be missing.",
+        `Selected context looks generic/global only. ${getMissingTargetWording(area).specific}`,
       );
       score -= 30;
     }

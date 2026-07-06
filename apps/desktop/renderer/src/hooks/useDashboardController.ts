@@ -75,15 +75,39 @@ export function useDashboardController() {
   const [statusMessage, setStatusMessage] = useState("");
 
   const [agentsPreview, setAgentsPreview] = useState<AgentsPreview | null>(null);
-  const [taskPackDraft, setTaskPackDraft] = useState<TaskPackDraft | null>(null);
+  const [taskPackDraft, setTaskPackDraftState] = useState<TaskPackDraft | null>(null);
   const [generatedTaskPack, setGeneratedTaskPack] = useState<TaskPack | null>(null);
 
   const [contextComposerPreview, setContextComposerPreview] =
+    useState<ContextComposerPreview | null>(null);
+  const [taskPackContextPreview, setTaskPackContextPreview] =
     useState<ContextComposerPreview | null>(null);
 
   const readinessScore = getAverageReadinessScore(
     projects.map((project) => project.readinessScore)
   );
+
+  function setTaskPackDraft(nextDraft: TaskPackDraft | null) {
+    setTaskPackDraftState(() => {
+      const next = nextDraft;
+
+      setTaskPackContextPreview((previousPreview) => {
+        if (!next || !previousPreview) {
+          return null;
+        }
+
+        const sameDraftContext =
+          previousPreview.project.id === next.projectId &&
+          previousPreview.task.rawTask === next.rawTask &&
+          previousPreview.task.requestedTaskType === next.taskType &&
+          previousPreview.task.targetTool === next.targetTool;
+
+        return sameDraftContext ? previousPreview : null;
+      });
+
+      return next;
+    });
+  }
 
   async function loadProjects() {
     const data = await getProjects();
@@ -389,7 +413,44 @@ export function useDashboardController() {
     }
   }
 
+  async function createTaskContextPreview() {
+    if (!taskPackDraft) {
+      return null;
+    }
+
+    const preview = await createContextComposerPreview({
+      projectId: taskPackDraft.projectId,
+      rawTask: taskPackDraft.rawTask,
+      taskType: taskPackDraft.taskType,
+      targetTool: taskPackDraft.targetTool
+    });
+
+    setTaskPackContextPreview(preview);
+    return preview;
+  }
+
   async function handleAnalyzeTaskContext() {
+    if (!taskPackDraft) {
+      return null;
+    }
+
+    try {
+      setIsLoading(true);
+      setStatusMessage(i18n.t("common.statusAnalyzingContext", { name: taskPackDraft.projectName }));
+
+      const preview = await createTaskContextPreview();
+
+      setStatusMessage(i18n.t("common.statusContextReady", { name: taskPackDraft.projectName }));
+      return preview;
+    } catch (error) {
+      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
+      return null;
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
+  async function handleOpenTaskContextComposer() {
     if (!taskPackDraft) {
       return;
     }
@@ -398,15 +459,12 @@ export function useDashboardController() {
       setIsLoading(true);
       setStatusMessage(i18n.t("common.statusAnalyzingContext", { name: taskPackDraft.projectName }));
 
-      const preview = await createContextComposerPreview({
-        projectId: taskPackDraft.projectId,
-        rawTask: taskPackDraft.rawTask,
-        taskType: taskPackDraft.taskType,
-        targetTool: taskPackDraft.targetTool
-      });
+      const preview = taskPackContextPreview ?? await createTaskContextPreview();
 
-      setContextComposerPreview(preview);
-      setStatusMessage(i18n.t("common.statusContextReady", { name: taskPackDraft.projectName }));
+      if (preview) {
+        setContextComposerPreview(preview);
+        setStatusMessage(i18n.t("common.statusContextReady", { name: taskPackDraft.projectName }));
+      }
     } catch (error) {
       setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
     } finally {
@@ -448,6 +506,7 @@ export function useDashboardController() {
     taskPackDraft,
     generatedTaskPack,
     contextComposerPreview,
+    taskPackContextPreview,
 
     setAgentsPreview,
     setTaskPackDraft,
@@ -462,6 +521,7 @@ export function useDashboardController() {
     handleSaveAgentsFile,
     handleCreateTaskPackDraft,
     handleAnalyzeTaskContext,
+    handleOpenTaskContextComposer,
     handleCreateTaskPackFromComposer,
     handleCreateTaskPack,
     handleToggleProject

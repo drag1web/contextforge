@@ -17,6 +17,8 @@ import {
   Check,
   CheckCircle2,
   Code2,
+  Eye,
+  FileText,
   Lightbulb,
   Loader2,
   Palette,
@@ -39,6 +41,8 @@ import {
 } from "../api/client";
 import type {
   AcceptanceCriteriaPreset,
+  ContextComposerFileReference,
+  ContextComposerPreview,
   PromptTemplate,
   RuleItem,
   RuleProfile,
@@ -48,14 +52,25 @@ import type {
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { CustomSelect } from "../components/ui/CustomSelect";
+import { SegmentedFilter, type SegmentedFilterOption } from "../components/ui/SegmentedFilter";
 import { TARGET_TOOL_OPTIONS } from "../components/ai/aiToolOptions";
+import {
+  analyzeTaskPackIntent,
+  evaluateTaskPackQuality,
+  type TaskPackIntentResult,
+  type TaskPackIntentStatus,
+  type TaskPackQualityResult,
+  type TaskPackQualityStatus
+} from "../utils/taskPackQuality";
 
 interface TaskPackBuilderPageProps {
   draft: TaskPackDraft;
   isLoading: boolean;
   onChange: (draft: TaskPackDraft) => void;
   onClose: () => void;
-  onAnalyzeContext: () => void;
+  contextPreview?: ContextComposerPreview | null;
+  onAnalyzeContext: () => void | Promise<ContextComposerPreview | void>;
+  onOpenContextComposer?: () => void | Promise<void>;
   onGenerate: () => void;
 }
 
@@ -97,6 +112,62 @@ const TASK_TYPE_OPTIONS: Array<{
     { value: "docs", label: "Docs", description: "Documentation" },
     { value: "tests", label: "Tests", description: "Verification" }
   ];
+
+type BuilderSection = "task" | "recipe" | "rules" | "acceptance" | "context";
+
+const BUILDER_SECTION_OPTIONS: SegmentedFilterOption<BuilderSection>[] = [
+  {
+    value: "task",
+    label: "Task",
+    description: "Main prompt",
+    icon: <Sparkles size={14} />
+  },
+  {
+    value: "recipe",
+    label: "Recipe",
+    description: "Agent setup",
+    icon: <Settings2 size={14} />
+  },
+  {
+    value: "rules",
+    label: "Rules",
+    description: "Constraints",
+    icon: <ShieldCheck size={14} />
+  },
+  {
+    value: "acceptance",
+    label: "Acceptance",
+    description: "Final checks",
+    icon: <CheckCircle2 size={14} />
+  },
+  {
+    value: "context",
+    label: "Context",
+    description: "Review files",
+    icon: <Search size={14} />
+  }
+];
+
+const CONTEXT_BUDGET_MODE_OPTIONS: SegmentedFilterOption<ContextBudgetMode>[] = [
+  {
+    value: "compact",
+    label: "Compact",
+    description: "tight",
+    icon: <SlidersHorizontal size={13} />
+  },
+  {
+    value: "standard",
+    label: "Standard",
+    description: "balanced",
+    icon: <CheckCircle2 size={13} />
+  },
+  {
+    value: "detailed",
+    label: "Detailed",
+    description: "broader",
+    icon: <BookOpen size={13} />
+  }
+];
 
 interface BuilderTaskPreset {
   id: string;
@@ -391,6 +462,1174 @@ function CompactMetric({
         {caption}
       </p>
     </div>
+  );
+}
+
+
+
+type ContextFileMode = "edit" | "inspect" | "create" | "reference";
+type ContextFileFilter = "all" | "edit" | "inspect" | "warnings";
+type ContextBudgetMode = "compact" | "standard" | "detailed";
+
+type ContextReviewSummary = {
+  isAnalyzed: boolean;
+  label: string;
+  summary: string;
+  status: "empty" | "ready" | "warning" | "blocked";
+  files: ContextComposerFileReference[];
+  editCount: number;
+  inspectCount: number;
+  referenceCount: number;
+  snippetsCount: number;
+  budgetScore: number;
+  budgetLabel: string;
+  source: string;
+  riskLabel: string;
+};
+
+function getContextFileMode(file: ContextComposerFileReference): ContextFileMode {
+  const usage = file.usage.toLowerCase();
+
+  if (usage.includes("create")) {
+    return "create";
+  }
+
+  if (usage.includes("edit")) {
+    return "edit";
+  }
+
+  if (usage.includes("reference") || usage.includes("config")) {
+    return "reference";
+  }
+
+  return "inspect";
+}
+
+function getContextModeLabel(mode: ContextFileMode) {
+  if (mode === "edit") {
+    return "Edit candidate";
+  }
+
+  if (mode === "create") {
+    return "Create / edit";
+  }
+
+  if (mode === "reference") {
+    return "Reference";
+  }
+
+  return "Inspect-only";
+}
+
+function getContextModeTone(mode: ContextFileMode) {
+  if (mode === "edit" || mode === "create") {
+    return "border-emerald-400/20 bg-emerald-400/10 text-emerald-300";
+  }
+
+  if (mode === "reference") {
+    return "border-white/15 bg-white/10 text-white";
+  }
+
+  return "border-neutral-800 bg-neutral-950 text-neutral-400";
+}
+
+function getContextStatusTone(status: ContextReviewSummary["status"]) {
+  if (status === "ready") {
+    return {
+      border: "border-emerald-400/20",
+      bg: "bg-emerald-400/10",
+      text: "text-emerald-300",
+      icon: "text-emerald-300"
+    };
+  }
+
+  if (status === "blocked" || status === "warning") {
+    return {
+      border: "border-red-400/20",
+      bg: "bg-red-400/10",
+      text: "text-red-300",
+      icon: "text-red-300"
+    };
+  }
+
+  return {
+    border: "border-neutral-800",
+    bg: "bg-neutral-950",
+    text: "text-neutral-400",
+    icon: "text-neutral-500"
+  };
+}
+
+function formatConfidence(value: number) {
+  return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
+}
+
+function buildContextReviewSummary(preview?: ContextComposerPreview | null): ContextReviewSummary {
+  if (!preview) {
+    return {
+      isAnalyzed: false,
+      label: "Not analyzed",
+      summary: "Run Analyze Context to see selected files, reasons and context budget before exporting.",
+      status: "empty",
+      files: [],
+      editCount: 0,
+      inspectCount: 0,
+      referenceCount: 0,
+      snippetsCount: 0,
+      budgetScore: 0,
+      budgetLabel: "Pending",
+      source: "Not started",
+      riskLabel: "Unknown"
+    };
+  }
+
+  const files = preview.selectedFiles;
+  const editCount = files.filter((file) => {
+    const mode = getContextFileMode(file);
+    return mode === "edit" || mode === "create";
+  }).length;
+  const inspectCount = files.filter((file) => getContextFileMode(file) === "inspect").length;
+  const referenceCount = files.filter((file) => getContextFileMode(file) === "reference").length;
+  const snippetsCount = preview.snippets.length;
+  const selectedCount = files.length;
+  const rawScore = Math.round(Math.min(100, selectedCount * 9 + snippetsCount * 7 + referenceCount * 3));
+  const status = preview.selectionQuality.status === "blocked"
+    ? "blocked"
+    : preview.selectionQuality.status === "warning"
+      ? "warning"
+      : "ready";
+  const budgetScore = Math.max(10, rawScore);
+
+  return {
+    isAnalyzed: true,
+    label: status === "ready" ? "Context ready" : status === "blocked" ? "Manual review needed" : "Review suggested",
+    summary: status === "ready"
+      ? "Selected files are ready to review before generating the Task Pack."
+      : "Context was analyzed, but warnings should be reviewed before exporting.",
+    status,
+    files,
+    editCount,
+    inspectCount,
+    referenceCount,
+    snippetsCount,
+    budgetScore,
+    budgetLabel: budgetScore >= 75 ? "Detailed" : budgetScore >= 40 ? "Standard" : "Compact",
+    source: preview.fileSelection.usedFallback ? "Fallback selector" : preview.fileSelection.source,
+    riskLabel: preview.taskIntent.riskLevel || preview.selectionQuality.status
+  };
+}
+
+function getFileDisplayName(path: string) {
+  return path.split(/[\\/]/).filter(Boolean).pop() ?? path;
+}
+
+function getFileReason(file: ContextComposerFileReference, preview?: ContextComposerPreview | null) {
+  if (file.reason?.trim()) {
+    return file.reason;
+  }
+
+  const taskArea = preview?.task.effectiveTaskArea ?? "task";
+  const mode = getContextFileMode(file);
+
+  if (mode === "edit" || mode === "create") {
+    return `Selected as a likely ${taskArea} edit candidate from the scanned project inventory.`;
+  }
+
+  if (mode === "reference") {
+    return "Included as supporting configuration or project metadata for the generated Task Pack.";
+  }
+
+  return "Included for inspection so the coding agent can understand nearby behavior without editing it directly.";
+}
+
+function getContextFileMetaLine(file: ContextComposerFileReference) {
+  const parts = [file.kind || "file", formatConfidence(file.confidence), file.canReadText ? "snippet readable" : "snippet unavailable"];
+  return parts.join(" · ");
+}
+
+function isTechnicalContextSignal(message: string) {
+  const normalized = message.toLowerCase();
+
+  return (
+    normalized.includes("engine version") ||
+    normalized.includes("selector engine") ||
+    normalized.includes("safety profile") ||
+    normalized.includes("generation mode") ||
+    normalized.includes("model:")
+  );
+}
+
+function getCompactContextWarning(message: string) {
+  const normalized = message.toLowerCase();
+
+  if (normalized.includes("fallback")) {
+    return "Fallback selector was used. Review file choices before exporting.";
+  }
+
+  if (normalized.includes("invalid output") || normalized.includes("failed")) {
+    return "AI file selector did not return a safe result; ranked fallback context was used.";
+  }
+
+  return message;
+}
+
+function getBudgetModeFromLabel(label: string): ContextBudgetMode {
+  const normalized = label.toLowerCase();
+
+  if (normalized.includes("compact")) {
+    return "compact";
+  }
+
+  if (normalized.includes("detailed")) {
+    return "detailed";
+  }
+
+  return "standard";
+}
+
+function getContextBudgetGuidance(mode: ContextBudgetMode) {
+  if (mode === "compact") {
+    return {
+      title: "Compact",
+      description: "Best for small fixes. Keeps only high-confidence edit files and essential references.",
+      target: "2–4 files",
+      risk: "Lowest noise"
+    };
+  }
+
+  if (mode === "detailed") {
+    return {
+      title: "Detailed",
+      description: "Best when the task spans several areas. Adds more references, but review noise carefully.",
+      target: "8–14 files",
+      risk: "Higher context load"
+    };
+  }
+
+  return {
+    title: "Standard",
+    description: "Balanced mode for most Task Packs. Keeps edit candidates plus nearby inspect-only context.",
+    target: "5–8 files",
+    risk: "Balanced"
+  };
+}
+
+function getBudgetPressureTone(score: number) {
+  if (score >= 90) {
+    return {
+      label: "High pressure",
+      text: "text-red-200",
+      bar: "bg-red-300",
+      border: "border-red-400/20",
+      bg: "bg-red-400/10"
+    };
+  }
+
+  if (score >= 65) {
+    return {
+      label: "Review load",
+      text: "text-white",
+      bar: "bg-white",
+      border: "border-white/15",
+      bg: "bg-white/10"
+    };
+  }
+
+  return {
+    label: "Light context",
+    text: "text-emerald-200",
+    bar: "bg-emerald-300",
+    border: "border-emerald-400/20",
+    bg: "bg-emerald-400/10"
+  };
+}
+
+function ContextBudgetBar({
+  label,
+  value,
+  caption
+}: {
+  label: string;
+  value: number;
+  caption: string;
+}) {
+  const safeValue = Math.max(0, Math.min(100, value));
+  const tone = getBudgetPressureTone(safeValue);
+
+  return (
+    <div className="rounded-xl border border-neutral-900 bg-black/30 p-3">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <p className="text-xs font-semibold text-white">
+            {label}
+          </p>
+          <p className="mt-0.5 text-[10px] text-neutral-600">
+            {caption}
+          </p>
+        </div>
+
+        <span className={["text-xs font-semibold", tone.text].join(" ")}>
+          {safeValue}%
+        </span>
+      </div>
+
+      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-neutral-900">
+        <motion.div
+          className={["h-full rounded-full", tone.bar].join(" ")}
+          initial={false}
+          animate={{ width: `${safeValue}%` }}
+          transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.6 }}
+        />
+      </div>
+    </div>
+  );
+}
+
+function ContextBudgetPanel({
+  summary,
+  selectedMode,
+  onModeChange,
+  enabledRulesCount,
+  criteriaCount
+}: {
+  summary: ContextReviewSummary;
+  selectedMode: ContextBudgetMode;
+  onModeChange: (mode: ContextBudgetMode) => void;
+  enabledRulesCount: number;
+  criteriaCount: number;
+}) {
+  const recommendedMode = getBudgetModeFromLabel(summary.budgetLabel);
+  const guidance = getContextBudgetGuidance(selectedMode);
+  const pressureTone = getBudgetPressureTone(summary.budgetScore);
+  const filePressure = Math.min(100, Math.round((summary.files.length / 12) * 100));
+  const snippetPressure = Math.min(100, Math.round((summary.snippetsCount / 10) * 100));
+  const rulePressure = Math.min(100, Math.round(((enabledRulesCount + criteriaCount) / 14) * 100));
+  const inspectPressure = Math.min(100, Math.round(((summary.inspectCount + summary.referenceCount) / Math.max(1, summary.files.length)) * 100));
+
+  return (
+    <section className="rounded-2xl border border-neutral-900 bg-black/30 p-4">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+              Context budget
+            </p>
+
+            <span className={["rounded-full border px-2 py-1 text-[10px] font-semibold", pressureTone.border, pressureTone.bg, pressureTone.text].join(" ")}>
+              {pressureTone.label}
+            </span>
+          </div>
+
+          <h3 className="mt-1 text-base font-semibold text-white">
+            {summary.budgetLabel} · {summary.budgetScore}% context pressure
+          </h3>
+
+          <p className="mt-2 max-w-2xl text-xs leading-5 text-neutral-500">
+            Budget is a local estimate of how much context the Task Pack will carry. It does not change generation yet, but it helps decide whether the pack is too sparse or too noisy.
+          </p>
+        </div>
+
+        <div className="w-full shrink-0 xl:w-[360px]">
+          <SegmentedFilter
+            value={selectedMode}
+            onChange={(value) => onModeChange(value as ContextBudgetMode)}
+            options={CONTEXT_BUDGET_MODE_OPTIONS}
+            className="h-11"
+          />
+        </div>
+      </div>
+
+      <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
+        <div className="grid gap-3 sm:grid-cols-2">
+          <ContextBudgetBar
+            label="Files"
+            value={filePressure}
+            caption={`${summary.files.length} selected · ${summary.editCount} edit candidates`}
+          />
+          <ContextBudgetBar
+            label="Snippets"
+            value={snippetPressure}
+            caption={`${summary.snippetsCount} readable snippets`}
+          />
+          <ContextBudgetBar
+            label="Rules & checks"
+            value={rulePressure}
+            caption={`${enabledRulesCount} rules · ${criteriaCount} checks`}
+          />
+          <ContextBudgetBar
+            label="Inspect-only load"
+            value={inspectPressure}
+            caption={`${summary.inspectCount + summary.referenceCount} read-only references`}
+          />
+        </div>
+
+        <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                Planning mode
+              </p>
+              <h4 className="mt-1 text-sm font-semibold text-white">
+                {guidance.title}
+              </h4>
+            </div>
+
+            <span className="rounded-full border border-neutral-800 bg-neutral-950 px-2 py-1 text-[10px] text-neutral-400">
+              {recommendedMode === selectedMode ? "recommended" : "preview"}
+            </span>
+          </div>
+
+          <p className="mt-3 text-xs leading-5 text-neutral-500">
+            {guidance.description}
+          </p>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <CompactMetric label="Target" value={guidance.target} caption="future budget" />
+            <CompactMetric label="Noise" value={guidance.risk} caption="expected" />
+          </div>
+
+          <p className="mt-3 text-[10px] leading-4 text-neutral-600">
+            Stage 10.4 is UI-only: selector behavior stays unchanged until budget modes are wired into core selection.
+          </p>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function ContextFileReasonCard({
+  file,
+  preview
+}: {
+  file: ContextComposerFileReference;
+  preview?: ContextComposerPreview | null;
+}) {
+  const mode = getContextFileMode(file);
+
+  return (
+    <article className="rounded-2xl border border-neutral-900 bg-black/35 p-3.5 transition-colors hover:border-neutral-800">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex items-center gap-2">
+            <span className="grid size-7 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+              <FileText size={14} />
+            </span>
+
+            <div className="min-w-0">
+              <h4 className="truncate text-sm font-semibold text-white">
+                {getFileDisplayName(file.path)}
+              </h4>
+
+              <p className="truncate text-[11px] text-neutral-600">
+                {file.path}
+              </p>
+            </div>
+          </div>
+        </div>
+
+        <span className={["shrink-0 rounded-full border px-2 py-1 text-[10px] font-medium", getContextModeTone(mode)].join(" ") }>
+          {getContextModeLabel(mode)}
+        </span>
+      </div>
+
+      <p className="mt-3 line-clamp-2 text-xs leading-5 text-neutral-500">
+        {getFileReason(file, preview)}
+      </p>
+
+      <div className="mt-3 flex flex-wrap items-center gap-2 border-t border-neutral-900 pt-3 text-[10px] text-neutral-600">
+        <span className="rounded-full border border-neutral-900 bg-black/30 px-2 py-1 text-neutral-500">
+          {getContextFileMetaLine(file)}
+        </span>
+      </div>
+    </article>
+  );
+}
+
+function ContextSelectionSummaryCard({
+  summary,
+  isLoading,
+  onReview,
+  onAnalyze
+}: {
+  summary: ContextReviewSummary;
+  isLoading: boolean;
+  onReview: () => void;
+  onAnalyze: () => void;
+}) {
+  const tone = getContextStatusTone(summary.status);
+
+  return (
+    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className={["grid size-10 shrink-0 place-items-center rounded-2xl border", tone.border, tone.bg, tone.icon].join(" ") }>
+            <Search size={18} />
+          </span>
+
+          <div className="min-w-0">
+            <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+              Context
+            </p>
+
+            <h2 className="truncate text-base font-semibold text-white">
+              {summary.label}
+            </h2>
+          </div>
+        </div>
+
+        <button
+          type="button"
+          onClick={onReview}
+          className="cf-invert-action inline-flex h-8 shrink-0 items-center gap-2 rounded-full px-3 text-xs"
+        >
+          Review
+        </button>
+      </div>
+
+      <p className="text-xs leading-5 text-neutral-600">
+        {summary.summary}
+      </p>
+
+      {summary.isAnalyzed ? (
+        <>
+          <div className="mt-4 grid grid-cols-2 gap-2">
+            <CompactMetric label="Files" value={summary.files.length} caption="selected" />
+            <CompactMetric label="Edit" value={summary.editCount} caption="candidate" />
+            <CompactMetric label="Inspect" value={summary.inspectCount} caption="read only" />
+            <CompactMetric label="Budget" value={`${summary.budgetScore}%`} caption={summary.budgetLabel} />
+          </div>
+
+          <button
+            type="button"
+            onClick={onReview}
+            className="cf-invert-action mt-4 inline-flex h-8 w-full items-center justify-center gap-2 rounded-full px-3 text-xs"
+          >
+            <Eye size={13} />
+            Review selected context
+          </button>
+        </>
+      ) : (
+        <button
+          type="button"
+          onClick={onAnalyze}
+          disabled={isLoading}
+          className="cf-invert-action mt-4 inline-flex h-8 w-full items-center justify-center gap-2 rounded-full px-3 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {isLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
+          Analyze context
+        </button>
+      )}
+    </section>
+  );
+}
+
+function getQualityStatusClasses(status: TaskPackQualityStatus) {
+  if (status === "pass") {
+    return {
+      ring: "text-emerald-300",
+      border: "border-emerald-400/20",
+      bg: "bg-emerald-400/10",
+      text: "text-emerald-300",
+      muted: "text-emerald-200/70"
+    };
+  }
+
+  if (status === "improve") {
+    return {
+      ring: "text-white",
+      border: "border-white/15",
+      bg: "bg-white/10",
+      text: "text-white",
+      muted: "text-neutral-300"
+    };
+  }
+
+  return {
+    ring: "text-red-300",
+    border: "border-red-400/20",
+    bg: "bg-red-400/10",
+    text: "text-red-300",
+    muted: "text-red-200/70"
+  };
+}
+
+function QualityStatusIcon({ status, size = 14 }: { status: TaskPackQualityStatus; size?: number }) {
+  if (status === "pass") {
+    return <CheckCircle2 size={size} />;
+  }
+
+  if (status === "improve") {
+    return <Lightbulb size={size} />;
+  }
+
+  return <AlertTriangle size={size} />;
+}
+
+function AnimatedScoreNumber({ value }: { value: number }) {
+  const [displayValue, setDisplayValue] = useState(value);
+  const previousValueRef = useRef(value);
+
+  useEffect(() => {
+    const from = previousValueRef.current;
+    const to = value;
+
+    if (from === to) {
+      setDisplayValue(to);
+      return;
+    }
+
+    let frameId = 0;
+    const startedAt = performance.now();
+    const durationMs = 680;
+
+    const tick = (now: number) => {
+      const progress = Math.min(1, (now - startedAt) / durationMs);
+      const eased = 1 - Math.pow(1 - progress, 3);
+
+      setDisplayValue(Math.round(from + (to - from) * eased));
+
+      if (progress < 1) {
+        frameId = requestAnimationFrame(tick);
+      } else {
+        previousValueRef.current = to;
+      }
+    };
+
+    frameId = requestAnimationFrame(tick);
+
+    return () => {
+      cancelAnimationFrame(frameId);
+      previousValueRef.current = to;
+    };
+  }, [value]);
+
+  return (
+    <motion.p
+      className="text-xl font-semibold tracking-[-0.06em] text-white"
+      initial={false}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      key={`quality-score-${value}`}
+      transition={{ duration: 0.18, ease: "easeOut" }}
+    >
+      {displayValue}
+    </motion.p>
+  );
+}
+
+function QualityScoreRing({ score, status }: { score: number; status: TaskPackQualityStatus }) {
+  const classes = getQualityStatusClasses(status);
+  const radius = 35;
+  const circumference = 2 * Math.PI * radius;
+  const clampedScore = Math.max(0, Math.min(100, score));
+  const dashOffset = circumference - (clampedScore / 100) * circumference;
+
+  return (
+    <div className={["relative grid size-20 shrink-0 place-items-center rounded-full", classes.ring].join(" ")}>
+      <motion.div
+        className={["absolute inset-0 rounded-full blur-md", classes.bg].join(" ")}
+        initial={false}
+        animate={{ opacity: [0.35, 0.72, 0.35], scale: [0.94, 1.04, 0.94] }}
+        transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+      />
+
+      <svg className="absolute inset-0 size-full -rotate-90" viewBox="0 0 80 80" aria-hidden="true">
+        <circle
+          cx="40"
+          cy="40"
+          r={radius}
+          fill="none"
+          stroke="rgba(255,255,255,0.08)"
+          strokeWidth="5"
+        />
+        <motion.circle
+          cx="40"
+          cy="40"
+          r={radius}
+          fill="none"
+          stroke="currentColor"
+          strokeLinecap="round"
+          strokeWidth="5"
+          strokeDasharray={circumference}
+          initial={false}
+          animate={{ strokeDashoffset: dashOffset }}
+          transition={{ type: "spring", stiffness: 120, damping: 22, mass: 0.8 }}
+        />
+      </svg>
+
+      <motion.div
+        className="absolute inset-[7px] rounded-full border border-neutral-900 bg-neutral-950/95"
+        initial={false}
+        animate={{ boxShadow: `0 0 ${score >= 80 ? 20 : 14}px rgba(255,255,255,0.05)` }}
+        transition={{ duration: 0.3 }}
+      />
+
+      <div className="relative text-center">
+        <AnimatedScoreNumber value={score} />
+        <p className="cf-tech-label text-[8px] uppercase text-neutral-600">/ 100</p>
+      </div>
+    </div>
+  );
+}
+
+function QualityScoreCard({
+  quality,
+  onOpenDetails
+}: {
+  quality: TaskPackQualityResult;
+  onOpenDetails: () => void;
+}) {
+  const classes = getQualityStatusClasses(quality.status);
+  const topIssues = quality.checks.filter((check) => check.status !== "pass").slice(0, 2);
+  const positiveChecks = quality.checks.filter((check) => check.status === "pass").length;
+
+  return (
+    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
+      <div className="mb-4 flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+            Task Pack Quality
+          </p>
+
+          <h2 className="mt-1 text-base font-semibold text-white">
+            {quality.label}
+          </h2>
+
+          <p className="mt-1 text-xs leading-5 text-neutral-600">
+            {quality.summary}
+          </p>
+        </div>
+
+        <QualityScoreRing score={quality.score} status={quality.status} />
+      </div>
+
+      <div className="grid grid-cols-3 gap-2">
+        <CompactMetric
+          label="Checks"
+          value={`${positiveChecks}/${quality.checks.length}`}
+          caption="passed"
+        />
+
+        <CompactMetric
+          label="Warnings"
+          value={quality.warnings.length}
+          caption="signals"
+        />
+
+        <CompactMetric
+          label="Words"
+          value={quality.stats.taskWords}
+          caption="task"
+        />
+      </div>
+
+      <div className="mt-4 space-y-2">
+        {(topIssues.length > 0 ? topIssues : quality.checks.slice(0, 2)).map((check) => {
+          const checkClasses = getQualityStatusClasses(check.status);
+
+          return (
+            <div
+              key={check.id}
+              className="flex items-start gap-2 rounded-2xl border border-neutral-900 bg-black/35 p-3"
+            >
+              <span
+                className={[
+                  "mt-0.5 grid size-6 shrink-0 place-items-center rounded-lg border",
+                  checkClasses.border,
+                  checkClasses.bg,
+                  checkClasses.text
+                ].join(" ")}
+              >
+                <QualityStatusIcon status={check.status} size={13} />
+              </span>
+
+              <div className="min-w-0">
+                <p className="truncate text-xs font-semibold text-white">
+                  {check.label}
+                </p>
+
+                <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-neutral-600">
+                  {check.message}
+                </p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      <button
+        type="button"
+        onClick={onOpenDetails}
+        className="cf-invert-action mt-4 inline-flex h-8 w-full items-center justify-center gap-2 rounded-full px-3 text-xs"
+      >
+        <Lightbulb size={13} />
+        View quality details
+      </button>
+
+      <p className={["mt-3 text-[11px] leading-4", classes.muted].join(" ") }>
+        Local score only · does not change generation logic.
+      </p>
+    </section>
+  );
+}
+
+
+function getIntentStatusClasses(status: TaskPackIntentStatus) {
+  if (status === "match") {
+    return {
+      icon: "border-emerald-400/20 bg-emerald-400/10 text-emerald-300",
+      pill: "border-emerald-400/25 bg-emerald-400/10 text-emerald-200",
+      accent: "text-emerald-300",
+      border: "border-emerald-400/15"
+    };
+  }
+
+  if (status === "warning") {
+    return {
+      icon: "border-red-400/20 bg-red-400/10 text-red-300",
+      pill: "border-red-400/25 bg-red-400/10 text-red-200",
+      accent: "text-red-300",
+      border: "border-red-400/15"
+    };
+  }
+
+  if (status === "review") {
+    return {
+      icon: "border-white/15 bg-white/10 text-white",
+      pill: "border-white/15 bg-white/10 text-white",
+      accent: "text-white",
+      border: "border-white/10"
+    };
+  }
+
+  return {
+    icon: "border-neutral-800 bg-neutral-950 text-neutral-400",
+    pill: "border-neutral-800 bg-neutral-950 text-neutral-400",
+    accent: "text-neutral-300",
+    border: "border-neutral-900"
+  };
+}
+
+function TaskIntentCard({
+  intent,
+  onOpenRecipe,
+  onOpenContext
+}: {
+  intent: TaskPackIntentResult;
+  onOpenRecipe: () => void;
+  onOpenContext: () => void;
+}) {
+  const classes = getIntentStatusClasses(intent.status);
+  const primaryMismatch = intent.mismatches[0];
+  const hasContextMismatch = intent.mismatches.some((item) => item.id.startsWith("context-"));
+
+  return (
+    <article className={["rounded-2xl border bg-black/35 p-3", classes.border].join(" ")}>
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className={["grid size-9 shrink-0 place-items-center rounded-xl border", classes.icon].join(" ")}>
+            {intent.status === "match" ? (
+              <CheckCircle2 size={15} />
+            ) : intent.status === "warning" ? (
+              <AlertTriangle size={15} />
+            ) : (
+              <Lightbulb size={15} />
+            )}
+          </span>
+
+          <div className="min-w-0">
+            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+              Task understanding
+            </p>
+
+            <h3 className="mt-1 truncate text-sm font-semibold text-white">
+              {intent.label}
+            </h3>
+
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-neutral-500">
+              {intent.summary}
+            </p>
+          </div>
+        </div>
+
+        <span className={["shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold", classes.pill].join(" ")}>
+          {intent.confidence}%
+        </span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        {intent.signals.map((signal) => (
+          <div key={signal.label} className="rounded-xl border border-neutral-900 bg-black/35 p-2">
+            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">
+              {signal.label}
+            </p>
+            <p
+              className={[
+                "mt-1 truncate text-xs font-semibold",
+                signal.tone === "positive"
+                  ? "text-emerald-300"
+                  : signal.tone === "warning"
+                    ? "text-red-300"
+                    : "text-white"
+              ].join(" ")}
+            >
+              {signal.value}
+            </p>
+          </div>
+        ))}
+      </div>
+
+      {primaryMismatch ? (
+        <div className="mt-3 rounded-xl border border-neutral-900 bg-black/40 p-3">
+          <div className="flex items-start gap-2">
+            <AlertTriangle
+              size={13}
+              className={primaryMismatch.severity === "warning" ? "mt-0.5 text-red-300" : "mt-0.5 text-neutral-300"}
+            />
+            <div className="min-w-0">
+              <p className="text-xs font-semibold text-white">
+                {primaryMismatch.title}
+              </p>
+              <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-neutral-500">
+                {primaryMismatch.message}
+              </p>
+            </div>
+          </div>
+
+          <div className="mt-3 flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onOpenRecipe}
+              className="cf-invert-action inline-flex h-7 items-center rounded-full px-2.5 text-[11px]"
+            >
+              Open recipe
+            </button>
+
+            {hasContextMismatch && (
+              <button
+                type="button"
+                onClick={onOpenContext}
+                className="inline-flex h-7 items-center rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition hover:border-white/20 hover:text-white"
+              >
+                Review context
+              </button>
+            )}
+          </div>
+        </div>
+      ) : (
+        <div className="mt-3 rounded-xl border border-emerald-400/10 bg-emerald-400/[0.04] p-3 text-[11px] leading-5 text-emerald-200/80">
+          Recipe and task intent look aligned. Keep boundaries and verification visible before exporting.
+        </div>
+      )}
+    </article>
+  );
+}
+
+function QualityDetailsModal({
+  quality,
+  onClose
+}: {
+  quality: TaskPackQualityResult;
+  onClose: () => void;
+}) {
+  const passedChecks = quality.checks.filter((check) => check.status === "pass").length;
+  const topIssues = quality.checks.filter((check) => check.status !== "pass").slice(0, 3);
+  const primaryActions = [
+    ...topIssues.map((check) => check.message),
+    ...quality.suggestions
+  ];
+  const nextActions = Array.from(new Set(primaryActions)).slice(0, 3);
+
+  return (
+    <Modal
+      title="Task Pack Quality"
+      eyebrow="Stage 10.1"
+      maxWidth="max-w-4xl"
+      scrollable={true}
+      onClose={onClose}
+      footer={
+        <div className="flex w-full items-center justify-between gap-3">
+          <p className="hidden text-xs text-neutral-600 md:block">
+            Local readiness score · does not rewrite or change generation.
+          </p>
+
+          <Button variant="primary" onClick={onClose}>
+            Done
+          </Button>
+        </div>
+      }
+    >
+      <div className="space-y-4 p-5">
+        <section className="rounded-[1.6rem] border border-neutral-900 bg-black/35 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="flex min-w-0 items-center gap-4">
+              <QualityScoreRing score={quality.score} status={quality.status} />
+
+              <div className="min-w-0">
+                <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                  Quality overview
+                </p>
+
+                <h3 className="mt-1 text-xl font-semibold tracking-[-0.04em] text-white">
+                  {quality.label}
+                </h3>
+
+                <p className="mt-1 max-w-xl text-sm leading-6 text-neutral-500">
+                  {quality.summary}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid min-w-[280px] grid-cols-4 gap-2 lg:max-w-sm">
+              <CompactMetric label="Checks" value={`${passedChecks}/${quality.checks.length}`} caption="passed" />
+              <CompactMetric label="Task" value={quality.stats.taskWords} caption="words" />
+              <CompactMetric label="Rules" value={quality.stats.enabledRules} caption="enabled" />
+              <CompactMetric label="Criteria" value={quality.stats.criteria} caption="checks" />
+            </div>
+          </div>
+        </section>
+
+        <section className="rounded-[1.6rem] border border-neutral-900 bg-black/35 p-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                Next best actions
+              </p>
+
+              <h3 className="mt-1 text-base font-semibold text-white">
+                Improve the prompt before generating.
+              </h3>
+            </div>
+
+            <span className="inline-flex h-7 items-center rounded-full border border-white/10 bg-white/[0.04] px-3 text-[11px] text-neutral-400">
+              {nextActions.length > 0 ? `${nextActions.length} suggested` : "No blockers"}
+            </span>
+          </div>
+
+          <div className="mt-4 grid gap-2 lg:grid-cols-3">
+            {nextActions.length > 0 ? (
+              nextActions.map((action, index) => {
+                const isCritical = quality.status === "fail" || quality.status === "warn";
+
+                return (
+                  <div
+                    key={action}
+                    className={[
+                      "rounded-2xl border p-3",
+                      isCritical && index === 0
+                        ? "border-red-400/20 bg-red-400/[0.06]"
+                        : "border-white/10 bg-white/[0.035]"
+                    ].join(" ")}
+                  >
+                    <div className="flex items-start gap-2">
+                      <span
+                        className={[
+                          "grid size-6 shrink-0 place-items-center rounded-lg border text-[11px] font-semibold",
+                          isCritical && index === 0
+                            ? "border-red-400/20 bg-red-400/10 text-red-300"
+                            : "border-white/10 bg-white/10 text-white"
+                        ].join(" ")}
+                      >
+                        {index + 1}
+                      </span>
+
+                      <p className="text-xs leading-5 text-neutral-300">
+                        {action}
+                      </p>
+                    </div>
+                  </div>
+                );
+              })
+            ) : (
+              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3 lg:col-span-3">
+                <div className="flex items-center gap-2 text-sm font-semibold text-emerald-300">
+                  <CheckCircle2 size={15} />
+                  Looks ready
+                </div>
+
+                <p className="mt-1 text-xs leading-5 text-emerald-200/70">
+                  The Task Pack has clear setup, constraints and enough verification signals.
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
+
+        <section className="rounded-[1.6rem] border border-neutral-900 bg-black/35 p-4">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                Readiness checks
+              </p>
+
+              <h3 className="mt-1 text-base font-semibold text-white">
+                What the score is based on
+              </h3>
+            </div>
+
+            <span className="rounded-full border border-neutral-800 bg-neutral-950 px-3 py-1 text-[11px] text-neutral-500">
+              {quality.score}/100
+            </span>
+          </div>
+
+          <div className="grid gap-2 lg:grid-cols-2">
+            {quality.checks.map((check) => {
+              const classes = getQualityStatusClasses(check.status);
+              const percent = Math.round((check.points / check.maxPoints) * 100);
+
+              return (
+                <article
+                  key={check.id}
+                  className="rounded-2xl border border-neutral-900 bg-black/35 p-3"
+                >
+                  <div className="flex items-start gap-3">
+                    <span
+                      className={[
+                        "grid size-8 shrink-0 place-items-center rounded-xl border",
+                        classes.border,
+                        classes.bg,
+                        classes.text
+                      ].join(" ")}
+                    >
+                      <QualityStatusIcon status={check.status} />
+                    </span>
+
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="truncate text-sm font-semibold text-white">
+                          {check.label}
+                        </p>
+
+                        <span className="shrink-0 text-[11px] text-neutral-500">
+                          {check.points}/{check.maxPoints}
+                        </span>
+                      </div>
+
+                      <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+                        <div
+                          className={[
+                            "h-full rounded-full transition-[width] duration-500 ease-out",
+                            check.status === "pass"
+                              ? "bg-emerald-300"
+                              : check.status === "improve"
+                                ? "bg-white"
+                                : "bg-red-300"
+                          ].join(" ")}
+                          style={{ width: `${percent}%` }}
+                        />
+                      </div>
+
+                      <p className="mt-2 line-clamp-2 text-xs leading-5 text-neutral-600">
+                        {check.message}
+                      </p>
+                    </div>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+    </Modal>
   );
 }
 
@@ -1167,9 +2406,11 @@ function RulesManagerModal({
 export function TaskPackBuilderPage({
   draft,
   isLoading,
+  contextPreview = null,
   onChange,
   onClose,
   onAnalyzeContext,
+  onOpenContextComposer,
   onGenerate
 }: TaskPackBuilderPageProps) {
   const { t } = useTranslation();
@@ -1182,6 +2423,11 @@ export function TaskPackBuilderPage({
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
   const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false);
+  const [isQualityModalOpen, setIsQualityModalOpen] = useState(false);
+  const [activeBuilderSection, setActiveBuilderSection] = useState<BuilderSection>("task");
+  const [contextFileFilter, setContextFileFilter] = useState<ContextFileFilter>("all");
+  const [contextBudgetMode, setContextBudgetMode] = useState<ContextBudgetMode>("standard");
+  const [showContextTechnicalDetails, setShowContextTechnicalDetails] = useState(false);
   const [activeTaskPresetId, setActiveTaskPresetId] = useState(
     () => getBuilderPresetForTaskType(draft.taskType).id
   );
@@ -1211,6 +2457,154 @@ export function TaskPackBuilderPage({
     () => ruleItems.filter((rule) => enabledRuleIdSet.has(rule.id)),
     [enabledRuleIdSet, ruleItems]
   );
+
+  const qualityResult = useMemo(
+    () =>
+      evaluateTaskPackQuality({
+        draft,
+        selectedTemplate,
+        selectedProfile,
+        selectedAcceptancePreset: selectedPreset,
+        enabledRulesCount: enabledRuleIds.length,
+        customRulesCount,
+        totalCriteriaCount
+      }),
+    [
+      draft,
+      selectedTemplate,
+      selectedProfile,
+      selectedPreset,
+      enabledRuleIds.length,
+      customRulesCount,
+      totalCriteriaCount
+    ]
+  );
+
+  const contextSummary = useMemo(
+    () => buildContextReviewSummary(contextPreview),
+    [contextPreview]
+  );
+
+  const intentResult = useMemo(
+    () =>
+      analyzeTaskPackIntent({
+        draft,
+        selectedTemplate,
+        selectedProfile,
+        contextIntent: contextPreview?.taskIntent ?? null
+      }),
+    [draft, selectedTemplate, selectedProfile, contextPreview?.taskIntent]
+  );
+
+  const rawContextSignals = useMemo(() => {
+    if (!contextPreview) {
+      return [];
+    }
+
+    return [
+      ...contextPreview.selectionQuality.blockingReasons,
+      ...contextPreview.selectionQuality.warnings,
+      ...contextPreview.fileSelection.notes
+    ].filter(Boolean);
+  }, [contextPreview]);
+
+  const contextWarnings = useMemo(() => {
+    const seen = new Set<string>();
+
+    return rawContextSignals
+      .filter((signal) => !isTechnicalContextSignal(signal))
+      .map(getCompactContextWarning)
+      .filter((signal) => {
+        if (seen.has(signal)) {
+          return false;
+        }
+
+        seen.add(signal);
+        return true;
+      })
+      .slice(0, 3);
+  }, [rawContextSignals]);
+
+  const contextTechnicalSignals = useMemo(
+    () => rawContextSignals.filter(isTechnicalContextSignal).slice(0, 6),
+    [rawContextSignals]
+  );
+
+  useEffect(() => {
+    if (contextSummary.isAnalyzed) {
+      setContextBudgetMode(getBudgetModeFromLabel(contextSummary.budgetLabel));
+    }
+  }, [contextSummary.budgetLabel, contextSummary.isAnalyzed]);
+
+  const contextFilterOptions = useMemo<SegmentedFilterOption<ContextFileFilter>[]>(
+    () => [
+      {
+        value: "all",
+        label: "All",
+        description: `${contextSummary.files.length} files`,
+        icon: <FileText size={13} />
+      },
+      {
+        value: "edit",
+        label: "Edit",
+        description: `${contextSummary.editCount} candidates`,
+        icon: <WandSparkles size={13} />
+      },
+      {
+        value: "inspect",
+        label: "Inspect",
+        description: `${contextSummary.inspectCount + contextSummary.referenceCount} read-only`,
+        icon: <Eye size={13} />
+      },
+      {
+        value: "warnings",
+        label: "Warnings",
+        description: `${contextWarnings.length} signals`,
+        icon: <AlertTriangle size={13} />
+      }
+    ],
+    [contextSummary.editCount, contextSummary.files.length, contextSummary.inspectCount, contextSummary.referenceCount, contextWarnings.length]
+  );
+
+  const visibleContextFiles = useMemo(() => {
+    if (contextFileFilter === "warnings") {
+      return [];
+    }
+
+    return contextSummary.files
+      .filter((file) => {
+        if (contextFileFilter === "all") {
+          return true;
+        }
+
+        const mode = getContextFileMode(file);
+
+        if (contextFileFilter === "edit") {
+          return mode === "edit" || mode === "create";
+        }
+
+        return mode === "inspect" || mode === "reference";
+      })
+      .slice(0, 8);
+  }, [contextFileFilter, contextSummary.files]);
+
+  useEffect(() => {
+    if (!contextSummary.isAnalyzed) {
+      setContextFileFilter("all");
+      setShowContextTechnicalDetails(false);
+    }
+  }, [contextSummary.isAnalyzed]);
+
+  const handleAnalyzeContext = useCallback(async () => {
+    await onAnalyzeContext();
+    setActiveBuilderSection("context");
+  }, [onAnalyzeContext]);
+
+  const handleOpenFullContextComposer = useCallback(async () => {
+    if (onOpenContextComposer) {
+      await onOpenContextComposer();
+    }
+  }, [onOpenContextComposer]);
 
   const visibleRuleItems = useMemo(() => {
     const taskType = draft.taskType;
@@ -1482,9 +2876,9 @@ export function TaskPackBuilderPage({
   }, [templates, ruleProfiles]);
 
   return (
-    <section className="h-[calc(100vh-96px)] min-h-0 overflow-y-auto pr-1">
-      <div className="space-y-4 pb-8">
-        <header className="rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012))] p-5 shadow-[0_14px_44px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.045)]">
+    <section className="h-[calc(100vh-96px)] min-h-0 overflow-hidden pr-1">
+      <div className="flex h-full min-h-0 flex-col gap-4 pb-4">
+        <header className="shrink-0 rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012))] p-5 shadow-[0_14px_44px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.045)]">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
               <div className="mb-3 flex flex-wrap gap-2">
@@ -1502,7 +2896,7 @@ export function TaskPackBuilderPage({
               </h1>
 
               <p className="mt-2 max-w-4xl text-sm leading-6 text-neutral-500">
-                Start with the task. Presets, templates and rules stay one click away so the editor remains clear.
+                Start with the task. Keep advanced setup in focused sections so the main editor stays clear.
               </p>
             </div>
 
@@ -1514,7 +2908,7 @@ export function TaskPackBuilderPage({
 
               <Button
                 variant="secondary"
-                onClick={onAnalyzeContext}
+                onClick={handleAnalyzeContext}
                 disabled={!canGenerate}
               >
                 <Sparkles size={15} />
@@ -1537,188 +2931,654 @@ export function TaskPackBuilderPage({
           </div>
         </header>
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-          <main className="space-y-4">
-            <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                  <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                    Task
-                  </p>
+        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <main className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+            <div className="shrink-0 border-b border-neutral-900/80 p-4">
+              <SegmentedFilter
+                value={activeBuilderSection}
+                onChange={(value) => setActiveBuilderSection(value)}
+                options={BUILDER_SECTION_OPTIONS}
+                className="h-14"
+              />
+            </div>
 
-                  <h2 className="mt-2 text-xl font-semibold tracking-[-0.035em] text-white">
-                    Describe what the coding agent should do.
-                  </h2>
-
-                  <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
-                    This is the main input. Write the real task first, then adjust presets only if needed.
-                  </p>
-                </div>
-
-                <div className="flex items-center gap-2 rounded-2xl border border-neutral-900 bg-black/35 px-3 py-2">
-                  <span className={taskQuality.tone}>
-                    {taskQuality.icon}
-                  </span>
-
-                  <div>
-                    <p className="text-xs font-semibold text-white">
-                      {taskQuality.label}
-                    </p>
-
-                    <p className="text-[11px] text-neutral-600">
-                      {taskLength} chars
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                <div className="flex flex-wrap gap-2">
-                  {taskExamples.map((example) => (
-                    <button
-                      key={example.label}
-                      type="button"
-                      onClick={() => updateDraft({ rawTask: example.value })}
-                      className="cf-invert-action inline-flex h-8 items-center rounded-full px-3 text-xs"
-                    >
-                      {example.label}
-                    </button>
-                  ))}
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setIsPresetModalOpen(true)}
-                  className="inline-flex h-8 items-center gap-2 rounded-full border border-neutral-800 bg-neutral-950 px-3 text-xs font-medium text-neutral-300 transition hover:border-white/20 hover:text-white"
-                >
-                  <Sparkles size={13} />
-                  Change preset
-                </button>
-              </div>
-
-              <div className="mb-4 grid gap-3 lg:grid-cols-[minmax(0,1fr)_220px]">
-                <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
-                  <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                    Selected preset
-                  </p>
-
-                  <div className="mt-2 flex items-center gap-3">
-                    <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-                      {activeTaskPreset.icon}
-                    </span>
-
-                    <div className="min-w-0">
-                      <p className="truncate text-sm font-semibold text-white">
-                        {activeTaskPreset.title}
+            <motion.div
+              key={activeBuilderSection}
+              className="min-h-0 flex-1 overflow-y-auto p-4"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.18, ease: "easeOut" }}
+            >
+              {activeBuilderSection === "task" && (
+                <section className="flex h-full min-h-[480px] flex-col">
+                  <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                        Task
                       </p>
 
-                      <p className="mt-0.5 truncate text-xs text-neutral-600">
-                        {activeTaskPreset.focus}
+                      <h2 className="mt-2 text-xl font-semibold tracking-[-0.035em] text-white">
+                        Describe what the coding agent should do.
+                      </h2>
+
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
+                        This is the main input. Write the real task first, then adjust presets only if needed.
                       </p>
                     </div>
+
+                    <div className="flex items-center gap-2 rounded-2xl border border-neutral-900 bg-black/35 px-3 py-2">
+                      <span className={taskQuality.tone}>
+                        {taskQuality.icon}
+                      </span>
+
+                      <div>
+                        <p className="text-xs font-semibold text-white">
+                          {taskQuality.label}
+                        </p>
+
+                        <p className="text-[11px] text-neutral-600">
+                          {taskLength} chars
+                        </p>
+                      </div>
+                    </div>
                   </div>
-                </div>
 
-                <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
-                  <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                    Auto recipe
-                  </p>
+                  <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="flex flex-wrap gap-2">
+                      {taskExamples.map((example) => (
+                        <button
+                          key={example.label}
+                          type="button"
+                          onClick={() => updateDraft({ rawTask: example.value })}
+                          className="cf-invert-action inline-flex h-8 items-center rounded-full px-3 text-xs"
+                        >
+                          {example.label}
+                        </button>
+                      ))}
+                    </div>
 
-                  <p className="mt-2 truncate text-sm font-semibold text-white">
-                    {getTaskTypeLabel(draft.taskType)} · {getTargetToolLabel(draft.targetTool)}
-                  </p>
+                    <button
+                      type="button"
+                      onClick={() => setIsPresetModalOpen(true)}
+                      className="inline-flex h-8 items-center gap-2 rounded-full border border-neutral-800 bg-neutral-950 px-3 text-xs font-medium text-neutral-300 transition hover:border-white/20 hover:text-white"
+                    >
+                      <Sparkles size={13} />
+                      Change preset
+                    </button>
+                  </div>
 
-                  <p className="mt-1 truncate text-xs text-neutral-600">
-                    {selectedTemplate?.name ?? "No template"}
-                  </p>
-                </div>
-              </div>
+                  <div className="mb-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px_300px]">
+                    <button
+                      type="button"
+                      onClick={() => setIsPresetModalOpen(true)}
+                      className="rounded-2xl border border-neutral-900 bg-black/35 p-3 text-left transition hover:border-white/15 hover:bg-white/[0.035]"
+                    >
+                      <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                        Selected preset
+                      </p>
 
-              <div className="rounded-2xl border border-neutral-900 bg-black/55 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-                <textarea
-                  value={draft.rawTask}
-                  onChange={(event) => updateDraft({ rawTask: event.target.value })}
-                  placeholder={t("taskPackBuilder.placeholder")}
-                  className="h-[360px] w-full resize-none overflow-y-auto rounded-xl border border-transparent bg-transparent p-4 text-sm leading-7 text-white outline-none placeholder:text-neutral-700 focus:border-white/10 2xl:h-[430px]"
-                />
-              </div>
-            </section>
+                      <div className="mt-2 flex items-center gap-3">
+                        <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+                          {activeTaskPreset.icon}
+                        </span>
 
-            <section className="grid gap-4 lg:grid-cols-2">
-              <article className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-                <div className="mb-3 flex items-center justify-between gap-4">
-                  <div>
+                        <div className="min-w-0">
+                          <p className="truncate text-sm font-semibold text-white">
+                            {activeTaskPreset.title}
+                          </p>
+
+                          <p className="mt-0.5 truncate text-xs text-neutral-600">
+                            {activeTaskPreset.focus}
+                          </p>
+                        </div>
+                      </div>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() => setActiveBuilderSection("recipe")}
+                      className="rounded-2xl border border-neutral-900 bg-black/35 p-3 text-left transition hover:border-white/15 hover:bg-white/[0.035]"
+                    >
+                      <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                        Auto recipe
+                      </p>
+
+                      <p className="mt-2 truncate text-sm font-semibold text-white">
+                        {getTaskTypeLabel(draft.taskType)} · {getTargetToolLabel(draft.targetTool)}
+                      </p>
+
+                      <p className="mt-1 truncate text-xs text-neutral-600">
+                        {selectedTemplate?.name ?? "No template"}
+                      </p>
+                    </button>
+
+                    <TaskIntentCard
+                      intent={intentResult}
+                      onOpenRecipe={() => setActiveBuilderSection("recipe")}
+                      onOpenContext={() => setActiveBuilderSection("context")}
+                    />
+                  </div>
+
+                  <div className="min-h-0 flex-1 rounded-2xl border border-neutral-900 bg-black/55 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+                    <textarea
+                      value={draft.rawTask}
+                      onChange={(event) => updateDraft({ rawTask: event.target.value })}
+                      placeholder={t("taskPackBuilder.placeholder")}
+                      className="h-full min-h-[300px] w-full resize-none overflow-y-auto rounded-xl border border-transparent bg-transparent p-4 text-sm leading-7 text-white outline-none placeholder:text-neutral-700 focus:border-white/10"
+                    />
+                  </div>
+                </section>
+              )}
+
+              {activeBuilderSection === "recipe" && (
+                <section className="space-y-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                        Recipe
+                      </p>
+
+                      <h2 className="mt-2 text-xl font-semibold tracking-[-0.035em] text-white">
+                        Template and agent setup.
+                      </h2>
+
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
+                        Choose how ContextForge frames the Task Pack before it is exported to an external coding agent.
+                      </p>
+                    </div>
+
+                    <div className="flex gap-2">
+                      <Button variant="secondary" onClick={() => setIsPresetModalOpen(true)}>
+                        <Sparkles size={15} />
+                        Preset
+                      </Button>
+
+                      <Button variant="secondary" onClick={resetRecipeDefaults}>
+                        <RotateCcw size={15} />
+                        Defaults
+                      </Button>
+                    </div>
+                  </div>
+
+                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
+                    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
+                      <div className="grid gap-4 md:grid-cols-2">
+                        <div>
+                          <label className="mb-2 block text-xs text-neutral-500">
+                            Task type
+                          </label>
+
+                          <CustomSelect
+                            value={draft.taskType}
+                            onChange={handleTaskTypeChange}
+                            options={TASK_TYPE_OPTIONS}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="mb-2 block text-xs text-neutral-500">
+                            Target AI tool
+                          </label>
+
+                          <CustomSelect
+                            value={draft.targetTool}
+                            onChange={handleTargetToolChange}
+                            options={TARGET_TOOL_OPTIONS}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="mb-2 block text-xs text-neutral-500">
+                            Prompt template
+                          </label>
+
+                          <CustomSelect
+                            value={draft.templateId ?? ""}
+                            onChange={(value) => updateDraft({ templateId: value })}
+                            options={templateOptions}
+                          />
+                        </div>
+
+                        <div>
+                          <label className="mb-2 block text-xs text-neutral-500">
+                            Rule profile
+                          </label>
+
+                          <CustomSelect
+                            value={draft.ruleProfileId ?? ""}
+                            onChange={handleRuleProfileChange}
+                            options={profileOptions}
+                          />
+                        </div>
+                      </div>
+                    </section>
+
+                    <aside className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
+                      <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                        Applied recipe
+                      </p>
+
+                      <h3 className="mt-1 text-base font-semibold text-white">
+                        What will be inserted
+                      </h3>
+
+                      <div className="mt-4 grid grid-cols-2 gap-2">
+                        <CompactMetric label="Task" value={getTaskTypeLabel(draft.taskType)} caption={getTargetToolLabel(draft.targetTool)} />
+                        <CompactMetric label="Rules" value={enabledRuleIds.length} caption="toggle" />
+                        <CompactMetric label="Custom" value={customRulesCount} caption="rules" />
+                        <CompactMetric label="Checks" value={totalCriteriaCount} caption="criteria" />
+                      </div>
+
+                      <div className="mt-4 space-y-2">
+                        <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
+                          <p className="truncate text-xs font-semibold text-white">
+                            {selectedTemplate?.name ?? "No template selected"}
+                          </p>
+                          <p className="mt-1 truncate text-[11px] text-neutral-600">
+                            Prompt template
+                          </p>
+                        </div>
+
+                        <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
+                          <p className="truncate text-xs font-semibold text-white">
+                            {selectedProfile?.name ?? "No rule profile selected"}
+                          </p>
+                          <p className="mt-1 truncate text-[11px] text-neutral-600">
+                            Rule profile
+                          </p>
+                        </div>
+                      </div>
+                    </aside>
+                  </div>
+                </section>
+              )}
+
+              {activeBuilderSection === "rules" && (
+                <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+                  <article className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
+                    <div className="mb-4 flex items-center justify-between gap-4">
+                      <div>
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                          Custom rules
+                        </p>
+
+                        <h2 className="mt-1 text-xl font-semibold tracking-[-0.035em] text-white">
+                          Extra constraints
+                        </h2>
+
+                        <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500">
+                          Add task-specific limits that should be inserted alongside the selected rule profile.
+                        </p>
+                      </div>
+
+                      <Pill tone={customRulesCount > 0 ? "success" : "default"}>
+                        {customRulesCount} custom
+                      </Pill>
+                    </div>
+
+                    <textarea
+                      value={draft.customRulesText ?? ""}
+                      onChange={(event) => updateDraft({ customRulesText: event.target.value })}
+                      placeholder={[
+                        "Do not change backend/API behavior.",
+                        "Do not add new dependencies.",
+                        "Keep AppTitleBar untouched."
+                      ].join("\n")}
+                      className="h-[320px] w-full resize-none overflow-y-auto rounded-2xl border border-neutral-900 bg-black/55 p-4 text-sm leading-6 text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
+                    />
+                  </article>
+
+                  <aside className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
+                    <div className="mb-4 flex items-start justify-between gap-4">
+                      <div>
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                          Enabled rules
+                        </p>
+
+                        <h3 className="mt-1 text-base font-semibold text-white">
+                          Selected constraints
+                        </h3>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => setIsRulesModalOpen(true)}
+                        className="cf-invert-action inline-flex h-8 shrink-0 items-center gap-2 rounded-full px-3 text-xs"
+                      >
+                        <SlidersHorizontal size={13} />
+                        Manage
+                      </button>
+                    </div>
+
+                    <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
+                      {selectedRuleItems.length > 0 ? (
+                        selectedRuleItems.map((rule) => (
+                          <SelectedRulePreview key={rule.id} rule={rule} />
+                        ))
+                      ) : (
+                        <div className="rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs leading-5 text-neutral-600">
+                          No toggle rules enabled. Select a profile or open the rule manager.
+                        </div>
+                      )}
+                    </div>
+                  </aside>
+                </section>
+              )}
+
+              {activeBuilderSection === "acceptance" && (
+                <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+                  <article className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
+                    <div className="mb-4 flex items-center justify-between gap-4">
+                      <div>
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                          Acceptance
+                        </p>
+
+                        <h2 className="mt-1 text-xl font-semibold tracking-[-0.035em] text-white">
+                          Checks for the final answer
+                        </h2>
+
+                        <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500">
+                          Tell the external coding agent what must be verified before the task is considered done.
+                        </p>
+                      </div>
+
+                      <Pill tone={customCriteriaCount > 0 ? "success" : "default"}>
+                        {totalCriteriaCount} checks
+                      </Pill>
+                    </div>
+
+                    <div className="mb-4">
+                      <CustomSelect
+                        value={draft.acceptanceCriteriaPresetId ?? ""}
+                        onChange={(value) => updateDraft({ acceptanceCriteriaPresetId: value || undefined })}
+                        options={presetOptions}
+                      />
+                    </div>
+
+                    <textarea
+                      value={draft.acceptanceCriteriaText ?? ""}
+                      onChange={(event) => updateDraft({ acceptanceCriteriaText: event.target.value })}
+                      placeholder={[
+                        "Add extra acceptance criteria here.",
+                        "Example: final response must list verification steps."
+                      ].join("\n")}
+                      className="h-[320px] w-full resize-none overflow-y-auto rounded-2xl border border-neutral-900 bg-black/55 p-4 text-sm leading-6 text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
+                    />
+                  </article>
+
+                  <aside className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
                     <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                      Custom rules
+                      Current preset
                     </p>
 
                     <h3 className="mt-1 text-base font-semibold text-white">
-                      Extra constraints
+                      {selectedPreset?.name ?? "No preset selected"}
                     </h3>
-                  </div>
 
-                  <Pill tone={customRulesCount > 0 ? "success" : "default"}>
-                    {customRulesCount} custom
-                  </Pill>
-                </div>
+                    <div className="mt-4 space-y-2">
+                      {selectedPreset?.criteria?.length ? (
+                        selectedPreset.criteria.map((criteria) => (
+                          <div key={criteria} className="rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs leading-5 text-neutral-400">
+                            {criteria}
+                          </div>
+                        ))
+                      ) : (
+                        <div className="rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs leading-5 text-neutral-600">
+                          Choose a preset or add custom checks manually.
+                        </div>
+                      )}
+                    </div>
+                  </aside>
+                </section>
+              )}
 
-                <textarea
-                  value={draft.customRulesText ?? ""}
-                  onChange={(event) =>
-                    updateDraft({ customRulesText: event.target.value })
-                  }
-                  placeholder={[
-                    "Do not change backend/API behavior.",
-                    "Do not add new dependencies.",
-                    "Keep AppTitleBar untouched."
-                  ].join("\n")}
-                  className="h-32 w-full resize-none overflow-y-auto rounded-2xl border border-neutral-900 bg-black/55 p-4 text-sm leading-6 text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
-                />
-              </article>
+              {activeBuilderSection === "context" && (
+                <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+                  <article className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="flex items-start gap-4">
+                        <span className={["grid size-12 shrink-0 place-items-center rounded-2xl border", getContextStatusTone(contextSummary.status).border, getContextStatusTone(contextSummary.status).bg, getContextStatusTone(contextSummary.status).icon].join(" ") }>
+                          <Search size={20} />
+                        </span>
 
-              <article className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-                <div className="mb-3 flex items-center justify-between gap-4">
-                  <div>
-                    <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                      Acceptance
-                    </p>
+                        <div>
+                          <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                            Context review
+                          </p>
 
-                    <h3 className="mt-1 text-base font-semibold text-white">
-                      Checks for the final answer
-                    </h3>
-                  </div>
+                          <h2 className="mt-1 text-xl font-semibold tracking-[-0.035em] text-white">
+                            {contextSummary.isAnalyzed ? "Selected context and file reasons." : "Analyze context before exporting."}
+                          </h2>
 
-                  <Pill tone={customCriteriaCount > 0 ? "success" : "default"}>
-                    {totalCriteriaCount} checks
-                  </Pill>
-                </div>
+                          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500">
+                            {contextSummary.summary}
+                          </p>
+                        </div>
+                      </div>
 
-                <div className="mb-3">
-                  <CustomSelect
-                    value={draft.acceptanceCriteriaPresetId ?? ""}
-                    onChange={(value) =>
-                      updateDraft({ acceptanceCriteriaPresetId: value || undefined })
-                    }
-                    options={presetOptions}
-                  />
-                </div>
+                      <div className="flex shrink-0 flex-wrap gap-2">
+                        <Button variant="secondary" onClick={handleAnalyzeContext} disabled={!canGenerate}>
+                          {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                          {contextSummary.isAnalyzed ? "Refresh context" : "Analyze Context"}
+                        </Button>
 
-                <textarea
-                  value={draft.acceptanceCriteriaText ?? ""}
-                  onChange={(event) =>
-                    updateDraft({ acceptanceCriteriaText: event.target.value })
-                  }
-                  placeholder={[
-                    "Add extra acceptance criteria here.",
-                    "Example: final response must list verification steps."
-                  ].join("\n")}
-                  className="h-24 w-full resize-none overflow-y-auto rounded-2xl border border-neutral-900 bg-black/55 p-3 text-sm leading-5 text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
-                />
-              </article>
-            </section>
+                        {contextSummary.isAnalyzed && onOpenContextComposer && (
+                          <Button variant="secondary" onClick={handleOpenFullContextComposer}>
+                            <Eye size={15} />
+                            Full review
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="mt-6 grid gap-3 md:grid-cols-4">
+                      <CompactMetric label="Status" value={contextSummary.label} caption={contextSummary.source} />
+                      <CompactMetric label="Files" value={contextSummary.files.length} caption={`${contextSummary.editCount} edit · ${contextSummary.inspectCount} inspect`} />
+                      <CompactMetric label="Snippets" value={contextSummary.snippetsCount} caption="readable" />
+                      <CompactMetric label="Budget" value={`${contextSummary.budgetScore}%`} caption={contextSummary.budgetLabel} />
+                    </div>
+
+                    {contextSummary.isAnalyzed && (
+                      <div className="mt-4">
+                        <ContextBudgetPanel
+                          summary={contextSummary}
+                          selectedMode={contextBudgetMode}
+                          onModeChange={setContextBudgetMode}
+                          enabledRulesCount={enabledRuleIds.length}
+                          criteriaCount={totalCriteriaCount}
+                        />
+                      </div>
+                    )}
+
+                    {contextSummary.isAnalyzed ? (
+                      <div className="mt-6 space-y-4">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
+                          <div>
+                            <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                              Selected files
+                            </p>
+                            <h3 className="mt-1 text-base font-semibold text-white">
+                              Why each file was included
+                            </h3>
+                          </div>
+
+                          <Pill tone={contextSummary.status === "ready" ? "success" : "warning"}>
+                            {contextSummary.status === "ready" ? "ready" : "review"}
+                          </Pill>
+                        </div>
+
+                        <SegmentedFilter
+                          value={contextFileFilter}
+                          onChange={(value) => setContextFileFilter(value as ContextFileFilter)}
+                          options={contextFilterOptions}
+                          className="h-12"
+                        />
+
+                        {contextFileFilter === "warnings" ? (
+                          <div className="space-y-2">
+                            {contextWarnings.length > 0 ? contextWarnings.map((warning) => (
+                              <div key={warning} className="rounded-2xl border border-red-400/20 bg-red-400/10 p-4 text-xs leading-5 text-red-200">
+                                <div className="mb-1 flex items-center gap-2 text-red-100">
+                                  <AlertTriangle size={13} />
+                                  <span className="font-semibold">Review before exporting</span>
+                                </div>
+                                {warning}
+                              </div>
+                            )) : (
+                              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-xs leading-5 text-emerald-200">
+                                No context warnings returned. Selected files look ready for export.
+                              </div>
+                            )}
+                          </div>
+                        ) : visibleContextFiles.length > 0 ? (
+                          <div className="grid gap-3 xl:grid-cols-2">
+                            {visibleContextFiles.map((file) => (
+                              <ContextFileReasonCard
+                                key={file.path}
+                                file={file}
+                                preview={contextPreview}
+                              />
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="rounded-2xl border border-dashed border-neutral-800 bg-black/25 p-6 text-sm leading-6 text-neutral-500">
+                            No files match this filter. Open full review or adjust the task before generating.
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <div className="mt-6 rounded-2xl border border-neutral-900 bg-black/25 p-4">
+                        <p className="text-sm font-semibold text-white">
+                          No context analysis yet.
+                        </p>
+                        <p className="mt-2 text-xs leading-5 text-neutral-600">
+                          Run analysis to see selected files, edit candidates, inspect-only references and a lightweight context budget estimate here.
+                        </p>
+                      </div>
+                    )}
+                  </article>
+
+                  <aside className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                          Review signals
+                        </p>
+                        <h3 className="mt-1 text-sm font-semibold text-white">
+                          {contextSummary.isAnalyzed ? "Selection health" : "What will appear here"}
+                        </h3>
+                      </div>
+
+                      {contextSummary.isAnalyzed && (
+                        <Pill tone={contextSummary.status === "ready" ? "success" : "warning"}>
+                          {contextSummary.status === "ready" ? "clear" : "check"}
+                        </Pill>
+                      )}
+                    </div>
+
+                    <div className="mt-4 space-y-2">
+                      {contextSummary.isAnalyzed ? (
+                        <>
+                          <div className="grid grid-cols-2 gap-2">
+                            <CompactMetric label="Budget" value={contextSummary.budgetLabel} caption={`${contextSummary.budgetScore}%`} />
+                            <CompactMetric label="Source" value={contextSummary.source} caption={contextPreview?.fileSelection.usedFallback ? "fallback" : "selector"} />
+                          </div>
+
+                          <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
+                            <div className="flex items-center justify-between gap-3 text-xs">
+                              <span className="text-neutral-400">Budget pressure</span>
+                              <span className={getBudgetPressureTone(contextSummary.budgetScore).text}>
+                                {contextSummary.budgetScore}%
+                              </span>
+                            </div>
+                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-900">
+                              <motion.div
+                                className={["h-full rounded-full", getBudgetPressureTone(contextSummary.budgetScore).bar].join(" ")}
+                                initial={false}
+                                animate={{ width: `${contextSummary.budgetScore}%` }}
+                                transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.6 }}
+                              />
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-2 rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs text-neutral-400">
+                            <Eye size={13} className="text-neutral-300" />
+                            {contextSummary.inspectCount + contextSummary.referenceCount} read-only reference(s)
+                          </div>
+
+                          {contextWarnings.length > 0 ? (
+                            <div className="rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-xs leading-5 text-red-200">
+                              <div className="mb-1 flex items-center gap-2 text-red-100">
+                                <AlertTriangle size={13} />
+                                <span className="font-semibold">Review recommended</span>
+                              </div>
+                              {contextWarnings[0]}
+                            </div>
+                          ) : (
+                            <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs leading-5 text-emerald-200">
+                              No blocking context warnings returned.
+                            </div>
+                          )}
+
+                          {contextTechnicalSignals.length > 0 && (
+                            <div className="rounded-xl border border-neutral-900 bg-black/30 p-3">
+                              <button
+                                type="button"
+                                onClick={() => setShowContextTechnicalDetails((value) => !value)}
+                                className="flex w-full items-center justify-between gap-3 text-left text-xs font-semibold text-neutral-300 hover:text-white"
+                              >
+                                Technical details
+                                <span className="text-[10px] text-neutral-600">
+                                  {showContextTechnicalDetails ? "Hide" : "Show"}
+                                </span>
+                              </button>
+
+                              {showContextTechnicalDetails && (
+                                <div className="mt-3 space-y-2">
+                                  {contextTechnicalSignals.map((signal) => (
+                                    <div key={signal} className="rounded-lg border border-neutral-900 bg-black/35 p-2 text-[11px] leading-5 text-neutral-500">
+                                      {signal}
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          )}
+                        </>
+                      ) : (
+                        [
+                          "Selected files and relevance",
+                          "Edit candidates vs inspect-only",
+                          "Context budget pressure",
+                          "Why each file was included"
+                        ].map((item) => (
+                          <div key={item} className="flex items-center gap-2 rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs text-neutral-400">
+                            <CheckCircle2 size={13} className="text-emerald-300" />
+                            {item}
+                          </div>
+                        ))
+                      )}
+                    </div>
+                  </aside>
+                </section>
+              )}
+            </motion.div>
           </main>
 
-          <aside className="space-y-4 xl:sticky xl:top-0 xl:self-start">
+          <aside className="min-h-0 space-y-4 overflow-y-auto pr-1">
+            <QualityScoreCard
+              quality={qualityResult}
+              onOpenDetails={() => setIsQualityModalOpen(true)}
+            />
+
+            <ContextSelectionSummaryCard
+              summary={contextSummary}
+              isLoading={isLoading}
+              onReview={() => setActiveBuilderSection("context")}
+              onAnalyze={handleAnalyzeContext}
+            />
+
             <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
               <div className="mb-4 flex items-center justify-between gap-3">
                 <div className="flex items-center gap-3">
@@ -1728,112 +3588,41 @@ export function TaskPackBuilderPage({
 
                   <div>
                     <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                      Recipe
+                      Setup
                     </p>
 
                     <h2 className="text-base font-semibold text-white">
-                      Current setup
+                      Current recipe
                     </h2>
                   </div>
                 </div>
 
                 <button
                   type="button"
-                  onClick={() => setIsRecipeModalOpen(true)}
+                  onClick={() => setActiveBuilderSection("recipe")}
                   className="cf-invert-action inline-flex h-8 shrink-0 items-center gap-2 rounded-full px-3 text-xs"
                 >
-                  <SlidersHorizontal size={13} />
-                  Setup
+                  Open
                 </button>
               </div>
 
               <div className="grid grid-cols-2 gap-2">
-                <CompactMetric
-                  label="Task"
-                  value={getTaskTypeLabel(draft.taskType)}
-                  caption={getTargetToolLabel(draft.targetTool)}
-                />
-
-                <CompactMetric
-                  label="Rules"
-                  value={enabledRuleIds.length}
-                  caption="toggle"
-                />
-
-                <CompactMetric
-                  label="Custom"
-                  value={customRulesCount}
-                  caption="rules"
-                />
-
-                <CompactMetric
-                  label="Checks"
-                  value={totalCriteriaCount}
-                  caption="criteria"
-                />
+                <CompactMetric label="Task" value={getTaskTypeLabel(draft.taskType)} caption={getTargetToolLabel(draft.targetTool)} />
+                <CompactMetric label="Rules" value={enabledRuleIds.length} caption="toggle" />
+                <CompactMetric label="Custom" value={customRulesCount} caption="rules" />
+                <CompactMetric label="Checks" value={totalCriteriaCount} caption="criteria" />
               </div>
-
-              <div className="mt-3 rounded-2xl border border-neutral-900 bg-black/35 p-3">
-                <p className="truncate text-xs font-semibold text-white">
-                  {selectedTemplate?.name ?? "No template selected"}
-                </p>
-
-                <p className="mt-1 truncate text-[11px] text-neutral-600">
-                  {selectedProfile?.name ?? "No rule profile selected"}
-                </p>
-              </div>
-            </section>
-
-            <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-              <div className="mb-4 flex items-start justify-between gap-4">
-                <div>
-                  <div className="mb-3 flex size-10 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-                    <Lightbulb size={18} />
-                  </div>
-
-                  <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                    Enabled rules
-                  </p>
-
-                  <h2 className="mt-1 text-base font-semibold text-white">
-                    Selected constraints
-                  </h2>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setIsRulesModalOpen(true)}
-                  className="cf-invert-action inline-flex h-8 shrink-0 items-center gap-2 rounded-full px-3 text-xs"
-                >
-                  <SlidersHorizontal size={13} />
-                  Manage
-                </button>
-              </div>
-
-              <div className="max-h-[330px] space-y-2 overflow-y-auto pr-1">
-                {selectedRuleItems.length > 0 ? (
-                  selectedRuleItems.slice(0, 8).map((rule) => (
-                    <SelectedRulePreview
-                      key={rule.id}
-                      rule={rule}
-                    />
-                  ))
-                ) : (
-                  <div className="rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs leading-5 text-neutral-600">
-                    No toggle rules enabled. Select a profile or open the rule manager.
-                  </div>
-                )}
-              </div>
-
-              {selectedRuleItems.length > 8 && (
-                <p className="mt-3 text-xs text-neutral-600">
-                  +{selectedRuleItems.length - 8} more rule(s) hidden in preview.
-                </p>
-              )}
             </section>
           </aside>
         </div>
       </div>
+
+      {isQualityModalOpen && (
+        <QualityDetailsModal
+          quality={qualityResult}
+          onClose={() => setIsQualityModalOpen(false)}
+        />
+      )}
 
       {isPresetModalOpen && (
         <PresetPickerModal

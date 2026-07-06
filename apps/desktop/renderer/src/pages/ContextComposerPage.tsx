@@ -73,6 +73,12 @@ function getRiskTone(riskLevel: string) {
   return "border-emerald-400/25 bg-emerald-400/10 text-emerald-300";
 }
 
+function getSelectionStatusLabel(status: string) {
+  if (status === "blocked") return "Manual review required";
+  if (status === "warning") return "Review suggested";
+  return "Ready";
+}
+
 function normalizeFileKey(path: string) {
   return path.replace(/\\/g, "/").toLowerCase();
 }
@@ -91,6 +97,68 @@ function isLikelyBackendPath(path: string) {
     normalized.endsWith("server.ts") ||
     normalized.endsWith("server.js")
   );
+}
+
+function getComposerTargetCopy(effectiveTaskArea: string) {
+  const normalized = String(effectiveTaskArea || "general").toLowerCase();
+
+  if (normalized === "ui") {
+    return {
+      target: "UI target",
+      targetPlural: "UI targets",
+      searchHint: "Search for the real page/component/layout file.",
+      reviewHint: "Review the selected UI files and add the exact page, component, layout, or style file if it is missing.",
+      candidateCaption: "Task-aware UI candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real page/component files first."
+    };
+  }
+
+  if (normalized === "backend") {
+    return {
+      target: "backend target",
+      targetPlural: "backend targets",
+      searchHint: "Search for the real endpoint/service/module file.",
+      reviewHint: "Review the selected backend files and add the exact endpoint, route, service, validation, database, or API module if it is missing.",
+      candidateCaption: "Task-aware backend candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real endpoint/service files first."
+    };
+  }
+
+  if (normalized === "tests") {
+    return {
+      target: "test target",
+      targetPlural: "test targets",
+      searchHint: "Search for the real spec, fixture, or source file under test.",
+      reviewHint: "Review the selected test context and add the exact spec, fixture, or source file under test if it is missing.",
+      candidateCaption: "Task-aware test candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real spec/source pair first."
+    };
+  }
+
+  if (normalized === "docs") {
+    return {
+      target: "documentation target",
+      targetPlural: "documentation targets",
+      searchHint: "Search for the real README, docs page, config, or source-of-truth file.",
+      reviewHint: "Review the selected docs context and add the exact document or source-of-truth file if it is missing.",
+      candidateCaption: "Task-aware documentation candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real doc/source files first."
+    };
+  }
+
+  if (normalized === "build") {
+    return {
+      target: "build target",
+      targetPlural: "build targets",
+      searchHint: "Search for the real script, config, workflow, or failing source file.",
+      reviewHint: "Review the selected build context and add the exact script, config, workflow, or failing source file if it is missing.",
+      candidateCaption: "Task-aware build candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real script/config files first."
+    };
+  }
+
+  return {
+    target: "task target",
+    targetPlural: "task targets",
+    searchHint: "Search for the real file this task should use.",
+    reviewHint: "Review the selected files and add the exact task target if it is missing.",
+    candidateCaption: "Task-aware candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real target files first."
+  };
 }
 
 function StatCard({
@@ -376,9 +444,10 @@ export function ContextComposerPage({
     () => (isBlockedReview ? [] : recommendedPaths),
     [isBlockedReview, recommendedPaths]
   );
+  const targetCopy = getComposerTargetCopy(preview.task.effectiveTaskArea);
   const initialFileSearchMessage = isBlockedReview
-    ? "Automatic file selection was blocked. Search and add the real page/component/service files manually."
-    : "Search project files to add more context.";
+    ? `Automatic file selection was blocked. ${targetCopy.searchHint}`
+    : `Search project files to add more ${targetCopy.target} context.`;
 
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [extraFiles, setExtraFiles] = useState<ContextComposerFileReference[]>([]);
@@ -803,10 +872,10 @@ export function ContextComposerPage({
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-white">
-                Context quality: {preview.selectionQuality.status} · {preview.selectionQuality.score}/100
+                Context review: {getSelectionStatusLabel(preview.selectionQuality.status)} · {preview.selectionQuality.score}/100
               </p>
               <p className="mt-1 text-xs leading-5 text-neutral-400">
-                ContextForge is not fully confident in the automatic file selection. Review the files, add the real page/component/service if needed, then generate from selected.
+                ContextForge is not fully confident in the automatic file selection. {targetCopy.reviewHint} Then generate from selected.
               </p>
               {isBlockedReview && (
                 <p className="mt-1 text-xs leading-5 text-red-100/80">
@@ -906,7 +975,7 @@ export function ContextComposerPage({
           icon={<ShieldCheck size={15} />}
           label="Quality"
           value={`${preview.selectionQuality.score}/100`}
-          caption={preview.selectionQuality.status}
+          caption={getSelectionStatusLabel(preview.selectionQuality.status)}
         />
       </div>
 
@@ -1037,14 +1106,14 @@ export function ContextComposerPage({
               title={isBlockedReview ? "Weak file suggestions" : "Suggested target files"}
               caption={
                 isBlockedReview
-                  ? "Automatic selection was blocked. These are search hints only; include a file only after you confirm it is the real target."
-                  : "Task-aware candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real target files first."
+                  ? `Automatic selection was blocked. These are search hints only; include a file only after you confirm it is the real ${targetCopy.target}.`
+                  : targetCopy.candidateCaption
               }
               count={suggestedCandidateFiles.length}
               emptyText={
                 isBlockedReview
-                  ? "No weak suggestions were produced. Use search to find the real file."
-                  : "No target suggestions were produced. Use search to find the real file."
+                  ? `No weak suggestions were produced. ${targetCopy.searchHint}`
+                  : `No ${targetCopy.targetPlural} were produced. ${targetCopy.searchHint}`
               }
             >
               <AnimatePresence initial={false}>

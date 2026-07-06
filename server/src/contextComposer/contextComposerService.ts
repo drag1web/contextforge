@@ -834,8 +834,72 @@ function buildSuggestedFileGroups({
   return groups;
 }
 
+function getContextTargetCopy(effectiveTaskArea: string) {
+  const normalized = String(effectiveTaskArea || "general").toLowerCase();
+
+  if (normalized === "ui") {
+    return {
+      target: "UI target file",
+      targetExamples: "page, component, layout, style file, or route file",
+      weakTarget: "No confirmed UI target file was found. Search for the real page/component/layout file, or include a weak suggestion only if you recognize it.",
+      targetScope: "Should the coding agent edit only the UI target, or also related styles/layout files?"
+    };
+  }
+
+  if (normalized === "backend") {
+    return {
+      target: "backend target file",
+      targetExamples: "endpoint, route, service, database, validation, or API module",
+      weakTarget: "No confirmed backend target file was found. Search for the real endpoint/service/module, or include a weak suggestion only if you recognize it.",
+      targetScope: "Is backend/API behavior allowed to change, or should backend files stay inspect-only?"
+    };
+  }
+
+  if (normalized === "tests") {
+    return {
+      target: "test target",
+      targetExamples: "test file, spec file, source file under test, fixture, or test config",
+      weakTarget: "No confirmed test target was found. Search for the real spec/source pair, or include a weak suggestion only if you recognize it.",
+      targetScope: "Should the coding agent add or update tests, or only identify the best test location?"
+    };
+  }
+
+  if (normalized === "docs") {
+    return {
+      target: "documentation target",
+      targetExamples: "README, docs page, changelog, guide, config, or source file used as evidence",
+      weakTarget: "No confirmed documentation target was found. Search for the real doc/source file, or include a weak suggestion only if you recognize it.",
+      targetScope: "Should the coding agent update docs only, or also inspect source files for accuracy?"
+    };
+  }
+
+  if (normalized === "build") {
+    return {
+      target: "build target",
+      targetExamples: "package script, config file, CI workflow, build entry, or failing source file",
+      weakTarget: "No confirmed build target was found. Search for the real config/script/source file, or include a weak suggestion only if you recognize it.",
+      targetScope: "Should the coding agent change build/config files, or only document the verification command?"
+    };
+  }
+
+  if (normalized === "fullstack") {
+    return {
+      target: "workflow target",
+      targetExamples: "UI file, endpoint, service, data module, or shared contract",
+      weakTarget: "No confirmed workflow target was found. Search for the real UI/API/data files, or include a weak suggestion only if you recognize it.",
+      targetScope: "Should the coding agent update both client and backend files, or keep one side inspect-only?"
+    };
+  }
+
+  return {
+    target: "task target file",
+    targetExamples: "page, component, endpoint, service, test, docs, config, or source file",
+    weakTarget: "No confirmed task target was found. Search for the real file, or include a weak suggestion only if you recognize it.",
+    targetScope: "Should the coding agent edit this target directly, or only inspect it as context?"
+  };
+}
+
 function buildClarifyingQuestions({
-  rawTask,
   effectiveTaskArea,
   selectionQuality,
   suggestedFileGroups
@@ -848,31 +912,21 @@ function buildClarifyingQuestions({
   if (selectionQuality.status === "ready") return [];
 
   const questions: string[] = [];
+  const targetCopy = getContextTargetCopy(effectiveTaskArea);
   const topFiles = suggestedFileGroups[0]?.files.slice(0, 4).map((file) => file.path) ?? [];
   const weakReviewOnly = selectionQuality.status === "blocked"
     && suggestedFileGroups.length > 0
     && suggestedFileGroups.every((group) => group.id === "weak-manual-review-candidates");
-  const hasSpecificUiObject = /(?:\b(?:form|input|field|modal|dialog|table|card|profile|account|search|filter)\b|(?:\u0444\u043e\u0440\u043c|\u043f\u043e\u043b\u0435|\u0438\u043d\u043f\u0443\u0442|\u043c\u043e\u0434\u0430\u043b|\u0434\u0438\u0430\u043b\u043e\u0433|\u0442\u0430\u0431\u043b\u0438\u0446|\u043a\u0430\u0440\u0442\u043e\u0447|\u043f\u0440\u043e\u0444\u0438\u043b|\u0430\u043a\u043a\u0430\u0443\u043d\u0442|\u043f\u043e\u0438\u0441\u043a|\u0444\u0438\u043b\u044c\u0442\u0440))/i.test(rawTask);
 
-  if (weakReviewOnly && hasSpecificUiObject) {
-    questions.push("No exact target file was found for the requested UI object. Search for the real page/component, or manually include a weak suggestion only if you recognize it.");
+  if (weakReviewOnly) {
+    questions.push(targetCopy.weakTarget);
   } else if (topFiles.length > 0) {
-    questions.push(`Which of these looks like the real target file: ${topFiles.join(" | ")}?`);
+    questions.push(`Which suggested file is the real ${targetCopy.target}: ${topFiles.join(" | ")}?`);
   } else {
-    questions.push("Which page, component, route, service, or config file is the real target for this task?");
+    questions.push(`Which ${targetCopy.targetExamples} should the coding agent use for this task?`);
   }
 
-  if (effectiveTaskArea === "ui" || effectiveTaskArea === "fullstack") {
-    questions.push("Should the coding agent edit only the page/component, or also related styles/layout files?");
-  }
-
-  if (effectiveTaskArea === "backend" || effectiveTaskArea === "fullstack") {
-    questions.push("Is backend/API behavior allowed to change, or should the task stay client-side only?");
-  }
-
-  if (/readme|docs?|документ|документац|ридми/i.test(rawTask) && effectiveTaskArea !== "docs") {
-    questions.push("Is README/documentation a secondary deliverable after the code change, or the main task?");
-  }
+  questions.push(targetCopy.targetScope);
 
   return questions.slice(0, 4);
 }

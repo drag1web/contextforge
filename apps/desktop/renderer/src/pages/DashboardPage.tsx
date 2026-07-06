@@ -461,9 +461,11 @@ export function DashboardPage() {
         <TaskPackBuilderPage
           draft={dashboard.taskPackDraft}
           isLoading={dashboard.isLoading}
+          contextPreview={dashboard.taskPackContextPreview}
           onChange={dashboard.setTaskPackDraft}
           onClose={() => dashboard.setTaskPackDraft(null)}
           onAnalyzeContext={dashboard.handleAnalyzeTaskContext}
+          onOpenContextComposer={dashboard.handleOpenTaskContextComposer}
           onGenerate={dashboard.handleCreateTaskPack}
         />
       );
@@ -486,9 +488,11 @@ export function DashboardPage() {
         <TaskPackBuilderPage
           draft={dashboard.taskPackDraft}
           isLoading={dashboard.isLoading}
+          contextPreview={dashboard.taskPackContextPreview}
           onChange={dashboard.setTaskPackDraft}
           onClose={() => dashboard.setTaskPackDraft(null)}
           onAnalyzeContext={dashboard.handleAnalyzeTaskContext}
+          onOpenContextComposer={dashboard.handleOpenTaskContextComposer}
           onGenerate={dashboard.handleCreateTaskPack}
         />
       );
