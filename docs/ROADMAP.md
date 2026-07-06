@@ -52,15 +52,29 @@ Goal: close the MVP stabilization pass with project memory, provider clarity, wo
 - [x] Keep Projects compact with scanner snapshots.
 - [x] Polish scanner motion and readiness explanations.
 
-## v0.5.5 — Task Pack Quality Score
+## v0.5.5 — Agents & Templates Foundation
 
-Goal: warn users when a task is too vague or too broad.
+Goal: make agent profiles and task templates a real part of the Task Pack workflow.
+
+- [x] Add a full Agents page for Codex, Cursor, Claude Code, Gemini and Generic.
+- [x] Explain best fit, prompt style, limitations, context size and verification behavior per agent.
+- [x] Add a Template Library with task presets for UI/UX, bugfix, backend, tests, refactor, docs, security and release workflows.
+- [x] Compact the template catalog into grouped agent cards.
+- [x] Connect template presets to Task Pack Builder recipe setup.
+- [x] Keep the task input primary by moving preset and recipe setup into focused modals.
+- [x] Add custom template/profile copy and edit flows with built-in protection.
+
+## v0.5.6 — Task Pack Quality & Core Intelligence Lite
+
+Goal: warn users when a task is too vague, too broad or missing verification context.
 
 - [ ] Score raw task quality.
-- [ ] Check goal, scope, constraints, files, criteria and verification.
+- [ ] Check goal, scope, constraints, selected files, rules, criteria and verification.
 - [ ] Show warnings without blocking generation.
+- [ ] Explain why files were selected.
+- [ ] Add context budget hints.
 
-## v0.5.6 — Context Drift Detector
+## v0.5.7 — Context Drift Detector
 
 Goal: detect when generated context may be outdated.
 

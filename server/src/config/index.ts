@@ -10,7 +10,7 @@ function readStorageDriver(): StorageDriver {
 }
 
 export const config = {
-  appVersion: process.env.APP_VERSION ?? "0.5.4-alpha",
+  appVersion: process.env.APP_VERSION ?? "0.5.5-alpha",
   port: Number(process.env.SERVER_PORT ?? 4000),
   storageDriver: readStorageDriver(),
   sqliteDatabasePath:

@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.5.5-alpha
+
+### Added
+
+- Added a full Agents page with Codex, Cursor, Claude Code, Gemini and Generic agent profiles.
+- Added a Template Library foundation with task presets for UI/UX redesign, bug fixes, backend API changes, tests, refactors, docs, security audits and release checklists.
+- Added template preset selection to the Task Pack Builder with recipe auto-wiring for task type, target tool, prompt template, rule profile and acceptance criteria.
+- Added custom template and custom profile editing flows, including copy-to-custom, reset and built-in protection behavior.
+
+### Changed
+
+- Simplified the Task Pack Builder so task input stays primary while preset and recipe setup live in focused modals.
+- Compactly grouped template catalog cards by agent target to reduce long scrolling.
+- Updated the active app phase to `Phase 0.5.5 — Agents & Templates Foundation`.
+- Synced root, server, renderer, shared package, lockfile, README and app metadata to `0.5.5-alpha`.
+
+### Fixed
+
+- Fixed icon contrast for selected agent/provider cards and dropdown items.
+- Fixed Templates page scrolling and preset-card motion stability.
+- Fixed a stale animation overlay that could leave a black clickable layer after template copy/delete/filter actions.
+- Fixed Task Pack Builder remount flicker when changing preset, task type or target tool.
+
 ## 0.5.4-alpha
 
 ### Added

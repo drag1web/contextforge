@@ -4,8 +4,8 @@
 
 It scans local repositories, detects stack and scripts, builds project context, generates `AGENTS.md`, and creates structured Task Packs for tools like **Codex**, **Cursor**, **Claude Code**, and other AI coding assistants.
 
-Current version: **v0.5.4-alpha**  
-Current app phase: **Phase 0.5.4 — Scanner Workbench & Reports**
+Current version: **v0.5.5-alpha**  
+Current app phase: **Phase 0.5.5 — Agents & Templates Foundation**
 
 ---
 
@@ -17,8 +17,11 @@ Current app phase: **Phase 0.5.4 — Scanner Workbench & Reports**
 - Generates an `AGENTS.md` draft for the selected project.
 - Saves `AGENTS.md` into the project root.
 - Creates AI Task Packs from a raw user task.
-- Supports target tools: Codex, Cursor, Claude and generic AI agents.
+- Supports agent profiles for Codex, Cursor, Claude Code, Gemini and generic AI agents.
+- Provides an Agents page for comparing prompt style, limitations and verification behavior.
+- Provides a Templates library with task presets for UI/UX, bugfix, backend, tests, refactor, docs, security and release workflows.
 - Applies prompt templates, rule profiles and acceptance criteria.
+- Supports custom template/profile copy, edit and delete flows for reusable project workflows.
 - Uses a Context Composer flow to select relevant files/snippets for a task.
 - Supports optional Ollama generation/refinement with fallback to safe template mode.
 - Stores projects, settings and generated Task Packs in a local SQLite database by default.
@@ -100,7 +103,7 @@ STORAGE_DRIVER=sqlite
 SQLITE_DB_PATH=./data/contextforge.sqlite
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.5.4-alpha
+APP_VERSION=0.5.5-alpha
 ```
 
 To test the PostgreSQL adapter instead:
@@ -110,7 +113,7 @@ STORAGE_DRIVER=postgres
 DATABASE_URL=postgresql://contextforge:contextforge@127.0.0.1:5433/contextforge
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.5.4-alpha
+APP_VERSION=0.5.5-alpha
 ```
 
 ---
@@ -162,7 +165,7 @@ Expected `/api/health` version:
 {
   "ok": true,
   "service": "contextforge-server",
-  "version": "0.5.4-alpha"
+  "version": "0.5.5-alpha"
 }
 ```
 
