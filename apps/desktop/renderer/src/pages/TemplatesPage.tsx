@@ -17,6 +17,7 @@ import {
   Code2,
   Copy,
   FileText,
+  Pencil,
   Layers3,
   Loader2,
   Palette,
@@ -41,13 +42,16 @@ import {
   deleteRuleProfile,
   deleteTemplate,
   getRuleProfilesCatalog,
-  getTemplates
+  getTemplates,
+  updateRuleProfile,
+  updateTemplate
 } from "../api/client";
 import type {
   AcceptanceCriteriaPreset,
   PromptTemplate,
   RuleItem,
   RuleProfile,
+  TargetTool,
   TemplateTaskType
 } from "../types";
 import { Button } from "../components/ui/Button";
@@ -61,7 +65,12 @@ import {
 
 type TemplatesTab = "templates" | "profiles" | "rules" | "criteria";
 type CatalogTabOption = SegmentedFilterOption<TemplatesTab>;
-type DraftKind = "template" | "profile" | null;
+type TemplateEditorState =
+  | { kind: "template"; mode: "create"; source?: PromptTemplate }
+  | { kind: "template"; mode: "edit"; source: PromptTemplate }
+  | { kind: "profile"; mode: "create"; source?: RuleProfile }
+  | { kind: "profile"; mode: "edit"; source: RuleProfile }
+  | null;
 
 const TASK_TYPE_OPTIONS: Array<{
   value: TemplateTaskType;
@@ -322,6 +331,26 @@ Return:
 - verification
 - remaining risks
 `;
+
+
+const DEFAULT_PROFILE_RULE_IDS = [
+  "rule.general.no-invented-files",
+  "rule.general.inspect-first",
+  "rule.general.focused-scope",
+  "rule.verification.no-fake-tests"
+];
+
+function getCopyName(name: string) {
+  return name.toLowerCase().startsWith("copy of ") ? name : `Copy of ${name}`;
+}
+
+function getEditorKey(editor: TemplateEditorState) {
+  if (!editor) {
+    return "closed";
+  }
+
+  return `${editor.kind}:${editor.mode}:${editor.source?.id ?? "new"}`;
+}
 
 function normalize(value: unknown) {
   return String(value ?? "").toLowerCase();
@@ -754,10 +783,12 @@ function TemplatePresetLibrary({
 function TemplateCard({
   template,
   onCopy,
+  onEdit,
   onDelete
 }: {
   template: PromptTemplate;
   onCopy: (template: PromptTemplate) => void;
+  onEdit: (template: PromptTemplate) => void;
   onDelete: (template: PromptTemplate) => void;
 }) {
   return (
@@ -809,6 +840,17 @@ function TemplateCard({
         </p>
 
         <div className="flex shrink-0 items-center gap-1.5">
+          {!template.isBuiltin && (
+            <button
+              type="button"
+              onClick={() => onEdit(template)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-neutral-900 bg-black/45 px-3 text-[11px] font-semibold text-neutral-300 transition hover:border-white hover:bg-white hover:text-black"
+            >
+              <Pencil size={13} />
+              Edit
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => onCopy(template)}
@@ -838,11 +880,13 @@ function TemplateTargetGroup({
   targetTool,
   templates,
   onCopy,
+  onEdit,
   onDelete
 }: {
   targetTool: string;
   templates: PromptTemplate[];
   onCopy: (template: PromptTemplate) => void;
+  onEdit: (template: PromptTemplate) => void;
   onDelete: (template: PromptTemplate) => void;
 }) {
   const icon = getTargetToolIcon(targetTool);
@@ -879,6 +923,7 @@ function TemplateTargetGroup({
             key={template.id}
             template={template}
             onCopy={onCopy}
+            onEdit={onEdit}
             onDelete={onDelete}
           />
         ))}
@@ -892,12 +937,14 @@ function ProfileCard({
   ruleItems,
   preset,
   onCopy,
+  onEdit,
   onDelete
 }: {
   profile: RuleProfile;
   ruleItems: RuleItem[];
   preset?: AcceptanceCriteriaPreset;
   onCopy: (profile: RuleProfile) => void;
+  onEdit: (profile: RuleProfile) => void;
   onDelete: (profile: RuleProfile) => void;
 }) {
   const enabledRules = ruleItems.filter((rule) =>
@@ -967,6 +1014,17 @@ function ProfileCard({
         </p>
 
         <div className="flex shrink-0 items-center gap-1.5">
+          {!profile.isBuiltin && (
+            <button
+              type="button"
+              onClick={() => onEdit(profile)}
+              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-neutral-900 bg-black/45 px-3 text-[11px] font-semibold text-neutral-300 transition hover:border-white hover:bg-white hover:text-black"
+            >
+              <Pencil size={13} />
+              Edit
+            </button>
+          )}
+
           <button
             type="button"
             onClick={() => onCopy(profile)}
@@ -1089,43 +1147,96 @@ function CriteriaCard({ preset }: { preset: AcceptanceCriteriaPreset }) {
 }
 
 function CreatePanel({
-  draftKind,
+  editor,
   onClose,
   ruleItems,
   acceptancePresets,
-  onTemplateCreated,
-  onProfileCreated
+  onTemplateSaved,
+  onProfileSaved
 }: {
-  draftKind: DraftKind;
+  editor: TemplateEditorState;
   onClose: () => void;
   ruleItems: RuleItem[];
   acceptancePresets: AcceptanceCriteriaPreset[];
-  onTemplateCreated: () => Promise<void> | void;
-  onProfileCreated: () => Promise<void> | void;
+  onTemplateSaved: () => Promise<void> | void;
+  onProfileSaved: () => Promise<void> | void;
 }) {
-  const [name, setName] = useState("");
-  const [description, setDescription] = useState("");
-  const [taskType, setTaskType] = useState<TemplateTaskType>("general");
-  const [targetTool, setTargetTool] = useState("codex");
-  const [content, setContent] = useState(EMPTY_TEMPLATE_CONTENT);
-  const [enabledRuleIds, setEnabledRuleIds] = useState<string[]>([
-    "rule.general.no-invented-files",
-    "rule.general.inspect-first",
-    "rule.general.focused-scope",
-    "rule.verification.no-fake-tests"
-  ]);
-  const [customRulesText, setCustomRulesText] = useState("");
+  if (!editor) {
+    return null;
+  }
+
+  const isTemplate = editor.kind === "template";
+  const isEditing = editor.mode === "edit";
+  const isCopy = editor.mode === "create" && Boolean(editor.source);
+  const sourceTemplate = isTemplate ? editor.source : undefined;
+  const sourceProfile = !isTemplate ? editor.source : undefined;
+
+  const getInitialName = () => {
+    if (isTemplate && sourceTemplate) {
+      return isCopy ? getCopyName(sourceTemplate.name) : sourceTemplate.name;
+    }
+
+    if (!isTemplate && sourceProfile) {
+      return isCopy ? getCopyName(sourceProfile.name) : sourceProfile.name;
+    }
+
+    return "";
+  };
+
+  const getInitialDescription = () =>
+    isTemplate ? sourceTemplate?.description ?? "" : sourceProfile?.description ?? "";
+
+  const getInitialTaskType = (): TemplateTaskType =>
+    (isTemplate ? sourceTemplate?.taskType : sourceProfile?.taskType) ?? "general";
+
+  const getInitialTargetTool = () => sourceTemplate?.targetTool ?? "codex";
+  const getInitialContent = () => sourceTemplate?.content ?? EMPTY_TEMPLATE_CONTENT;
+  const getInitialRuleIds = () => sourceProfile?.enabledRuleIds ?? DEFAULT_PROFILE_RULE_IDS;
+  const getInitialCustomRules = () => sourceProfile?.customRules?.join("\n") ?? "";
+  const getInitialAcceptancePreset = () =>
+    sourceProfile?.acceptanceCriteriaPresetId ?? "criteria.general-done";
+
+  const [name, setName] = useState(getInitialName);
+  const [description, setDescription] = useState(getInitialDescription);
+  const [taskType, setTaskType] = useState<TemplateTaskType>(getInitialTaskType);
+  const [targetTool, setTargetTool] = useState<TargetTool>(getInitialTargetTool);
+  const [content, setContent] = useState(getInitialContent);
+  const [enabledRuleIds, setEnabledRuleIds] = useState<string[]>(getInitialRuleIds);
+  const [customRulesText, setCustomRulesText] = useState(getInitialCustomRules);
   const [acceptanceCriteriaPresetId, setAcceptanceCriteriaPresetId] =
-    useState<string | null>("criteria.general-done");
+    useState<string | null>(getInitialAcceptancePreset);
   const [isSaving, setIsSaving] = useState(false);
   const [message, setMessage] = useState("");
 
   const canSave =
     name.trim().length >= 2 &&
-    (draftKind === "profile" || content.trim().length >= 20);
+    (!isTemplate || content.trim().length >= 20);
 
-  if (!draftKind) {
-    return null;
+  const title = isTemplate
+    ? isEditing
+      ? "Edit prompt template"
+      : isCopy
+        ? "Customize template copy"
+        : "New prompt template"
+    : isEditing
+      ? "Edit rule profile"
+      : isCopy
+        ? "Customize profile copy"
+        : "New rule profile";
+
+  const eyebrow = isEditing ? "Edit custom" : isCopy ? "Customize copy" : "Create custom";
+  const saveLabel = isEditing ? "Update" : "Save";
+
+  function resetForm() {
+    setName(getInitialName());
+    setDescription(getInitialDescription());
+    setTaskType(getInitialTaskType());
+    setTargetTool(getInitialTargetTool());
+    setContent(getInitialContent());
+    setEnabledRuleIds(getInitialRuleIds());
+    setCustomRulesText(getInitialCustomRules());
+    setAcceptanceCriteriaPresetId(getInitialAcceptancePreset());
+    setMessage("");
   }
 
   function toggleRule(ruleId: string) {
@@ -1145,27 +1256,39 @@ function CreatePanel({
       setIsSaving(true);
       setMessage("");
 
-      if (draftKind === "template") {
-        await createTemplate({
+      if (isTemplate) {
+        const payload = {
           name,
           description,
           targetTool,
           taskType,
           content
-        });
+        };
 
-        await onTemplateCreated();
+        if (isEditing && sourceTemplate) {
+          await updateTemplate(sourceTemplate.id, payload);
+        } else {
+          await createTemplate(payload);
+        }
+
+        await onTemplateSaved();
       } else {
-        await createRuleProfile({
+        const payload = {
           name,
           description,
           taskType,
           enabledRuleIds,
           customRules: splitLines(customRulesText),
           acceptanceCriteriaPresetId
-        });
+        };
 
-        await onProfileCreated();
+        if (isEditing && sourceProfile) {
+          await updateRuleProfile(sourceProfile.id, payload);
+        } else {
+          await createRuleProfile(payload);
+        }
+
+        await onProfileSaved();
       }
 
       onClose();
@@ -1191,28 +1314,35 @@ function CreatePanel({
         animate={{ opacity: 1, x: 0 }}
         exit={{ opacity: 0, x: 28 }}
         transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-        className="fixed bottom-0 right-0 top-[42px] z-[80] w-[min(740px,calc(100vw-24px))] overflow-hidden border-l border-neutral-900 bg-black/98 shadow-[0_0_90px_rgba(0,0,0,0.82)] backdrop-blur-xl"
+        className="fixed bottom-0 right-0 top-[42px] z-[80] w-[min(780px,calc(100vw-24px))] overflow-hidden border-l border-neutral-900 bg-black/98 shadow-[0_0_90px_rgba(0,0,0,0.82)] backdrop-blur-xl"
       >
         <div className="flex h-full min-h-0 flex-col overflow-hidden">
           <header className="shrink-0 border-b border-neutral-900 bg-black/95 px-5 py-4">
             <div className="flex items-center justify-between gap-4">
               <div className="min-w-0">
                 <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                  Create custom
+                  {eyebrow}
                 </p>
 
                 <h2 className="mt-1 truncate text-xl font-semibold tracking-[-0.04em] text-white">
-                  {draftKind === "template"
-                    ? "New prompt template"
-                    : "New rule profile"}
+                  {title}
                 </h2>
 
                 <p className="mt-1 truncate text-xs text-neutral-600">
-                  Saved locally. Built-in items remain protected.
+                  {isEditing
+                    ? "Only custom items can be edited. Built-ins stay protected."
+                    : isCopy
+                      ? "Review the copy, adjust it, then save it as a custom item."
+                      : "Saved locally. Built-in items remain protected."}
                 </p>
               </div>
 
               <div className="flex shrink-0 items-center gap-2">
+                <Button variant="secondary" onClick={resetForm} disabled={isSaving}>
+                  <RefreshCcw size={15} />
+                  Reset
+                </Button>
+
                 <Button
                   variant="primary"
                   onClick={handleSave}
@@ -1220,10 +1350,12 @@ function CreatePanel({
                 >
                   {isSaving ? (
                     <Loader2 size={15} className="animate-spin" />
+                  ) : isEditing ? (
+                    <Check size={15} />
                   ) : (
                     <Plus size={15} />
                   )}
-                  Save
+                  {saveLabel}
                 </Button>
 
                 <button
@@ -1257,7 +1389,7 @@ function CreatePanel({
                     onChange={(event) => setName(event.target.value)}
                     className="h-11 w-full rounded-2xl border border-neutral-900 bg-black/55 px-4 text-sm text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
                     placeholder={
-                      draftKind === "template"
+                      isTemplate
                         ? "My Codex UI template"
                         : "Safe UI profile"
                     }
@@ -1290,7 +1422,7 @@ function CreatePanel({
                 />
               </div>
 
-              {draftKind === "template" && (
+              {isTemplate && (
                 <div>
                   <label className="mb-2 block text-xs text-neutral-500">
                     Target tool
@@ -1298,14 +1430,14 @@ function CreatePanel({
 
                   <CustomSelect
                     value={targetTool}
-                    onChange={setTargetTool}
+                    onChange={(value) => setTargetTool(value as TargetTool)}
                     options={TARGET_TOOL_OPTIONS}
                   />
                 </div>
               )}
             </div>
 
-            {draftKind === "template" ? (
+            {isTemplate ? (
               <div className="mt-4 flex min-h-0 flex-col overflow-hidden">
                 <div className="mb-2 flex shrink-0 items-center justify-between gap-4">
                   <label className="block text-xs text-neutral-500">
@@ -1437,7 +1569,7 @@ export function TemplatesPage() {
   const [activePresetId, setActivePresetId] = useState("ui-redesign");
   const [query, setQuery] = useState("");
   const [taskTypeFilter, setTaskTypeFilter] = useState("all");
-  const [draftKind, setDraftKind] = useState<DraftKind>(null);
+  const [editor, setEditor] = useState<TemplateEditorState>(null);
   const [status, setStatus] = useState("Loading rules and templates...");
   const [isLoading, setIsLoading] = useState(false);
   const [toast, setToast] = useState("");
@@ -1605,39 +1737,32 @@ export function TemplatesPage() {
     [acceptancePresets, normalizedQuery, taskTypeFilter]
   );
 
-  async function handleCopyTemplate(template: PromptTemplate) {
-    try {
-      await createTemplate({
-        name: `${template.name} Copy`,
-        description: template.description,
-        targetTool: template.targetTool,
-        taskType: template.taskType,
-        content: template.content
-      });
-
-      setToast(`Copied template: ${template.name}`);
-      await loadCatalog();
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : "Failed to copy template.");
-    }
+  function handleCopyTemplate(template: PromptTemplate) {
+    setEditor({ kind: "template", mode: "create", source: template });
+    setToast("Review the copy and save it as a custom template.");
   }
 
-  async function handleCopyProfile(profile: RuleProfile) {
-    try {
-      await createRuleProfile({
-        name: `${profile.name} Copy`,
-        description: profile.description,
-        taskType: profile.taskType,
-        enabledRuleIds: profile.enabledRuleIds,
-        customRules: profile.customRules,
-        acceptanceCriteriaPresetId: profile.acceptanceCriteriaPresetId ?? null
-      });
-
-      setToast(`Copied profile: ${profile.name}`);
-      await loadCatalog();
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : "Failed to copy profile.");
+  function handleEditTemplate(template: PromptTemplate) {
+    if (template.isBuiltin) {
+      setToast("Built-in templates are protected. Copy one before editing.");
+      return;
     }
+
+    setEditor({ kind: "template", mode: "edit", source: template });
+  }
+
+  function handleCopyProfile(profile: RuleProfile) {
+    setEditor({ kind: "profile", mode: "create", source: profile });
+    setToast("Review the copy and save it as a custom profile.");
+  }
+
+  function handleEditProfile(profile: RuleProfile) {
+    if (profile.isBuiltin) {
+      setToast("Built-in profiles are protected. Copy one before editing.");
+      return;
+    }
+
+    setEditor({ kind: "profile", mode: "edit", source: profile });
   }
 
   async function handleDeleteTemplate(template: PromptTemplate) {
@@ -1725,12 +1850,12 @@ export function TemplatesPage() {
                 Refresh
               </Button>
 
-              <Button variant="secondary" onClick={() => setDraftKind("profile")}>
+              <Button variant="secondary" onClick={() => setEditor({ kind: "profile", mode: "create" })}>
                 <ShieldCheck size={15} />
                 New profile
               </Button>
 
-              <Button variant="primary" onClick={() => setDraftKind("template")}>
+              <Button variant="primary" onClick={() => setEditor({ kind: "template", mode: "create" })}>
                 <Plus size={15} />
                 New template
               </Button>
@@ -1901,6 +2026,7 @@ export function TemplatesPage() {
                         targetTool={targetTool}
                         templates={items}
                         onCopy={handleCopyTemplate}
+                        onEdit={handleEditTemplate}
                         onDelete={handleDeleteTemplate}
                       />
                     ))}
@@ -1947,6 +2073,7 @@ export function TemplatesPage() {
                           (preset) => preset.id === profile.acceptanceCriteriaPresetId
                         )}
                         onCopy={handleCopyProfile}
+                        onEdit={handleEditProfile}
                         onDelete={handleDeleteProfile}
                       />
                     ))}
@@ -2032,14 +2159,15 @@ export function TemplatesPage() {
       </div>
 
       <AnimatePresence>
-        {draftKind && (
+        {editor && (
           <CreatePanel
-            draftKind={draftKind}
-            onClose={() => setDraftKind(null)}
+            key={getEditorKey(editor)}
+            editor={editor}
+            onClose={() => setEditor(null)}
             ruleItems={ruleItems}
             acceptancePresets={acceptancePresets}
-            onTemplateCreated={loadCatalog}
-            onProfileCreated={loadCatalog}
+            onTemplateSaved={loadCatalog}
+            onProfileSaved={loadCatalog}
           />
         )}
       </AnimatePresence>
