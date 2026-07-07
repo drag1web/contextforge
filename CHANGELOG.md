@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.6-alpha
+
+### Added
+
+- Added Task Pack Quality Score with readiness status, issue summaries and detailed quality breakdown.
+- Added a polished Quality Details view with compact readiness checks and next best actions.
+- Added a sectioned Task Pack Builder workspace for Task, Recipe, Rules, Acceptance and Context review.
+- Added Context Review Lite inside the builder with selected files, file reasons, confidence signals, snippets and warnings.
+- Added Context Budget UI with current context load, pressure breakdown and compact/standard/detailed target mode preview.
+- Added Task Understanding cards for recipe-guided intent review and conservative dynamic intent mismatch warnings.
+
+### Changed
+
+- Improved Context Review and Full Review wording so UI, backend, tests, docs and build tasks use clearer task-aware labels.
+- Reworked intent review to avoid frontend semantic keyword dictionaries and rely on recipe metadata plus dynamic context analysis when available.
+- Made fallback/source warnings softer and more user-readable without blocking Task Pack generation.
+- Updated the active app phase to `Phase 0.5.6 — Task Pack Quality & Core Intelligence Lite`.
+- Synced root, server, renderer, shared package, lockfile, README and app metadata to `0.5.6-alpha`.
+
+### Fixed
+
+- Fixed misleading intent jumps where UI/backend tasks could be interpreted as tests or bugfixes because the task mentioned verify, test, check or fix.
+- Fixed Context Review wording that described backend/API tasks with UI-centric page/component language.
+
 ## 0.5.5-alpha
 
 ### Added

@@ -4,8 +4,8 @@
 
 It scans local repositories, detects stack and scripts, builds project context, generates `AGENTS.md`, and creates structured Task Packs for tools like **Codex**, **Cursor**, **Claude Code**, and other AI coding assistants.
 
-Current version: **v0.5.5-alpha**  
-Current app phase: **Phase 0.5.5 — Agents & Templates Foundation**
+Current version: **v0.5.6-alpha**  
+Current app phase: **Phase 0.5.6 — Task Pack Quality & Core Intelligence Lite**
 
 ---
 
@@ -17,6 +17,10 @@ Current app phase: **Phase 0.5.5 — Agents & Templates Foundation**
 - Generates an `AGENTS.md` draft for the selected project.
 - Saves `AGENTS.md` into the project root.
 - Creates AI Task Packs from a raw user task.
+- Scores Task Pack quality with checks for clarity, scope, rules, acceptance criteria, verification and safety.
+- Shows Context Review Lite with selected files, reasons, snippets, warnings and review signals.
+- Shows context load/budget hints with compact, standard and detailed target modes.
+- Provides recipe-guided task understanding and conservative dynamic intent warnings.
 - Supports agent profiles for Codex, Cursor, Claude Code, Gemini and generic AI agents.
 - Provides an Agents page for comparing prompt style, limitations and verification behavior.
 - Provides a Templates library with task presets for UI/UX, bugfix, backend, tests, refactor, docs, security and release workflows.
@@ -103,7 +107,7 @@ STORAGE_DRIVER=sqlite
 SQLITE_DB_PATH=./data/contextforge.sqlite
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.5.5-alpha
+APP_VERSION=0.5.6-alpha
 ```
 
 To test the PostgreSQL adapter instead:
@@ -113,7 +117,7 @@ STORAGE_DRIVER=postgres
 DATABASE_URL=postgresql://contextforge:contextforge@127.0.0.1:5433/contextforge
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.5.5-alpha
+APP_VERSION=0.5.6-alpha
 ```
 
 ---
@@ -165,7 +169,7 @@ Expected `/api/health` version:
 {
   "ok": true,
   "service": "contextforge-server",
-  "version": "0.5.5-alpha"
+  "version": "0.5.6-alpha"
 }
 ```
 
@@ -173,15 +177,15 @@ Expected `/api/health` version:
 
 ## MVP status
 
-The current project already has a strong v0.5 foundation: scanner, readiness report, rules, templates, Task Packs, Context Composer and optional Ollama routes.
+The current project already has a strong v0.5 foundation: scanner, readiness report, rules, templates, Task Packs, Context Composer, Task Pack Quality Score and optional Ollama routes.
 
-The main MVP gaps are:
+The main MVP gaps are now:
 
-1. Finish Task Pack export to `.md` and `.txt`.
-2. Polish editable/savable `AGENTS.md` flow.
-3. Add Project Memory / Decision Log.
-4. Stabilize scanner/readiness logic across different project types.
-5. Package a friendly desktop build.
+1. Add local Git status and changed-files awareness.
+2. Add Diff Review Lite for AI-agent output review.
+3. Improve fallback selector clarity and candidate confidence wording.
+4. Package a friendly desktop build.
+5. Polish onboarding and first-run guidance.
 
 See:
 

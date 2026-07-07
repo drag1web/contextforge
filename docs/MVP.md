@@ -108,7 +108,7 @@ Not required for the MVP:
 
 ## MVP release checklist
 
-- [x] Versions are synced to `0.5.5-alpha`.
+- [x] Versions are synced to `0.5.6-alpha`.
 - [x] README describes the actual project state.
 - [x] `/api/health` returns the current version.
 - [x] SQLite storage is available for desktop.
@@ -117,4 +117,6 @@ Not required for the MVP:
 - [x] `AGENTS.md` edit/save flow is polished.
 - [x] Project Memory is implemented.
 - [x] Scanner is stable across several project types.
+- [x] Task Pack Quality Score is available before export.
+- [x] Context Review Lite explains selected files, warnings and context load.
 - [ ] Portable/installer build is tested.

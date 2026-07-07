@@ -66,23 +66,24 @@ Goal: make agent profiles and task templates a real part of the Task Pack workfl
 
 ## v0.5.6 — Task Pack Quality & Core Intelligence Lite
 
-Goal: warn users when a task is too vague, too broad or missing verification context.
+Goal: warn users when a task is too vague, too broad, missing verification context or using risky/unclear context selection.
 
-- [ ] Score raw task quality.
-- [ ] Check goal, scope, constraints, selected files, rules, criteria and verification.
-- [ ] Show warnings without blocking generation.
-- [ ] Explain why files were selected.
-- [ ] Add context budget hints.
+- [x] Score raw task quality.
+- [x] Check goal, scope, constraints, selected files, rules, criteria and verification.
+- [x] Show warnings without blocking generation.
+- [x] Explain selected files through Context Review Lite and Full Review copy.
+- [x] Add context budget hints and target mode preview.
+- [x] Add recipe-guided task understanding and conservative dynamic intent warnings.
 
-## v0.5.7 — Context Drift Detector
+## v0.5.7 — Local Git Context & Diff Review Lite
 
-Goal: detect when generated context may be outdated.
+Goal: understand the local working tree before GitHub/cloud integrations.
 
-- [ ] Save file snapshots.
-- [ ] Store size/mtime/hash for important files.
-- [ ] Link Task Packs to scans.
-- [ ] Warn when files changed after generation.
-- [ ] Offer rescan.
+- [ ] Detect current branch and latest commit.
+- [ ] Detect dirty state, changed files and untracked files.
+- [ ] Distinguish staged and unstaged changes.
+- [ ] Add changed-files context to Task Pack workflows.
+- [ ] Add Diff Review Lite for pasted/local diffs.
 
 ## v0.6 — Optional browser auth and cloud pairing
 
