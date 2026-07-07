@@ -2,6 +2,8 @@ import type {
   AcceptanceCriteriaPreset,
   AppSettings,
   GenerationMetadata,
+  GitDiffSummaryResult,
+  GitStatusResult,
   AiProviderModel,
   AiProviderStatus,
   OllamaModel,
@@ -82,6 +84,23 @@ export async function rescanProject(projectId: number): Promise<Project> {
   );
 
   return data.project;
+}
+
+
+export async function getProjectGitStatus(projectId: number): Promise<GitStatusResult> {
+  const data = await request<{ ok: true; status: GitStatusResult }>(
+    `/projects/${projectId}/git/status`
+  );
+
+  return data.status;
+}
+
+export async function getProjectGitDiffSummary(projectId: number): Promise<GitDiffSummaryResult> {
+  const data = await request<{ ok: true; diffSummary: GitDiffSummaryResult }>(
+    `/projects/${projectId}/git/diff-summary`
+  );
+
+  return data.diffSummary;
 }
 
 export async function getProjectContextFiles(

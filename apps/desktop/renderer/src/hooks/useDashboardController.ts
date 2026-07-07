@@ -7,6 +7,7 @@ import {
   getAgentsPreview,
   getAppSettings,
   getProjectContextFile,
+  getProjectGitStatus,
   getProjects,
   getTaskPacks,
   rescanProject,
@@ -22,6 +23,7 @@ import type {
   TaskPackDraft
 } from "../types";
 import i18n from "../i18n";
+import { buildChangesDraftTask } from "../utils/localChangesNote";
 
 function parseMultilineRules(value?: string) {
   return Array.from(
@@ -413,6 +415,56 @@ export function useDashboardController() {
     }
   }
 
+  async function handleCreateTaskPackDraftFromChanges(project: Project) {
+    try {
+      setIsLoading(true);
+      setStatusMessage(`Reading local changes for ${project.name}...`);
+
+      const [settings, gitStatus] = await Promise.all([
+        getAppSettings().catch(() => null),
+        getProjectGitStatus(project.id)
+      ]);
+
+      const rawTask = buildChangesDraftTask(gitStatus);
+
+      setTaskPackDraft({
+        projectId: project.id,
+        projectName: project.name,
+        rawTask,
+        taskType: settings?.defaultTaskType ?? "general",
+        targetTool: settings?.defaultTargetTool ?? "codex",
+        enabledRuleIds: [],
+        customRulesText: "",
+        acceptanceCriteriaText: ""
+      });
+
+      setStatusMessage(
+        rawTask
+          ? `Task draft opened from local changes for ${project.name}.`
+          : `No local changes found for ${project.name}. Opened a blank Task Pack draft.`
+      );
+    } catch (error) {
+      setTaskPackDraft({
+        projectId: project.id,
+        projectName: project.name,
+        rawTask: "",
+        taskType: "general",
+        targetTool: "codex",
+        enabledRuleIds: [],
+        customRulesText: "",
+        acceptanceCriteriaText: ""
+      });
+
+      setStatusMessage(
+        error instanceof Error
+          ? `Could not read local changes. Opened a blank Task Pack draft. ${error.message}`
+          : "Could not read local changes. Opened a blank Task Pack draft."
+      );
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   async function createTaskContextPreview() {
     if (!taskPackDraft) {
       return null;
@@ -520,6 +572,7 @@ export function useDashboardController() {
     handleRegenerateAgentsPreview,
     handleSaveAgentsFile,
     handleCreateTaskPackDraft,
+    handleCreateTaskPackDraftFromChanges,
     handleAnalyzeTaskContext,
     handleOpenTaskContextComposer,
     handleCreateTaskPackFromComposer,

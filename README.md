@@ -4,8 +4,8 @@
 
 It scans local repositories, detects stack and scripts, builds project context, generates `AGENTS.md`, and creates structured Task Packs for tools like **Codex**, **Cursor**, **Claude Code**, and other AI coding assistants.
 
-Current version: **v0.5.6-alpha**  
-Current app phase: **Phase 0.5.6 — Task Pack Quality & Core Intelligence Lite**
+Current version: **v0.5.7-alpha**  
+Current app phase: **Phase 0.5.7 — Local Git Context & Diff Review Lite**
 
 ---
 
@@ -21,6 +21,9 @@ Current app phase: **Phase 0.5.6 — Task Pack Quality & Core Intelligence Lite*
 - Shows Context Review Lite with selected files, reasons, snippets, warnings and review signals.
 - Shows context load/budget hints with compact, standard and detailed target modes.
 - Provides recipe-guided task understanding and conservative dynamic intent warnings.
+- Shows local working-tree status with branch, latest commit, staged, unstaged and untracked counts.
+- Adds current local changes into Task Pack drafts as awareness-only context without turning them into edit targets.
+- Provides Diff Review Lite with metadata-only diff summaries, review signals, suggested verification and Task Pack alignment.
 - Supports agent profiles for Codex, Cursor, Claude Code, Gemini and generic AI agents.
 - Provides an Agents page for comparing prompt style, limitations and verification behavior.
 - Provides a Templates library with task presets for UI/UX, bugfix, backend, tests, refactor, docs, security and release workflows.
@@ -43,6 +46,7 @@ Desktop app
        ├─ Project scanner
        ├─ Context Composer
        ├─ Task Pack builder
+       ├─ Local Git status and diff summary service
        ├─ Rules and templates
        ├─ Optional Ollama integration
        └─ StorageAdapter
@@ -107,7 +111,7 @@ STORAGE_DRIVER=sqlite
 SQLITE_DB_PATH=./data/contextforge.sqlite
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.5.6-alpha
+APP_VERSION=0.5.7-alpha
 ```
 
 To test the PostgreSQL adapter instead:
@@ -117,7 +121,7 @@ STORAGE_DRIVER=postgres
 DATABASE_URL=postgresql://contextforge:contextforge@127.0.0.1:5433/contextforge
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.5.6-alpha
+APP_VERSION=0.5.7-alpha
 ```
 
 ---
@@ -169,7 +173,7 @@ Expected `/api/health` version:
 {
   "ok": true,
   "service": "contextforge-server",
-  "version": "0.5.6-alpha"
+  "version": "0.5.7-alpha"
 }
 ```
 
@@ -177,15 +181,15 @@ Expected `/api/health` version:
 
 ## MVP status
 
-The current project already has a strong v0.5 foundation: scanner, readiness report, rules, templates, Task Packs, Context Composer, Task Pack Quality Score and optional Ollama routes.
+The current project already has a strong v0.5 foundation: scanner, readiness report, rules, templates, Task Packs, Context Composer, Task Pack Quality Score, Local Git context, Diff Review Lite and optional Ollama routes.
 
 The main MVP gaps are now:
 
-1. Add local Git status and changed-files awareness.
-2. Add Diff Review Lite for AI-agent output review.
-3. Improve fallback selector clarity and candidate confidence wording.
-4. Package a friendly desktop build.
-5. Polish onboarding and first-run guidance.
+1. Improve fallback selector clarity and candidate confidence wording.
+2. Prepare SQLite-first desktop persistence for release-readiness workflows.
+3. Package a friendly desktop build.
+4. Polish onboarding and first-run guidance.
+5. Add optional GitHub issue/PR workflows later without breaking local-first mode.
 
 See:
 

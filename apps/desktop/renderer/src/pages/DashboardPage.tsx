@@ -14,6 +14,7 @@ import { Sidebar, type AppPageId } from "../components/layout/Sidebar";
 
 import { StatusBar } from "../components/ui/StatusBar";
 import { ProjectsSection } from "../components/projects/ProjectsSection";
+import { ProjectDetailsPage } from "./ProjectDetailsPage";
 
 import { AgentsPreviewModal } from "../components/modals/AgentsPreviewModal";
 import { TaskPackBuilderPage } from "./TaskPackBuilderPage";
@@ -277,6 +278,7 @@ export function DashboardPage() {
   const [activePage, setActivePage] = useState<AppPageId>("dashboard");
   const [pageDirection, setPageDirection] = useState(1);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
+  const [selectedProjectDetailsId, setSelectedProjectDetailsId] = useState<number | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
 
   const [isWelcomeVisible, setIsWelcomeVisible] = useState(true);
@@ -311,12 +313,26 @@ export function DashboardPage() {
       dashboard.setTaskPackDraft(null);
       dashboard.setContextComposerPreview(null);
       dashboard.setGeneratedTaskPack(null);
+      setSelectedProjectDetailsId(null);
 
       setPageDirection(nextIndex >= currentIndex ? 1 : -1);
       setActivePage(nextPage);
     },
     [activePage, dashboard]
   );
+
+  const handleOpenProjectDetails = useCallback((projectId: number) => {
+    const currentIndex = getPageOrderIndex(activePage);
+    const nextIndex = getPageOrderIndex("projects");
+
+    dashboard.setTaskPackDraft(null);
+    dashboard.setContextComposerPreview(null);
+    dashboard.setGeneratedTaskPack(null);
+
+    setPageDirection(nextIndex >= currentIndex ? 1 : -1);
+    setActivePage("projects");
+    setSelectedProjectDetailsId(projectId);
+  }, [activePage, dashboard]);
 
   useEffect(() => {
     let isMounted = true;
@@ -497,6 +513,24 @@ export function DashboardPage() {
         />
       );
     }
+    if (selectedProjectDetailsId !== null) {
+      const selectedProject = dashboard.projects.find((project) => project.id === selectedProjectDetailsId);
+
+      if (selectedProject) {
+        return (
+          <ProjectDetailsPage
+            project={selectedProject}
+            isLoading={dashboard.isLoading}
+            onBack={() => setSelectedProjectDetailsId(null)}
+            onRescan={dashboard.handleRescanProject}
+            onGenerateAgents={dashboard.handleGenerateAgentsPreview}
+            onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
+            onCreateTaskPackFromChanges={dashboard.handleCreateTaskPackDraftFromChanges}
+          />
+        );
+      }
+    }
+
     if (activePage === "dashboard") {
       return (
         <DashboardHomePage
@@ -525,13 +559,12 @@ export function DashboardPage() {
 
           <ProjectsSection
             projects={dashboard.projects}
-            expandedProjectId={dashboard.expandedProjectId}
             isLoading={dashboard.isLoading}
             onAddProject={dashboard.handleSelectProject}
-            onToggleProject={dashboard.handleToggleProject}
             onRescanProject={dashboard.handleRescanProject}
             onGenerateAgents={dashboard.handleGenerateAgentsPreview}
             onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
+            onOpenProjectDetails={(project) => handleOpenProjectDetails(project.id)}
           />
         </>
       );
@@ -615,7 +648,7 @@ export function DashboardPage() {
     }
 
     return <PlaceholderPage pageId={activePage} />;
-  }, [activePage, dashboard, handleNavigate, renderPageStatus]);
+  }, [activePage, dashboard, handleNavigate, handleOpenProjectDetails, renderPageStatus, selectedProjectDetailsId]);
 
   const contentTransitionKey = useMemo(() => {
     if (dashboard.generatedTaskPack) {
@@ -630,12 +663,17 @@ export function DashboardPage() {
       return `task-pack-draft-${dashboard.taskPackDraft.projectId}`;
     }
 
+    if (selectedProjectDetailsId !== null) {
+      return `project-details-${selectedProjectDetailsId}`;
+    }
+
     return activePage;
   }, [
     activePage,
     dashboard.contextComposerPreview,
     dashboard.generatedTaskPack,
-    dashboard.taskPackDraft
+    dashboard.taskPackDraft,
+    selectedProjectDetailsId
   ]);
 
   return (

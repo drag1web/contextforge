@@ -25,13 +25,12 @@ import { ProjectCard } from "./ProjectCard";
 
 interface ProjectsSectionProps {
   projects: Project[];
-  expandedProjectId: number | null;
   isLoading: boolean;
   onAddProject: () => void;
-  onToggleProject: (projectId: number) => void;
   onRescanProject: (project: Project) => void;
   onGenerateAgents: (project: Project) => void;
   onCreateTaskPack: (project: Project) => void | Promise<void>;
+  onOpenProjectDetails: (project: Project) => void;
 }
 
 type ReadinessFilter = "all" | "low" | "medium" | "high";
@@ -163,13 +162,12 @@ function MetricCard({
 
 export function ProjectsSection({
   projects,
-  expandedProjectId,
   isLoading,
   onAddProject,
-  onToggleProject,
   onRescanProject,
   onGenerateAgents,
-  onCreateTaskPack
+  onCreateTaskPack,
+  onOpenProjectDetails
 }: ProjectsSectionProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -549,9 +547,8 @@ export function ProjectsSection({
               >
                 <ProjectCard
                   project={project}
-                  isExpanded={expandedProjectId === project.id}
                   isLoading={isLoading}
-                  onToggleReport={() => onToggleProject(project.id)}
+                  onOpenDetails={() => onOpenProjectDetails(project)}
                   onRescan={() => onRescanProject(project)}
                   onGenerateAgents={() => onGenerateAgents(project)}
                   onCreateTaskPack={() => onCreateTaskPack(project)}

@@ -19,6 +19,8 @@ import {
   Code2,
   Eye,
   FileText,
+  GitBranch,
+  PlusCircle,
   Lightbulb,
   Loader2,
   Palette,
@@ -36,6 +38,7 @@ import {
 } from "lucide-react";
 
 import {
+  getProjectGitStatus,
   getRuleProfilesCatalog,
   getTemplates
 } from "../api/client";
@@ -43,6 +46,7 @@ import type {
   AcceptanceCriteriaPreset,
   ContextComposerFileReference,
   ContextComposerPreview,
+  GitStatusResult,
   PromptTemplate,
   RuleItem,
   RuleProfile,
@@ -62,6 +66,13 @@ import {
   type TaskPackQualityResult,
   type TaskPackQualityStatus
 } from "../utils/taskPackQuality";
+import {
+  LOCAL_CHANGES_NOTE_HEADING,
+  buildLocalChangesNote,
+  getGitChangedFiles,
+  getGitChangeLabel,
+  mergeLocalChangesNote
+} from "../utils/localChangesNote";
 
 interface TaskPackBuilderPageProps {
   draft: TaskPackDraft;
@@ -462,6 +473,272 @@ function CompactMetric({
         {caption}
       </p>
     </div>
+  );
+}
+
+function LocalChangesAwarenessCard({
+  status,
+  isLoading,
+  error,
+  onRefresh,
+  onAddNote,
+  hasNote
+}: {
+  status: GitStatusResult | null;
+  isLoading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+  onAddNote: () => void;
+  hasNote: boolean;
+}) {
+  const changedFiles = getGitChangedFiles(status);
+  const canAddNote = Boolean(status?.isGitRepo && status.summary.totalChanged > 0);
+  const branchLabel = status?.isDetachedHead
+    ? "Detached HEAD"
+    : status?.branch ?? "No branch";
+
+  if (error) {
+    return (
+      <div className="rounded-2xl border border-red-400/20 bg-red-400/10 p-3">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-semibold text-red-100">
+              Local Git context unavailable
+            </p>
+            <p className="mt-1 text-[11px] leading-5 text-red-200/75">
+              {error}
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="shrink-0 rounded-full border border-red-300/20 bg-black/20 px-2.5 py-1 text-[10px] font-medium text-red-100 transition hover:border-red-200/40"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <section className="rounded-2xl border border-neutral-900 bg-black/35 p-3.5">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+              {isLoading ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
+            </span>
+
+            <div className="min-w-0">
+              <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                Local changes
+              </p>
+              <h3 className="truncate text-sm font-semibold text-white">
+                {isLoading
+                  ? "Checking working tree..."
+                  : status?.isGitRepo
+                    ? `${branchLabel} · ${status.summary.totalChanged} changed`
+                    : "No local Git repository"}
+              </h3>
+            </div>
+          </div>
+
+          <p className="mt-2 max-w-2xl text-xs leading-5 text-neutral-600">
+            Existing working-tree changes are useful background for a Task Pack, but they stay separate from files the agent should edit.
+          </p>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={isLoading}
+            className="inline-flex h-8 items-center gap-2 rounded-full border border-neutral-800 bg-neutral-950 px-3 text-xs font-medium text-neutral-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RotateCcw size={12} />
+            Refresh
+          </button>
+
+          <button
+            type="button"
+            onClick={onAddNote}
+            disabled={!canAddNote || isLoading}
+            className="cf-invert-action inline-flex h-8 items-center gap-2 rounded-full px-3 text-xs disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <PlusCircle size={13} />
+            {hasNote ? "Update note" : "Add note"}
+          </button>
+        </div>
+      </div>
+
+      {status?.isGitRepo ? (
+        <div className="mt-3 grid gap-2 sm:grid-cols-4">
+          <CompactMetric label="Staged" value={status.summary.stagedCount} caption="ready" />
+          <CompactMetric label="Unstaged" value={status.summary.unstagedCount} caption="working tree" />
+          <CompactMetric label="Untracked" value={status.summary.untrackedCount} caption="new files" />
+          <CompactMetric label="Latest" value={status.latestCommit?.shortHash ?? "—"} caption={status.latestCommit?.subject ?? "no commit"} />
+        </div>
+      ) : null}
+
+      {changedFiles.length > 0 ? (
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          {changedFiles.slice(0, 8).map((file) => (
+            <span
+              key={file.path}
+              className="max-w-full truncate rounded-full border border-neutral-900 bg-black/30 px-2.5 py-1 text-[10px] text-neutral-500"
+              title={file.path}
+            >
+              {getGitChangeLabel(file)} · {file.path}
+            </span>
+          ))}
+
+          {changedFiles.length > 8 && (
+            <span className="rounded-full border border-neutral-900 bg-black/30 px-2.5 py-1 text-[10px] text-neutral-500">
+              +{changedFiles.length - 8} more
+            </span>
+          )}
+        </div>
+      ) : status?.isGitRepo && !isLoading ? (
+        <div className="mt-3 rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs leading-5 text-emerald-200">
+          Working tree is clean. No local changes need to be added as background context.
+        </div>
+      ) : null}
+
+      {status?.warnings.length ? (
+        <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
+          {status.warnings[0]}
+        </div>
+      ) : null}
+    </section>
+  );
+}
+
+
+function LocalChangesCompactStrip({
+  status,
+  isLoading,
+  error,
+  onRefresh,
+  onAddNote,
+  onViewDetails,
+  hasNote
+}: {
+  status: GitStatusResult | null;
+  isLoading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+  onAddNote: () => void;
+  onViewDetails: () => void;
+  hasNote: boolean;
+}) {
+  const canAddNote = Boolean(status?.isGitRepo && status.summary.totalChanged > 0);
+  const branchLabel = status?.isDetachedHead
+    ? "Detached HEAD"
+    : status?.branch ?? "No branch";
+
+  if (error) {
+    return (
+      <section className="mb-3 rounded-2xl border border-red-400/20 bg-red-400/[0.07] px-3 py-2.5">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-red-400/20 bg-red-400/10 text-red-200">
+              <AlertTriangle size={14} />
+            </span>
+            <div className="min-w-0">
+              <p className="cf-tech-label text-[9px] uppercase text-red-200/70">
+                Local changes
+              </p>
+              <p className="truncate text-xs font-semibold text-red-100">
+                Git status unavailable
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={onRefresh}
+            className="shrink-0 rounded-full border border-red-300/20 bg-black/20 px-2.5 py-1 text-[10px] font-medium text-red-100 transition hover:border-red-200/40"
+          >
+            Retry
+          </button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="mb-3 rounded-2xl border border-neutral-900 bg-black/30 px-3 py-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+            {isLoading ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
+          </span>
+
+          <div className="min-w-0">
+            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+              Local changes
+            </p>
+            <p className="truncate text-xs font-semibold text-white">
+              {isLoading
+                ? "Checking working tree..."
+                : status?.isGitRepo
+                  ? `${branchLabel} · ${status.summary.totalChanged} changed`
+                  : "No local Git repository"}
+            </p>
+          </div>
+        </div>
+
+        {status?.isGitRepo && !isLoading ? (
+          <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 xl:flex">
+            <span className="rounded-full border border-neutral-900 bg-black/30 px-2 py-1 text-[10px] text-neutral-500">
+              {status.summary.stagedCount} staged
+            </span>
+            <span className="rounded-full border border-neutral-900 bg-black/30 px-2 py-1 text-[10px] text-neutral-500">
+              {status.summary.unstagedCount} unstaged
+            </span>
+            <span className="rounded-full border border-neutral-900 bg-black/30 px-2 py-1 text-[10px] text-neutral-500">
+              {status.summary.untrackedCount} untracked
+            </span>
+            <span className="truncate rounded-full border border-neutral-900 bg-black/30 px-2 py-1 text-[10px] text-neutral-600">
+              awareness only · not edit targets
+            </span>
+          </div>
+        ) : null}
+
+        <div className="ml-auto flex shrink-0 flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onRefresh}
+            disabled={isLoading}
+            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+          >
+            <RotateCcw size={11} />
+            Refresh
+          </button>
+
+          <button
+            type="button"
+            onClick={onViewDetails}
+            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition hover:border-white/20 hover:text-white"
+          >
+            <Eye size={11} />
+            Details
+          </button>
+
+          <button
+            type="button"
+            onClick={onAddNote}
+            disabled={!canAddNote || isLoading}
+            className="cf-invert-action inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <PlusCircle size={12} />
+            {hasNote ? "Update note" : "Add note"}
+          </button>
+        </div>
+      </div>
+    </section>
   );
 }
 
@@ -2428,6 +2705,9 @@ export function TaskPackBuilderPage({
   const [contextFileFilter, setContextFileFilter] = useState<ContextFileFilter>("all");
   const [contextBudgetMode, setContextBudgetMode] = useState<ContextBudgetMode>("standard");
   const [showContextTechnicalDetails, setShowContextTechnicalDetails] = useState(false);
+  const [gitStatus, setGitStatus] = useState<GitStatusResult | null>(null);
+  const [isGitStatusLoading, setIsGitStatusLoading] = useState(false);
+  const [gitStatusError, setGitStatusError] = useState<string | null>(null);
   const [activeTaskPresetId, setActiveTaskPresetId] = useState(
     () => getBuilderPresetForTaskType(draft.taskType).id
   );
@@ -2529,6 +2809,31 @@ export function TaskPackBuilderPage({
     () => rawContextSignals.filter(isTechnicalContextSignal).slice(0, 6),
     [rawContextSignals]
   );
+
+  const hasLocalChangesNote = draft.rawTask.includes(LOCAL_CHANGES_NOTE_HEADING);
+
+  const loadGitStatus = useCallback(async () => {
+    setIsGitStatusLoading(true);
+    setGitStatusError(null);
+
+    try {
+      const status = await getProjectGitStatus(draft.projectId);
+      setGitStatus(status);
+    } catch (error) {
+      setGitStatus(null);
+      setGitStatusError(
+        error instanceof Error
+          ? error.message
+          : "Failed to read local Git status."
+      );
+    } finally {
+      setIsGitStatusLoading(false);
+    }
+  }, [draft.projectId]);
+
+  useEffect(() => {
+    void loadGitStatus();
+  }, [loadGitStatus]);
 
   useEffect(() => {
     if (contextSummary.isAnalyzed) {
@@ -2678,6 +2983,22 @@ export function TaskPackBuilderPage({
     onChange({
       ...draft,
       ...patch
+    });
+  }
+
+  function handleAddLocalChangesNote() {
+    if (!gitStatus) {
+      return;
+    }
+
+    const note = buildLocalChangesNote(gitStatus);
+
+    if (!note) {
+      return;
+    }
+
+    updateDraft({
+      rawTask: mergeLocalChangesNote(draft.rawTask, note)
     });
   }
 
@@ -3007,11 +3328,30 @@ export function TaskPackBuilderPage({
                     </button>
                   </div>
 
-                  <div className="mb-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px_300px]">
+                  <LocalChangesCompactStrip
+                    status={gitStatus}
+                    isLoading={isGitStatusLoading}
+                    error={gitStatusError}
+                    onRefresh={() => void loadGitStatus()}
+                    onAddNote={handleAddLocalChangesNote}
+                    onViewDetails={() => setActiveBuilderSection("context")}
+                    hasNote={hasLocalChangesNote}
+                  />
+
+                  <div className="min-h-[260px] flex-1 rounded-2xl border border-neutral-900 bg-black/55 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+                    <textarea
+                      value={draft.rawTask}
+                      onChange={(event) => updateDraft({ rawTask: event.target.value })}
+                      placeholder={t("taskPackBuilder.placeholder")}
+                      className="h-full min-h-[240px] w-full resize-none overflow-y-auto rounded-xl border border-transparent bg-transparent p-4 text-sm leading-7 text-white outline-none placeholder:text-neutral-700 focus:border-white/10"
+                    />
+                  </div>
+
+                  <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px_300px]">
                     <button
                       type="button"
                       onClick={() => setIsPresetModalOpen(true)}
-                      className="rounded-2xl border border-neutral-900 bg-black/35 p-3 text-left transition hover:border-white/15 hover:bg-white/[0.035]"
+                      className="rounded-2xl border border-neutral-900 bg-black/25 p-3 text-left transition hover:border-white/15 hover:bg-white/[0.035]"
                     >
                       <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
                         Selected preset
@@ -3037,7 +3377,7 @@ export function TaskPackBuilderPage({
                     <button
                       type="button"
                       onClick={() => setActiveBuilderSection("recipe")}
-                      className="rounded-2xl border border-neutral-900 bg-black/35 p-3 text-left transition hover:border-white/15 hover:bg-white/[0.035]"
+                      className="rounded-2xl border border-neutral-900 bg-black/25 p-3 text-left transition hover:border-white/15 hover:bg-white/[0.035]"
                     >
                       <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
                         Auto recipe
@@ -3056,15 +3396,6 @@ export function TaskPackBuilderPage({
                       intent={intentResult}
                       onOpenRecipe={() => setActiveBuilderSection("recipe")}
                       onOpenContext={() => setActiveBuilderSection("context")}
-                    />
-                  </div>
-
-                  <div className="min-h-0 flex-1 rounded-2xl border border-neutral-900 bg-black/55 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-                    <textarea
-                      value={draft.rawTask}
-                      onChange={(event) => updateDraft({ rawTask: event.target.value })}
-                      placeholder={t("taskPackBuilder.placeholder")}
-                      className="h-full min-h-[300px] w-full resize-none overflow-y-auto rounded-xl border border-transparent bg-transparent p-4 text-sm leading-7 text-white outline-none placeholder:text-neutral-700 focus:border-white/10"
                     />
                   </div>
                 </section>
@@ -3377,6 +3708,17 @@ export function TaskPackBuilderPage({
                       <CompactMetric label="Files" value={contextSummary.files.length} caption={`${contextSummary.editCount} edit · ${contextSummary.inspectCount} inspect`} />
                       <CompactMetric label="Snippets" value={contextSummary.snippetsCount} caption="readable" />
                       <CompactMetric label="Budget" value={`${contextSummary.budgetScore}%`} caption={contextSummary.budgetLabel} />
+                    </div>
+
+                    <div className="mt-4">
+                      <LocalChangesAwarenessCard
+                        status={gitStatus}
+                        isLoading={isGitStatusLoading}
+                        error={gitStatusError}
+                        onRefresh={() => void loadGitStatus()}
+                        onAddNote={handleAddLocalChangesNote}
+                        hasNote={hasLocalChangesNote}
+                      />
                     </div>
 
                     {contextSummary.isAnalyzed && (

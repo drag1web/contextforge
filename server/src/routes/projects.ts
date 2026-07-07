@@ -7,6 +7,7 @@ import { scanProject } from "../scanner/projectScanner.js";
 import { buildAgentsMarkdown, ensureAgentsProjectMemorySection } from "../context/agentsBuilder.js";
 import { generateWithConfiguredOllama } from "../ollama/ollamaService.js";
 import { buildAgentsEnhancementPrompt } from "../ollama/promptEnhancers.js";
+import { getGitDiffSummary, getGitStatus } from "../git/gitStatusService.js";
 
 export const projectsRouter = Router();
 
@@ -175,6 +176,87 @@ projectsRouter.post("/:id/rescan", async (req, res) => {
     res.status(500).json({
       ok: false,
       message: "Project rescan failed",
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+
+projectsRouter.get("/:id/git/status", async (req, res) => {
+  const projectId = Number(req.params.id);
+
+  if (!Number.isInteger(projectId)) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid project id"
+    });
+    return;
+  }
+
+  try {
+    const project = await getProjectById(projectId);
+
+    if (!project) {
+      res.status(404).json({
+        ok: false,
+        message: "Project not found"
+      });
+      return;
+    }
+
+    const status = await getGitStatus(project.localPath);
+
+    res.json({
+      ok: true,
+      status
+    });
+  } catch (error) {
+    console.error("Failed to read project Git status:", error);
+
+    res.status(500).json({
+      ok: false,
+      message: "Failed to read project Git status",
+      error: error instanceof Error ? error.message : String(error)
+    });
+  }
+});
+
+
+
+projectsRouter.get("/:id/git/diff-summary", async (req, res) => {
+  const projectId = Number(req.params.id);
+
+  if (!Number.isInteger(projectId)) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid project id"
+    });
+    return;
+  }
+
+  try {
+    const project = await getProjectById(projectId);
+
+    if (!project) {
+      res.status(404).json({
+        ok: false,
+        message: "Project not found"
+      });
+      return;
+    }
+
+    const diffSummary = await getGitDiffSummary(project.localPath);
+
+    res.json({
+      ok: true,
+      diffSummary
+    });
+  } catch (error) {
+    console.error("Failed to read project Git diff summary:", error);
+
+    res.status(500).json({
+      ok: false,
+      message: "Failed to read project Git diff summary",
       error: error instanceof Error ? error.message : String(error)
     });
   }

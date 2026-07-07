@@ -1,9 +1,8 @@
 import { useTranslation } from "react-i18next";
 import {
-  ChevronDown,
-  ChevronUp,
   FileText,
   FolderKanban,
+  Info,
   Package,
   RefreshCw,
   WandSparkles
@@ -11,13 +10,11 @@ import {
 
 import type { Project } from "../../types";
 import { Button } from "../ui/Button";
-import { ProjectReadinessReport } from "./ProjectReadinessReport";
 
 interface ProjectCardProps {
   project: Project;
-  isExpanded: boolean;
   isLoading: boolean;
-  onToggleReport: () => void;
+  onOpenDetails: () => void;
   onRescan: () => void;
   onGenerateAgents: () => void;
   onCreateTaskPack: () => void | Promise<void>;
@@ -55,9 +52,8 @@ function getReadinessWidth(score: number) {
 
 export function ProjectCard({
   project,
-  isExpanded,
   isLoading,
-  onToggleReport,
+  onOpenDetails,
   onRescan,
   onGenerateAgents,
   onCreateTaskPack
@@ -65,6 +61,7 @@ export function ProjectCard({
   const { t } = useTranslation();
   const issuesCount = project.readinessReport.issues.length;
   const readinessLabel = getReadinessLabel(project.readinessScore, t);
+  const checksPassed = project.readinessReport.checks.filter((check) => check.passed).length;
 
   return (
     <article className="cf-card cf-card-menu p-5">
@@ -126,7 +123,7 @@ export function ProjectCard({
                 {t("projectsPage.checks")}
               </p>
               <p className="cf-display-font mt-1 text-2xl font-semibold text-white">
-                {project.readinessReport.checks.length}
+                {checksPassed}/{project.readinessReport.checks.length}
               </p>
             </div>
 
@@ -200,33 +197,18 @@ export function ProjectCard({
               </Button>
             </div>
 
-            <button
+            <Button
               type="button"
-              onClick={onToggleReport}
-              className="cf-invert-action mt-1 flex h-9 items-center justify-center gap-2 rounded-xl px-3 text-sm"
-              title={isExpanded ? t("projectsPage.hideReportTitle") : t("projectsPage.showReportTitle")}
+              variant="secondary"
+              disabled={isLoading}
+              onClick={onOpenDetails}
+              className="justify-center rounded-xl"
             >
-              {isExpanded ? <ChevronUp size={15} /> : <ChevronDown size={15} />}
-              {isExpanded ? t("projectsPage.hideReport") : t("projectsPage.showReport")}
-            </button>
+              <Info size={15} />
+              Project details
+            </Button>
           </div>
         </aside>
-      </div>
-
-      <div
-        aria-hidden={!isExpanded}
-        className="overflow-hidden"
-        style={{
-          display: "grid",
-          gridTemplateRows: isExpanded ? "1fr" : "0fr",
-          opacity: isExpanded ? 1 : 0,
-          transition:
-            "grid-template-rows 220ms cubic-bezier(0.16, 1, 0.3, 1), opacity 160ms ease"
-        }}
-      >
-        <div className="min-h-0 overflow-hidden">
-          <ProjectReadinessReport report={project.readinessReport} />
-        </div>
       </div>
     </article>
   );

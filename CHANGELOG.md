@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.7-alpha
+
+### Added
+
+- Added Local Git status detection for current branch, detached head state, latest commit, staged, unstaged and untracked files.
+- Added a Project Details page so readiness, scanner evidence and local changes live outside the compact Projects list.
+- Added Local Changes awareness in the Task Pack Builder with an awareness-only changed-files note.
+- Added Create from changes flow for starting a Task Pack from the current local working tree.
+- Added Diff Review Lite with metadata-only file summaries, additions, deletions and binary counts.
+- Added review signals, suggested verification and a local manual verdict marker for changed files.
+- Added Task Pack alignment that compares local diff files with the latest saved Task Pack context.
+- Added a lightweight config/protected-files signal for env, lockfile, config, CI and AGENTS.md changes.
+
+### Changed
+
+- Renamed visible Git wording to Local changes where possible so users do not confuse local Git status with GitHub.
+- Kept local changes separate from AI edit targets to avoid unsafe context assumptions.
+- Updated the active app phase to `Phase 0.5.7 — Local Git Context & Diff Review Lite`.
+- Synced root, server, renderer, shared package, lockfile, README and app metadata to `0.5.7-alpha`.
+
+### Fixed
+
+- Polished Diff Review file badges so unmeasured or untracked files no longer display confusing `+binary` / `-binary` labels.
+
 ## 0.5.6-alpha
 
 ### Added

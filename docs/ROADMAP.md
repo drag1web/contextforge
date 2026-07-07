@@ -79,11 +79,12 @@ Goal: warn users when a task is too vague, too broad, missing verification conte
 
 Goal: understand the local working tree before GitHub/cloud integrations.
 
-- [ ] Detect current branch and latest commit.
-- [ ] Detect dirty state, changed files and untracked files.
-- [ ] Distinguish staged and unstaged changes.
-- [ ] Add changed-files context to Task Pack workflows.
-- [ ] Add Diff Review Lite for pasted/local diffs.
+- [x] Detect current branch and latest commit.
+- [x] Detect dirty state, changed files and untracked files.
+- [x] Distinguish staged and unstaged changes.
+- [x] Add changed-files context to Task Pack workflows.
+- [x] Add Diff Review Lite for local diffs.
+- [x] Add metadata-only review signals, suggested verification and Task Pack alignment.
 
 ## v0.6 — Optional browser auth and cloud pairing
 
