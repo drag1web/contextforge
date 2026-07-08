@@ -5,7 +5,7 @@ import { Loader2, Sparkles } from "lucide-react";
 
 import contextforgeMarkWhite from "../assets/brand/contextforge-mark-white.png";
 
-import { getAppSettings } from "../api/client";
+import { getAppSettings, updateAppSettings } from "../api/client";
 import type { AppSettings } from "../types";
 
 import { AppTitleBar } from "../components/layout/AppTitleBar";
@@ -37,11 +37,14 @@ import { AgentsPage } from "./AgentsPage";
 import { ContextComposerPage } from "./ContextComposerPage";
 
 import { LoadingOverlay } from "../components/ui/LoadingOverlay";
+import { FirstRunOnboardingOverlay } from "../components/onboarding/FirstRunOnboardingOverlay";
 
 import { GlobalSearchModal } from "../components/modals/GlobalSearchModal";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { appMeta } from "../config/appMeta";
 import i18n, { applyAppLanguage } from "../i18n";
+
+const SHOW_ONBOARDING_EVERY_LAUNCH_DURING_ALPHA = true;
 
 const PAGE_ORDER: AppPageId[] = [
   "dashboard",
@@ -278,6 +281,7 @@ export function DashboardPage() {
   const [activePage, setActivePage] = useState<AppPageId>("dashboard");
   const [pageDirection, setPageDirection] = useState(1);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
+  const [onboardingDismissedThisSession, setOnboardingDismissedThisSession] = useState(false);
   const [selectedProjectDetailsId, setSelectedProjectDetailsId] = useState<number | null>(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
 
@@ -333,6 +337,41 @@ export function DashboardPage() {
     setActivePage("projects");
     setSelectedProjectDetailsId(projectId);
   }, [activePage, dashboard]);
+
+  const completeFirstRunOnboarding = useCallback(async () => {
+    setOnboardingDismissedThisSession(true);
+
+    setAppSettings((currentSettings) =>
+      currentSettings
+        ? {
+          ...currentSettings,
+          onboardingCompleted: true
+        }
+        : currentSettings
+    );
+
+    try {
+      const updatedSettings = await updateAppSettings({ onboardingCompleted: true });
+
+      setAppSettings(updatedSettings);
+      window.dispatchEvent(
+        new CustomEvent("contextforge:settings-updated", {
+          detail: updatedSettings
+        })
+      );
+    } catch {
+      // Keep the optimistic local close so onboarding never traps the user.
+    }
+  }, []);
+
+  const handleStartFirstRunSetup = useCallback(async () => {
+    await completeFirstRunOnboarding();
+    handleNavigate("dashboard");
+  }, [completeFirstRunOnboarding, handleNavigate]);
+
+  const handleSkipFirstRunSetup = useCallback(async () => {
+    await completeFirstRunOnboarding();
+  }, [completeFirstRunOnboarding]);
 
   useEffect(() => {
     let isMounted = true;
@@ -676,6 +715,14 @@ export function DashboardPage() {
     selectedProjectDetailsId
   ]);
 
+  const shouldShowFirstRunOnboarding = Boolean(
+    !isWelcomeVisible &&
+    shellSettingsReady &&
+    appSettings &&
+    !onboardingDismissedThisSession &&
+    (SHOW_ONBOARDING_EVERY_LAUNCH_DURING_ALPHA || !appSettings.onboardingCompleted)
+  );
+
   return (
     <main className="relative h-screen min-h-0 w-screen overflow-hidden bg-black text-neutral-100">
       <div className="flex h-full min-h-0 w-full flex-col">
@@ -727,8 +774,18 @@ export function DashboardPage() {
           />
         )}
 
+        <AnimatePresence>
+          {shouldShowFirstRunOnboarding && (
+            <FirstRunOnboardingOverlay
+              projectsCount={dashboard.projects.length}
+              onStartSetup={handleStartFirstRunSetup}
+              onSkip={handleSkipFirstRunSetup}
+            />
+          )}
+        </AnimatePresence>
+
         <LoadingOverlay
-          isVisible={dashboard.isLoading && !isWelcomeVisible}
+          isVisible={dashboard.isLoading && !isWelcomeVisible && !shouldShowFirstRunOnboarding}
           message={dashboard.statusMessage}
         />
       </div>
