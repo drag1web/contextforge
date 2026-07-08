@@ -12,6 +12,7 @@ import { contextComposerRouter } from "./routes/contextComposer.js";
 import { templatesRouter } from "./routes/templates.js";
 import { ruleProfilesRouter } from "./routes/ruleProfiles.js";
 import { integrationsRouter } from "./routes/integrations.js";
+import { storageRouter } from "./routes/storage.js";
 
 const app = express();
 
@@ -58,6 +59,7 @@ app.use("/api/context-composer", contextComposerRouter);
 app.use("/api/templates", templatesRouter);
 app.use("/api/rule-profiles", ruleProfilesRouter);
 app.use("/api/integrations", integrationsRouter);
+app.use("/api/storage", storageRouter);
 
 async function bootstrap() {
   await ensureDatabaseSchema();

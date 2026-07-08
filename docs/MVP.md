@@ -108,7 +108,7 @@ Not required for the MVP:
 
 ## MVP release checklist
 
-- [x] Versions are synced to `0.5.7-alpha`.
+- [x] Versions are synced to `0.5.8-alpha`.
 - [x] README describes the actual project state.
 - [x] `/api/health` returns the current version.
 - [x] SQLite storage is available for desktop.
@@ -122,4 +122,8 @@ Not required for the MVP:
 - [x] Local Git status detects branch, latest commit, dirty state and staged/unstaged/untracked files.
 - [x] Changed files can be added to Task Pack drafts as awareness-only context.
 - [x] Diff Review Lite summarizes local changes, review signals, suggested verification and Task Pack alignment.
+- [x] Storage audit shows SQLite schema, catalog and backup readiness.
+- [x] Rules/templates custom catalog is backed by SQLite with legacy JSON kept as transition backup.
+- [x] Workspace backup export creates secret-safe local JSON backups.
+- [x] Desktop release readiness checklist is visible in Settings.
 - [ ] Portable/installer build is tested.

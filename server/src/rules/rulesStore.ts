@@ -1,6 +1,8 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 
+import { getStorageAdapter } from "../storage/index.js";
+import type { StorageAdapter } from "../storage/types.js";
 import type { RulesAndTemplatesStore } from "./types.js";
 
 const STORE_VERSION = 1;
@@ -11,6 +13,12 @@ const DEFAULT_STORE: RulesAndTemplatesStore = {
   ruleItems: [],
   ruleProfiles: [],
   acceptanceCriteriaPresets: []
+};
+
+type RulesTemplatesStorageAdapter = StorageAdapter & {
+  readRulesAndTemplatesCatalog: NonNullable<StorageAdapter["readRulesAndTemplatesCatalog"]>;
+  writeRulesAndTemplatesCatalog: NonNullable<StorageAdapter["writeRulesAndTemplatesCatalog"]>;
+  importRulesAndTemplatesCatalog: NonNullable<StorageAdapter["importRulesAndTemplatesCatalog"]>;
 };
 
 function getStorePath() {
@@ -37,7 +45,15 @@ function normalizeStore(value: unknown): RulesAndTemplatesStore {
   } as RulesAndTemplatesStore;
 }
 
-export async function readRulesAndTemplatesStore(): Promise<RulesAndTemplatesStore> {
+function hasCatalogStorage(adapter: StorageAdapter): adapter is RulesTemplatesStorageAdapter {
+  return (
+    typeof adapter.readRulesAndTemplatesCatalog === "function" &&
+    typeof adapter.writeRulesAndTemplatesCatalog === "function" &&
+    typeof adapter.importRulesAndTemplatesCatalog === "function"
+  );
+}
+
+async function readLegacyRulesAndTemplatesStore(): Promise<RulesAndTemplatesStore> {
   const storePath = getStorePath();
 
   try {
@@ -48,7 +64,7 @@ export async function readRulesAndTemplatesStore(): Promise<RulesAndTemplatesSto
   }
 }
 
-export async function writeRulesAndTemplatesStore(store: RulesAndTemplatesStore) {
+async function writeLegacyRulesAndTemplatesStore(store: RulesAndTemplatesStore) {
   const storePath = getStorePath();
   const storeDirectory = path.dirname(storePath);
   const temporaryPath = `${storePath}.tmp`;
@@ -69,4 +85,33 @@ export async function writeRulesAndTemplatesStore(store: RulesAndTemplatesStore)
   );
 
   await fs.rename(temporaryPath, storePath);
+}
+
+export async function readRulesAndTemplatesStore(): Promise<RulesAndTemplatesStore> {
+  const adapter = getStorageAdapter();
+
+  if (!hasCatalogStorage(adapter)) {
+    return readLegacyRulesAndTemplatesStore();
+  }
+
+  const legacyStore = await readLegacyRulesAndTemplatesStore();
+  await adapter.importRulesAndTemplatesCatalog(legacyStore);
+
+  return adapter.readRulesAndTemplatesCatalog();
+}
+
+export async function writeRulesAndTemplatesStore(store: RulesAndTemplatesStore) {
+  const nextStore = {
+    ...store,
+    version: STORE_VERSION
+  };
+  const adapter = getStorageAdapter();
+
+  if (hasCatalogStorage(adapter)) {
+    await adapter.writeRulesAndTemplatesCatalog(nextStore);
+  }
+
+  // Keep the legacy JSON catalog as a human-readable backup during the 12.x
+  // transition. Later backup/export work can decide when it is safe to retire it.
+  await writeLegacyRulesAndTemplatesStore(nextStore);
 }

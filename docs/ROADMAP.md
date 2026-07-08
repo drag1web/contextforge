@@ -86,6 +86,28 @@ Goal: understand the local working tree before GitHub/cloud integrations.
 - [x] Add Diff Review Lite for local diffs.
 - [x] Add metadata-only review signals, suggested verification and Task Pack alignment.
 
+## v0.5.8 — Desktop Persistence & Release Readiness
+
+Goal: make local desktop persistence visible, versioned, backupable and ready for the next onboarding pass.
+
+- [x] Add Storage audit in Settings.
+- [x] Add SQLite schema versioning and migration metadata.
+- [x] Move custom rules/templates catalog into SQLite-backed storage.
+- [x] Keep legacy JSON as transition backup.
+- [x] Add secret-safe workspace backup export.
+- [x] Add compact desktop release readiness checks.
+- [ ] Keep guarded backup restore/import for a later dedicated flow.
+
+## v0.5.9 — Onboarding & First Run Experience
+
+Goal: teach the user the main local-first workflow before GitHub integration.
+
+- [ ] Add first-run welcome screen.
+- [ ] Explain Add project → Scan → AGENTS.md → Task Pack → Local changes.
+- [ ] Store onboarding completed state.
+- [ ] Add Replay onboarding action in Settings.
+- [ ] Keep Skip available for experienced users.
+
 ## v0.6 — Optional browser auth and cloud pairing
 
 Goal: add optional sign-in without making login required for local use.

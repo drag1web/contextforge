@@ -8,6 +8,7 @@ import {
   CheckCircle2,
   Circle,
   Cpu,
+  Download,
   Gauge,
   Keyboard,
   Languages,
@@ -27,13 +28,15 @@ import {
 } from "lucide-react";
 
 import {
+  exportWorkspaceBackup,
   getAppSettings,
+  getStorageAudit,
   getOllamaModels,
   getOllamaStatus,
   updateAppSettings
 } from "../api/client";
 
-import type { AppSettings, OllamaModel, OllamaStatus } from "../types";
+import type { AppSettings, OllamaModel, OllamaStatus, StorageAuditResult, WorkspaceBackupExportResult } from "../types";
 import { CustomSelect } from "../components/ui/CustomSelect";
 import { SlidingSelectionIndicator } from "../components/ui/SlidingSelectionIndicator";
 import { appMeta } from "../config/appMeta";
@@ -104,8 +107,7 @@ const SETTINGS_SECTIONS: Array<{
     {
       id: "storage",
       label: "Storage",
-      icon: Server,
-      status: "soon"
+      icon: Server
     },
     {
       id: "updates",
@@ -1008,12 +1010,468 @@ function PlaceholderSettingsPanel({
   );
 }
 
+
+function formatStorageBytes(sizeBytes: number | null) {
+  if (sizeBytes === null || !Number.isFinite(sizeBytes)) {
+    return "Unknown";
+  }
+
+  if (sizeBytes < 1024) {
+    return `${sizeBytes} B`;
+  }
+
+  const kb = sizeBytes / 1024;
+
+  if (kb < 1024) {
+    return `${kb.toFixed(1)} KB`;
+  }
+
+  const mb = kb / 1024;
+
+  if (mb < 1024) {
+    return `${mb.toFixed(1)} MB`;
+  }
+
+  return `${(mb / 1024).toFixed(1)} GB`;
+}
+
+function storageStatusClasses(status: string) {
+  if (status === "ready" || status === "primary" || status === "done" || status === "pass") {
+    return "border-emerald-400/25 bg-emerald-400/10 text-emerald-300";
+  }
+
+  if (status === "current") {
+    return "border-white/20 bg-white/10 text-white";
+  }
+
+  if (status === "external" || status === "legacy" || status === "warning" || status === "review") {
+    return "border-amber-300/25 bg-amber-300/10 text-amber-200";
+  }
+
+  if (status === "fail" || status === "blocked") {
+    return "border-rose-400/25 bg-rose-400/10 text-rose-200";
+  }
+
+  return "border-neutral-800 bg-neutral-950 text-neutral-500";
+}
+
+function StorageSettingsPanel({
+  audit,
+  loading,
+  onRefresh
+}: {
+  audit: StorageAuditResult | null;
+  loading: boolean;
+  onRefresh: () => void | Promise<void>;
+}) {
+  const counts = audit?.counts ?? [];
+  const artifacts = audit?.artifacts ?? [];
+  const gaps = audit?.gaps ?? [];
+  const plan = audit?.plan ?? [];
+  const schema = audit?.schema ?? null;
+  const releaseReadiness = audit?.releaseReadiness ?? null;
+  const [backupResult, setBackupResult] = useState<WorkspaceBackupExportResult | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const [isBackupExporting, setIsBackupExporting] = useState(false);
+
+  async function handleExportBackup() {
+    try {
+      setIsBackupExporting(true);
+      setBackupError(null);
+      const result = await exportWorkspaceBackup();
+      setBackupResult(result);
+      await onRefresh();
+    } catch (error) {
+      setBackupResult(null);
+      setBackupError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setIsBackupExporting(false);
+    }
+  }
+
+  return (
+    <>
+      <SectionHeader
+        icon={<Server size={13} />}
+        label="Workspace"
+        title="Storage and desktop persistence"
+        description="Review where ContextForge stores local workspace data before deeper SQLite migrations and release-readiness work."
+      />
+
+      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="space-y-5">
+          <SettingCard
+            icon={<Server size={18} />}
+            label="Storage audit"
+            title="SQLite-first workspace state"
+            description="Live local audit of projects, Task Packs, memory, rules/templates and the remaining migration gaps."
+          >
+            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex flex-wrap gap-2">
+                <span className="cf-badge">
+                  {audit?.driver ?? "sqlite"}
+                </span>
+                <span className="cf-badge">
+                  {audit?.sqliteFirst ? "SQLite-first" : "Non-default driver"}
+                </span>
+                {audit?.databaseExists && <span className="cf-badge">Database found</span>}
+                {schema && (
+                  <span className="cf-badge">
+                    Schema v{schema.currentVersion}/{schema.latestVersion}
+                  </span>
+                )}
+              </div>
+
+              <SettingsActionButton
+                icon={RefreshCw}
+                label="Refresh audit"
+                loadingLabel="Refreshing"
+                loading={loading}
+                disabled={loading}
+                variant="secondary"
+                onClick={onRefresh}
+              />
+            </div>
+
+            {!audit ? (
+              <div className="rounded-2xl border border-neutral-900 bg-black/40 p-5">
+                <p className="text-sm font-medium text-white">
+                  {loading ? "Loading storage audit..." : "Storage audit is not loaded yet."}
+                </p>
+                <p className="mt-2 text-sm leading-6 text-neutral-500">
+                  Refresh this section to inspect local persistence before migration work.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-5">
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+                  <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                    <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                      Driver
+                    </p>
+                    <p className="mt-2 text-xl font-semibold text-white">
+                      {audit.driver}
+                    </p>
+                    <p className="mt-1 text-xs text-neutral-600">
+                      active adapter
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                    <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                      Database
+                    </p>
+                    <p className="mt-2 text-xl font-semibold text-white">
+                      {audit.databaseExists ? "Ready" : "Missing"}
+                    </p>
+                    <p className="mt-1 text-xs text-neutral-600">
+                      {formatStorageBytes(audit.databaseSizeBytes)}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                    <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                      Schema
+                    </p>
+                    <p className="mt-2 text-xl font-semibold text-white">
+                      {schema ? `v${schema.currentVersion}` : "Unknown"}
+                    </p>
+                    <p className="mt-1 text-xs text-neutral-600">
+                      {schema
+                        ? schema.pendingCount > 0
+                          ? `${schema.pendingCount} pending`
+                          : "up to date"
+                        : "migration metadata"}
+                    </p>
+                  </div>
+
+                  <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                    <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                      Gaps
+                    </p>
+                    <p className="mt-2 text-xl font-semibold text-white">
+                      {gaps.length}
+                    </p>
+                    <p className="mt-1 text-xs text-neutral-600">
+                      migration items
+                    </p>
+                  </div>
+                </div>
+
+                {schema && (
+                  <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-white">
+                          SQLite schema versioning
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-neutral-600">
+                          Applied {schema.appliedCount} migration{schema.appliedCount === 1 ? "" : "s"}; latest schema target is v{schema.latestVersion}.
+                        </p>
+                      </div>
+                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(schema.status)}`}>
+                        {schema.status === "ready" ? "ready" : "needs migration"}
+                      </span>
+                    </div>
+                    {schema.latestMigration && (
+                      <p className="mt-3 text-xs leading-5 text-neutral-700">
+                        Latest: {schema.latestMigration.id} · {schema.latestMigration.name}
+                      </p>
+                    )}
+                  </div>
+                )}
+
+                <div className="grid gap-3 md:grid-cols-2">
+                  {counts.map((item) => (
+                    <div
+                      key={item.key}
+                      className="rounded-2xl border border-neutral-900 bg-black/40 p-4"
+                    >
+                      <div className="mb-3 flex items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-white">
+                            {item.label}
+                          </p>
+                          <p className="mt-1 text-xs leading-5 text-neutral-600">
+                            {item.note}
+                          </p>
+                        </div>
+                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(item.status)}`}>
+                          {item.status}
+                        </span>
+                      </div>
+
+                      <p className="text-2xl font-semibold text-white">
+                        {item.count === null ? "—" : item.count}
+                      </p>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                  <div className="flex flex-wrap items-start justify-between gap-4">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white">
+                        Workspace backup export
+                      </p>
+                      <p className="mt-1 max-w-2xl text-xs leading-5 text-neutral-600">
+                        Create a local JSON backup with projects, Task Packs, Project Memory, rules/templates and safe settings. API keys, provider URLs, source files and raw diffs are excluded.
+                      </p>
+                    </div>
+
+                    <SettingsActionButton
+                      icon={Download}
+                      label="Export backup"
+                      loadingLabel="Exporting"
+                      loading={isBackupExporting}
+                      disabled={isBackupExporting}
+                      variant="primary"
+                      onClick={handleExportBackup}
+                    />
+                  </div>
+
+                  {backupResult && (
+                    <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-semibold text-emerald-100">
+                            Backup created
+                          </p>
+                          <p className="mt-1 break-all text-xs leading-5 text-emerald-200/70">
+                            {backupResult.filePath}
+                          </p>
+                        </div>
+                        <span className="shrink-0 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-200">
+                          {formatStorageBytes(backupResult.sizeBytes)}
+                        </span>
+                      </div>
+
+                      <div className="mt-3 grid gap-2 text-xs text-emerald-100/80 sm:grid-cols-2 lg:grid-cols-5">
+                        <span>Projects: {backupResult.counts.projects}</span>
+                        <span>Task Packs: {backupResult.counts.taskPacks}</span>
+                        <span>Memory: {backupResult.counts.projectMemories}</span>
+                        <span>Rules: {backupResult.counts.ruleTemplates}</span>
+                        <span>Settings: {backupResult.counts.settings}</span>
+                      </div>
+                    </div>
+                  )}
+
+                  {backupError && (
+                    <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 p-4">
+                      <p className="text-sm font-semibold text-rose-100">
+                        Backup export failed
+                      </p>
+                      <p className="mt-1 text-xs leading-5 text-rose-200/70">
+                        {backupError}
+                      </p>
+                    </div>
+                  )}
+                </div>
+
+                {releaseReadiness && (
+                  <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                    <div className="flex flex-wrap items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-white">
+                          Desktop release readiness
+                        </p>
+                        <p className="mt-1 max-w-2xl text-xs leading-5 text-neutral-600">
+                          Compact local-storage checklist before onboarding, installer work and GitHub integration.
+                        </p>
+                      </div>
+                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(releaseReadiness.status)}`}>
+                        {releaseReadiness.status}
+                      </span>
+                    </div>
+
+                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">Passed</p>
+                        <p className="mt-1 text-xl font-semibold text-emerald-200">{releaseReadiness.passed}</p>
+                      </div>
+                      <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">Warnings</p>
+                        <p className="mt-1 text-xl font-semibold text-amber-200">{releaseReadiness.warnings}</p>
+                      </div>
+                      <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">Blocked</p>
+                        <p className="mt-1 text-xl font-semibold text-rose-200">{releaseReadiness.failed}</p>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 grid gap-2 md:grid-cols-2">
+                      {releaseReadiness.checks.map((check) => (
+                        <div
+                          key={check.key}
+                          className="rounded-2xl border border-neutral-900 bg-black/35 p-3"
+                        >
+                          <div className="mb-1 flex items-start justify-between gap-3">
+                            <p className="text-xs font-semibold text-white">{check.label}</p>
+                            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(check.status)}`}>
+                              {check.status}
+                            </span>
+                          </div>
+                          <p className="text-xs leading-5 text-neutral-600">{check.note}</p>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </SettingCard>
+
+          <SettingCard
+            icon={<Layers3 size={18} />}
+            label="Migration targets"
+            title="Local data artifacts"
+            description="Current files and adapters that matter for desktop persistence."
+            defaultOpen={false}
+          >
+            <div className="space-y-3">
+              {artifacts.map((artifact) => (
+                <div
+                  key={artifact.key}
+                  className="rounded-2xl border border-neutral-900 bg-black/40 p-4"
+                >
+                  <div className="mb-2 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white">
+                        {artifact.label}
+                      </p>
+                      <p className="mt-1 break-all text-xs leading-5 text-neutral-600">
+                        {artifact.path}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(artifact.migrationStatus)}`}>
+                      {artifact.migrationStatus}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-6 text-neutral-500">
+                    {artifact.role}
+                  </p>
+                  <p className="mt-2 text-xs text-neutral-700">
+                    {artifact.exists ? "Found" : "Not found"} · {formatStorageBytes(artifact.sizeBytes)}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </SettingCard>
+        </div>
+
+        <div className="space-y-5">
+          <SettingCard
+            icon={<ShieldCheck size={18} />}
+            label="Gaps"
+            title="What remains before release readiness"
+            description="Small storage tasks to complete before ContextForge feels like a normal desktop app."
+          >
+            <div className="space-y-3">
+              {gaps.map((gap) => (
+                <div
+                  key={gap.key}
+                  className="rounded-2xl border border-neutral-900 bg-black/40 p-4"
+                >
+                  <div className="mb-2 flex items-start justify-between gap-3">
+                    <p className="text-sm font-semibold text-white">
+                      {gap.title}
+                    </p>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(gap.priority === "now" ? "current" : gap.priority)}`}>
+                      {gap.priority}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-6 text-neutral-500">
+                    {gap.description}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </SettingCard>
+
+          <SettingCard
+            icon={<Sparkles size={18} />}
+            label="12.x plan"
+            title="Migration order"
+            description="The next storage patches should stay small and reversible."
+            defaultOpen={false}
+          >
+            <div className="space-y-3">
+              {plan.map((step) => (
+                <div
+                  key={step.id}
+                  className="rounded-2xl border border-neutral-900 bg-black/40 p-4"
+                >
+                  <div className="mb-2 flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white">
+                        {step.id} · {step.title}
+                      </p>
+                    </div>
+                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(step.status)}`}>
+                      {step.status}
+                    </span>
+                  </div>
+                  <p className="text-sm leading-6 text-neutral-500">
+                    {step.description}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </SettingCard>
+        </div>
+      </div>
+    </>
+  );
+}
+
 export function SettingsPage() {
   const { t } = useTranslation();
   const [activeSection, setActiveSection] = useState<SettingsSectionId>("ai");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<AppSettings | null>(null);
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
+  const [storageAudit, setStorageAudit] = useState<StorageAuditResult | null>(null);
+  const [isStorageAuditLoading, setIsStorageAuditLoading] = useState(false);
   const [models, setModels] = useState<OllamaModel[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<"refresh" | "save" | null>(null);
@@ -1109,6 +1567,18 @@ export function SettingsPage() {
     }
   }
 
+  async function loadStorageAudit() {
+    try {
+      setIsStorageAuditLoading(true);
+      const audit = await getStorageAudit();
+      setStorageAudit(audit);
+    } catch (error) {
+      console.error("Failed to load storage audit", error);
+    } finally {
+      setIsStorageAuditLoading(false);
+    }
+  }
+
   async function handleSaveSettings() {
     if (!settingsDraft) {
       return;
@@ -1151,6 +1621,12 @@ export function SettingsPage() {
   useEffect(() => {
     loadOllamaInfo();
   }, []);
+
+  useEffect(() => {
+    if (activeSection === "storage" && !storageAudit && !isStorageAuditLoading) {
+      void loadStorageAudit();
+    }
+  }, [activeSection, storageAudit, isStorageAuditLoading]);
 
 
   return (
@@ -1916,8 +2392,16 @@ export function SettingsPage() {
                 </>
               )}
 
-              {(activeSection === "privacy" || activeSection === "storage" || activeSection === "updates") && (
+              {(activeSection === "privacy" || activeSection === "updates") && (
                 <PlaceholderSettingsPanel sectionId={activeSection} />
+              )}
+
+              {activeSection === "storage" && (
+                <StorageSettingsPanel
+                  audit={storageAudit}
+                  loading={isStorageAuditLoading}
+                  onRefresh={loadStorageAudit}
+                />
               )}
 
               {activeSection === "system" && (

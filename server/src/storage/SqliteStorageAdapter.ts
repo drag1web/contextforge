@@ -5,14 +5,18 @@ import initSqlJs from "sql.js";
 import type { Database, SqlJsStatic, SqlValue } from "sql.js";
 
 import type { ScannedProject } from "../scanner/projectScanner.js";
+import type { RulesAndTemplatesStore } from "../rules/types.js";
 import { parseJsonValue, stringifyJsonValue } from "./json.js";
+import { SQLITE_MIGRATIONS, SQLITE_SCHEMA_VERSION } from "./migrations.js";
 import type {
   CreateProjectMemoryInput,
   CreateTaskPackInput,
   ProjectMemoryRecord,
   ProjectRecord,
   StorageAdapter,
+  RulesAndTemplatesCatalogStats,
   StorageHealth,
+  StorageSchemaInfo,
   TaskPackRecord,
   UpdateProjectMemoryInput
 } from "./types.js";
@@ -125,6 +129,56 @@ function mapProjectMemoryRow(row: ProjectMemoryRow): ProjectMemoryRecord {
   };
 }
 
+
+type RulesCatalogKind =
+  | "template"
+  | "rule_item"
+  | "rule_profile"
+  | "acceptance_criteria_preset";
+
+type RulesCatalogRow = {
+  id: string;
+  kind: RulesCatalogKind;
+  payload: string;
+  created_at: string;
+  updated_at: string;
+};
+
+const EMPTY_RULES_AND_TEMPLATES_STORE: RulesAndTemplatesStore = {
+  version: 1,
+  templates: [],
+  ruleItems: [],
+  ruleProfiles: [],
+  acceptanceCriteriaPresets: []
+};
+
+function countRulesCatalog(store: RulesAndTemplatesStore): RulesAndTemplatesCatalogStats {
+  const templates = store.templates.length;
+  const ruleItems = store.ruleItems.length;
+  const ruleProfiles = store.ruleProfiles.length;
+  const acceptanceCriteriaPresets = store.acceptanceCriteriaPresets.length;
+
+  return {
+    source: "sqlite",
+    importedFromJson: false,
+    templates,
+    ruleItems,
+    ruleProfiles,
+    acceptanceCriteriaPresets,
+    total: templates + ruleItems + ruleProfiles + acceptanceCriteriaPresets
+  };
+}
+
+function storeHasRulesCatalogData(store: RulesAndTemplatesStore) {
+  return (
+    store.templates.length +
+      store.ruleItems.length +
+      store.ruleProfiles.length +
+      store.acceptanceCriteriaPresets.length >
+    0
+  );
+}
+
 export class SqliteStorageAdapter implements StorageAdapter {
   readonly driver = "sqlite" as const;
 
@@ -138,6 +192,21 @@ export class SqliteStorageAdapter implements StorageAdapter {
 
     db.run(`
       PRAGMA foreign_keys = ON;
+
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id TEXT PRIMARY KEY,
+        version INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        checksum TEXT NOT NULL,
+        applied_at TEXT NOT NULL
+      );
+
+      CREATE TABLE IF NOT EXISTS app_storage_metadata (
+        key TEXT PRIMARY KEY,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
 
       CREATE TABLE IF NOT EXISTS projects (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -263,6 +332,8 @@ export class SqliteStorageAdapter implements StorageAdapter {
         updated_at TEXT NOT NULL
       );
     `);
+
+    await this.runMigrations();
 
     this.insertDefaultSetting("ollama_url", "http://localhost:11434");
     this.insertDefaultSetting("generation_mode", "template");
@@ -661,6 +732,279 @@ export class SqliteStorageAdapter implements StorageAdapter {
       `,
       [key, stringifyJsonValue(value), nowIso()],
       true
+    );
+  }
+
+
+  async readRulesAndTemplatesCatalog(): Promise<RulesAndTemplatesStore> {
+    await this.ensureSchema();
+
+    const rows = await this.getAll<RulesCatalogRow>(`
+      SELECT id, kind, payload, created_at, updated_at
+      FROM rules_templates_catalog_items
+      ORDER BY kind ASC, updated_at DESC, id ASC;
+    `);
+
+    const store: RulesAndTemplatesStore = {
+      ...EMPTY_RULES_AND_TEMPLATES_STORE,
+      templates: [],
+      ruleItems: [],
+      ruleProfiles: [],
+      acceptanceCriteriaPresets: []
+    };
+
+    for (const row of rows) {
+      const payload = parseJsonValue<Record<string, unknown> | null>(row.payload, null);
+
+      if (!payload || typeof payload.id !== "string") {
+        continue;
+      }
+
+      if (row.kind === "template") {
+        store.templates.push(payload as unknown as RulesAndTemplatesStore["templates"][number]);
+      }
+
+      if (row.kind === "rule_item") {
+        store.ruleItems.push(payload as unknown as RulesAndTemplatesStore["ruleItems"][number]);
+      }
+
+      if (row.kind === "rule_profile") {
+        store.ruleProfiles.push(payload as unknown as RulesAndTemplatesStore["ruleProfiles"][number]);
+      }
+
+      if (row.kind === "acceptance_criteria_preset") {
+        store.acceptanceCriteriaPresets.push(
+          payload as unknown as RulesAndTemplatesStore["acceptanceCriteriaPresets"][number]
+        );
+      }
+    }
+
+    return store;
+  }
+
+  async writeRulesAndTemplatesCatalog(store: RulesAndTemplatesStore): Promise<void> {
+    await this.ensureSchema();
+    await this.run("DELETE FROM rules_templates_catalog_items;", [], false);
+
+    const writeItem = async (
+      kind: RulesCatalogKind,
+      item: { id: string; createdAt?: string; updatedAt?: string }
+    ) => {
+      const timestamp = nowIso();
+
+      await this.run(
+        `
+        INSERT INTO rules_templates_catalog_items (
+          id,
+          kind,
+          payload,
+          created_at,
+          updated_at
+        )
+        VALUES (?, ?, ?, ?, ?);
+        `,
+        [
+          item.id,
+          kind,
+          stringifyJsonValue(item),
+          item.createdAt ?? timestamp,
+          item.updatedAt ?? item.createdAt ?? timestamp
+        ],
+        false
+      );
+    };
+
+    for (const template of store.templates) {
+      await writeItem("template", template);
+    }
+
+    for (const ruleItem of store.ruleItems) {
+      await writeItem("rule_item", ruleItem);
+    }
+
+    for (const ruleProfile of store.ruleProfiles) {
+      await writeItem("rule_profile", ruleProfile);
+    }
+
+    for (const preset of store.acceptanceCriteriaPresets) {
+      await writeItem("acceptance_criteria_preset", preset);
+    }
+
+    await this.setStorageMetadata("rules_templates_catalog_source", "sqlite");
+    await this.setStorageMetadata("rules_templates_catalog_updated_at", nowIso());
+    this.persist();
+  }
+
+  async importRulesAndTemplatesCatalog(
+    store: RulesAndTemplatesStore
+  ): Promise<{ imported: boolean; count: number }> {
+    await this.ensureSchema();
+
+    const existing = await this.getRulesAndTemplatesCatalogStats();
+
+    if (existing.total > 0 || !storeHasRulesCatalogData(store)) {
+      return {
+        imported: false,
+        count: existing.total
+      };
+    }
+
+    await this.writeRulesAndTemplatesCatalog(store);
+    await this.setStorageMetadata("rules_templates_imported_from", "json");
+    await this.setStorageMetadata("rules_templates_imported_at", nowIso());
+    this.persist();
+
+    return {
+      imported: true,
+      count: countRulesCatalog(store).total
+    };
+  }
+
+  async getRulesAndTemplatesCatalogStats(): Promise<RulesAndTemplatesCatalogStats> {
+    await this.ensureSchema();
+
+    const rows = await this.getAll<{ kind: RulesCatalogKind; count: number }>(`
+      SELECT kind, COUNT(*) AS count
+      FROM rules_templates_catalog_items
+      GROUP BY kind;
+    `);
+    const imported = await this.getOne<{ value: string }>(
+      "SELECT value FROM app_storage_metadata WHERE key = ?;",
+      ["rules_templates_imported_from"]
+    );
+    const counts: Record<RulesCatalogKind, number> = {
+      template: 0,
+      rule_item: 0,
+      rule_profile: 0,
+      acceptance_criteria_preset: 0
+    };
+
+    for (const row of rows) {
+      counts[row.kind] = Number(row.count) || 0;
+    }
+
+    const templates = counts.template;
+    const ruleItems = counts.rule_item;
+    const ruleProfiles = counts.rule_profile;
+    const acceptanceCriteriaPresets = counts.acceptance_criteria_preset;
+
+    return {
+      source: "sqlite",
+      importedFromJson: Boolean(imported),
+      templates,
+      ruleItems,
+      ruleProfiles,
+      acceptanceCriteriaPresets,
+      total: templates + ruleItems + ruleProfiles + acceptanceCriteriaPresets
+    };
+  }
+
+
+  async getSchemaInfo(): Promise<StorageSchemaInfo> {
+    await this.ensureSchema();
+
+    const appliedRows = await this.getAll<{
+      id: string;
+      version: number;
+      name: string;
+      description: string | null;
+      checksum: string;
+      applied_at: string;
+    }>(`
+      SELECT id, version, name, description, checksum, applied_at
+      FROM schema_migrations
+      ORDER BY version ASC, applied_at ASC;
+    `);
+
+    const appliedIds = new Set(appliedRows.map((row) => row.id));
+    const pendingMigrations = SQLITE_MIGRATIONS
+      .filter((migration) => !appliedIds.has(migration.id))
+      .map((migration) => ({
+        id: migration.id,
+        version: migration.version,
+        name: migration.name,
+        description: migration.description
+      }));
+    const currentVersion = appliedRows.reduce(
+      (maxVersion, row) => Math.max(maxVersion, Number(row.version) || 0),
+      0
+    );
+
+    return {
+      currentVersion,
+      latestVersion: SQLITE_SCHEMA_VERSION,
+      status: pendingMigrations.length > 0 ? "needs_migration" : "ready",
+      pendingCount: pendingMigrations.length,
+      appliedMigrations: appliedRows.map((row) => ({
+        id: row.id,
+        version: Number(row.version) || 0,
+        name: row.name,
+        description: row.description,
+        checksum: row.checksum,
+        appliedAt: row.applied_at
+      })),
+      pendingMigrations
+    };
+  }
+
+  private async runMigrations() {
+    const appliedRows = await this.getAll<{ id: string }>(
+      "SELECT id FROM schema_migrations;"
+    );
+    const appliedIds = new Set(appliedRows.map((row) => row.id));
+    let changed = false;
+
+    for (const migration of SQLITE_MIGRATIONS) {
+      if (appliedIds.has(migration.id)) {
+        continue;
+      }
+
+      const appliedAt = nowIso();
+      const db = await this.getDatabase();
+
+      migration.run(db);
+
+      await this.run(
+        `
+        INSERT INTO schema_migrations (id, version, name, description, checksum, applied_at)
+        VALUES (?, ?, ?, ?, ?, ?);
+        `,
+        [
+          migration.id,
+          migration.version,
+          migration.name,
+          migration.description,
+          migration.checksum,
+          appliedAt
+        ],
+        false
+      );
+
+      changed = true;
+    }
+
+    await this.setStorageMetadata("schema_version", SQLITE_SCHEMA_VERSION);
+    await this.setStorageMetadata("schema_latest_version", SQLITE_SCHEMA_VERSION);
+    await this.setStorageMetadata("schema_checked_at", nowIso());
+    await this.setStorageMetadata("storage_mode", "sqlite-first");
+
+    if (changed) {
+      this.persist();
+    }
+  }
+
+  private async setStorageMetadata(key: string, value: unknown) {
+    await this.run(
+      `
+      INSERT INTO app_storage_metadata (key, value, updated_at)
+      VALUES (?, ?, ?)
+      ON CONFLICT(key)
+      DO UPDATE SET
+        value = excluded.value,
+        updated_at = excluded.updated_at;
+      `,
+      [key, stringifyJsonValue(value), nowIso()],
+      false
     );
   }
 

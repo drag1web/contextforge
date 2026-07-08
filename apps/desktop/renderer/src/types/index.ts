@@ -222,6 +222,102 @@ export interface GitDiffSummaryResult {
   generatedAt: string;
 }
 
+
+export interface StorageAuditCount {
+  key: string;
+  label: string;
+  count: number | null;
+  status: "ready" | "planned" | "external" | "unknown";
+  note: string;
+}
+
+export interface StorageAuditArtifact {
+  key: string;
+  label: string;
+  path: string;
+  exists: boolean;
+  sizeBytes: number | null;
+  role: string;
+  migrationStatus: "primary" | "legacy" | "external" | "planned";
+}
+
+export interface StorageAuditGap {
+  key: string;
+  title: string;
+  description: string;
+  priority: "now" | "next" | "later";
+}
+
+export interface StorageAuditPlanStep {
+  id: string;
+  title: string;
+  description: string;
+  status: "done" | "current" | "next" | "later";
+}
+
+export interface StorageReleaseCheck {
+  key: string;
+  label: string;
+  status: "pass" | "warning" | "fail";
+  note: string;
+}
+
+export interface StorageReleaseReadiness {
+  status: "ready" | "review" | "blocked";
+  passed: number;
+  warnings: number;
+  failed: number;
+  checks: StorageReleaseCheck[];
+}
+
+export interface StorageAuditSchema {
+  currentVersion: number;
+  latestVersion: number;
+  status: "ready" | "needs_migration" | "unknown";
+  pendingCount: number;
+  appliedCount: number;
+  latestMigration: {
+    id: string;
+    name: string;
+    appliedAt: string;
+  } | null;
+}
+
+export interface StorageAuditResult {
+  generatedAt: string;
+  driver: "sqlite" | "postgres";
+  sqliteFirst: boolean;
+  databasePath: string | null;
+  databaseExists: boolean;
+  databaseSizeBytes: number | null;
+  workspaceRoot: string;
+  schema: StorageAuditSchema | null;
+  counts: StorageAuditCount[];
+  artifacts: StorageAuditArtifact[];
+  gaps: StorageAuditGap[];
+  plan: StorageAuditPlanStep[];
+  releaseReadiness: StorageReleaseReadiness;
+  notes: string[];
+}
+
+
+export interface WorkspaceBackupExportResult {
+  fileName: string;
+  filePath: string;
+  sizeBytes: number;
+  createdAt: string;
+  counts: {
+    projects: number;
+    taskPacks: number;
+    projectMemories: number;
+    ruleTemplates: number;
+    settings: number;
+  };
+  included: string[];
+  excluded: string[];
+  warnings: string[];
+}
+
 export interface TaskPackGenerationRecipe {
   template: {
     id: string;

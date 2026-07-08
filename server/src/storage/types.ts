@@ -1,4 +1,5 @@
 import type { ReadinessReport, ScannedProject } from "../scanner/projectScanner.js";
+import type { RulesAndTemplatesStore } from "../rules/types.js";
 
 export type StorageDriver = "sqlite" | "postgres";
 
@@ -85,6 +86,41 @@ export interface CreateTaskPackInput {
   generationRecipe?: unknown | null;
 }
 
+
+export interface StorageSchemaMigrationRecord {
+  id: string;
+  version: number;
+  name: string;
+  description: string | null;
+  checksum: string;
+  appliedAt: string;
+}
+
+export interface StorageSchemaInfo {
+  currentVersion: number;
+  latestVersion: number;
+  status: "ready" | "needs_migration" | "unknown";
+  pendingCount: number;
+  appliedMigrations: StorageSchemaMigrationRecord[];
+  pendingMigrations: Array<{
+    id: string;
+    version: number;
+    name: string;
+    description: string;
+  }>;
+}
+
+
+export interface RulesAndTemplatesCatalogStats {
+  source: "sqlite" | "json" | "unknown";
+  importedFromJson: boolean;
+  templates: number;
+  ruleItems: number;
+  ruleProfiles: number;
+  acceptanceCriteriaPresets: number;
+  total: number;
+}
+
 export interface StorageHealth {
   ok: boolean;
   driver: StorageDriver;
@@ -96,6 +132,11 @@ export interface StorageAdapter {
 
   ensureSchema(): Promise<void>;
   health(): Promise<StorageHealth>;
+  getSchemaInfo?(): Promise<StorageSchemaInfo>;
+  readRulesAndTemplatesCatalog?(): Promise<RulesAndTemplatesStore>;
+  writeRulesAndTemplatesCatalog?(store: RulesAndTemplatesStore): Promise<void>;
+  importRulesAndTemplatesCatalog?(store: RulesAndTemplatesStore): Promise<{ imported: boolean; count: number }>;
+  getRulesAndTemplatesCatalogStats?(): Promise<RulesAndTemplatesCatalogStats>;
 
   listProjects(): Promise<ProjectRecord[]>;
   getProjectById(projectId: number): Promise<ProjectRecord | null>;

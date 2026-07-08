@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.5.8-alpha
+
+### Added
+
+- Added Storage audit in Settings so local persistence state, SQLite database status, artifacts and migration gaps are visible.
+- Added SQLite schema migration metadata with a baseline ledger and explicit schema version status.
+- Added SQLite-backed Rules/Templates catalog storage with one-time import from the legacy JSON catalog.
+- Added workspace backup export for secret-safe local JSON backups.
+- Added Desktop release readiness checks for SQLite-first storage, schema state, catalog storage and backups.
+
+### Changed
+
+- Kept the legacy rules/templates JSON file as a transition backup while SQLite becomes the primary catalog.
+- Marked 12.x persistence stages as complete and prepared the project for the next onboarding/first-run pass.
+- Updated the active app phase to `Phase 0.5.8 — Desktop Persistence & Release Readiness`.
+- Synced root, server, renderer, shared package, lockfile, README and app metadata to `0.5.8-alpha`.
+
+### Fixed
+
+- Fixed three-option settings grids so Composer and Interface option cards no longer leave an invisible fourth column.
+
 ## 0.5.7-alpha
 
 ### Added

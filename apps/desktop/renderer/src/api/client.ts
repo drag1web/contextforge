@@ -16,6 +16,8 @@ import type {
   RuleItem,
   RuleProfile,
   RuleProfilesCatalog,
+  StorageAuditResult,
+  WorkspaceBackupExportResult,
   TaskPack,
   WorkspaceSearchResponse,
   ContextComposerPreview,
@@ -230,6 +232,24 @@ export async function saveAgentsFile(
   });
 
   return data;
+}
+
+
+export async function getStorageAudit(): Promise<StorageAuditResult> {
+  const data = await request<{ ok: true; audit: StorageAuditResult }>(
+    "/storage/audit"
+  );
+
+  return data.audit;
+}
+
+export async function exportWorkspaceBackup(): Promise<WorkspaceBackupExportResult> {
+  const data = await request<{ ok: true; backup: WorkspaceBackupExportResult }>(
+    "/storage/backups/export",
+    { method: "POST" }
+  );
+
+  return data.backup;
 }
 
 export async function getTaskPacks(): Promise<TaskPack[]> {
