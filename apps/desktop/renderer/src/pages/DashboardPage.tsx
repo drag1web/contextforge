@@ -44,8 +44,6 @@ import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import { appMeta } from "../config/appMeta";
 import i18n, { applyAppLanguage } from "../i18n";
 
-const SHOW_ONBOARDING_EVERY_LAUNCH_DURING_ALPHA = true;
-
 const PAGE_ORDER: AppPageId[] = [
   "dashboard",
   "projects",
@@ -720,7 +718,8 @@ export function DashboardPage() {
     shellSettingsReady &&
     appSettings &&
     !onboardingDismissedThisSession &&
-    (SHOW_ONBOARDING_EVERY_LAUNCH_DURING_ALPHA || !appSettings.onboardingCompleted)
+    appSettings.onboardingEnabled !== false &&
+    (appSettings.onboardingShowEveryLaunch !== false || !appSettings.onboardingCompleted)
   );
 
   return (

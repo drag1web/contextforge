@@ -508,6 +508,9 @@ export interface AppSettings {
   };
   contextQualityMode: "advisory" | "balanced" | "strict";
   sidebarShowDescriptions: boolean;
+  onboardingEnabled: boolean;
+  onboardingShowEveryLaunch: boolean;
+  onboardingCompleted: boolean;
 }
 
 export interface UpdateAppSettingsInput extends Partial<AppSettings> {

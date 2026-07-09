@@ -62,6 +62,9 @@ const updateSettingsSchema = z.object({
   composerFileLimits: composerFileLimitsSchema.optional(),
   contextQualityMode: z.enum(["advisory", "balanced", "strict"]).optional(),
   sidebarShowDescriptions: z.boolean().optional(),
+  onboardingEnabled: z.boolean().optional(),
+  onboardingShowEveryLaunch: z.boolean().optional(),
+  onboardingCompleted: z.boolean().optional(),
 });
 
 settingsRouter.get("/", async (_req, res) => {

@@ -32,7 +32,7 @@ interface FirstRunOnboardingOverlayProps {
   onSkip: () => void;
 }
 
-type OnboardingStepId = "intro" | "auth" | "tour" | "welcome";
+type OnboardingStepId = "intro" | "auth" | "tour" | "final";
 type TourPreviewType =
   | "dashboard"
   | "projects"
@@ -66,7 +66,7 @@ interface TourStep {
   activeNav: NavKey;
 }
 
-const PHASE_ORDER: OnboardingStepId[] = ["intro", "auth", "tour", "welcome"];
+const PHASE_ORDER: OnboardingStepId[] = ["intro", "auth", "tour", "final"];
 
 const TOUR_STEPS: TourStep[] = [
   {
@@ -209,12 +209,20 @@ const NAV_ITEMS: Array<{ label: NavKey; icon: LucideIcon }> = [
   { label: "Settings", icon: Settings }
 ];
 
-const FLOATING_DOTS = Array.from({ length: 10 }, (_, index) => ({
+const FLOATING_DOTS = Array.from({ length: 24 }, (_, index) => ({
   id: index,
-  left: `${8 + ((index * 17) % 84)}%`,
-  top: `${12 + ((index * 23) % 74)}%`,
-  delay: 0.12 + index * 0.08
+  left: `${4 + ((index * 17) % 92)}%`,
+  top: `${8 + ((index * 29) % 82)}%`,
+  delay: 0.08 + index * 0.06,
+  size: index % 5 === 0 ? "size-1.5" : index % 3 === 0 ? "size-1" : "size-0.5",
+  opacity: index % 4 === 0 ? 0.52 : 0.34
 }));
+
+const AMBIENT_ORBS = [
+  { id: "top-left", className: "left-[8%] top-[10%] size-[26rem] bg-white/[0.035]", duration: 8.4 },
+  { id: "center", className: "left-[42%] top-[18%] size-[32rem] bg-emerald-300/[0.035]", duration: 10.2 },
+  { id: "bottom-right", className: "right-[6%] bottom-[2%] size-[30rem] bg-white/[0.026]", duration: 9.1 }
+];
 
 function PhaseProgress({ stepId, tourStepIndex }: { stepId: OnboardingStepId; tourStepIndex: number }) {
   const phaseIndex = PHASE_ORDER.indexOf(stepId);
@@ -636,6 +644,132 @@ function OnboardingMiniPreview({ step }: { step: TourStep }) {
   );
 }
 
+
+function IntroPipelineStep({ icon: Icon, title, text, index }: { icon: LucideIcon; title: string; text: string; index: number }) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay: 0.12 + index * 0.055, duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+      className="group relative overflow-hidden rounded-2xl border border-white/[0.075] bg-black/35 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
+    >
+      <div className="absolute inset-0 opacity-0 transition-opacity duration-300 group-hover:opacity-100 bg-[radial-gradient(circle_at_20%_0%,rgba(255,255,255,0.08),transparent_12rem)]" />
+      <div className="relative flex items-start gap-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-2xl border border-white/10 bg-white/[0.035] text-neutral-300">
+          <Icon size={16} />
+        </span>
+        <div className="min-w-0">
+          <p className="text-sm font-semibold text-white">{title}</p>
+          <p className="mt-1 text-sm leading-6 text-neutral-500">{text}</p>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
+function IntroHeroPreview() {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 18, scale: 0.985 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ delay: 0.08, duration: 0.42, ease: [0.16, 1, 0.3, 1] }}
+      className="relative mx-auto w-full max-w-[520px] overflow-hidden rounded-[2rem] border border-white/[0.08] bg-neutral-950/85 p-4 shadow-[0_34px_120px_rgba(0,0,0,0.62),inset_0_1px_0_rgba(255,255,255,0.055)]"
+    >
+      <motion.div
+        className="pointer-events-none absolute -right-24 -top-24 size-72 rounded-full bg-emerald-300/[0.065] blur-3xl"
+        animate={{ opacity: [0.42, 0.78, 0.42], x: [0, -10, 0], y: [0, 12, 0] }}
+        transition={{ duration: 6.2, repeat: Infinity, ease: "easeInOut" }}
+      />
+      <motion.div
+        className="pointer-events-none absolute left-8 top-10 h-px w-28 bg-gradient-to-r from-transparent via-white/40 to-transparent"
+        animate={{ x: [-80, 360], opacity: [0, 0.72, 0] }}
+        transition={{ duration: 4.8, repeat: Infinity, ease: "easeInOut" }}
+      />
+
+      <div className="relative rounded-[1.5rem] border border-white/[0.07] bg-black/45 p-4">
+        <div className="flex items-center justify-between gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.025] px-3 py-2">
+          <div className="flex items-center gap-2">
+            <img src={contextforgeMarkWhite} alt="" draggable={false} className="size-6 object-contain" />
+            <span className="text-[11px] font-semibold text-white">ContextForge</span>
+          </div>
+          <div className="flex items-center gap-1.5">
+            <span className="h-1.5 w-7 rounded-full bg-white" />
+            <span className="size-1.5 rounded-full bg-white/15" />
+            <span className="size-1.5 rounded-full bg-white/15" />
+          </div>
+        </div>
+
+        <div className="mt-4 grid grid-cols-[112px_1fr] gap-4">
+          <div className="rounded-2xl border border-white/[0.055] bg-black/40 p-3">
+            {[
+              ["Dashboard", true],
+              ["Projects", false],
+              ["Context Builder", false],
+              ["Task Packs", false],
+              ["Settings", false]
+            ].map(([label, active]) => (
+              <div
+                key={String(label)}
+                className={`mb-1.5 rounded-xl px-2.5 py-2 text-[9px] font-semibold ${active ? "bg-white text-neutral-950" : "bg-white/[0.025] text-neutral-600"}`}
+              >
+                {label}
+              </div>
+            ))}
+          </div>
+
+          <div className="space-y-3">
+            <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
+              <div className="flex items-start justify-between gap-4">
+                <div>
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.24em] text-neutral-600">AI-ready workspace</p>
+                  <h3 className="mt-2 max-w-[180px] text-2xl font-semibold leading-[0.98] tracking-[-0.065em] text-white">
+                    Prepare context before the agent touches code.
+                  </h3>
+                </div>
+                <motion.div
+                  className="grid size-20 shrink-0 place-items-center rounded-3xl border border-emerald-300/20 bg-emerald-300/10 text-2xl font-semibold text-white shadow-[0_18px_50px_rgba(16,185,129,0.12)]"
+                  animate={{ scale: [1, 1.035, 1], boxShadow: ["0 18px 50px rgba(16,185,129,0.12)", "0 22px 64px rgba(16,185,129,0.2)", "0 18px 50px rgba(16,185,129,0.12)"] }}
+                  transition={{ duration: 3.6, repeat: Infinity, ease: "easeInOut" }}
+                >
+                  82
+                </motion.div>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-3 gap-2">
+              {["Scan", "Review", "Task Pack"].map((item, index) => (
+                <motion.div
+                  key={item}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.2 + index * 0.06, duration: 0.26 }}
+                  className="rounded-2xl border border-white/[0.06] bg-black/35 p-3"
+                >
+                  <p className="text-[10px] font-semibold text-white">{item}</p>
+                  <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.055]">
+                    <motion.div
+                      className="h-full rounded-full bg-white"
+                      initial={{ width: "18%" }}
+                      animate={{ width: index === 0 ? "78%" : index === 1 ? "56%" : "66%" }}
+                      transition={{ delay: 0.25 + index * 0.06, duration: 0.6, ease: [0.16, 1, 0.3, 1] }}
+                    />
+                  </div>
+                </motion.div>
+              ))}
+            </div>
+
+            <div className="rounded-2xl border border-white/[0.06] bg-black/45 p-3 font-mono text-[9px] leading-5 text-neutral-500">
+              <p><span className="text-emerald-300">ok</span> project inventory collected</p>
+              <p><span className="text-emerald-300">ok</span> real files selected</p>
+              <p><span className="text-white">task-pack.md</span> ready for agent</p>
+            </div>
+          </div>
+        </div>
+      </div>
+    </motion.div>
+  );
+}
+
 function TourStepScreen({
   step,
   index,
@@ -656,9 +790,9 @@ function TourStepScreen({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -20 }}
       transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-      className="grid min-h-[560px] items-center gap-8 lg:grid-cols-[0.82fr_1.18fr]"
+      className="mx-auto grid w-full max-w-[1160px] items-center gap-8 rounded-[2rem] border border-white/[0.075] bg-neutral-950/72 p-7 shadow-[0_34px_120px_rgba(0,0,0,0.55),inset_0_1px_0_rgba(255,255,255,0.055)] backdrop-blur-sm lg:grid-cols-[0.82fr_1.18fr] lg:p-8"
     >
-      <div>
+      <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 text-[11px] font-semibold text-emerald-100">
             Step {index + 1} / {TOUR_STEPS.length}
@@ -666,7 +800,7 @@ function TourStepScreen({
           <span className="cf-badge">{step.kicker}</span>
         </div>
 
-        <h2 className="mt-5 text-5xl font-semibold leading-[0.98] tracking-[-0.075em] text-white">
+        <h2 className="mt-5 max-w-[520px] text-5xl font-semibold leading-[0.98] tracking-[-0.075em] text-white">
           {step.title}
         </h2>
         <p className="mt-4 max-w-xl text-[15px] leading-7 text-neutral-400">{step.description}</p>
@@ -743,7 +877,7 @@ export function FirstRunOnboardingOverlay({
 
   const goNextTourStep = () => {
     if (tourStepIndex >= TOUR_STEPS.length - 1) {
-      setStepId("welcome");
+      setStepId("final");
       return;
     }
 
@@ -759,7 +893,7 @@ export function FirstRunOnboardingOverlay({
     setTourStepIndex((current) => current - 1);
   };
 
-  const skipToWelcome = () => setStepId("welcome");
+  const skipToFinal = () => setStepId("final");
 
   const launchDashboard = () => {
     setIsLaunchingDashboard(true);
@@ -775,20 +909,27 @@ export function FirstRunOnboardingOverlay({
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
       transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
-      className="fixed inset-0 z-[85] grid place-items-center overflow-hidden bg-black/94 px-6 py-8 backdrop-blur-xl"
+      className="fixed inset-0 z-[85] overflow-auto bg-black text-neutral-100"
     >
-      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.028)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.028)_1px,transparent_1px)] bg-[size:44px_44px] opacity-40" />
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_12%,rgba(255,255,255,0.12),transparent_30rem)]" />
-      <div className="pointer-events-none absolute left-[-10rem] top-20 size-96 rounded-full bg-white/[0.025] blur-3xl" />
-      <div className="pointer-events-none absolute bottom-[-8rem] right-[-8rem] size-[28rem] rounded-full bg-emerald-300/[0.035] blur-3xl" />
+      <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(rgba(255,255,255,0.026)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,0.026)_1px,transparent_1px)] bg-[size:44px_44px] opacity-45" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_8%,rgba(255,255,255,0.13),transparent_34rem)]" />
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-44 bg-gradient-to-b from-white/[0.035] to-transparent" />
+      {AMBIENT_ORBS.map((orb) => (
+        <motion.div
+          key={orb.id}
+          className={`pointer-events-none absolute rounded-full blur-3xl ${orb.className}`}
+          animate={{ x: [0, 18, -10, 0], y: [0, -14, 16, 0], opacity: [0.65, 0.95, 0.72, 0.65] }}
+          transition={{ duration: orb.duration, repeat: Infinity, ease: "easeInOut" }}
+        />
+      ))}
       <div className="pointer-events-none absolute inset-0">
         {FLOATING_DOTS.map((dot) => (
           <motion.span
             key={dot.id}
-            className="absolute size-1 rounded-full bg-white/40 shadow-[0_0_18px_rgba(255,255,255,0.7)]"
+            className={`absolute rounded-full bg-white/50 shadow-[0_0_18px_rgba(255,255,255,0.72)] ${dot.size}`}
             style={{ left: dot.left, top: dot.top }}
             initial={{ opacity: 0, y: 10, scale: 0.7 }}
-            animate={{ opacity: [0, 0.45, 0], y: [8, -18], scale: [0.7, 1, 0.78] }}
+            animate={{ opacity: [0, dot.opacity, 0], y: [10, -24], scale: [0.65, 1.08, 0.72] }}
             transition={{ delay: dot.delay, duration: 3.2, repeat: Infinity, ease: "easeInOut" }}
           />
         ))}
@@ -799,30 +940,28 @@ export function FirstRunOnboardingOverlay({
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 12, scale: 0.99 }}
         transition={{ duration: 0.34, ease: [0.16, 1, 0.3, 1] }}
-        className="relative max-h-[min(900px,calc(100vh-56px))] w-[min(1120px,calc(100vw-48px))] overflow-hidden rounded-[2rem] border border-white/10 bg-neutral-950/92 shadow-[0_36px_120px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.06)]"
+        className="relative mx-auto flex min-h-full w-full flex-col overflow-hidden"
       >
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.014)_48%,rgba(255,255,255,0.004))]" />
+        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.006)_42%,rgba(255,255,255,0))]" />
 
-        <div className="relative flex min-h-[700px] flex-col">
-          <header className="flex items-center justify-between gap-4 border-b border-white/[0.075] px-7 py-5">
+        <div className="relative flex min-h-screen flex-1 flex-col">
+          <header className="mx-auto flex w-full max-w-[1240px] items-center justify-between gap-4 px-6 py-5 lg:px-8">
             <div className="flex items-center gap-3">
-              <div className="grid size-10 place-items-center rounded-2xl border border-white/10 bg-black/55">
+              <motion.div
+                className="grid size-10 place-items-center rounded-2xl border border-white/10 bg-black/55 shadow-[0_16px_44px_rgba(255,255,255,0.08),inset_0_1px_0_rgba(255,255,255,0.06)]"
+                animate={{ y: [0, -1.5, 0], opacity: [0.92, 1, 0.92] }}
+                transition={{ duration: 3.8, repeat: Infinity, ease: "easeInOut" }}
+              >
                 <img
                   src={contextforgeMarkWhite}
                   alt="ContextForge"
                   draggable={false}
                   className="size-7 object-contain"
                 />
-              </div>
-              <div>
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="cf-badge">
-                    <Sparkles size={12} />
-                    First run setup
-                  </span>
-                  <span className="cf-badge">{appMeta.version}</span>
-                  <span className="cf-badge">Local-first</span>
-                </div>
+              </motion.div>
+              <div className="min-w-0">
+                <p className="text-sm font-semibold tracking-[-0.045em] text-white">ContextForge</p>
+                <p className="mt-0.5 hidden text-[11px] font-medium text-neutral-600 sm:block">First-run guide · local AI workflow</p>
               </div>
             </div>
 
@@ -830,88 +969,163 @@ export function FirstRunOnboardingOverlay({
               <PhaseProgress stepId={stepId} tourStepIndex={tourStepIndex} />
               <button
                 type="button"
-                onClick={stepId === "welcome" ? launchDashboard : skipToWelcome}
+                onClick={stepId === "final" ? launchDashboard : skipToFinal}
                 disabled={isLaunchingDashboard}
                 className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-semibold text-neutral-400 transition hover:border-white/20 hover:bg-white/[0.06] hover:text-white disabled:cursor-wait disabled:opacity-70"
               >
-                {stepId === "welcome" ? (isLaunchingDashboard ? "Opening..." : "Enter Dashboard") : "Skip to welcome"}
+                {stepId === "final" ? (isLaunchingDashboard ? "Opening..." : "Enter Dashboard") : "Skip to welcome"}
               </button>
             </div>
           </header>
 
-          <div className="min-h-0 flex-1 overflow-auto p-7 lg:p-9">
-            <AnimatePresence mode="wait">
+          <div className="mx-auto grid min-h-[calc(100vh-92px)] w-full max-w-[1240px] flex-1 place-items-center px-6 py-8 lg:px-8 lg:py-10">
+            {stepId === "final" ? (
+              <div className="grid min-h-[560px] place-items-center text-center">
+                  <div className="w-[min(620px,100%)]">
+                    <motion.div
+                      initial={{ scale: 0.82, opacity: 0, rotate: -5 }}
+                      animate={{ scale: 1, opacity: 1, rotate: 0 }}
+                      transition={{ type: "spring", stiffness: 420, damping: 24 }}
+                      className="mx-auto grid size-20 place-items-center rounded-[1.55rem] border border-white/10 bg-black/55 shadow-[0_18px_54px_rgba(255,255,255,0.10),inset_0_1px_0_rgba(255,255,255,0.06)]"
+                    >
+                      <img
+                        src={contextforgeMarkWhite}
+                        alt="ContextForge"
+                        draggable={false}
+                        className="size-12 object-contain"
+                      />
+                    </motion.div>
+
+                    <p className="mt-7 text-xs font-semibold uppercase tracking-[0.32em] text-neutral-600">
+                      Workspace ready
+                    </p>
+                    <h2 className="mt-3 text-5xl font-semibold leading-[0.98] tracking-[-0.075em] text-white">
+                      Welcome to ContextForge.
+                    </h2>
+                    <p className="mx-auto mt-4 max-w-xl text-[15px] leading-7 text-neutral-400">
+                      {workspaceCaption} Open Dashboard to start scanning projects, building Task Packs and reviewing local changes.
+                    </p>
+
+                    <div className="mx-auto mt-7 grid max-w-lg gap-3 sm:grid-cols-3">
+                      {[
+                        ["Projects", safeProjectsCount.toString()],
+                        ["Mode", "Local-first"],
+                        ["Auth", "Optional"]
+                      ].map(([label, value]) => (
+                        <motion.div
+                          key={label}
+                          initial={{ opacity: 0, y: 10 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ delay: label === "Projects" ? 0.06 : label === "Mode" ? 0.12 : 0.18, duration: 0.24 }}
+                          className="rounded-2xl border border-white/[0.075] bg-black/35 p-4"
+                        >
+                          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-neutral-600">{label}</p>
+                          <p className="mt-2 text-sm font-semibold text-white">{value}</p>
+                        </motion.div>
+                      ))}
+                    </div>
+
+                    <div className="mt-8 flex flex-wrap justify-center gap-3">
+                      <Button variant="secondary" onClick={() => setStepId("tour")}>
+                        <ArrowLeft size={16} />
+                        Back
+                      </Button>
+                      <Button variant="primary" onClick={launchDashboard} disabled={isLaunchingDashboard}>
+                        {isLaunchingDashboard ? <Rocket size={16} /> : <Code2 size={16} />}
+                        {isLaunchingDashboard ? "Opening Dashboard..." : "Enter Dashboard"}
+                      </Button>
+                    </div>
+
+                    <AnimatePresence>
+                      {isLaunchingDashboard && (
+                        <motion.div
+                          initial={{ opacity: 0, y: 8 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          exit={{ opacity: 0, y: -6 }}
+                          className="mx-auto mt-5 max-w-sm overflow-hidden rounded-full border border-white/10 bg-white/[0.04] p-1"
+                        >
+                          <motion.div
+                            className="h-1.5 rounded-full bg-white shadow-[0_0_24px_rgba(255,255,255,0.55)]"
+                            initial={{ width: "12%" }}
+                            animate={{ width: "100%" }}
+                            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
+                          />
+                        </motion.div>
+                      )}
+                    </AnimatePresence>
+
+                    <button
+                      type="button"
+                      onClick={onSkip}
+                      className="mt-4 text-xs font-semibold text-neutral-600 transition hover:text-neutral-300"
+                    >
+                      Close for this session
+                    </button>
+                  </div>
+              </div>
+            ) : (
+              <AnimatePresence mode="wait">
               {stepId === "intro" && (
                 <motion.div
                   key="intro-step"
                   initial={{ opacity: 0, x: 24 }}
                   animate={{ opacity: 1, x: 0 }}
                   exit={{ opacity: 0, x: -20 }}
-                  transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-                  className="grid min-h-[560px] items-center gap-8 lg:grid-cols-[0.9fr_1.1fr]"
+                  transition={{ duration: 0.3, ease: [0.16, 1, 0.3, 1] }}
+                  className="grid min-h-[640px] w-full items-center gap-12 lg:grid-cols-[0.9fr_1.1fr]"
                 >
-                  <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.32em] text-neutral-600">
-                      Welcome to
-                    </p>
-                    <h1 className="mt-3 text-5xl font-semibold leading-[0.96] tracking-[-0.075em] text-white md:text-6xl">
-                      ContextForge
-                    </h1>
-                    <p className="mt-5 max-w-xl text-[15px] leading-7 text-neutral-400">
-                      A local-first control center for preparing project context, rules and Task Packs before sending work to external coding agents.
-                    </p>
+                  <div className="relative">
+                    <motion.div
+                      className="absolute -left-16 -top-16 size-48 rounded-full bg-white/[0.025] blur-3xl"
+                      animate={{ opacity: [0.35, 0.72, 0.35], scale: [0.96, 1.04, 0.96] }}
+                      transition={{ duration: 6.4, repeat: Infinity, ease: "easeInOut" }}
+                    />
 
-                    <div className="mt-7 rounded-3xl border border-white/[0.075] bg-black/35 p-5">
-                      <div className="flex items-start gap-3">
-                        <div className="mt-0.5 grid size-10 shrink-0 place-items-center rounded-2xl border border-emerald-400/20 bg-emerald-400/10 text-emerald-200">
-                          <CheckCircle2 size={18} />
-                        </div>
-                        <div>
-                          <h2 className="text-sm font-semibold text-white">Local workspace first</h2>
-                          <p className="mt-1 text-sm leading-6 text-neutral-500">
-                            Source files stay on this device. Sign-in is optional and only a placeholder during this alpha flow.
-                          </p>
-                        </div>
-                      </div>
+                    <div className="relative flex flex-wrap gap-2">
+                      <span className="cf-badge">
+                        <Sparkles size={12} />
+                        Local-first AI workflow
+                      </span>
+                      <span className="cf-badge">Desktop control center</span>
                     </div>
 
-                    <div className="mt-7 flex flex-wrap gap-3">
+                    <h1 className="relative mt-5 max-w-[640px] text-6xl font-semibold leading-[0.9] tracking-[-0.085em] text-white md:text-7xl">
+                      Give every coding agent the right context.
+                    </h1>
+                    <p className="relative mt-6 max-w-xl text-base leading-8 text-neutral-400">
+                      ContextForge scans your local project, explains readiness, prepares safe Task Packs and keeps your files on this device.
+                    </p>
+
+                    <div className="relative mt-8 grid gap-3 sm:grid-cols-2">
+                      <IntroPipelineStep
+                        icon={Search}
+                        title="Scan locally"
+                        text="Read scripts, docs and project signals without uploading source files."
+                        index={0}
+                      />
+                      <IntroPipelineStep
+                        icon={WandSparkles}
+                        title="Build the brief"
+                        text="Turn a real task into a focused prompt for Codex, Cursor or Claude Code."
+                        index={1}
+                      />
+                    </div>
+
+                    <div className="relative mt-8 flex flex-wrap items-center gap-3">
                       <Button variant="primary" onClick={goNextPhase}>
                         Continue
                         <ArrowRight size={16} />
                       </Button>
-                      <Button variant="secondary" onClick={skipToWelcome}>
+                      <Button variant="secondary" onClick={skipToFinal}>
                         Skip tour
                       </Button>
+                      <span className="text-xs font-medium text-neutral-600">
+                        Sign-in stays optional during the alpha flow.
+                      </span>
                     </div>
                   </div>
 
-                  <div className="grid gap-3">
-                    {[
-                      ["Project inventory", "Scan files, scripts, docs and project signals without uploading code."],
-                      ["Agent-ready Task Packs", "Prepare prompts for Codex, Cursor, Claude Code, Gemini or generic agents."],
-                      ["Local changes review", "Understand current working-tree changes before asking AI to continue."],
-                      ["Desktop persistence", "Store workspace state locally with SQLite-backed storage and backup export."]
-                    ].map(([title, description], index) => (
-                      <motion.div
-                        key={title}
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        transition={{ delay: 0.08 + index * 0.045, duration: 0.26 }}
-                        className="rounded-3xl border border-white/[0.075] bg-black/30 p-5 transition hover:border-white/15 hover:bg-white/[0.035]"
-                      >
-                        <div className="flex items-center justify-between gap-4">
-                          <div>
-                            <h3 className="text-sm font-semibold text-white">{title}</h3>
-                            <p className="mt-1 text-sm leading-6 text-neutral-500">{description}</p>
-                          </div>
-                          <span className="grid size-9 shrink-0 place-items-center rounded-2xl border border-white/10 bg-white/[0.035] text-neutral-400">
-                            {index + 1}
-                          </span>
-                        </div>
-                      </motion.div>
-                    ))}
-                  </div>
+                  <IntroHeroPreview />
                 </motion.div>
               )}
 
@@ -1010,103 +1224,12 @@ export function FirstRunOnboardingOverlay({
                   index={tourStepIndex}
                   onBack={goBackFromTour}
                   onNext={goNextTourStep}
-                  onSkip={skipToWelcome}
+                  onSkip={skipToFinal}
                 />
               )}
 
-              {stepId === "welcome" && (
-                <motion.div
-                  key="welcome-step"
-                  initial={{ opacity: 0, x: 24 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  exit={{ opacity: 0, x: -20 }}
-                  transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
-                  className="grid min-h-[560px] place-items-center text-center"
-                >
-                  <div className="w-[min(620px,100%)]">
-                    <motion.div
-                      initial={{ scale: 0.82, opacity: 0, rotate: -5 }}
-                      animate={{ scale: 1, opacity: 1, rotate: 0 }}
-                      transition={{ type: "spring", stiffness: 420, damping: 24 }}
-                      className="mx-auto grid size-20 place-items-center rounded-[1.55rem] border border-white/10 bg-black/55 shadow-[0_18px_54px_rgba(255,255,255,0.10),inset_0_1px_0_rgba(255,255,255,0.06)]"
-                    >
-                      <img
-                        src={contextforgeMarkWhite}
-                        alt="ContextForge"
-                        draggable={false}
-                        className="size-12 object-contain"
-                      />
-                    </motion.div>
-
-                    <p className="mt-7 text-xs font-semibold uppercase tracking-[0.32em] text-neutral-600">
-                      Workspace ready
-                    </p>
-                    <h2 className="mt-3 text-5xl font-semibold leading-[0.98] tracking-[-0.075em] text-white">
-                      Welcome to ContextForge.
-                    </h2>
-                    <p className="mx-auto mt-4 max-w-xl text-[15px] leading-7 text-neutral-400">
-                      {workspaceCaption} Open Dashboard to start scanning projects, building Task Packs and reviewing local changes.
-                    </p>
-
-                    <div className="mx-auto mt-7 grid max-w-lg gap-3 sm:grid-cols-3">
-                      {[
-                        ["Projects", safeProjectsCount.toString()],
-                        ["Mode", "Local-first"],
-                        ["Auth", "Optional"]
-                      ].map(([label, value]) => (
-                        <motion.div
-                          key={label}
-                          initial={{ opacity: 0, y: 10 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: label === "Projects" ? 0.06 : label === "Mode" ? 0.12 : 0.18, duration: 0.24 }}
-                          className="rounded-2xl border border-white/[0.075] bg-black/35 p-4"
-                        >
-                          <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-neutral-600">{label}</p>
-                          <p className="mt-2 text-sm font-semibold text-white">{value}</p>
-                        </motion.div>
-                      ))}
-                    </div>
-
-                    <div className="mt-8 flex flex-wrap justify-center gap-3">
-                      <Button variant="secondary" onClick={() => setStepId("tour")}>
-                        <ArrowLeft size={16} />
-                        Back
-                      </Button>
-                      <Button variant="primary" onClick={launchDashboard} disabled={isLaunchingDashboard}>
-                        {isLaunchingDashboard ? <Rocket size={16} /> : <Code2 size={16} />}
-                        {isLaunchingDashboard ? "Opening Dashboard..." : "Enter Dashboard"}
-                      </Button>
-                    </div>
-
-                    <AnimatePresence>
-                      {isLaunchingDashboard && (
-                        <motion.div
-                          initial={{ opacity: 0, y: 8 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          exit={{ opacity: 0, y: -6 }}
-                          className="mx-auto mt-5 max-w-sm overflow-hidden rounded-full border border-white/10 bg-white/[0.04] p-1"
-                        >
-                          <motion.div
-                            className="h-1.5 rounded-full bg-white shadow-[0_0_24px_rgba(255,255,255,0.55)]"
-                            initial={{ width: "12%" }}
-                            animate={{ width: "100%" }}
-                            transition={{ duration: 0.5, ease: [0.16, 1, 0.3, 1] }}
-                          />
-                        </motion.div>
-                      )}
-                    </AnimatePresence>
-
-                    <button
-                      type="button"
-                      onClick={onSkip}
-                      className="mt-4 text-xs font-semibold text-neutral-600 transition hover:text-neutral-300"
-                    >
-                      Close for this session
-                    </button>
-                  </div>
-                </motion.div>
-              )}
-            </AnimatePresence>
+              </AnimatePresence>
+            )}
           </div>
         </div>
       </motion.section>

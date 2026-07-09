@@ -31,6 +31,9 @@ export interface AppSettings {
   composerFileLimits: ComposerFileLimits;
   contextQualityMode: ContextQualityMode;
   sidebarShowDescriptions: boolean;
+  onboardingEnabled: boolean;
+  onboardingShowEveryLaunch: boolean;
+  onboardingCompleted: boolean;
 }
 
 export interface UpdateAppSettingsInput extends Partial<AppSettings> {
@@ -87,6 +90,9 @@ const defaultSettings: AppSettings = {
   },
   contextQualityMode: "balanced",
   sidebarShowDescriptions: false,
+  onboardingEnabled: true,
+  onboardingShowEveryLaunch: true,
+  onboardingCompleted: false,
 };
 
 const settingKeyMap = {
@@ -110,6 +116,9 @@ const settingKeyMap = {
   composerFileLimits: "composer_file_limits",
   contextQualityMode: "context_quality_mode",
   sidebarShowDescriptions: "sidebar_show_descriptions",
+  onboardingEnabled: "onboarding_enabled",
+  onboardingShowEveryLaunch: "onboarding_show_every_launch",
+  onboardingCompleted: "onboarding_completed",
 } as const;
 
 const secretSettingKeys = {
@@ -204,6 +213,18 @@ export async function getAppSettings(): Promise<AppSettings> {
     sidebarShowDescriptions: await getSettingValue(
       settingKeyMap.sidebarShowDescriptions,
       defaultSettings.sidebarShowDescriptions,
+    ),
+    onboardingEnabled: await getSettingValue(
+      settingKeyMap.onboardingEnabled,
+      defaultSettings.onboardingEnabled,
+    ),
+    onboardingShowEveryLaunch: await getSettingValue(
+      settingKeyMap.onboardingShowEveryLaunch,
+      defaultSettings.onboardingShowEveryLaunch,
+    ),
+    onboardingCompleted: await getSettingValue(
+      settingKeyMap.onboardingCompleted,
+      defaultSettings.onboardingCompleted,
     ),
   };
 }

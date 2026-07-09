@@ -45,6 +45,9 @@ const replaySettings: AppSettings = {
   },
   contextQualityMode: "balanced",
   sidebarShowDescriptions: false,
+  onboardingEnabled: true,
+  onboardingShowEveryLaunch: true,
+  onboardingCompleted: false,
 };
 
 function sourceFile(

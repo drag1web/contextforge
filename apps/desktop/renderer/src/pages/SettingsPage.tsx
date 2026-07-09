@@ -335,6 +335,8 @@ function withSettingsDefaults(settings: AppSettings): AppSettings {
     ...settings,
     language: settings.language ?? "system",
     sidebarShowDescriptions: settings.sidebarShowDescriptions ?? false,
+    onboardingEnabled: settings.onboardingEnabled ?? true,
+    onboardingShowEveryLaunch: settings.onboardingShowEveryLaunch ?? true,
     contextQualityMode: settings.contextQualityMode ?? "balanced",
     composerFileLimits: {
       ...DEFAULT_COMPOSER_FILE_LIMITS,
@@ -2307,6 +2309,51 @@ export function SettingsPage() {
                               })
                             }
                           />
+                        </div>
+                      </SettingCard>
+
+                      <SettingCard
+                        icon={<Sparkles size={18} />}
+                        label={t("settings.onboarding")}
+                        title={t("settings.onboardingTitle")}
+                        description={t("settings.onboardingDescription")}
+                      >
+                        <div className="space-y-3">
+                          <ToggleSetting
+                            label={t("settings.showOnboardingOnLaunch")}
+                            description={t("settings.showOnboardingOnLaunchDesc")}
+                            checked={settingsDraft?.onboardingEnabled ?? true}
+                            onChange={(checked) =>
+                              updateSettingsDraft({
+                                onboardingEnabled: checked
+                              })
+                            }
+                          />
+
+                          <ToggleSetting
+                            label={t("settings.repeatOnboardingDuringAlpha")}
+                            description={t("settings.repeatOnboardingDuringAlphaDesc")}
+                            checked={settingsDraft?.onboardingShowEveryLaunch ?? true}
+                            onChange={(checked) =>
+                              updateSettingsDraft({
+                                onboardingShowEveryLaunch: checked
+                              })
+                            }
+                          />
+                        </div>
+
+                        <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                          <p className="text-sm font-medium text-white">
+                            {settingsDraft?.onboardingEnabled === false
+                              ? t("settings.onboardingLaunchOff")
+                              : settingsDraft?.onboardingShowEveryLaunch === false
+                                ? t("settings.onboardingFirstRunOnly")
+                                : t("settings.onboardingEveryLaunch")}
+                          </p>
+
+                          <p className="mt-1 text-sm leading-6 text-neutral-500">
+                            {t("settings.onboardingSavedWithSettings")}
+                          </p>
                         </div>
                       </SettingCard>
                     </div>
