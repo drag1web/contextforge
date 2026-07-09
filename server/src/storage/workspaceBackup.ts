@@ -44,7 +44,14 @@ const EXCLUDED_SETTINGS = [
   "gemini_api_key",
   "openai_compatible_base_url",
   "gemini_base_url",
-  "ollama_url"
+  "ollama_url",
+  "github_access_token",
+  "github_token_scope",
+  "github_user_login",
+  "github_user_avatar_url",
+  "github_user_html_url",
+  "github_connected_at",
+  "github_last_checked_at"
 ];
 
 function backupDirectory() {
@@ -110,11 +117,13 @@ export async function exportWorkspaceBackup(): Promise<WorkspaceBackupExportResu
     ...EXCLUDED_SETTINGS.map((key) => `setting:${key}`),
     "rawLocalDiffs",
     "GitHubTokens",
+    "GitHubAccountMetadata",
+    "GitHubRepositoryLinks",
     "node_modules",
     "projectSourceFiles"
   ];
   const warnings = [
-    "Provider API keys and endpoint URLs are intentionally excluded from this backup.",
+    "Provider API keys, endpoint URLs, GitHub auth data and GitHub repository links are intentionally excluded from this backup.",
     "Project source files are not copied; projects are referenced by their local paths.",
     "Restore/import is not implemented in this foundation stage yet."
   ];

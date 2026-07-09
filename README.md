@@ -4,10 +4,10 @@
 
 It scans local repositories, detects stack and scripts, builds project context, generates `AGENTS.md`, and creates structured Task Packs for tools like **Codex**, **Cursor**, **Claude Code**, and other AI coding assistants.
 
-Current version: **v0.5.8-alpha**  
-Current app phase: **Phase 0.5.8 — Desktop Persistence & Release Readiness**
+Current version: **v0.6.0-alpha**  
+Current app phase: **Phase 0.6.0 — GitHub Issue Loop & Release Baseline**
 
-This release closes the local desktop persistence pass: SQLite schema migrations, rules/templates catalog storage, secret-safe workspace backups and a compact release-readiness checklist.
+This release closes the optional GitHub issue loop while preserving local-first desktop behavior: browser pairing, repository linking, Issue → Task Pack and Task Pack → GitHub Issue are available without uploading project source files.
 
 ---
 
@@ -34,6 +34,10 @@ This release closes the local desktop persistence pass: SQLite schema migrations
 - Uses a Context Composer flow to select relevant files/snippets for a task.
 - Supports optional Ollama generation/refinement with fallback to safe template mode.
 - Stores projects, settings and generated Task Packs in a local SQLite database by default.
+- Supports an optional GitHub device-auth foundation for future repository and issue workflows.
+- Links local projects to GitHub repository metadata through local Git remotes without uploading source files.
+- Provides quick local Git setup actions for initializing Git and setting a GitHub `origin` remote.
+- Loads GitHub issues from linked repositories and creates local Task Packs from issue title/body/labels.
 
 ---
 
@@ -48,7 +52,7 @@ Desktop app
        ├─ Project scanner
        ├─ Context Composer
        ├─ Task Pack builder
-       ├─ Local Git status and diff summary service
+       ├─ Local Git status, diff summary and remote-linking services
        ├─ Rules and templates
        ├─ Optional Ollama integration
        └─ StorageAdapter
@@ -92,6 +96,7 @@ Desktop app
 - SQLite local database for desktop storage
 - PostgreSQL adapter kept for future cloud/dev experiments
 - Optional Ollama integration
+- Optional GitHub OAuth device flow for account pairing and issue metadata workflows
 
 ---
 
@@ -113,7 +118,13 @@ STORAGE_DRIVER=sqlite
 SQLITE_DB_PATH=./data/contextforge.sqlite
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.5.8-alpha
+APP_VERSION=0.6.0-alpha
+
+# Optional GitHub integration. ContextForge works without this.
+GITHUB_OAUTH_CLIENT_ID=
+GITHUB_OAUTH_SCOPES=read:user repo
+GITHUB_API_BASE_URL=https://api.github.com
+GITHUB_API_VERSION=2022-11-28
 ```
 
 To test the PostgreSQL adapter instead:
@@ -123,8 +134,25 @@ STORAGE_DRIVER=postgres
 DATABASE_URL=postgresql://contextforge:contextforge@127.0.0.1:5433/contextforge
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.5.8-alpha
+APP_VERSION=0.6.0-alpha
 ```
+
+---
+
+## Optional GitHub integration
+
+GitHub is an optional workflow layer. Local project scanning, AGENTS.md, Project Memory and Task Packs keep working without sign-in.
+
+To test GitHub pairing, create a GitHub OAuth app, enable Device Flow, and set `GITHUB_OAUTH_CLIENT_ID` in `.env`. ContextForge stores the resulting token server-side only and does not return it to the renderer or workspace backups.
+
+v0.6.0 completes the issue workflow foundation:
+
+- **Stage 13.1** — browser/device pairing and connected account status;
+- **Stage 13.2** — repository linking from local Git remotes;
+- **Stage 13.3** — GitHub Issue → local Task Pack;
+- **Stage 13.4** — Task Pack → GitHub Issue.
+
+Project source files are not uploaded by these workflows. GitHub receives repository metadata, issue metadata and generated Task Pack briefs only when the user explicitly starts the GitHub action. PR / CI workflows and deeper core selector hardening remain later work.
 
 ---
 
@@ -175,7 +203,7 @@ Expected `/api/health` version:
 {
   "ok": true,
   "service": "contextforge-server",
-  "version": "0.5.8-alpha"
+  "version": "0.6.0-alpha"
 }
 ```
 
@@ -183,20 +211,21 @@ Expected `/api/health` version:
 
 ## MVP status
 
-The current project already has a strong v0.5 foundation: scanner, readiness report, rules, templates, Task Packs, Context Composer, Task Pack Quality Score, Local Git context, Diff Review Lite and optional Ollama routes.
+The current project now has a strong v0.6 alpha foundation: scanner, readiness report, rules, templates, Task Packs, Context Composer, Task Pack Quality Score, Local Git context, Diff Review Lite, SQLite-first persistence, optional Ollama routes and an optional GitHub issue loop.
 
 The main MVP gaps are now:
 
-1. Improve fallback selector clarity and candidate confidence wording.
-2. Prepare SQLite-first desktop persistence for release-readiness workflows.
-3. Package a friendly desktop build.
-4. Polish onboarding and first-run guidance.
-5. Add optional GitHub issue/PR workflows later without breaking local-first mode.
+1. Harden the core selector/safety layer for secrets, prompt injection, explicit target misses and weak fallback confidence.
+2. Package a friendly desktop build and installer/portable release.
+3. Polish onboarding and first-run guidance.
+4. Add PR / CI workflows after the core hardening pass.
+5. Keep GitHub/cloud workflows optional and local-first.
 
 See:
 
 - [`docs/MVP.md`](docs/MVP.md)
 - [`docs/ROADMAP.md`](docs/ROADMAP.md)
+- [`docs/CORE_QUALITY_BACKLOG.md`](docs/CORE_QUALITY_BACKLOG.md)
 
 ---
 
@@ -229,3 +258,14 @@ The MVP is ready when a user can:
 8. Copy the prompt.
 9. Export the prompt to `.md` and `.txt`.
 10. Close and reopen the app while data remains saved.
+
+### GitHub v0.6.0 issue loop
+
+ContextForge can now move in both directions between GitHub issues and local Task Packs:
+
+1. Link a local project to a GitHub repository through its local Git remote.
+2. Import a GitHub issue as local Task Pack source context.
+3. Create a GitHub issue from a generated Task Pack.
+4. Save source/created issue links in Task Pack result and archive metadata.
+
+The issue body is generated from Task Pack metadata and prompt preview. Project source files are not uploaded by this workflow.

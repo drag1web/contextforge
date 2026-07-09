@@ -1,8 +1,8 @@
 export const appMeta = {
   name: "ContextForge",
-  version: "0.5.8-alpha",
-  phase: "Phase 0.5.8 — Desktop Persistence & Release Readiness",
-  phaseTitle: "Desktop Persistence & Release Readiness",
+  version: "0.6.0-alpha",
+  phase: "Phase 0.6.0 — GitHub Issue Loop & Release Baseline",
+  phaseTitle: "GitHub Issue Loop & Release Baseline",
   description:
     "Local-first desktop workspace for preparing software projects, context, and Task Packs for AI coding agents."
 } as const;

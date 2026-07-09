@@ -8,6 +8,7 @@ import {
   ChevronRight,
   FileText,
   FolderKanban,
+  Github,
   LayoutDashboard,
   Layers3,
   PanelLeftClose,
@@ -31,6 +32,7 @@ export type AppPageId =
   | "agents"
   | "templates"
   | "integrations"
+  | "github"
   | "reports"
   | "settings";
 
@@ -131,6 +133,15 @@ export const navigationSections: NavigationSection[] = [
         description: "AI providers, model endpoints, CLI exports and future connectors.",
         descriptionKey: "nav.integrationsDesc",
         icon: PlugZap,
+        status: "alpha"
+      },
+      {
+        id: "github",
+        label: "GitHub",
+        labelKey: "nav.github",
+        description: "Browser pairing, repository linking and issue workflows.",
+        descriptionKey: "nav.githubDesc",
+        icon: Github,
         status: "alpha"
       },
       {

@@ -1,5 +1,134 @@
 # Changelog
 
+## 0.6.0-alpha — GitHub Issue Loop & Release Baseline
+
+### Added
+
+- Completed the optional GitHub issue workflow loop:
+  - Stage 13.1 — GitHub browser/device auth and connected account status.
+  - Stage 13.2 — local project → GitHub repository linking through local Git remotes.
+  - Stage 13.3 — GitHub Issue → local Task Pack.
+  - Stage 13.4 — Task Pack → GitHub Issue.
+- Added GitHub source/created issue metadata in Task Pack result and archive views.
+- Added safer GitHub issue body formatting with compact summary and generated prompt details.
+- Added documentation for core-quality hardening as the next engineering focus before PR / CI workflows.
+
+### Changed
+
+- Bumped root, server, renderer, shared package and app metadata to `0.6.0-alpha`.
+- Updated README, roadmap, MVP docs and patch notes to describe the current v0.6 GitHub issue loop.
+- Polished GitHub page and Integrations GitHub entry copy so GitHub workflows live in their own workspace.
+- Polished Scanners page rendering and project picker behavior before the v0.6.0 baseline.
+
+### Safety
+
+- GitHub remains optional; local scanning, AGENTS.md, Project Memory and Task Packs work without sign-in.
+- GitHub tokens remain server-side/local-only and are excluded from workspace backups.
+- Project source files are not uploaded by GitHub auth, repository linking, issue import or issue creation.
+
+### Not included
+
+- PR / CI workflows are intentionally deferred.
+- Core selector/safety hardening is documented as the next focused pass and not mixed into this release finalization.
+- No cloud sync, billing, team workflow, automatic code edits, commits or pushes.
+
+
+## 0.5.8-alpha — Stage 13.3 patch
+
+### Added
+
+- Added GitHub Issues browser for linked repositories on the dedicated GitHub page.
+- Added issue filters for state, text search and comma-separated labels.
+- Added Issue Preview with title, body, labels, author, comments count and GitHub links.
+- Added Create Task Pack from Issue flow that turns issue title/body/labels into a local Task Pack.
+- Added GitHub issue source metadata to Task Pack generation recipes and archive/result badges.
+- Added backend GitHub issue API helpers and project issue routes.
+
+### Safety
+
+- Issue import reads GitHub issue metadata only.
+- Task Pack file context is still selected from the local project scan.
+- No source files are uploaded and no GitHub issue is created in this stage.
+
+### Not included
+
+- Task Pack → GitHub Issue remains Stage 13.4.
+- PR / CI workflows remain later v0.6.1 work.
+
+## 0.5.8-alpha — Stage 13.2.1 patch
+
+### Added
+
+- Added GitHub page quick setup actions for local Git initialization and GitHub origin remote setup.
+- Added backend routes for local Git init and safe GitHub remote configuration.
+- Added command-copy helper and GitHub new-repository shortcut for manual repository setup.
+
+### Changed
+
+- Replaced the GitHub project native select with the shared ContextForge CustomSelect component.
+- Made the renderer dev server use Vite strictPort so Electron does not open another app when port 5173 is already busy.
+
+### Safety
+
+- Git setup actions only modify local Git metadata. They do not create GitHub repositories through the API, push commits or upload source files.
+
+## 0.5.8-alpha — Stage 13.2 patch
+
+### Added
+
+- Added GitHub Repository Linking foundation on the dedicated GitHub page.
+- Added local Git remote detection and GitHub owner/repo parsing for HTTPS and SSH remotes.
+- Added GitHub repository metadata validation through the connected account.
+- Added link, refresh, unlink and manual owner/repo fallback actions.
+- Added renderer API/types and backend routes for project-level GitHub repository links.
+
+### Changed
+
+- Slimmed down the GitHub section on Integrations so the page stays focused on AI providers and agent targets.
+- Promoted the GitHub page into the active Stage 13.2 workspace.
+
+### Safety
+
+- Repository linking stores safe repo metadata only and does not upload project source files.
+- GitHub repository links are excluded from workspace backups for this foundation stage.
+
+### Not included
+
+- Issue → Task Pack, Task Pack → Issue, PR context and CI workflows remain future stages.
+
+## 0.5.8-alpha — Stage 13.1.3 patch
+
+### Added
+
+- Added a dedicated GitHub page in the sidebar for browser pairing, account status and the GitHub workflow roadmap.
+- Added GitHub navigation labels for English and Russian UI resources.
+
+### Changed
+
+- Moved the live GitHub Device Auth UI out of Integrations.
+- Restored Integrations to the provider/agent-target focused layout with the original upcoming GitHub preview card.
+
+### Not included
+
+- Repository linking, GitHub Issues, PR and CI workflows remain future stages.
+
+## 0.5.8-alpha — Stage 13.1.2 patch
+
+### Added
+
+- Added GitHub Device Auth foundation with browser pairing, polling, connected account status and sign out.
+- Added safe server-side GitHub token storage and renderer-safe account metadata responses.
+- Added Electron external URL opening restricted to `https://github.com/...`.
+- Added GitHub auth data exclusions to workspace backups.
+
+### Changed
+
+- Replaced the disabled GitHub preview CTA with a real setup/connected/pairing UI while keeping local-first mode optional.
+
+### Not included
+
+- Repository linking, GitHub Issues, PR and CI workflows remain future stages.
+
 ## 0.5.8-alpha
 
 ### Added
@@ -194,3 +323,12 @@
 - Fixed confusing `Generation: Template` wording.
 - Fixed markdown prompt display being shown only as raw text.
 - Fixed Task Pack prompt scroll overlapping the modal footer.
+
+## Stage 13.4 — Task Pack → GitHub Issue
+
+- Added GitHub issue creation from Task Pack result view.
+- Added editable issue preview with title, markdown body and comma-separated labels.
+- Added backend GitHub issue creation route and safe local metadata persistence.
+- Added Task Pack archive/result badges for created GitHub issues.
+- Saved outbound issue links in `generationRecipe.githubCreatedIssue`.
+- Improved GitHub issue-imported Task Pack titles.

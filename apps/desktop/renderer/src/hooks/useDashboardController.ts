@@ -11,7 +11,7 @@ import {
   getProjects,
   getTaskPacks,
   rescanProject,
-  saveAgentsFile
+  saveAgentsFile,
 } from "../api/client";
 import { getAverageReadinessScore } from "../lib/score";
 import type {
@@ -20,7 +20,7 @@ import type {
   Project,
   ProjectContextFile,
   TaskPack,
-  TaskPackDraft
+  TaskPackDraft,
 } from "../types";
 import i18n from "../i18n";
 import { buildChangesDraftTask } from "../utils/localChangesNote";
@@ -31,11 +31,10 @@ function parseMultilineRules(value?: string) {
       String(value ?? "")
         .split(/\r?\n/)
         .map((line) => line.trim())
-        .filter(Boolean)
-    )
+        .filter(Boolean),
+    ),
   );
 }
-
 
 function getBlockedContextMessage(error: ApiRequestError) {
   const data = error.data;
@@ -44,13 +43,15 @@ function getBlockedContextMessage(error: ApiRequestError) {
     return error.message;
   }
 
-  const selectionQuality = (data as {
-    selectionQuality?: {
-      blockingReasons?: unknown;
-      warnings?: unknown;
-      score?: unknown;
-    };
-  }).selectionQuality;
+  const selectionQuality = (
+    data as {
+      selectionQuality?: {
+        blockingReasons?: unknown;
+        warnings?: unknown;
+        score?: unknown;
+      };
+    }
+  ).selectionQuality;
 
   const reasons = Array.isArray(selectionQuality?.blockingReasons)
     ? selectionQuality.blockingReasons.map(String).filter(Boolean)
@@ -62,7 +63,9 @@ function getBlockedContextMessage(error: ApiRequestError) {
 
   const firstReason = reasons[0] ?? warnings[0];
   const score = Number(selectionQuality?.score);
-  const scorePart = Number.isFinite(score) ? ` Context score: ${score}/100.` : "";
+  const scorePart = Number.isFinite(score)
+    ? ` Context score: ${score}/100.`
+    : "";
 
   return firstReason
     ? `Context needs manual review. ${firstReason}${scorePart}`
@@ -72,13 +75,21 @@ function getBlockedContextMessage(error: ApiRequestError) {
 export function useDashboardController() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [taskPacks, setTaskPacks] = useState<TaskPack[]>([]);
-  const [expandedProjectId, setExpandedProjectId] = useState<number | null>(null);
+  const [expandedProjectId, setExpandedProjectId] = useState<number | null>(
+    null,
+  );
   const [isLoading, setIsLoading] = useState(false);
   const [statusMessage, setStatusMessage] = useState("");
 
-  const [agentsPreview, setAgentsPreview] = useState<AgentsPreview | null>(null);
-  const [taskPackDraft, setTaskPackDraftState] = useState<TaskPackDraft | null>(null);
-  const [generatedTaskPack, setGeneratedTaskPack] = useState<TaskPack | null>(null);
+  const [agentsPreview, setAgentsPreview] = useState<AgentsPreview | null>(
+    null,
+  );
+  const [taskPackDraft, setTaskPackDraftState] = useState<TaskPackDraft | null>(
+    null,
+  );
+  const [generatedTaskPack, setGeneratedTaskPack] = useState<TaskPack | null>(
+    null,
+  );
 
   const [contextComposerPreview, setContextComposerPreview] =
     useState<ContextComposerPreview | null>(null);
@@ -86,7 +97,7 @@ export function useDashboardController() {
     useState<ContextComposerPreview | null>(null);
 
   const readinessScore = getAverageReadinessScore(
-    projects.map((project) => project.readinessScore)
+    projects.map((project) => project.readinessScore),
   );
 
   function setTaskPackDraft(nextDraft: TaskPackDraft | null) {
@@ -140,9 +151,13 @@ export function useDashboardController() {
 
       await refreshDashboard();
       setExpandedProjectId(project.id);
-      setStatusMessage(i18n.t("common.statusProjectAdded", { name: project.name }));
+      setStatusMessage(
+        i18n.t("common.statusProjectAdded", { name: project.name }),
+      );
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
+      setStatusMessage(
+        error instanceof Error ? error.message : i18n.t("common.unknownError"),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -151,15 +166,21 @@ export function useDashboardController() {
   async function handleRescanProject(project: Project) {
     try {
       setIsLoading(true);
-      setStatusMessage(i18n.t("common.statusRescanningProject", { name: project.name }));
+      setStatusMessage(
+        i18n.t("common.statusRescanningProject", { name: project.name }),
+      );
 
       await rescanProject(project.id);
 
       await refreshDashboard();
       setExpandedProjectId(project.id);
-      setStatusMessage(i18n.t("common.statusProjectRescanned", { name: project.name }));
+      setStatusMessage(
+        i18n.t("common.statusProjectRescanned", { name: project.name }),
+      );
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
+      setStatusMessage(
+        error instanceof Error ? error.message : i18n.t("common.unknownError"),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -172,8 +193,10 @@ export function useDashboardController() {
 
       setStatusMessage(
         settings.generationMode === "ollama" && settings.defaultOllamaModel
-          ? i18n.t("common.statusGeneratingAgentsOllama", { model: settings.defaultOllamaModel })
-          : i18n.t("common.statusGeneratingAgents", { name: project.name })
+          ? i18n.t("common.statusGeneratingAgentsOllama", {
+              model: settings.defaultOllamaModel,
+            })
+          : i18n.t("common.statusGeneratingAgents", { name: project.name }),
       );
 
       const preview = await getAgentsPreview(project.id);
@@ -183,12 +206,16 @@ export function useDashboardController() {
         projectName: project.name,
         markdown: preview.markdown,
         generation: preview.generation,
-        agentsFile: preview.agentsFile
+        agentsFile: preview.agentsFile,
       });
 
-      setStatusMessage(i18n.t("common.statusAgentsGenerated", { name: project.name }));
+      setStatusMessage(
+        i18n.t("common.statusAgentsGenerated", { name: project.name }),
+      );
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
+      setStatusMessage(
+        error instanceof Error ? error.message : i18n.t("common.unknownError"),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -196,13 +223,18 @@ export function useDashboardController() {
 
   async function handleOpenProjectContextFile(
     project: Project,
-    fileName: ProjectContextFile["fileName"]
+    fileName: ProjectContextFile["fileName"],
   ) {
     try {
       setIsLoading(true);
-      setStatusMessage(i18n.t("common.statusLoadingContextFile", { name: fileName }));
+      setStatusMessage(
+        i18n.t("common.statusLoadingContextFile", { name: fileName }),
+      );
 
-      const { markdown, contextFile } = await getProjectContextFile(project.id, fileName);
+      const { markdown, contextFile } = await getProjectContextFile(
+        project.id,
+        fileName,
+      );
 
       setAgentsPreview({
         projectId: project.id,
@@ -213,17 +245,21 @@ export function useDashboardController() {
           mode: "template",
           model: null,
           usedFallback: false,
-          message: `Loaded ${fileName} from project context history.`
+          message: `Loaded ${fileName} from project context history.`,
         },
         agentsFile: {
           path: contextFile.path,
-          exists: contextFile.exists
-        }
+          exists: contextFile.exists,
+        },
       });
 
-      setStatusMessage(i18n.t("common.statusContextFileLoaded", { name: fileName }));
+      setStatusMessage(
+        i18n.t("common.statusContextFileLoaded", { name: fileName }),
+      );
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
+      setStatusMessage(
+        error instanceof Error ? error.message : i18n.t("common.unknownError"),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -241,12 +277,16 @@ export function useDashboardController() {
 
       setStatusMessage(
         settings.generationMode === "ollama" && settings.defaultOllamaModel
-          ? i18n.t("common.statusRegeneratingAgentsOllama", { model: settings.defaultOllamaModel })
-          : i18n.t("common.statusRegeneratingAgents", { name: agentsPreview.projectName })
+          ? i18n.t("common.statusRegeneratingAgentsOllama", {
+              model: settings.defaultOllamaModel,
+            })
+          : i18n.t("common.statusRegeneratingAgents", {
+              name: agentsPreview.projectName,
+            }),
       );
 
       const preview = await getAgentsPreview(agentsPreview.projectId, {
-        bypassCache: true
+        bypassCache: true,
       });
 
       setAgentsPreview({
@@ -254,12 +294,18 @@ export function useDashboardController() {
         projectName: agentsPreview.projectName,
         markdown: preview.markdown,
         generation: preview.generation,
-        agentsFile: preview.agentsFile
+        agentsFile: preview.agentsFile,
       });
 
-      setStatusMessage(i18n.t("common.statusAgentsRegenerated", { name: agentsPreview.projectName }));
+      setStatusMessage(
+        i18n.t("common.statusAgentsRegenerated", {
+          name: agentsPreview.projectName,
+        }),
+      );
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
+      setStatusMessage(
+        error instanceof Error ? error.message : i18n.t("common.unknownError"),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -267,7 +313,7 @@ export function useDashboardController() {
 
   async function handleSaveAgentsFile(
     markdown?: string,
-    fileName: "AGENTS.md" | "AGENTS.generated.md" = "AGENTS.md"
+    fileName: "AGENTS.md" | "AGENTS.generated.md" = "AGENTS.md",
   ) {
     if (!agentsPreview) {
       return;
@@ -275,17 +321,29 @@ export function useDashboardController() {
 
     try {
       setIsLoading(true);
-      setStatusMessage(i18n.t("common.statusSavingAgents", { name: agentsPreview.projectName }));
+      setStatusMessage(
+        i18n.t("common.statusSavingAgents", {
+          name: agentsPreview.projectName,
+        }),
+      );
 
-      await saveAgentsFile(agentsPreview.projectId, markdown ?? agentsPreview.markdown, {
-        fileName
-      });
+      await saveAgentsFile(
+        agentsPreview.projectId,
+        markdown ?? agentsPreview.markdown,
+        {
+          fileName,
+        },
+      );
 
       await refreshDashboard();
-      setStatusMessage(i18n.t("common.statusAgentsSaved", { name: agentsPreview.projectName }));
+      setStatusMessage(
+        i18n.t("common.statusAgentsSaved", { name: agentsPreview.projectName }),
+      );
       setAgentsPreview(null);
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
+      setStatusMessage(
+        error instanceof Error ? error.message : i18n.t("common.unknownError"),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -306,20 +364,20 @@ export function useDashboardController() {
         settings.generationMode === "ollama" && settings.defaultOllamaModel
           ? selectedCount > 0
             ? i18n.t("common.statusGeneratingTaskPackOllamaFiles", {
-              count: selectedCount,
-              model: settings.defaultOllamaModel
-            })
+                count: selectedCount,
+                model: settings.defaultOllamaModel,
+              })
             : i18n.t("common.statusGeneratingTaskPackOllama", {
-              model: settings.defaultOllamaModel
-            })
+                model: settings.defaultOllamaModel,
+              })
           : selectedCount > 0
             ? i18n.t("common.statusGeneratingTaskPackFiles", {
-              count: selectedCount,
-              name: taskPackDraft.projectName
-            })
+                count: selectedCount,
+                name: taskPackDraft.projectName,
+              })
             : i18n.t("common.statusGeneratingTaskPack", {
-              name: taskPackDraft.projectName
-            })
+                name: taskPackDraft.projectName,
+              }),
       );
 
       const taskPack = await createTaskPack({
@@ -335,7 +393,9 @@ export function useDashboardController() {
         customRules: parseMultilineRules(taskPackDraft.customRulesText),
         acceptanceCriteriaPresetId:
           taskPackDraft.acceptanceCriteriaPresetId || undefined,
-        acceptanceCriteria: parseMultilineRules(taskPackDraft.acceptanceCriteriaText)
+        acceptanceCriteria: parseMultilineRules(
+          taskPackDraft.acceptanceCriteriaText,
+        ),
       });
 
       await loadTaskPacks();
@@ -354,7 +414,7 @@ export function useDashboardController() {
             projectId: taskPackDraft.projectId,
             rawTask: taskPackDraft.rawTask,
             taskType: taskPackDraft.taskType,
-            targetTool: taskPackDraft.targetTool
+            targetTool: taskPackDraft.targetTool,
           });
 
           setContextComposerPreview(preview);
@@ -363,11 +423,15 @@ export function useDashboardController() {
           setStatusMessage(
             previewError instanceof Error
               ? `${getBlockedContextMessage(error)} ${previewError.message}`
-              : getBlockedContextMessage(error)
+              : getBlockedContextMessage(error),
           );
         }
       } else {
-        setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
+        setStatusMessage(
+          error instanceof Error
+            ? error.message
+            : i18n.t("common.unknownError"),
+        );
       }
     } finally {
       setIsLoading(false);
@@ -377,7 +441,9 @@ export function useDashboardController() {
   async function handleCreateTaskPackDraft(project: Project) {
     try {
       setIsLoading(true);
-      setStatusMessage(i18n.t("common.statusLoadingTaskDefaults", { name: project.name }));
+      setStatusMessage(
+        i18n.t("common.statusLoadingTaskDefaults", { name: project.name }),
+      );
 
       const settings = await getAppSettings();
 
@@ -389,10 +455,12 @@ export function useDashboardController() {
         targetTool: settings.defaultTargetTool,
         enabledRuleIds: [],
         customRulesText: "",
-        acceptanceCriteriaText: ""
+        acceptanceCriteriaText: "",
       });
 
-      setStatusMessage(i18n.t("common.statusTaskDraftOpened", { name: project.name }));
+      setStatusMessage(
+        i18n.t("common.statusTaskDraftOpened", { name: project.name }),
+      );
     } catch (error) {
       setTaskPackDraft({
         projectId: project.id,
@@ -402,13 +470,13 @@ export function useDashboardController() {
         targetTool: "codex",
         enabledRuleIds: [],
         customRulesText: "",
-        acceptanceCriteriaText: ""
+        acceptanceCriteriaText: "",
       });
 
       setStatusMessage(
         error instanceof Error
           ? `${i18n.t("common.statusSettingsUnavailable")} ${error.message}`
-          : i18n.t("common.statusSettingsUnavailable")
+          : i18n.t("common.statusSettingsUnavailable"),
       );
     } finally {
       setIsLoading(false);
@@ -422,7 +490,7 @@ export function useDashboardController() {
 
       const [settings, gitStatus] = await Promise.all([
         getAppSettings().catch(() => null),
-        getProjectGitStatus(project.id)
+        getProjectGitStatus(project.id),
       ]);
 
       const rawTask = buildChangesDraftTask(gitStatus);
@@ -435,13 +503,13 @@ export function useDashboardController() {
         targetTool: settings?.defaultTargetTool ?? "codex",
         enabledRuleIds: [],
         customRulesText: "",
-        acceptanceCriteriaText: ""
+        acceptanceCriteriaText: "",
       });
 
       setStatusMessage(
         rawTask
           ? `Task draft opened from local changes for ${project.name}.`
-          : `No local changes found for ${project.name}. Opened a blank Task Pack draft.`
+          : `No local changes found for ${project.name}. Opened a blank Task Pack draft.`,
       );
     } catch (error) {
       setTaskPackDraft({
@@ -452,13 +520,13 @@ export function useDashboardController() {
         targetTool: "codex",
         enabledRuleIds: [],
         customRulesText: "",
-        acceptanceCriteriaText: ""
+        acceptanceCriteriaText: "",
       });
 
       setStatusMessage(
         error instanceof Error
           ? `Could not read local changes. Opened a blank Task Pack draft. ${error.message}`
-          : "Could not read local changes. Opened a blank Task Pack draft."
+          : "Could not read local changes. Opened a blank Task Pack draft.",
       );
     } finally {
       setIsLoading(false);
@@ -474,7 +542,7 @@ export function useDashboardController() {
       projectId: taskPackDraft.projectId,
       rawTask: taskPackDraft.rawTask,
       taskType: taskPackDraft.taskType,
-      targetTool: taskPackDraft.targetTool
+      targetTool: taskPackDraft.targetTool,
     });
 
     setTaskPackContextPreview(preview);
@@ -488,14 +556,24 @@ export function useDashboardController() {
 
     try {
       setIsLoading(true);
-      setStatusMessage(i18n.t("common.statusAnalyzingContext", { name: taskPackDraft.projectName }));
+      setStatusMessage(
+        i18n.t("common.statusAnalyzingContext", {
+          name: taskPackDraft.projectName,
+        }),
+      );
 
       const preview = await createTaskContextPreview();
 
-      setStatusMessage(i18n.t("common.statusContextReady", { name: taskPackDraft.projectName }));
+      setStatusMessage(
+        i18n.t("common.statusContextReady", {
+          name: taskPackDraft.projectName,
+        }),
+      );
       return preview;
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
+      setStatusMessage(
+        error instanceof Error ? error.message : i18n.t("common.unknownError"),
+      );
       return null;
     } finally {
       setIsLoading(false);
@@ -509,16 +587,27 @@ export function useDashboardController() {
 
     try {
       setIsLoading(true);
-      setStatusMessage(i18n.t("common.statusAnalyzingContext", { name: taskPackDraft.projectName }));
+      setStatusMessage(
+        i18n.t("common.statusAnalyzingContext", {
+          name: taskPackDraft.projectName,
+        }),
+      );
 
-      const preview = taskPackContextPreview ?? await createTaskContextPreview();
+      const preview =
+        taskPackContextPreview ?? (await createTaskContextPreview());
 
       if (preview) {
         setContextComposerPreview(preview);
-        setStatusMessage(i18n.t("common.statusContextReady", { name: taskPackDraft.projectName }));
+        setStatusMessage(
+          i18n.t("common.statusContextReady", {
+            name: taskPackDraft.projectName,
+          }),
+        );
       }
     } catch (error) {
-      setStatusMessage(error instanceof Error ? error.message : i18n.t("common.unknownError"));
+      setStatusMessage(
+        error instanceof Error ? error.message : i18n.t("common.unknownError"),
+      );
     } finally {
       setIsLoading(false);
     }
@@ -537,8 +626,34 @@ export function useDashboardController() {
     await generateTaskPackFromDraft(selectedFilePaths);
   }
 
+  function handleExternalTaskPackCreated(taskPack: TaskPack) {
+    setTaskPacks((currentTaskPacks) => [
+      taskPack,
+      ...currentTaskPacks.filter((item) => item.id !== taskPack.id),
+    ]);
+    setGeneratedTaskPack(taskPack);
+    setTaskPackDraft(null);
+    setContextComposerPreview(null);
+    setTaskPackContextPreview(null);
+    setStatusMessage("Task Pack created from GitHub issue.");
+  }
+
+  function handleExternalTaskPackUpdated(taskPack: TaskPack) {
+    setTaskPacks((currentTaskPacks) =>
+      currentTaskPacks.map((item) =>
+        item.id === taskPack.id ? taskPack : item,
+      ),
+    );
+    setGeneratedTaskPack((currentTaskPack) =>
+      currentTaskPack?.id === taskPack.id ? taskPack : currentTaskPack,
+    );
+    setStatusMessage("Task Pack linked to a GitHub issue.");
+  }
+
   function handleToggleProject(projectId: number) {
-    setExpandedProjectId((currentId) => (currentId === projectId ? null : projectId));
+    setExpandedProjectId((currentId) =>
+      currentId === projectId ? null : projectId,
+    );
   }
 
   useEffect(() => {
@@ -577,6 +692,8 @@ export function useDashboardController() {
     handleOpenTaskContextComposer,
     handleCreateTaskPackFromComposer,
     handleCreateTaskPack,
-    handleToggleProject
+    handleExternalTaskPackCreated,
+    handleExternalTaskPackUpdated,
+    handleToggleProject,
   };
 }

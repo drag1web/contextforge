@@ -501,6 +501,23 @@ export class SqliteStorageAdapter implements StorageAdapter {
     return rows.map(mapTaskPackRow);
   }
 
+
+  async getTaskPackById(taskPackId: number): Promise<TaskPackRecord | null> {
+    const row = await this.getOne<TaskPackRow>(
+      `
+      SELECT
+        tp.*,
+        p.name AS project_name
+      FROM task_packs tp
+      JOIN projects p ON p.id = tp.project_id
+      WHERE tp.id = ?;
+      `,
+      [taskPackId]
+    );
+
+    return row ? mapTaskPackRow(row) : null;
+  }
+
   async createTaskPack(input: CreateTaskPackInput): Promise<TaskPackRecord> {
     const timestamp = nowIso();
 
@@ -563,6 +580,28 @@ export class SqliteStorageAdapter implements StorageAdapter {
     }
 
     return mapTaskPackRow(row);
+  }
+
+
+  async updateTaskPackGenerationRecipe(
+    taskPackId: number,
+    generationRecipe: unknown | null
+  ): Promise<TaskPackRecord | null> {
+    const timestamp = nowIso();
+
+    await this.run(
+      `
+      UPDATE task_packs
+      SET generation_recipe = ?, updated_at = ?
+      WHERE id = ?;
+      `,
+      [stringifyJsonValue(generationRecipe ?? null), timestamp, taskPackId],
+      false
+    );
+
+    this.persist();
+
+    return this.getTaskPackById(taskPackId);
   }
 
   async listProjectMemories(projectId: number): Promise<ProjectMemoryRecord[]> {

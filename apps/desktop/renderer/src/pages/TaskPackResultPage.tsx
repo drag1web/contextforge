@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
@@ -13,22 +13,28 @@ import {
   Code2,
   Copy,
   Eye,
+  ExternalLink,
   FileText,
+  Github,
   ListChecks,
+  Loader2,
   ShieldCheck,
   Sparkles,
   Target,
-  Wrench
+  Wrench,
 } from "lucide-react";
 
 import type { TaskPack } from "../types";
+import { createGitHubIssueFromTaskPack } from "../api/client";
 import { TaskPackExportActions } from "../components/taskPacks/TaskPackExportActions";
 import { Button } from "../components/ui/Button";
+import { Modal } from "../components/ui/Modal";
 
 interface TaskPackResultPageProps {
   taskPack: TaskPack;
   onClose: () => void;
   onOpenArchive: () => void;
+  onTaskPackUpdated?: (taskPack: TaskPack) => void;
 }
 
 type PromptViewMode = "preview" | "raw";
@@ -145,7 +151,7 @@ const MARKDOWN_PREVIEW_STYLES = `
 
 const PAGE_TRANSITION = {
   duration: 0.18,
-  ease: [0.16, 1, 0.3, 1]
+  ease: [0.16, 1, 0.3, 1],
 } as const;
 
 function formatDuration(durationMs: number | null | undefined) {
@@ -165,7 +171,10 @@ function formatDate(value: string) {
 }
 
 function getTaskPackBodyLabel(taskPack: TaskPack, t: (key: string) => string) {
-  if (taskPack.generationMode === "ollama" && !taskPack.generationUsedFallback) {
+  if (
+    taskPack.generationMode === "ollama" &&
+    !taskPack.generationUsedFallback
+  ) {
     return t("labels.ollamaRefined");
   }
 
@@ -174,22 +183,105 @@ function getTaskPackBodyLabel(taskPack: TaskPack, t: (key: string) => string) {
 
 function getTaskPackBodyDescription(
   taskPack: TaskPack,
-  t: (key: string, options?: Record<string, unknown>) => string
+  t: (key: string, options?: Record<string, unknown>) => string,
 ) {
-  if (taskPack.generationMode === "ollama" && !taskPack.generationUsedFallback) {
+  if (
+    taskPack.generationMode === "ollama" &&
+    !taskPack.generationUsedFallback
+  ) {
     return taskPack.generationMessage || t("taskPackResult.ollamaDescription");
   }
 
   return taskPack.generationMessage
     ? t("taskPackResult.fallbackDescriptionWithMessage", {
-      message: taskPack.generationMessage
-    })
+        message: taskPack.generationMessage,
+      })
     : t("taskPackResult.fallbackDescription");
+}
+
+function truncateForGitHubIssue(value: string, maxLength = 52000) {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength).trimEnd()}\n\n<!-- ContextForge truncated this Task Pack preview before sending it to GitHub. Export the full .md from ContextForge if needed. -->`;
+}
+
+function getDefaultGitHubIssueTitle(taskPack: TaskPack) {
+  const sourceIssue = taskPack.generationRecipe?.githubIssue;
+
+  if (sourceIssue) {
+    return `Follow-up for issue #${sourceIssue.issueNumber}: ${sourceIssue.issueTitle}`.slice(
+      0,
+      256,
+    );
+  }
+
+  return taskPack.title.slice(0, 256);
+}
+
+function getSuggestedGitHubLabels(taskPack: TaskPack) {
+  return Array.from(
+    new Set(
+      ["contextforge", taskPack.taskType]
+        .concat(taskPack.generationRecipe?.githubIssue?.labels ?? [])
+        .map((label) => label.trim().toLowerCase())
+        .filter(Boolean),
+    ),
+  ).slice(0, 8);
+}
+
+function buildDefaultGitHubIssueBody(taskPack: TaskPack) {
+  const sourceIssue = taskPack.generationRecipe?.githubIssue;
+  const createdAt = new Date().toISOString();
+  const prompt = truncateForGitHubIssue(taskPack.generatedPrompt ?? "");
+
+  return [
+    "## ContextForge Task Pack",
+    "",
+    `Task Pack: #${taskPack.id} — ${taskPack.title}`,
+    `Project: ${taskPack.projectName ?? `Project #${taskPack.projectId}`}`,
+    `Task type: ${taskPack.taskType}`,
+    `Target: ${taskPack.targetTool}`,
+    `Generated: ${taskPack.createdAt}`,
+    `GitHub issue draft created: ${createdAt}`,
+    "",
+    sourceIssue
+      ? `Source issue: ${sourceIssue.fullName}#${sourceIssue.issueNumber} — ${sourceIssue.issueUrl}`
+      : null,
+    "",
+    "## Original Task",
+    "",
+    taskPack.rawTask,
+    "",
+    "## Generated Task Pack",
+    "",
+    "<details>",
+    "<summary>Open generated prompt</summary>",
+    "",
+    prompt,
+    "",
+    "</details>",
+    "",
+    "---",
+    "Created from ContextForge. Project source files stay local; this issue contains only the generated task brief.",
+  ]
+    .filter((line) => line !== null)
+    .join("\n");
+}
+
+async function openGitHubUrl(url: string) {
+  if (window.contextforge?.openExternalUrl) {
+    await window.contextforge.openExternalUrl(url);
+    return;
+  }
+
+  window.open(url, "_blank", "noopener,noreferrer");
 }
 
 function Pill({
   children,
-  tone = "default"
+  tone = "default",
 }: {
   children: ReactNode;
   tone?: "default" | "success" | "warning";
@@ -205,7 +297,7 @@ function Pill({
     <span
       className={[
         "inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium",
-        className
+        className,
       ].join(" ")}
     >
       {children}
@@ -216,7 +308,7 @@ function Pill({
 function ViewModeSwitch({
   value,
   onChange,
-  t
+  t,
 }: {
   value: PromptViewMode;
   onChange: (value: PromptViewMode) => void;
@@ -227,17 +319,17 @@ function ViewModeSwitch({
     label: string;
     icon: ReactNode;
   }> = [
-      {
-        value: "preview",
-        label: t("taskPackResult.preview"),
-        icon: <Eye size={14} />
-      },
-      {
-        value: "raw",
-        label: t("taskPackResult.rawMarkdown"),
-        icon: <Code2 size={14} />
-      }
-    ];
+    {
+      value: "preview",
+      label: t("taskPackResult.preview"),
+      icon: <Eye size={14} />,
+    },
+    {
+      value: "raw",
+      label: t("taskPackResult.rawMarkdown"),
+      icon: <Code2 size={14} />,
+    },
+  ];
 
   return (
     <div className="relative inline-flex overflow-hidden rounded-[1.35rem] border border-white/10 bg-black/70 p-1 shadow-[0_18px_52px_rgba(0,0,0,0.45),inset_0_1px_0_rgba(255,255,255,0.055)]">
@@ -251,7 +343,7 @@ function ViewModeSwitch({
             onClick={() => onChange(option.value)}
             className={[
               "relative h-10 min-w-[132px] overflow-hidden rounded-[1.05rem] px-4 text-sm font-medium transition",
-              isActive ? "text-black" : "text-neutral-500 hover:text-white"
+              isActive ? "text-black" : "text-neutral-500 hover:text-white",
             ].join(" ")}
           >
             {isActive && (
@@ -261,7 +353,7 @@ function ViewModeSwitch({
                 transition={{
                   type: "spring",
                   stiffness: 420,
-                  damping: 34
+                  damping: 34,
                 }}
               />
             )}
@@ -281,7 +373,7 @@ function MetricCard({
   icon,
   label,
   value,
-  caption
+  caption,
 }: {
   icon: ReactNode;
   label: string;
@@ -304,10 +396,193 @@ function MetricCard({
         {label}
       </p>
 
-      <p className="mt-1 truncate text-[11px] text-neutral-600">
-        {caption}
-      </p>
+      <p className="mt-1 truncate text-[11px] text-neutral-600">{caption}</p>
     </div>
+  );
+}
+
+function CreateGitHubIssueModal({
+  taskPack,
+  onClose,
+  onCreated,
+}: {
+  taskPack: TaskPack;
+  onClose: () => void;
+  onCreated: (taskPack: TaskPack) => void;
+}) {
+  const [title, setTitle] = useState(() =>
+    getDefaultGitHubIssueTitle(taskPack),
+  );
+  const [body, setBody] = useState(() => buildDefaultGitHubIssueBody(taskPack));
+  const [labelsText, setLabelsText] = useState(() =>
+    getSuggestedGitHubLabels(taskPack).join(", "),
+  );
+  const [message, setMessage] = useState("");
+  const [isCreating, setIsCreating] = useState(false);
+
+  const labels = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          labelsText
+            .split(",")
+            .map((label) => label.trim())
+            .filter(Boolean),
+        ),
+      ).slice(0, 20),
+    [labelsText],
+  );
+
+  async function handleCreateIssue() {
+    if (!title.trim() || !body.trim()) {
+      setMessage("Title and body are required.");
+      return;
+    }
+
+    try {
+      setIsCreating(true);
+      setMessage("Creating GitHub issue...");
+
+      const result = await createGitHubIssueFromTaskPack(taskPack.id, {
+        title: title.trim(),
+        body: body.trim(),
+        labels,
+      });
+
+      onCreated(result.taskPack);
+      setMessage(`Created GitHub issue #${result.issue.number}.`);
+      await openGitHubUrl(result.issue.htmlUrl);
+      onClose();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Failed to create issue.",
+      );
+    } finally {
+      setIsCreating(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="Create GitHub issue"
+      eyebrow="Stage 13.4 · Task Pack → Issue"
+      maxWidth="max-w-5xl"
+      onClose={onClose}
+      footer={
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <p className="text-xs leading-5 text-neutral-500">
+            Creates one issue in the linked repository. Source files are not
+            uploaded.
+          </p>
+          <div className="flex gap-2">
+            <Button variant="secondary" onClick={onClose} disabled={isCreating}>
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              onClick={handleCreateIssue}
+              disabled={isCreating || !title.trim() || !body.trim()}
+            >
+              {isCreating ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <Github size={15} />
+              )}
+              Create issue
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <div className="grid gap-5 p-6 xl:grid-cols-[minmax(0,1fr)_320px]">
+        <div className="space-y-4">
+          <label className="block">
+            <span className="cf-tech-label text-[10px] uppercase text-neutral-600">
+              Issue title
+            </span>
+            <input
+              value={title}
+              onChange={(event) => setTitle(event.target.value.slice(0, 256))}
+              className="mt-2 w-full rounded-2xl border border-neutral-800 bg-black/40 px-4 py-3 text-sm font-medium text-white outline-none transition placeholder:text-neutral-700 focus:border-white/25"
+              placeholder="GitHub issue title"
+            />
+          </label>
+
+          <label className="block">
+            <span className="cf-tech-label text-[10px] uppercase text-neutral-600">
+              Labels
+            </span>
+            <input
+              value={labelsText}
+              onChange={(event) => setLabelsText(event.target.value)}
+              className="mt-2 w-full rounded-2xl border border-neutral-800 bg-black/40 px-4 py-3 text-sm text-white outline-none transition placeholder:text-neutral-700 focus:border-white/25"
+              placeholder="contextforge, ui, bug"
+            />
+          </label>
+
+          <label className="block">
+            <span className="cf-tech-label text-[10px] uppercase text-neutral-600">
+              Issue body
+            </span>
+            <textarea
+              value={body}
+              onChange={(event) => setBody(event.target.value.slice(0, 60000))}
+              className="mt-2 h-[420px] w-full resize-none rounded-2xl border border-neutral-800 bg-black/45 px-4 py-3 font-mono text-xs leading-6 text-neutral-200 outline-none transition placeholder:text-neutral-700 focus:border-white/25"
+              placeholder="GitHub issue markdown"
+            />
+          </label>
+        </div>
+
+        <aside className="space-y-3">
+          <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
+            <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+              Destination
+            </p>
+            <p className="mt-2 text-sm font-semibold text-white">
+              Linked GitHub repository
+            </p>
+            <p className="mt-1 text-xs leading-5 text-neutral-500">
+              ContextForge will use the Task Pack project link from Stage 13.2.
+              If the project is not linked, the backend will block creation.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.055] p-4">
+            <p className="cf-tech-label text-[10px] uppercase text-emerald-300/80">
+              Source safety
+            </p>
+            <p className="mt-2 text-xs leading-5 text-emerald-100/75">
+              The issue contains the generated brief and metadata only.
+              ContextForge does not upload repository files in this workflow.
+            </p>
+          </div>
+
+          <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
+            <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+              Preview stats
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+              <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
+                <p className="text-neutral-600">Labels</p>
+                <p className="mt-1 font-semibold text-white">{labels.length}</p>
+              </div>
+              <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
+                <p className="text-neutral-600">Body</p>
+                <p className="mt-1 font-semibold text-white">
+                  {body.length.toLocaleString()}
+                </p>
+              </div>
+            </div>
+          </div>
+
+          {message && (
+            <div className="rounded-2xl border border-neutral-800 bg-black/45 p-4 text-xs leading-5 text-neutral-300">
+              {message}
+            </div>
+          )}
+        </aside>
+      </div>
+    </Modal>
   );
 }
 
@@ -330,23 +605,22 @@ function RecipeCard({ taskPack }: { taskPack: TaskPack }) {
         </h3>
 
         <p className="mt-2 text-xs leading-5 text-neutral-600">
-          This Task Pack was generated before v0.5 recipe metadata was added, or the backend did not return recipe details.
+          This Task Pack was generated before v0.5 recipe metadata was added, or
+          the backend did not return recipe details.
         </p>
       </section>
     );
   }
 
   return (
-    <section className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-      <div className="mb-4 shrink-0">
+    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
+      <div className="mb-4">
         <div className="mb-3 flex items-center justify-between gap-3">
           <span className="grid size-10 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-emerald-300">
             <ShieldCheck size={18} />
           </span>
 
-          <Pill tone="success">
-            {recipe.counts.enabledRules} rules
-          </Pill>
+          <Pill tone="success">{recipe.counts.enabledRules} rules</Pill>
         </div>
 
         <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
@@ -358,11 +632,51 @@ function RecipeCard({ taskPack }: { taskPack: TaskPack }) {
         </h3>
 
         <p className="mt-2 text-xs leading-5 text-neutral-600">
-          These settings were validated by ContextForge and inserted into the final Task Pack prompt.
+          These settings were validated by ContextForge and inserted into the
+          final Task Pack prompt.
         </p>
       </div>
 
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
+      <div className="space-y-3">
+        {recipe.githubIssue && (
+          <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.055] p-3">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-emerald-100">
+              <Github size={14} />
+              GitHub Issue Source
+            </div>
+            <p className="truncate text-sm font-semibold text-white">
+              #{recipe.githubIssue.issueNumber} ·{" "}
+              {recipe.githubIssue.issueTitle}
+            </p>
+            <p className="mt-1 truncate text-[11px] text-emerald-100/70">
+              {recipe.githubIssue.fullName} · {recipe.githubIssue.issueState} ·{" "}
+              {recipe.githubIssue.labels.join(", ") || "no labels"}
+            </p>
+          </div>
+        )}
+
+        {recipe.githubCreatedIssue && (
+          <button
+            type="button"
+            onClick={() => openGitHubUrl(recipe.githubCreatedIssue!.issueUrl)}
+            className="w-full rounded-2xl border border-white/15 bg-white/[0.06] p-3 text-left transition hover:border-white/30 hover:bg-white/[0.095]"
+          >
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-white">
+              <ExternalLink size={14} />
+              Created GitHub Issue
+            </div>
+            <p className="truncate text-sm font-semibold text-white">
+              #{recipe.githubCreatedIssue.issueNumber} ·{" "}
+              {recipe.githubCreatedIssue.issueTitle}
+            </p>
+            <p className="mt-1 truncate text-[11px] text-neutral-400">
+              {recipe.githubCreatedIssue.fullName} ·{" "}
+              {recipe.githubCreatedIssue.issueState} ·{" "}
+              {recipe.githubCreatedIssue.labels.join(", ") || "no labels"}
+            </p>
+          </button>
+        )}
+
         <div className="grid grid-cols-3 gap-2">
           <MetricCard
             icon={<ShieldCheck size={14} />}
@@ -398,8 +712,9 @@ function RecipeCard({ taskPack }: { taskPack: TaskPack }) {
 
           <p className="mt-1 truncate text-[11px] text-neutral-600">
             {recipe.template
-              ? `${recipe.template.targetTool} · ${recipe.template.taskType} · ${recipe.template.isBuiltin ? "built-in" : "custom"
-              }`
+              ? `${recipe.template.targetTool} · ${recipe.template.taskType} · ${
+                  recipe.template.isBuiltin ? "built-in" : "custom"
+                }`
               : "Template metadata is missing."}
           </p>
         </div>
@@ -416,8 +731,9 @@ function RecipeCard({ taskPack }: { taskPack: TaskPack }) {
 
           <p className="mt-1 truncate text-[11px] text-neutral-600">
             {recipe.ruleProfile
-              ? `${recipe.ruleProfile.taskType} · ${recipe.ruleProfile.isBuiltin ? "built-in" : "custom"
-              }`
+              ? `${recipe.ruleProfile.taskType} · ${
+                  recipe.ruleProfile.isBuiltin ? "built-in" : "custom"
+                }`
               : "Rule profile metadata is missing."}
           </p>
         </div>
@@ -463,9 +779,7 @@ function RecipeCard({ taskPack }: { taskPack: TaskPack }) {
                 ))}
               </ul>
             ) : (
-              <p className="text-xs text-neutral-600">
-                No custom rules.
-              </p>
+              <p className="text-xs text-neutral-600">No custom rules.</p>
             )}
           </div>
 
@@ -499,7 +813,7 @@ function RecipeCard({ taskPack }: { taskPack: TaskPack }) {
 
 function PromptPanel({
   viewMode,
-  generatedPrompt
+  generatedPrompt,
 }: {
   viewMode: PromptViewMode;
   generatedPrompt: string;
@@ -538,18 +852,35 @@ function PromptPanel({
 export function TaskPackResultPage({
   taskPack,
   onClose,
-  onOpenArchive
+  onOpenArchive,
+  onTaskPackUpdated,
 }: TaskPackResultPageProps) {
   const { t } = useTranslation();
   const [viewMode, setViewMode] = useState<PromptViewMode>("preview");
   const [isCopied, setIsCopied] = useState(false);
+  const [currentTaskPack, setCurrentTaskPack] = useState(taskPack);
+  const [isCreateIssueOpen, setIsCreateIssueOpen] = useState(false);
 
-  const generatedPrompt = taskPack.generatedPrompt ?? "";
-  const bodyLabel = useMemo(() => getTaskPackBodyLabel(taskPack, t), [taskPack, t]);
-  const bodyDescription = useMemo(
-    () => getTaskPackBodyDescription(taskPack, t),
-    [taskPack, t]
+  useEffect(() => {
+    setCurrentTaskPack(taskPack);
+  }, [taskPack]);
+
+  const generatedPrompt = currentTaskPack.generatedPrompt ?? "";
+  const bodyLabel = useMemo(
+    () => getTaskPackBodyLabel(currentTaskPack, t),
+    [currentTaskPack, t],
   );
+  const bodyDescription = useMemo(
+    () => getTaskPackBodyDescription(currentTaskPack, t),
+    [currentTaskPack, t],
+  );
+  const sourceIssue = currentTaskPack.generationRecipe?.githubIssue;
+  const createdIssue = currentTaskPack.generationRecipe?.githubCreatedIssue;
+
+  function handleTaskPackUpdated(nextTaskPack: TaskPack) {
+    setCurrentTaskPack(nextTaskPack);
+    onTaskPackUpdated?.(nextTaskPack);
+  }
 
   async function handleCopyPrompt() {
     await navigator.clipboard.writeText(generatedPrompt);
@@ -575,19 +906,36 @@ export function TaskPackResultPage({
 
               <Pill>{bodyLabel}</Pill>
 
-              {taskPack.generationModel && (
-                <Pill>{taskPack.generationModel}</Pill>
+              {currentTaskPack.generationModel && (
+                <Pill>{currentTaskPack.generationModel}</Pill>
               )}
 
-              {taskPack.generationRecipe && (
+              {currentTaskPack.generationRecipe && (
+                <Pill tone="success">v0.5 recipe</Pill>
+              )}
+
+              {currentTaskPack.generationRecipe?.githubIssue && (
                 <Pill tone="success">
-                  v0.5 recipe
+                  <Github size={12} />
+                  Issue #
+                  {currentTaskPack.generationRecipe.githubIssue.issueNumber}
+                </Pill>
+              )}
+
+              {currentTaskPack.generationRecipe?.githubCreatedIssue && (
+                <Pill tone="success">
+                  <ExternalLink size={12} />
+                  Created #
+                  {
+                    currentTaskPack.generationRecipe.githubCreatedIssue
+                      .issueNumber
+                  }
                 </Pill>
               )}
             </div>
 
             <h1 className="line-clamp-2 max-w-5xl text-[30px] font-semibold leading-[1.04] tracking-[-0.055em] text-white">
-              {taskPack.title}
+              {currentTaskPack.title}
             </h1>
 
             <p className="mt-2 max-w-5xl text-sm leading-6 text-neutral-500">
@@ -606,18 +954,48 @@ export function TaskPackResultPage({
               {t("taskPackResult.openArchive")}
             </Button>
 
-            <TaskPackExportActions taskPack={taskPack} compact />
+            {sourceIssue && (
+              <Button
+                variant="secondary"
+                onClick={() => openGitHubUrl(sourceIssue.issueUrl)}
+              >
+                <ExternalLink size={15} />
+                Source issue
+              </Button>
+            )}
+
+            {createdIssue ? (
+              <Button
+                variant="secondary"
+                onClick={() => openGitHubUrl(createdIssue.issueUrl)}
+              >
+                <ExternalLink size={15} />
+                Open issue
+              </Button>
+            ) : (
+              <Button
+                variant="secondary"
+                onClick={() => setIsCreateIssueOpen(true)}
+              >
+                <Github size={15} />
+                Create issue
+              </Button>
+            )}
+
+            <TaskPackExportActions taskPack={currentTaskPack} compact />
 
             <Button variant="primary" onClick={handleCopyPrompt}>
               {isCopied ? <Check size={15} /> : <Copy size={15} />}
-              {isCopied ? t("taskPackResult.copied") : t("taskPackResult.copyPrompt")}
+              {isCopied
+                ? t("taskPackResult.copied")
+                : t("taskPackResult.copyPrompt")}
             </Button>
           </div>
         </div>
       </header>
 
       <div className="grid min-h-0 gap-4 overflow-hidden xl:grid-cols-[390px_minmax(0,1fr)]">
-        <aside className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden">
+        <aside className="min-h-0 space-y-4 overflow-y-auto pr-1">
           <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
             <div className="mb-4 flex items-center gap-3">
               <span className="grid size-10 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-300">
@@ -639,60 +1017,63 @@ export function TaskPackResultPage({
               <MetricCard
                 icon={<Target size={14} />}
                 label={t("taskPackResult.target")}
-                value={taskPack.targetTool}
+                value={currentTaskPack.targetTool}
                 caption="agent"
               />
 
               <MetricCard
                 icon={<Wrench size={14} />}
                 label={t("taskPackResult.taskType")}
-                value={taskPack.taskType}
+                value={currentTaskPack.taskType}
                 caption="effective"
               />
 
               <MetricCard
                 icon={<Clock3 size={14} />}
                 label={t("taskPackResult.duration")}
-                value={formatDuration(taskPack.generationDurationMs)}
+                value={formatDuration(currentTaskPack.generationDurationMs)}
                 caption="generation"
               />
 
               <MetricCard
                 icon={<Bot size={14} />}
                 label={t("taskPackResult.mode")}
-                value={taskPack.generationMode ?? "template"}
-                caption={taskPack.generationUsedFallback ? "fallback" : "stable"}
+                value={currentTaskPack.generationMode ?? "template"}
+                caption={
+                  currentTaskPack.generationUsedFallback ? "fallback" : "stable"
+                }
               />
             </div>
 
             <p className="mt-4 flex items-center gap-2 text-xs text-neutral-600">
               <FileText size={14} />
-              {t("taskPackResult.created", { date: formatDate(taskPack.createdAt) })}
+              {t("taskPackResult.created", {
+                date: formatDate(currentTaskPack.createdAt),
+              })}
             </p>
           </section>
 
-          <RecipeCard taskPack={taskPack} />
+          <RecipeCard taskPack={currentTaskPack} />
         </aside>
 
         <main className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden">
           <div className="flex shrink-0 flex-wrap items-center justify-between gap-4">
-            <ViewModeSwitch
-              value={viewMode}
-              onChange={setViewMode}
-              t={t}
-            />
+            <ViewModeSwitch value={viewMode} onChange={setViewMode} t={t} />
 
-            <Pill>
-              {generatedPrompt.length.toLocaleString()} chars
-            </Pill>
+            <Pill>{generatedPrompt.length.toLocaleString()} chars</Pill>
           </div>
 
-          <PromptPanel
-            viewMode={viewMode}
-            generatedPrompt={generatedPrompt}
-          />
+          <PromptPanel viewMode={viewMode} generatedPrompt={generatedPrompt} />
         </main>
       </div>
+
+      {isCreateIssueOpen && (
+        <CreateGitHubIssueModal
+          taskPack={currentTaskPack}
+          onClose={() => setIsCreateIssueOpen(false)}
+          onCreated={handleTaskPackUpdated}
+        />
+      )}
     </section>
   );
 }

@@ -30,9 +30,39 @@ import {
   type ContextSelectionQuality,
 } from "../selection/contextQuality.js";
 import { isSecretLikePath } from "../selection/safetyPolicy.js";
-import type { ProjectMemoryRecord } from "../storage/types.js";
+import type { ProjectMemoryRecord, ProjectRecord } from "../storage/types.js";
+import type {
+  GitHubCreatedIssueLink,
+  GitHubIssueTaskPackSource,
+} from "../github/githubTypes.js";
+import { createGitHubIssueForProject } from "../github/githubIssuesService.js";
 
 export const taskPacksRouter = Router();
+
+const githubIssueTaskPackSourceSchema = z.object({
+  type: z.literal("github-issue"),
+  owner: z.string().trim().min(1).max(120),
+  repo: z.string().trim().min(1).max(120),
+  fullName: z.string().trim().min(3).max(260),
+  issueNumber: z.number().int().positive(),
+  issueTitle: z.string().trim().min(1).max(260),
+  issueUrl: z.string().url().max(700),
+  issueState: z.enum(["open", "closed"]),
+  labels: z.array(z.string().trim().min(1).max(120)).max(30).default([]),
+  authorLogin: z.string().trim().min(1).max(120).nullable().default(null),
+  repositoryUrl: z.string().url().max(700),
+  linkedAt: z.string().trim().min(1).max(80),
+});
+
+
+const createGitHubIssueFromTaskPackSchema = z.object({
+  title: z.string().trim().min(3).max(256),
+  body: z.string().trim().min(3).max(60000),
+  labels: z
+    .array(z.string().trim().min(1).max(80))
+    .max(20)
+    .default([]),
+});
 
 const createTaskPackSchema = z.object({
   projectId: z.number().int().positive(),
@@ -53,22 +83,14 @@ const createTaskPackSchema = z.object({
     .array(z.string().trim().min(1).max(700))
     .max(30)
     .optional(),
+  githubIssueSource: githubIssueTaskPackSourceSchema.optional(),
 });
 
 interface ProjectReadinessReport {
   issues: string[];
 }
 
-interface ProjectRow {
-  id: number;
-  name: string;
-  localPath: string;
-  packageManager: string | null;
-  detectedStack: string[];
-  scripts: Record<string, string>;
-  readinessScore: number;
-  readinessReport: ProjectReadinessReport | null;
-}
+type ProjectRow = ProjectRecord;
 
 interface TaskContextSnippet {
   relativePath: string;
@@ -139,6 +161,8 @@ interface TaskPackGenerationRecipe {
     customRules: number;
     acceptanceCriteria: number;
   };
+  githubIssue?: GitHubIssueTaskPackSource;
+  githubCreatedIssue?: GitHubCreatedIssueLink;
 }
 
 const MAX_SNIPPET_FILES = 5;
@@ -780,7 +804,9 @@ function formatFileSize(sizeBytes: number) {
   return `${(sizeBytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-function formatProjectMemoryCategory(category: ProjectMemoryRecord["category"]) {
+function formatProjectMemoryCategory(
+  category: ProjectMemoryRecord["category"],
+) {
   switch (category) {
     case "architecture":
       return "Architecture";
@@ -798,7 +824,9 @@ function formatProjectMemoryCategory(category: ProjectMemoryRecord["category"]) 
 }
 
 function buildProjectMemorySection(context: UniversalTaskPackContext) {
-  const enabledMemories = context.projectMemories.filter((memory) => memory.isEnabled);
+  const enabledMemories = context.projectMemories.filter(
+    (memory) => memory.isEnabled,
+  );
 
   if (enabledMemories.length === 0) {
     return "";
@@ -809,13 +837,14 @@ function buildProjectMemorySection(context: UniversalTaskPackContext) {
       .split(/\r?\n/)
       .map((line) => line.trim())
       .filter(Boolean);
-    const content = contentLines.length > 0
-      ? contentLines.map((line) => `  - ${line}`).join("\n")
-      : `  - ${memory.title}`;
+    const content =
+      contentLines.length > 0
+        ? contentLines.map((line) => `  - ${line}`).join("\n")
+        : `  - ${memory.title}`;
 
     return [
       `- [${formatProjectMemoryCategory(memory.category)}] ${memory.title}`,
-      content
+      content,
     ].join("\n");
   });
 
@@ -1337,6 +1366,21 @@ function postProcessGeneratedTaskPack(
   return normalizeMarkdownSeparators(restored);
 }
 
+
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object" && !Array.isArray(value));
+}
+
+function normalizeGitHubIssueLabels(labels: string[]) {
+  return Array.from(
+    new Set(
+      labels
+        .map((label) => label.trim())
+        .filter(Boolean),
+    ),
+  ).slice(0, 20);
+}
+
 async function getProjectById(projectId: number): Promise<ProjectRow | null> {
   return storage.getProjectById(projectId);
 }
@@ -1345,6 +1389,7 @@ function buildGenerationRecipeMetadata(
   recipe: Awaited<
     ReturnType<typeof buildTaskPackRulesTemplatePrompt>
   >["recipe"],
+  githubIssue?: GitHubIssueTaskPackSource,
 ): TaskPackGenerationRecipe {
   return {
     template: recipe.template
@@ -1384,6 +1429,7 @@ function buildGenerationRecipeMetadata(
       customRules: recipe.customRules.length,
       acceptanceCriteria: recipe.acceptanceCriteria.length,
     },
+    githubIssue,
   };
 }
 
@@ -1394,6 +1440,120 @@ taskPacksRouter.get("/", async (_req, res) => {
     ok: true,
     taskPacks,
   });
+});
+
+
+taskPacksRouter.post("/:id/github/issue", async (req, res) => {
+  const taskPackId = Number(req.params.id);
+  const parsed = createGitHubIssueFromTaskPackSchema.safeParse(req.body ?? {});
+
+  if (!Number.isInteger(taskPackId) || taskPackId <= 0) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid task pack id",
+    });
+    return;
+  }
+
+  if (!parsed.success) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid request body",
+      issues: parsed.error.issues,
+    });
+    return;
+  }
+
+  try {
+    const taskPack = await storage.getTaskPackById(taskPackId);
+
+    if (!taskPack) {
+      res.status(404).json({
+        ok: false,
+        message: "Task Pack not found",
+      });
+      return;
+    }
+
+    const project = await getProjectById(taskPack.projectId);
+
+    if (!project) {
+      res.status(404).json({
+        ok: false,
+        message: "Project not found",
+      });
+      return;
+    }
+
+    const existingRecipe = isPlainObject(taskPack.generationRecipe)
+      ? taskPack.generationRecipe
+      : {};
+
+    const existingCreatedIssue = existingRecipe.githubCreatedIssue;
+
+    if (isPlainObject(existingCreatedIssue)) {
+      res.status(409).json({
+        ok: false,
+        message: "This Task Pack is already linked to a created GitHub issue.",
+        githubCreatedIssue: existingCreatedIssue,
+      });
+      return;
+    }
+
+    const { repository, issue } = await createGitHubIssueForProject(project, {
+      title: parsed.data.title,
+      body: parsed.data.body,
+      labels: normalizeGitHubIssueLabels(parsed.data.labels),
+    });
+
+    const githubCreatedIssue: GitHubCreatedIssueLink = {
+      type: "github-created-issue",
+      owner: repository.owner,
+      repo: repository.repo,
+      fullName: repository.fullName,
+      issueNumber: issue.number,
+      issueTitle: issue.title,
+      issueUrl: issue.htmlUrl,
+      issueState: issue.state,
+      labels: issue.labels.map((label) => label.name),
+      repositoryUrl: repository.htmlUrl,
+      createdAt: new Date().toISOString(),
+      createdFromTaskPackId: taskPack.id,
+    };
+
+    const nextRecipe = {
+      ...existingRecipe,
+      githubCreatedIssue,
+    };
+
+    const updatedTaskPack = await storage.updateTaskPackGenerationRecipe(
+      taskPack.id,
+      nextRecipe,
+    );
+
+    res.json({
+      ok: true,
+      repository,
+      issue,
+      githubCreatedIssue,
+      taskPack: updatedTaskPack
+        ? {
+            ...updatedTaskPack,
+            projectName: project.name,
+          }
+        : null,
+    });
+  } catch (error) {
+    console.error("Failed to create GitHub issue from Task Pack:", error);
+
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    res.status(500).json({
+      ok: false,
+      message: errorMessage,
+      error: errorMessage,
+    });
+  }
 });
 
 taskPacksRouter.post("/", async (req, res) => {
@@ -1529,6 +1689,7 @@ taskPacksRouter.post("/", async (req, res) => {
     const templatePrompt = taskPackTemplate.prompt;
     const generationRecipe = buildGenerationRecipeMetadata(
       taskPackTemplate.recipe,
+      parsed.data.githubIssueSource,
     );
 
     const contextAwareTemplatePrompt = buildContextAwareTemplatePrompt(
@@ -1556,7 +1717,11 @@ taskPacksRouter.post("/", async (req, res) => {
       universalContext,
     );
 
-    const title = createTitle(parsed.data.rawTask);
+    const title = parsed.data.githubIssueSource
+      ? createTitle(
+          `Issue #${parsed.data.githubIssueSource.issueNumber}: ${parsed.data.githubIssueSource.issueTitle}`,
+        )
+      : createTitle(parsed.data.rawTask);
 
     const taskPack = await storage.createTaskPack({
       projectId: project.id,

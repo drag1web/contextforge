@@ -1,7 +1,8 @@
-﻿const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer } = require("electron");
 
 contextBridge.exposeInMainWorld("contextforge", {
   selectProjectFolder: () => ipcRenderer.invoke("dialog:select-project-folder"),
+  openExternalUrl: (url) => ipcRenderer.invoke("shell:open-external", url),
 
   windowControls: {
     minimize: () => ipcRenderer.send("window:minimize"),

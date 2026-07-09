@@ -1,12 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Check, ChevronDown } from "lucide-react";
-import {
-  useEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode
-} from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 export interface SelectOption<TValue extends string = string> {
@@ -44,16 +38,17 @@ export function CustomSelect<TValue extends string = string>({
   onChange,
   placeholder = "Select option",
   disabled = false,
-  className = ""
+  className = "",
 }: CustomSelectProps<TValue>) {
   const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState<SelectPosition>({
     top: 0,
     left: 0,
     width: 240,
-    openUp: false
+    openUp: false,
   });
 
   const selectedOption = useMemo(() => {
@@ -77,19 +72,19 @@ export function CustomSelect<TValue extends string = string>({
     const width = Math.max(rect.width, 220);
     const left = Math.min(
       window.innerWidth - width - VIEWPORT_PADDING,
-      Math.max(VIEWPORT_PADDING, rect.left)
+      Math.max(VIEWPORT_PADDING, rect.left),
     );
 
     setPosition({
       top: shouldOpenUp
         ? Math.max(
             VIEWPORT_PADDING,
-            rect.top - estimatedHeight - MENU_VERTICAL_OFFSET
+            rect.top - estimatedHeight - MENU_VERTICAL_OFFSET,
           )
         : rect.bottom + MENU_VERTICAL_OFFSET,
       left,
       width,
-      openUp: shouldOpenUp
+      openUp: shouldOpenUp,
     });
   }
 
@@ -139,14 +134,34 @@ export function CustomSelect<TValue extends string = string>({
       updatePosition();
     }
 
+    function handlePointerDown(event: PointerEvent) {
+      const target = event.target;
+
+      if (!(target instanceof Node)) {
+        return;
+      }
+
+      if (triggerRef.current?.contains(target)) {
+        return;
+      }
+
+      if (menuRef.current?.contains(target)) {
+        return;
+      }
+
+      closeSelect();
+    }
+
     window.addEventListener("keydown", handleKeyDown);
     window.addEventListener("resize", handleWindowChange);
     window.addEventListener("scroll", handleWindowChange, true);
+    window.addEventListener("pointerdown", handlePointerDown, true);
 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
       window.removeEventListener("resize", handleWindowChange);
       window.removeEventListener("scroll", handleWindowChange, true);
+      window.removeEventListener("pointerdown", handlePointerDown, true);
     };
   }, [isOpen, options.length]);
 
@@ -167,14 +182,12 @@ export function CustomSelect<TValue extends string = string>({
           isOpen
             ? "border-white/25 bg-neutral-950 text-white shadow-[0_0_28px_rgba(255,255,255,0.045),inset_0_1px_0_rgba(255,255,255,0.04)]"
             : "",
-          className
+          className,
         ].join(" ")}
       >
         <span className="flex min-w-0 items-center gap-3">
           {selectedOption?.icon && (
-            <span className="shrink-0">
-              {selectedOption.icon}
-            </span>
+            <span className="shrink-0">{selectedOption.icon}</span>
           )}
 
           <span className="block min-w-0">
@@ -194,7 +207,7 @@ export function CustomSelect<TValue extends string = string>({
           size={16}
           className={[
             "shrink-0 text-neutral-500 transition duration-200",
-            isOpen ? "rotate-180 text-neutral-200" : ""
+            isOpen ? "rotate-180 text-neutral-200" : "",
           ].join(" ")}
         />
       </button>
@@ -202,116 +215,103 @@ export function CustomSelect<TValue extends string = string>({
       {createPortal(
         <AnimatePresence>
           {isOpen && (
-            <>
-              <motion.button
-                type="button"
-                aria-label="Close select"
-                className="fixed inset-0 z-[9998] cursor-default bg-transparent"
-                onClick={closeSelect}
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.12 }}
-                tabIndex={-1}
-              />
+            <motion.div
+              ref={menuRef}
+              className="cf-floating-popover fixed z-[9999] overflow-hidden rounded-2xl border border-neutral-800/80 bg-black/95 p-1.5 shadow-[0_24px_80px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-2xl"
+              style={{
+                top: position.top,
+                left: position.left,
+                width: position.width,
+                maxHeight: MENU_MAX_HEIGHT,
+              }}
+              initial={{
+                opacity: 0,
+                y: position.openUp ? 8 : -8,
+                scale: 0.98,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                scale: 1,
+              }}
+              exit={{
+                opacity: 0,
+                y: position.openUp ? 8 : -8,
+                scale: 0.98,
+              }}
+              transition={{
+                duration: 0.16,
+                ease: [0.16, 1, 0.3, 1],
+              }}
+            >
+              <div className="max-h-[320px] overflow-auto">
+                {options.map((option) => {
+                  const isSelected = option.value === value;
+                  const renderedIcon =
+                    isSelected && option.activeIcon
+                      ? option.activeIcon
+                      : option.icon;
 
-              <motion.div
-                className="cf-floating-popover fixed z-[9999] overflow-hidden rounded-2xl border border-neutral-800/80 bg-black/95 p-1.5 shadow-[0_24px_80px_rgba(0,0,0,0.65),inset_0_1px_0_rgba(255,255,255,0.04)] backdrop-blur-2xl"
-                style={{
-                  top: position.top,
-                  left: position.left,
-                  width: position.width,
-                  maxHeight: MENU_MAX_HEIGHT
-                }}
-                initial={{
-                  opacity: 0,
-                  y: position.openUp ? 8 : -8,
-                  scale: 0.98
-                }}
-                animate={{
-                  opacity: 1,
-                  y: 0,
-                  scale: 1
-                }}
-                exit={{
-                  opacity: 0,
-                  y: position.openUp ? 8 : -8,
-                  scale: 0.98
-                }}
-                transition={{
-                  duration: 0.16,
-                  ease: [0.16, 1, 0.3, 1]
-                }}
-              >
-                <div className="max-h-[320px] overflow-auto">
-                  {options.map((option) => {
-                    const isSelected = option.value === value;
-                    const renderedIcon =
-                      isSelected && option.activeIcon ? option.activeIcon : option.icon;
+                  return (
+                    <button
+                      key={option.value}
+                      type="button"
+                      disabled={option.disabled}
+                      onClick={() => handleSelect(option)}
+                      className={[
+                        "group flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition",
+                        isSelected
+                          ? "bg-white text-black"
+                          : "text-neutral-300 hover:bg-white/[0.055] hover:text-white",
+                        option.disabled ? "cursor-not-allowed opacity-45" : "",
+                      ].join(" ")}
+                    >
+                      <span className="flex min-w-0 items-start gap-3">
+                        {renderedIcon && (
+                          <span
+                            className={[
+                              "mt-0.5 shrink-0 transition",
+                              isSelected ? "text-black" : "text-current",
+                            ].join(" ")}
+                          >
+                            {renderedIcon}
+                          </span>
+                        )}
 
-                    return (
-                      <button
-                        key={option.value}
-                        type="button"
-                        disabled={option.disabled}
-                        onClick={() => handleSelect(option)}
-                        className={[
-                          "group flex w-full items-start justify-between gap-3 rounded-xl px-3 py-2.5 text-left transition",
-                          isSelected
-                            ? "bg-white text-black"
-                            : "text-neutral-300 hover:bg-white/[0.055] hover:text-white",
-                          option.disabled
-                            ? "cursor-not-allowed opacity-45"
-                            : ""
-                        ].join(" ")}
-                      >
-                        <span className="flex min-w-0 items-start gap-3">
-                          {renderedIcon && (
+                        <span className="min-w-0">
+                          <span className="block truncate text-sm font-medium">
+                            {option.label}
+                          </span>
+
+                          {option.description && (
                             <span
                               className={[
-                                "mt-0.5 shrink-0 transition",
-                                isSelected ? "text-black" : "text-current"
+                                "mt-0.5 block line-clamp-2 text-xs leading-5",
+                                isSelected
+                                  ? "text-black/60"
+                                  : "text-neutral-600 group-hover:text-neutral-400",
                               ].join(" ")}
                             >
-                              {renderedIcon}
+                              {option.description}
                             </span>
                           )}
-
-                          <span className="min-w-0">
-                            <span className="block truncate text-sm font-medium">
-                              {option.label}
-                            </span>
-
-                            {option.description && (
-                              <span
-                                className={[
-                                  "mt-0.5 block line-clamp-2 text-xs leading-5",
-                                  isSelected
-                                    ? "text-black/60"
-                                    : "text-neutral-600 group-hover:text-neutral-400"
-                                ].join(" ")}
-                              >
-                                {option.description}
-                              </span>
-                            )}
-                          </span>
                         </span>
+                      </span>
 
-                        {isSelected && (
-                          <Check
-                            size={15}
-                            className="mt-0.5 shrink-0 text-black"
-                          />
-                        )}
-                      </button>
-                    );
-                  })}
-                </div>
-              </motion.div>
-            </>
+                      {isSelected && (
+                        <Check
+                          size={15}
+                          className="mt-0.5 shrink-0 text-black"
+                        />
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            </motion.div>
           )}
         </AnimatePresence>,
-        document.body
+        document.body,
       )}
     </>
   );

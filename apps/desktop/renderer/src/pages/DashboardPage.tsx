@@ -32,6 +32,7 @@ import { PlaceholderPage } from "./PlaceholderPage";
 import { ReportsPage } from "./ReportsPage";
 import { ScannersPage } from "./ScannersPage";
 import { IntegrationsPage } from "./IntegrationsPage";
+import { GitHubPage } from "./GitHubPage";
 import { AgentsPage } from "./AgentsPage";
 
 import { ContextComposerPage } from "./ContextComposerPage";
@@ -54,7 +55,8 @@ const PAGE_ORDER: AppPageId[] = [
   "agents",
   "templates",
   "integrations",
-  "settings"
+  "github",
+  "settings",
 ];
 
 function getPageOrderIndex(page: AppPageId) {
@@ -66,12 +68,12 @@ const SPLASH_PARTICLES = Array.from({ length: 14 }, (_, index) => ({
   id: index,
   left: `${10 + ((index * 23) % 80)}%`,
   top: `${14 + ((index * 29) % 70)}%`,
-  delay: 0.12 + index * 0.045
+  delay: 0.12 + index * 0.045,
 }));
 
 function WelcomeSplashOverlay({
   progress,
-  status
+  status,
 }: {
   progress: number;
   status: string;
@@ -87,7 +89,7 @@ function WelcomeSplashOverlay({
       exit={{ opacity: 0 }}
       transition={{
         duration: 0.34,
-        ease: [0.16, 1, 0.3, 1]
+        ease: [0.16, 1, 0.3, 1],
       }}
       className="fixed inset-0 z-[90] grid place-items-center overflow-hidden bg-black"
     >
@@ -104,17 +106,17 @@ function WelcomeSplashOverlay({
             animate={{
               opacity: [0, 0.55, 0],
               y: [8, -18],
-              scale: [0.65, 1, 0.8]
+              scale: [0.65, 1, 0.8],
             }}
             transition={{
               delay: particle.delay,
               duration: 2.2,
-              ease: "easeInOut"
+              ease: "easeInOut",
             }}
             className="absolute size-1 rounded-full bg-white/45 shadow-[0_0_16px_rgba(255,255,255,0.7)]"
             style={{
               left: particle.left,
-              top: particle.top
+              top: particle.top,
             }}
           />
         ))}
@@ -124,21 +126,21 @@ function WelcomeSplashOverlay({
         initial={{
           opacity: 0,
           y: 22,
-          scale: 0.965
+          scale: 0.965,
         }}
         animate={{
           opacity: 1,
           y: 0,
-          scale: 1
+          scale: 1,
         }}
         exit={{
           opacity: 0,
           y: -14,
-          scale: 0.985
+          scale: 0.985,
         }}
         transition={{
           duration: 0.5,
-          ease: [0.16, 1, 0.3, 1]
+          ease: [0.16, 1, 0.3, 1],
         }}
         className="relative w-[min(580px,calc(100vw-48px))] overflow-hidden rounded-[2rem] border border-white/10 bg-neutral-950/85 p-7 text-center shadow-[0_34px_110px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.07)] backdrop-blur-xl"
       >
@@ -151,7 +153,7 @@ function WelcomeSplashOverlay({
           transition={{
             delay: 0.28,
             duration: 1.35,
-            ease: [0.16, 1, 0.3, 1]
+            ease: [0.16, 1, 0.3, 1],
           }}
           className="absolute inset-y-0 left-0 w-28 rotate-12 bg-white/15 blur-2xl"
         />
@@ -166,7 +168,7 @@ function WelcomeSplashOverlay({
               type: "spring",
               stiffness: 480,
               damping: 26,
-              mass: 0.75
+              mass: 0.75,
             }}
             className="mx-auto mb-5 grid size-16 place-items-center rounded-[1.35rem] border border-white/10 bg-black/50 shadow-[0_18px_54px_rgba(255,255,255,0.10),inset_0_1px_0_rgba(255,255,255,0.06)]"
           >
@@ -179,7 +181,11 @@ function WelcomeSplashOverlay({
           </motion.div>
 
           <div className="mb-4 flex flex-wrap justify-center gap-2">
-            {[appMeta.phase, t("common.localFirst"), t("splash.composerReady")].map((badge, index) => (
+            {[
+              appMeta.phase,
+              t("common.localFirst"),
+              t("splash.composerReady"),
+            ].map((badge, index) => (
               <motion.span
                 key={badge}
                 initial={{ opacity: 0, y: 8, scale: 0.96 }}
@@ -188,7 +194,7 @@ function WelcomeSplashOverlay({
                 transition={{
                   delay: 0.16 + index * 0.08,
                   duration: 0.32,
-                  ease: [0.16, 1, 0.3, 1]
+                  ease: [0.16, 1, 0.3, 1],
                 }}
                 className="cf-badge"
               >
@@ -205,7 +211,7 @@ function WelcomeSplashOverlay({
             transition={{
               delay: 0.28,
               duration: 0.42,
-              ease: [0.16, 1, 0.3, 1]
+              ease: [0.16, 1, 0.3, 1],
             }}
             className="text-[36px] font-semibold leading-[1.02] tracking-[-0.06em] text-white"
           >
@@ -219,7 +225,7 @@ function WelcomeSplashOverlay({
             transition={{
               delay: 0.38,
               duration: 0.42,
-              ease: [0.16, 1, 0.3, 1]
+              ease: [0.16, 1, 0.3, 1],
             }}
             className="mx-auto mt-3 max-w-md text-sm leading-6 text-neutral-500"
           >
@@ -233,7 +239,7 @@ function WelcomeSplashOverlay({
             transition={{
               delay: 0.5,
               duration: 0.36,
-              ease: [0.16, 1, 0.3, 1]
+              ease: [0.16, 1, 0.3, 1],
             }}
             className="mx-auto mt-6 w-full max-w-[340px]"
           >
@@ -257,7 +263,7 @@ function WelcomeSplashOverlay({
                   type: "spring",
                   stiffness: 170,
                   damping: 26,
-                  mass: 0.8
+                  mass: 0.8,
                 }}
                 className="h-full rounded-full bg-white"
               />
@@ -279,8 +285,11 @@ export function DashboardPage() {
   const [activePage, setActivePage] = useState<AppPageId>("dashboard");
   const [pageDirection, setPageDirection] = useState(1);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
-  const [onboardingDismissedThisSession, setOnboardingDismissedThisSession] = useState(false);
-  const [selectedProjectDetailsId, setSelectedProjectDetailsId] = useState<number | null>(null);
+  const [onboardingDismissedThisSession, setOnboardingDismissedThisSession] =
+    useState(false);
+  const [selectedProjectDetailsId, setSelectedProjectDetailsId] = useState<
+    number | null
+  >(null);
   const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
 
   const [isWelcomeVisible, setIsWelcomeVisible] = useState(true);
@@ -304,7 +313,7 @@ export function DashboardPage() {
   }, [dashboard.statusMessage]);
 
   useKeyboardShortcuts({
-    globalSearch: () => setIsGlobalSearchOpen(true)
+    globalSearch: () => setIsGlobalSearchOpen(true),
   });
 
   const handleNavigate = useCallback(
@@ -320,21 +329,24 @@ export function DashboardPage() {
       setPageDirection(nextIndex >= currentIndex ? 1 : -1);
       setActivePage(nextPage);
     },
-    [activePage, dashboard]
+    [activePage, dashboard],
   );
 
-  const handleOpenProjectDetails = useCallback((projectId: number) => {
-    const currentIndex = getPageOrderIndex(activePage);
-    const nextIndex = getPageOrderIndex("projects");
+  const handleOpenProjectDetails = useCallback(
+    (projectId: number) => {
+      const currentIndex = getPageOrderIndex(activePage);
+      const nextIndex = getPageOrderIndex("projects");
 
-    dashboard.setTaskPackDraft(null);
-    dashboard.setContextComposerPreview(null);
-    dashboard.setGeneratedTaskPack(null);
+      dashboard.setTaskPackDraft(null);
+      dashboard.setContextComposerPreview(null);
+      dashboard.setGeneratedTaskPack(null);
 
-    setPageDirection(nextIndex >= currentIndex ? 1 : -1);
-    setActivePage("projects");
-    setSelectedProjectDetailsId(projectId);
-  }, [activePage, dashboard]);
+      setPageDirection(nextIndex >= currentIndex ? 1 : -1);
+      setActivePage("projects");
+      setSelectedProjectDetailsId(projectId);
+    },
+    [activePage, dashboard],
+  );
 
   const completeFirstRunOnboarding = useCallback(async () => {
     setOnboardingDismissedThisSession(true);
@@ -342,20 +354,22 @@ export function DashboardPage() {
     setAppSettings((currentSettings) =>
       currentSettings
         ? {
-          ...currentSettings,
-          onboardingCompleted: true
-        }
-        : currentSettings
+            ...currentSettings,
+            onboardingCompleted: true,
+          }
+        : currentSettings,
     );
 
     try {
-      const updatedSettings = await updateAppSettings({ onboardingCompleted: true });
+      const updatedSettings = await updateAppSettings({
+        onboardingCompleted: true,
+      });
 
       setAppSettings(updatedSettings);
       window.dispatchEvent(
         new CustomEvent("contextforge:settings-updated", {
-          detail: updatedSettings
-        })
+          detail: updatedSettings,
+        }),
       );
     } catch {
       // Keep the optimistic local close so onboarding never traps the user.
@@ -411,14 +425,14 @@ export function DashboardPage() {
 
     window.addEventListener(
       "contextforge:settings-updated",
-      handleSettingsUpdated
+      handleSettingsUpdated,
     );
 
     return () => {
       isMounted = false;
       window.removeEventListener(
         "contextforge:settings-updated",
-        handleSettingsUpdated
+        handleSettingsUpdated,
       );
     };
   }, []);
@@ -456,7 +470,9 @@ export function DashboardPage() {
 
     if (dashboard.isLoading) {
       setBootProgress((current) => Math.max(current, 68));
-      setBootStatus(dashboard.statusMessage || i18n.t("splash.loadingWorkspace"));
+      setBootStatus(
+        dashboard.statusMessage || i18n.t("splash.loadingWorkspace"),
+      );
       return;
     }
 
@@ -481,7 +497,7 @@ export function DashboardPage() {
     dashboard.statusMessage,
     isWelcomeVisible,
     minimumSplashDone,
-    shellSettingsReady
+    shellSettingsReady,
   ]);
 
   const content = useMemo(() => {
@@ -494,6 +510,7 @@ export function DashboardPage() {
             dashboard.setGeneratedTaskPack(null);
             handleNavigate("taskPacks");
           }}
+          onTaskPackUpdated={dashboard.handleExternalTaskPackUpdated}
         />
       );
     }
@@ -532,6 +549,7 @@ export function DashboardPage() {
             dashboard.setGeneratedTaskPack(null);
             handleNavigate("taskPacks");
           }}
+          onTaskPackUpdated={dashboard.handleExternalTaskPackUpdated}
         />
       );
     }
@@ -551,7 +569,9 @@ export function DashboardPage() {
       );
     }
     if (selectedProjectDetailsId !== null) {
-      const selectedProject = dashboard.projects.find((project) => project.id === selectedProjectDetailsId);
+      const selectedProject = dashboard.projects.find(
+        (project) => project.id === selectedProjectDetailsId,
+      );
 
       if (selectedProject) {
         return (
@@ -562,7 +582,9 @@ export function DashboardPage() {
             onRescan={dashboard.handleRescanProject}
             onGenerateAgents={dashboard.handleGenerateAgentsPreview}
             onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
-            onCreateTaskPackFromChanges={dashboard.handleCreateTaskPackDraftFromChanges}
+            onCreateTaskPackFromChanges={
+              dashboard.handleCreateTaskPackDraftFromChanges
+            }
           />
         );
       }
@@ -601,7 +623,9 @@ export function DashboardPage() {
             onRescanProject={dashboard.handleRescanProject}
             onGenerateAgents={dashboard.handleGenerateAgentsPreview}
             onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
-            onOpenProjectDetails={(project) => handleOpenProjectDetails(project.id)}
+            onOpenProjectDetails={(project) =>
+              handleOpenProjectDetails(project.id)
+            }
           />
         </>
       );
@@ -677,7 +701,15 @@ export function DashboardPage() {
     }
 
     if (activePage === "integrations") {
-      return <IntegrationsPage />;
+      return <IntegrationsPage onOpenGitHub={() => handleNavigate("github")} />;
+    }
+
+    if (activePage === "github") {
+      return (
+        <GitHubPage
+          onTaskPackCreated={dashboard.handleExternalTaskPackCreated}
+        />
+      );
     }
 
     if (activePage === "settings") {
@@ -685,7 +717,14 @@ export function DashboardPage() {
     }
 
     return <PlaceholderPage pageId={activePage} />;
-  }, [activePage, dashboard, handleNavigate, handleOpenProjectDetails, renderPageStatus, selectedProjectDetailsId]);
+  }, [
+    activePage,
+    dashboard,
+    handleNavigate,
+    handleOpenProjectDetails,
+    renderPageStatus,
+    selectedProjectDetailsId,
+  ]);
 
   const contentTransitionKey = useMemo(() => {
     if (dashboard.generatedTaskPack) {
@@ -710,7 +749,7 @@ export function DashboardPage() {
     dashboard.contextComposerPreview,
     dashboard.generatedTaskPack,
     dashboard.taskPackDraft,
-    selectedProjectDetailsId
+    selectedProjectDetailsId,
   ]);
 
   const shouldShowFirstRunOnboarding = Boolean(
@@ -719,7 +758,8 @@ export function DashboardPage() {
     appSettings &&
     !onboardingDismissedThisSession &&
     appSettings.onboardingEnabled !== false &&
-    (appSettings.onboardingShowEveryLaunch !== false || !appSettings.onboardingCompleted)
+    (appSettings.onboardingShowEveryLaunch !== false ||
+      !appSettings.onboardingCompleted),
   );
 
   return (
@@ -784,7 +824,11 @@ export function DashboardPage() {
         </AnimatePresence>
 
         <LoadingOverlay
-          isVisible={dashboard.isLoading && !isWelcomeVisible && !shouldShowFirstRunOnboarding}
+          isVisible={
+            dashboard.isLoading &&
+            !isWelcomeVisible &&
+            !shouldShowFirstRunOnboarding
+          }
           message={dashboard.statusMessage}
         />
       </div>

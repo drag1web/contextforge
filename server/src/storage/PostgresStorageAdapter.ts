@@ -304,6 +304,37 @@ export class PostgresStorageAdapter implements StorageAdapter {
     return result.rows.map(mapTaskPackRow);
   }
 
+
+  async getTaskPackById(taskPackId: number): Promise<TaskPackRecord | null> {
+    const result = await pool.query(
+      `
+      SELECT
+        tp.id,
+        tp.project_id AS "projectId",
+        p.name AS "projectName",
+        tp.title,
+        tp.raw_task AS "rawTask",
+        tp.task_type AS "taskType",
+        tp.target_tool AS "targetTool",
+        tp.generated_prompt AS "generatedPrompt",
+        tp.generation_mode AS "generationMode",
+        tp.generation_model AS "generationModel",
+        tp.generation_message AS "generationMessage",
+        tp.generation_used_fallback AS "generationUsedFallback",
+        tp.generation_duration_ms AS "generationDurationMs",
+        tp.generation_recipe AS "generationRecipe",
+        tp.created_at AS "createdAt",
+        tp.updated_at AS "updatedAt"
+      FROM task_packs tp
+      JOIN projects p ON p.id = tp.project_id
+      WHERE tp.id = $1;
+      `,
+      [taskPackId]
+    );
+
+    return result.rows[0] ? mapTaskPackRow(result.rows[0]) : null;
+  }
+
   async createTaskPack(input: CreateTaskPackInput): Promise<TaskPackRecord> {
     const result = await pool.query(
       `
@@ -356,6 +387,43 @@ export class PostgresStorageAdapter implements StorageAdapter {
     );
 
     return mapTaskPackRow(result.rows[0]);
+  }
+
+
+  async updateTaskPackGenerationRecipe(
+    taskPackId: number,
+    generationRecipe: unknown | null
+  ): Promise<TaskPackRecord | null> {
+    const result = await pool.query(
+      `
+      UPDATE task_packs
+      SET generation_recipe = $1, updated_at = NOW()
+      WHERE id = $2
+      RETURNING
+        id,
+        project_id AS "projectId",
+        title,
+        raw_task AS "rawTask",
+        task_type AS "taskType",
+        target_tool AS "targetTool",
+        generated_prompt AS "generatedPrompt",
+        generation_mode AS "generationMode",
+        generation_model AS "generationModel",
+        generation_message AS "generationMessage",
+        generation_used_fallback AS "generationUsedFallback",
+        generation_duration_ms AS "generationDurationMs",
+        generation_recipe AS "generationRecipe",
+        created_at AS "createdAt",
+        updated_at AS "updatedAt";
+      `,
+      [JSON.stringify(generationRecipe ?? null), taskPackId]
+    );
+
+    if (!result.rows[0]) {
+      return null;
+    }
+
+    return this.getTaskPackById(taskPackId);
   }
 
   async listProjectMemories(projectId: number): Promise<ProjectMemoryRecord[]> {

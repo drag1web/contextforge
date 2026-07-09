@@ -108,7 +108,7 @@ Not required for the MVP:
 
 ## MVP release checklist
 
-- [x] Versions are synced to `0.5.8-alpha`.
+- [x] Versions are synced to `0.6.0-alpha`.
 - [x] README describes the actual project state.
 - [x] `/api/health` returns the current version.
 - [x] SQLite storage is available for desktop.
@@ -126,4 +126,6 @@ Not required for the MVP:
 - [x] Rules/templates custom catalog is backed by SQLite with legacy JSON kept as transition backup.
 - [x] Workspace backup export creates secret-safe local JSON backups.
 - [x] Desktop release readiness checklist is visible in Settings.
+- [x] Optional GitHub auth, repository linking, Issue → Task Pack and Task Pack → Issue workflows are implemented.
+- [ ] Core selector/safety hardening is completed for secrets, prompt injection and explicit target misses.
 - [ ] Portable/installer build is tested.

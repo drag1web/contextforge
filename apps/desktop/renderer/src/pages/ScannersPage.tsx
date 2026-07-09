@@ -19,7 +19,6 @@ import {
 import type { Project, ReadinessCheck } from "../types";
 import { Button } from "../components/ui/Button";
 import { SegmentedFilter, type SegmentedFilterOption } from "../components/ui/SegmentedFilter";
-import { SlidingSelectionIndicator } from "../components/ui/SlidingSelectionIndicator";
 import { ProjectScannerSignalsPanel } from "../components/projects/ProjectReadinessReport";
 
 type ScannerLens = "all" | "withSignals" | "missingTests" | "missingCi";
@@ -60,9 +59,6 @@ const PAGE_TRANSITION = {
   ease: [0.16, 1, 0.3, 1]
 } as const;
 
-const PROJECT_SCAN_ITEM_HEIGHT = 116;
-const PROJECT_SCAN_ITEM_GAP = 12;
-
 const SCANNER_SWITCH_TRANSITION = {
   type: "spring",
   stiffness: 520,
@@ -85,9 +81,9 @@ function getReadinessLabel(score: number) {
   return "Needs attention";
 }
 
-function getScoreFillClass(score: number) {
+function getScoreFillClass(score: number, isSelected = false) {
   if (score >= 80) return "cf-health-fill-success";
-  if (score >= 50) return "cf-health-fill-warning";
+  if (score >= 50) return isSelected ? "cf-health-fill-selected" : "cf-health-fill-warning";
   return "cf-health-fill-danger";
 }
 
@@ -144,7 +140,7 @@ function getFailedChecks(project: Project) {
   return project.readinessReport.checks.filter((check) => !check.passed);
 }
 
-function MetricCard({
+function ScannerMetricTile({
   icon,
   label,
   value,
@@ -156,16 +152,69 @@ function MetricCard({
   caption: string;
 }) {
   return (
-    <article className="rounded-[1.35rem] border border-neutral-900 bg-black/35 p-5">
-      <div className="mb-4 grid size-9 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-200">
-        {icon}
+    <article className="rounded-[1.15rem] border border-neutral-900 bg-black/35 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div className="grid size-8 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+          {icon}
+        </div>
+        <p className="cf-display-font text-2xl font-semibold leading-none text-white">{value}</p>
       </div>
-      <p className="cf-tech-label text-xs uppercase text-neutral-500">{label}</p>
-      <p className="cf-display-font mt-2 text-3xl font-semibold leading-none text-white">
-        {value}
-      </p>
-      <p className="mt-2 truncate text-sm text-neutral-500">{caption}</p>
+      <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{label}</p>
+      <p className="mt-1 truncate text-xs text-neutral-500">{caption}</p>
     </article>
+  );
+}
+
+function ScannerHealthSummary({
+  projectCount,
+  projectsWithSignals,
+  missingTests,
+  missingCi,
+  avgCoverage
+}: {
+  projectCount: number;
+  projectsWithSignals: number;
+  missingTests: number;
+  missingCi: number;
+  avgCoverage: number;
+}) {
+  return (
+    <div className="rounded-[1.35rem] border border-neutral-900 bg-black/35 p-4">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="cf-tech-label text-[10px] uppercase text-neutral-600">Scanner health</p>
+          <p className="mt-1 text-base font-semibold text-white">Workspace signal summary</p>
+        </div>
+        <span className="cf-badge">avg {avgCoverage}/9</span>
+      </div>
+
+      <div className="grid grid-cols-2 gap-3">
+        <ScannerMetricTile
+          icon={<PackageSearch size={16} />}
+          label="Projects"
+          value={projectCount}
+          caption="available scans"
+        />
+        <ScannerMetricTile
+          icon={<ShieldCheck size={16} />}
+          label="With signals"
+          value={projectsWithSignals}
+          caption="scanner data found"
+        />
+        <ScannerMetricTile
+          icon={<AlertTriangle size={16} />}
+          label="Missing tests"
+          value={missingTests}
+          caption="verification gap"
+        />
+        <ScannerMetricTile
+          icon={<Gauge size={16} />}
+          label="Missing CI"
+          value={missingCi}
+          caption="optional signal"
+        />
+      </div>
+    </div>
   );
 }
 
@@ -192,12 +241,53 @@ function ReadinessCheckRow({ check }: { check: ReadinessCheck }) {
   );
 }
 
-
-function AnimatedHealthBar({ score }: { score: number }) {
+function ScannerSkeleton() {
   return (
-    <div className="cf-health-track">
+    <section className="space-y-5" aria-busy="true">
+      <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012)_48%,rgba(255,255,255,0.006))] p-6 shadow-[0_16px_52px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.045)]">
+        <div className="mb-4 flex flex-wrap gap-2">
+          <span className="cf-badge">Scanners</span>
+          <span className="cf-badge">Loading evidence</span>
+        </div>
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_420px]">
+          <div>
+            <div className="h-9 max-w-3xl animate-pulse rounded-2xl bg-white/10" />
+            <div className="mt-3 h-5 max-w-2xl animate-pulse rounded-full bg-white/5" />
+            <div className="mt-2 h-5 max-w-xl animate-pulse rounded-full bg-white/5" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="h-24 animate-pulse rounded-[1.15rem] border border-neutral-900 bg-white/[0.035]" />
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
+        <aside className="cf-card p-5">
+          <div className="mb-4 h-16 animate-pulse rounded-2xl bg-white/[0.04]" />
+          <div className="mb-4 h-11 animate-pulse rounded-2xl bg-white/[0.04]" />
+          <div className="mb-4 h-14 animate-pulse rounded-2xl bg-white/[0.04]" />
+          <div className="grid gap-3">
+            {Array.from({ length: 4 }).map((_, index) => (
+              <div key={index} className="h-28 animate-pulse rounded-[1.35rem] border border-neutral-900 bg-white/[0.035]" />
+            ))}
+          </div>
+        </aside>
+        <main className="space-y-5">
+          <div className="h-44 animate-pulse rounded-[1.35rem] border border-neutral-900 bg-white/[0.035]" />
+          <div className="h-72 animate-pulse rounded-[1.35rem] border border-neutral-900 bg-white/[0.035]" />
+        </main>
+      </div>
+    </section>
+  );
+}
+
+function AnimatedHealthBar({ score, isSelected = false }: { score: number; isSelected?: boolean }) {
+  return (
+    <div className={isSelected ? "cf-health-track cf-health-track-selected" : "cf-health-track"}>
       <motion.div
-        className={["cf-health-fill", getScoreFillClass(score)].join(" ")}
+        className={["cf-health-fill", getScoreFillClass(score, isSelected)].join(" ")}
         initial={false}
         animate={{ width: getScoreWidth(score) }}
         transition={SCANNER_SWITCH_TRANSITION}
@@ -220,16 +310,19 @@ function ProjectScanListItem({
   const coverage = getScannerCoverage(project);
 
   return (
-    <button
+    <motion.button
       type="button"
       onClick={onSelect}
+      aria-pressed={isSelected}
+      layout="position"
+      transition={SCANNER_SWITCH_TRANSITION}
       className={[
-        "group relative z-10 w-full overflow-hidden rounded-[1.35rem] border p-4 text-left transition-colors duration-150",
+        "group relative w-full overflow-hidden rounded-[1.35rem] border p-4 text-left transition-colors duration-150",
+        "shadow-[0_12px_36px_rgba(0,0,0,0.18)]",
         isSelected
-          ? "border-transparent text-black"
+          ? "border-white bg-white text-black shadow-[0_20px_54px_rgba(255,255,255,0.12),0_18px_40px_rgba(0,0,0,0.42)]"
           : "border-neutral-900 bg-black/35 text-white hover:border-neutral-800 hover:bg-black/50"
       ].join(" ")}
-      style={{ height: PROJECT_SCAN_ITEM_HEIGHT }}
     >
       <div className="mb-3 flex items-start justify-between gap-3">
         <div className="min-w-0">
@@ -250,21 +343,21 @@ function ProjectScanListItem({
       </div>
 
       <div className={isSelected ? "mb-3 rounded-full bg-black/10 p-1" : "mb-3 rounded-full border border-neutral-900 bg-black p-1"}>
-        <AnimatedHealthBar score={project.readinessScore} />
+        <AnimatedHealthBar score={project.readinessScore} isSelected={isSelected} />
       </div>
 
       <div className="grid grid-cols-3 gap-2 text-[11px]">
-        <span className={isSelected ? "rounded-full bg-black/10 px-2 py-1 text-black/60" : "cf-badge justify-center"}>
+        <span className={isSelected ? "rounded-full bg-black/10 px-2 py-1 text-center text-black/60" : "cf-badge justify-center"}>
           {getPassedChecks(project)}/{project.readinessReport.checks.length} checks
         </span>
-        <span className={isSelected ? "rounded-full bg-black/10 px-2 py-1 text-black/60" : "cf-badge justify-center"}>
+        <span className={isSelected ? "rounded-full bg-black/10 px-2 py-1 text-center text-black/60" : "cf-badge justify-center"}>
           {failedChecks} gaps
         </span>
-        <span className={isSelected ? "rounded-full bg-black/10 px-2 py-1 text-black/60" : "cf-badge justify-center"}>
+        <span className={isSelected ? "rounded-full bg-black/10 px-2 py-1 text-center text-black/60" : "cf-badge justify-center"}>
           {coverage}/9 signals
         </span>
       </div>
-    </button>
+    </motion.button>
   );
 }
 
@@ -322,20 +415,16 @@ export function ScannersPage({
     projects[0] ??
     null;
 
-  const activeScanIndex = selectedProject
-    ? filteredProjects.findIndex((project) => project.id === selectedProject.id)
-    : -1;
-  const projectListHeight = filteredProjects.length > 0
-    ? filteredProjects.length * PROJECT_SCAN_ITEM_HEIGHT +
-      (filteredProjects.length - 1) * PROJECT_SCAN_ITEM_GAP
-    : 0;
-
   const projectsWithSignals = projects.filter(hasScannerSignals).length;
   const missingTests = projects.filter((project) => !hasTestEvidence(project)).length;
   const missingCi = projects.filter((project) => !hasCiEvidence(project)).length;
   const avgCoverage = projects.length
     ? Math.round(projects.reduce((sum, project) => sum + getScannerCoverage(project), 0) / projects.length)
     : 0;
+
+  if (isLoading && projects.length === 0) {
+    return <ScannerSkeleton />;
+  }
 
   if (projects.length === 0) {
     return (
@@ -367,7 +456,7 @@ export function ScannersPage({
           <span className="cf-badge">Local-only</span>
         </div>
 
-        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+        <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_430px]">
           <div>
             <h2 className="max-w-4xl text-[34px] font-semibold leading-[1.05] tracking-[-0.05em] text-white">
               Inspect scanner evidence without overloading the Projects page.
@@ -377,57 +466,17 @@ export function ScannersPage({
             </p>
           </div>
 
-          <div className="rounded-[1.35rem] border border-neutral-900 bg-black/35 p-4">
-            <p className="cf-tech-label text-[10px] uppercase text-neutral-600">Scanner health</p>
-            <p className="mt-2 text-base font-semibold text-white">
-              {projectsWithSignals}/{projects.length} projects have scanner signals
-            </p>
-            <div className="mt-4 grid grid-cols-3 gap-2">
-              <div className="rounded-2xl border border-neutral-900 bg-black/40 p-3">
-                <p className="cf-display-font text-2xl font-semibold text-white">{avgCoverage}</p>
-                <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-neutral-600">avg signals</p>
-              </div>
-              <div className="rounded-2xl border border-neutral-900 bg-black/40 p-3">
-                <p className="cf-display-font text-2xl font-semibold text-white">{missingTests}</p>
-                <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-neutral-600">no tests</p>
-              </div>
-              <div className="rounded-2xl border border-neutral-900 bg-black/40 p-3">
-                <p className="cf-display-font text-2xl font-semibold text-white">{missingCi}</p>
-                <p className="mt-1 text-[10px] uppercase tracking-[0.16em] text-neutral-600">no CI</p>
-              </div>
-            </div>
-          </div>
+          <ScannerHealthSummary
+            projectCount={projects.length}
+            projectsWithSignals={projectsWithSignals}
+            missingTests={missingTests}
+            missingCi={missingCi}
+            avgCoverage={avgCoverage}
+          />
         </div>
       </div>
 
-      <div className="grid gap-4 xl:grid-cols-4">
-        <MetricCard
-          icon={<PackageSearch size={18} />}
-          label="Projects"
-          value={projects.length}
-          caption="available for scanner review"
-        />
-        <MetricCard
-          icon={<ShieldCheck size={18} />}
-          label="With signals"
-          value={projectsWithSignals}
-          caption="rescanned after scanner upgrade"
-        />
-        <MetricCard
-          icon={<AlertTriangle size={18} />}
-          label="Missing tests"
-          value={missingTests}
-          caption="no script, config or files"
-        />
-        <MetricCard
-          icon={<Gauge size={18} />}
-          label="Avg coverage"
-          value={`${avgCoverage}/9`}
-          caption="scanner evidence buckets"
-        />
-      </div>
-
-      <div className="grid min-h-[720px] gap-5 xl:grid-cols-[420px_minmax(0,1fr)]">
+      <div className="grid min-h-[720px] gap-5 xl:grid-cols-[430px_minmax(0,1fr)]">
         <aside className="cf-card h-fit p-5 xl:sticky xl:top-0">
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
@@ -453,34 +502,19 @@ export function ScannersPage({
             onChange={(value) => setLens(value as ScannerLens)}
           />
 
-          <div className="mt-4 max-h-[640px] overflow-auto pr-1">
+          <div className="mt-4">
             {filteredProjects.length === 0 ? (
               <div className="rounded-[1.35rem] border border-dashed border-neutral-900 bg-black/25 p-5 text-sm leading-6 text-neutral-500">
                 No projects match this scanner lens.
               </div>
             ) : (
-              <div
-                className="relative grid"
-                style={{
-                  gap: PROJECT_SCAN_ITEM_GAP,
-                  height: projectListHeight
-                }}
-              >
-                <SlidingSelectionIndicator
-                  activeIndex={activeScanIndex}
-                  itemHeight={PROJECT_SCAN_ITEM_HEIGHT}
-                  itemGap={PROJECT_SCAN_ITEM_GAP}
-                  className="scanner-project-active-pill"
-                  transition={SCANNER_SWITCH_TRANSITION}
-                />
-
+              <div className="grid gap-3">
                 {filteredProjects.map((project, index) => (
                   <motion.div
                     key={project.id}
                     initial={{ opacity: 0, y: 8, scale: 0.985 }}
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     transition={{ ...PAGE_TRANSITION, delay: Math.min(index * 0.012, 0.06) }}
-                    style={{ height: PROJECT_SCAN_ITEM_HEIGHT }}
                   >
                     <ProjectScanListItem
                       project={project}

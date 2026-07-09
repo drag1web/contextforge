@@ -6,24 +6,21 @@ import {
   Bot,
   Check,
   Clipboard,
+  ExternalLink,
   FileText,
+  Github,
   Search,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
-  X
+  X,
 } from "lucide-react";
 
 import type { TaskPack } from "../types";
 import { TaskPackExportActions } from "../components/taskPacks/TaskPackExportActions";
 import { Button } from "../components/ui/Button";
-import {
-  makeAiToolSelectOption
-} from "../components/ai/aiToolOptions";
-import {
-  CustomSelect,
-  type SelectOption
-} from "../components/ui/CustomSelect";
+import { makeAiToolSelectOption } from "../components/ai/aiToolOptions";
+import { CustomSelect, type SelectOption } from "../components/ui/CustomSelect";
 
 interface TaskPacksPageProps {
   taskPacks: TaskPack[];
@@ -47,7 +44,7 @@ type SortMode = "newest" | "oldest" | "title" | "project";
 
 const TASK_PACK_TRANSITION = {
   duration: 0.2,
-  ease: [0.16, 1, 0.3, 1]
+  ease: [0.16, 1, 0.3, 1],
 } as const;
 
 function normalize(value: unknown) {
@@ -63,18 +60,34 @@ function getDateValue(taskPack: TaskPack) {
 }
 
 function getTaskPackBodyBadge(taskPack: TaskPack, t: (key: string) => string) {
-  if (taskPack.generationMode === "ollama" && !taskPack.generationUsedFallback) {
+  if (
+    taskPack.generationMode === "ollama" &&
+    !taskPack.generationUsedFallback
+  ) {
     return t("labels.ollamaRefined");
   }
 
   return t("labels.safeTemplate");
 }
 
+
+async function openGitHubUrl(url: string) {
+  if (window.contextforge?.openExternalUrl) {
+    await window.contextforge.openExternalUrl(url);
+    return;
+  }
+
+  window.open(url, "_blank", "noopener,noreferrer");
+}
+
 function getTaskPackProjectName(
   taskPack: TaskPack,
-  t: (key: string, options?: Record<string, unknown>) => string
+  t: (key: string, options?: Record<string, unknown>) => string,
 ) {
-  return taskPack.projectName ?? t("labels.projectFallback", { id: taskPack.projectId });
+  return (
+    taskPack.projectName ??
+    t("labels.projectFallback", { id: taskPack.projectId })
+  );
 }
 
 function getMostUsedTarget(taskPacks: TaskPack[]) {
@@ -103,15 +116,20 @@ function matchesBodyMode(taskPack: TaskPack, filter: BodyModeFilter) {
   }
 
   if (filter === "ollama") {
-    return taskPack.generationMode === "ollama" && !taskPack.generationUsedFallback;
+    return (
+      taskPack.generationMode === "ollama" && !taskPack.generationUsedFallback
+    );
   }
 
-  return taskPack.generationMode !== "ollama" || Boolean(taskPack.generationUsedFallback);
+  return (
+    taskPack.generationMode !== "ollama" ||
+    Boolean(taskPack.generationUsedFallback)
+  );
 }
 
 function Pill({
   children,
-  tone = "default"
+  tone = "default",
 }: {
   children: React.ReactNode;
   tone?: "default" | "success" | "warning";
@@ -127,7 +145,7 @@ function Pill({
     <span
       className={[
         "inline-flex h-6 max-w-full items-center gap-1.5 truncate rounded-full border px-2.5 text-[11px] font-medium",
-        className
+        className,
       ].join(" ")}
     >
       {children}
@@ -139,7 +157,7 @@ function MetricCard({
   icon,
   label,
   value,
-  caption
+  caption,
 }: {
   icon: React.ReactNode;
   label: string;
@@ -162,17 +180,44 @@ function MetricCard({
         {label}
       </p>
 
-      <p className="mt-1 truncate text-xs text-neutral-600">
-        {caption}
-      </p>
+      <p className="mt-1 truncate text-xs text-neutral-600">{caption}</p>
     </div>
   );
+}
+
+function getTaskPackDisplayTitle(taskPack: TaskPack) {
+  const sourceIssue = taskPack.generationRecipe?.githubIssue;
+
+  if (sourceIssue) {
+    return `Issue #${sourceIssue.issueNumber}: ${sourceIssue.issueTitle}`;
+  }
+
+  return taskPack.title;
+}
+
+function getTaskPackArchiveSummary(taskPack: TaskPack) {
+  const sourceIssue = taskPack.generationRecipe?.githubIssue;
+  const createdIssue = taskPack.generationRecipe?.githubCreatedIssue;
+
+  if (sourceIssue && createdIssue) {
+    return `Created GitHub issue #${createdIssue.issueNumber} from source issue #${sourceIssue.issueNumber} in ${createdIssue.fullName}.`;
+  }
+
+  if (sourceIssue) {
+    return `Imported from ${sourceIssue.fullName}#${sourceIssue.issueNumber}: ${sourceIssue.issueTitle}`;
+  }
+
+  if (createdIssue) {
+    return `Linked to created GitHub issue #${createdIssue.issueNumber} in ${createdIssue.fullName}.`;
+  }
+
+  return taskPack.rawTask;
 }
 
 function EmptyState({
   icon,
   title,
-  description
+  description,
 }: {
   icon: React.ReactNode;
   title: string;
@@ -185,9 +230,7 @@ function EmptyState({
           {icon}
         </div>
 
-        <h3 className="text-base font-semibold text-white">
-          {title}
-        </h3>
+        <h3 className="text-base font-semibold text-white">{title}</h3>
 
         <p className="mt-2 max-w-md text-sm leading-6 text-neutral-500">
           {description}
@@ -203,7 +246,7 @@ function TaskPackCard({
   projectName,
   bodyBadge,
   onCopy,
-  onOpen
+  onOpen,
 }: {
   taskPack: TaskPack;
   isCopied: boolean;
@@ -227,9 +270,19 @@ function TaskPackCard({
           <div className="mb-3 flex flex-wrap gap-2">
             <Pill>{bodyBadge}</Pill>
 
-            {recipe && (
+            {recipe && <Pill tone="success">v0.5 recipe</Pill>}
+
+            {recipe?.githubIssue && (
               <Pill tone="success">
-                v0.5 recipe
+                <Github size={12} />
+                Issue #{recipe.githubIssue.issueNumber}
+              </Pill>
+            )}
+
+            {recipe?.githubCreatedIssue && (
+              <Pill tone="success">
+                <ExternalLink size={12} />
+                Created #{recipe.githubCreatedIssue.issueNumber}
               </Pill>
             )}
           </div>
@@ -241,7 +294,7 @@ function TaskPackCard({
 
             <div className="min-w-0">
               <h4 className="line-clamp-2 text-base font-semibold leading-6 text-white">
-                {taskPack.title}
+                {getTaskPackDisplayTitle(taskPack)}
               </h4>
 
               <p className="mt-1 truncate text-xs text-neutral-600">
@@ -253,29 +306,19 @@ function TaskPackCard({
       </div>
 
       <p className="line-clamp-3 text-sm leading-6 text-neutral-500">
-        {taskPack.rawTask}
+        {getTaskPackArchiveSummary(taskPack)}
       </p>
 
       <div className="mt-5 flex flex-wrap gap-2">
         <Pill>{taskPack.targetTool}</Pill>
         <Pill>{taskPack.taskType}</Pill>
 
-        {recipe?.template && (
-          <Pill>
-            Template: {recipe.template.name}
-          </Pill>
-        )}
+        {recipe?.template && <Pill>Template: {recipe.template.name}</Pill>}
 
-        {recipe?.ruleProfile && (
-          <Pill>
-            Profile: {recipe.ruleProfile.name}
-          </Pill>
-        )}
+        {recipe?.ruleProfile && <Pill>Profile: {recipe.ruleProfile.name}</Pill>}
 
         {recipe && (
-          <Pill tone="success">
-            Rules: {recipe.counts.enabledRules}
-          </Pill>
+          <Pill tone="success">Rules: {recipe.counts.enabledRules}</Pill>
         )}
       </div>
 
@@ -321,18 +364,22 @@ function TaskPackCard({
         <div className="flex shrink-0 items-center gap-2">
           <TaskPackExportActions taskPack={taskPack} compact />
 
-          <Button
-            variant="secondary"
-            onClick={onCopy}
-          >
+          {recipe?.githubCreatedIssue && (
+            <Button
+              variant="secondary"
+              onClick={() => openGitHubUrl(recipe.githubCreatedIssue!.issueUrl)}
+            >
+              <ExternalLink size={15} />
+              Issue
+            </Button>
+          )}
+
+          <Button variant="secondary" onClick={onCopy}>
             {isCopied ? <Check size={15} /> : <Clipboard size={15} />}
             {isCopied ? "Copied" : "Copy"}
           </Button>
 
-          <Button
-            variant="primary"
-            onClick={onOpen}
-          >
+          <Button variant="primary" onClick={onOpen}>
             Open
           </Button>
         </div>
@@ -341,7 +388,10 @@ function TaskPackCard({
   );
 }
 
-export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps) {
+export function TaskPacksPage({
+  taskPacks,
+  onOpenTaskPack,
+}: TaskPacksPageProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [taskTypeFilter, setTaskTypeFilter] = useState<TaskTypeFilter>("all");
@@ -352,43 +402,117 @@ export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps)
 
   const localizedTaskTypeOptions = useMemo<SelectOption<TaskTypeFilter>[]>(
     () => [
-      { value: "all", label: t("labels.taskTypeAll"), description: t("taskPacksPage.allTypes") },
-      { value: "general", label: t("labels.taskTypeGeneral"), description: "General" },
+      {
+        value: "all",
+        label: t("labels.taskTypeAll"),
+        description: t("taskPacksPage.allTypes"),
+      },
+      {
+        value: "general",
+        label: t("labels.taskTypeGeneral"),
+        description: "General",
+      },
       { value: "ui", label: t("labels.taskTypeUi"), description: "Interface" },
-      { value: "backend", label: t("labels.taskTypeBackend"), description: "Server" },
-      { value: "fullstack", label: t("labels.taskTypeFullstack"), description: "Both sides" },
-      { value: "build", label: t("labels.taskTypeBuild"), description: "Build" },
-      { value: "bugfix", label: t("labels.taskTypeBugfix"), description: "Fixes" },
-      { value: "refactor", label: t("labels.taskTypeRefactor"), description: "Cleanup" },
-      { value: "docs", label: t("labels.taskTypeDocs"), description: "Writing" },
-      { value: "tests", label: t("labels.taskTypeTests"), description: "Coverage" }
+      {
+        value: "backend",
+        label: t("labels.taskTypeBackend"),
+        description: "Server",
+      },
+      {
+        value: "fullstack",
+        label: t("labels.taskTypeFullstack"),
+        description: "Both sides",
+      },
+      {
+        value: "build",
+        label: t("labels.taskTypeBuild"),
+        description: "Build",
+      },
+      {
+        value: "bugfix",
+        label: t("labels.taskTypeBugfix"),
+        description: "Fixes",
+      },
+      {
+        value: "refactor",
+        label: t("labels.taskTypeRefactor"),
+        description: "Cleanup",
+      },
+      {
+        value: "docs",
+        label: t("labels.taskTypeDocs"),
+        description: "Writing",
+      },
+      {
+        value: "tests",
+        label: t("labels.taskTypeTests"),
+        description: "Coverage",
+      },
     ],
-    [t]
+    [t],
   );
 
   const localizedBodyModeOptions = useMemo<SelectOption<BodyModeFilter>[]>(
     () => [
-      { value: "all", label: t("taskPacksPage.allBodyModes"), description: t("taskPacksPage.allBodyModesDesc") },
-      { value: "ollama", label: t("labels.ollamaRefined"), description: t("taskPacksPage.ollamaRefinedDesc") },
-      { value: "template", label: t("labels.safeTemplate"), description: t("taskPacksPage.safeTemplateDesc") },
-      { value: "cached", label: t("labels.cached"), description: t("taskPacksPage.cachedDesc") },
-      { value: "fallback", label: t("labels.fallback"), description: t("taskPacksPage.fallbackDesc") }
+      {
+        value: "all",
+        label: t("taskPacksPage.allBodyModes"),
+        description: t("taskPacksPage.allBodyModesDesc"),
+      },
+      {
+        value: "ollama",
+        label: t("labels.ollamaRefined"),
+        description: t("taskPacksPage.ollamaRefinedDesc"),
+      },
+      {
+        value: "template",
+        label: t("labels.safeTemplate"),
+        description: t("taskPacksPage.safeTemplateDesc"),
+      },
+      {
+        value: "cached",
+        label: t("labels.cached"),
+        description: t("taskPacksPage.cachedDesc"),
+      },
+      {
+        value: "fallback",
+        label: t("labels.fallback"),
+        description: t("taskPacksPage.fallbackDesc"),
+      },
     ],
-    [t]
+    [t],
   );
 
   const localizedSortOptions = useMemo<SelectOption<SortMode>[]>(
     () => [
-      { value: "newest", label: t("taskPacksPage.newest"), description: t("taskPacksPage.newestDesc") },
-      { value: "oldest", label: t("taskPacksPage.oldest"), description: t("taskPacksPage.oldestDesc") },
-      { value: "title", label: t("taskPacksPage.titleSort"), description: t("taskPacksPage.titleSortDesc") },
-      { value: "project", label: t("taskPacksPage.projectSort"), description: t("taskPacksPage.projectSortDesc") }
+      {
+        value: "newest",
+        label: t("taskPacksPage.newest"),
+        description: t("taskPacksPage.newestDesc"),
+      },
+      {
+        value: "oldest",
+        label: t("taskPacksPage.oldest"),
+        description: t("taskPacksPage.oldestDesc"),
+      },
+      {
+        value: "title",
+        label: t("taskPacksPage.titleSort"),
+        description: t("taskPacksPage.titleSortDesc"),
+      },
+      {
+        value: "project",
+        label: t("taskPacksPage.projectSort"),
+        description: t("taskPacksPage.projectSortDesc"),
+      },
     ],
-    [t]
+    [t],
   );
 
   const targetOptions: SelectOption<string>[] = useMemo(() => {
-    const targets = [...new Set(taskPacks.map((taskPack) => taskPack.targetTool))]
+    const targets = [
+      ...new Set(taskPacks.map((taskPack) => taskPack.targetTool)),
+    ]
       .filter(Boolean)
       .sort();
     const allAgentsIcon = makeAiToolSelectOption("generic");
@@ -399,9 +523,9 @@ export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps)
         label: t("taskPacksPage.allAgents"),
         description: "Codex, Cursor, Claude, Generic",
         icon: allAgentsIcon.icon,
-        activeIcon: allAgentsIcon.activeIcon
+        activeIcon: allAgentsIcon.activeIcon,
       },
-      ...targets.map((target) => makeAiToolSelectOption(target))
+      ...targets.map((target) => makeAiToolSelectOption(target)),
     ];
   }, [taskPacks, t]);
 
@@ -414,6 +538,8 @@ export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps)
 
         const searchableText = [
           taskPack.title,
+          getTaskPackDisplayTitle(taskPack),
+          getTaskPackArchiveSummary(taskPack),
           taskPack.rawTask,
           taskPack.generatedPrompt,
           getTaskPackProjectName(taskPack, t),
@@ -424,13 +550,20 @@ export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps)
           recipe?.ruleProfile?.name,
           recipe?.enabledRules.map((rule) => rule.title).join(" "),
           recipe?.customRules.join(" "),
-          recipe?.acceptanceCriteria.join(" ")
+          recipe?.acceptanceCriteria.join(" "),
+          recipe?.githubIssue?.issueTitle,
+          recipe?.githubIssue?.fullName,
+          recipe?.githubIssue?.labels.join(" "),
+          recipe?.githubCreatedIssue?.issueTitle,
+          recipe?.githubCreatedIssue?.fullName,
+          recipe?.githubCreatedIssue?.labels.join(" "),
         ]
           .map(normalize)
           .join(" ");
 
         const matchesQuery =
-          normalizedQuery.length === 0 || searchableText.includes(normalizedQuery);
+          normalizedQuery.length === 0 ||
+          searchableText.includes(normalizedQuery);
 
         const matchesTaskType =
           taskTypeFilter === "all" || taskPack.taskType === taskTypeFilter;
@@ -448,23 +581,38 @@ export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps)
         }
 
         if (sortMode === "title") {
-          return a.title.localeCompare(b.title);
+          return getTaskPackDisplayTitle(a).localeCompare(getTaskPackDisplayTitle(b));
         }
 
         if (sortMode === "project") {
-          return getTaskPackProjectName(a, t).localeCompare(getTaskPackProjectName(b, t));
+          return getTaskPackProjectName(a, t).localeCompare(
+            getTaskPackProjectName(b, t),
+          );
         }
 
         return getDateValue(b) - getDateValue(a);
       });
-  }, [bodyModeFilter, query, sortMode, targetFilter, taskPacks, taskTypeFilter, t]);
+  }, [
+    bodyModeFilter,
+    query,
+    sortMode,
+    targetFilter,
+    taskPacks,
+    taskTypeFilter,
+    t,
+  ]);
 
   const refinedCount = taskPacks.filter(
-    (taskPack) => taskPack.generationMode === "ollama" && !taskPack.generationUsedFallback
+    (taskPack) =>
+      taskPack.generationMode === "ollama" && !taskPack.generationUsedFallback,
   ).length;
 
-  const recipeCount = taskPacks.filter((taskPack) => taskPack.generationRecipe).length;
-  const fallbackCount = taskPacks.filter((taskPack) => taskPack.generationUsedFallback).length;
+  const recipeCount = taskPacks.filter(
+    (taskPack) => taskPack.generationRecipe,
+  ).length;
+  const fallbackCount = taskPacks.filter(
+    (taskPack) => taskPack.generationUsedFallback,
+  ).length;
   const mostUsedTarget = getMostUsedTarget(taskPacks);
 
   const hasActiveFilters =
@@ -517,9 +665,7 @@ export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps)
             <Pill>{t("taskPacksPage.agentReadyHistory")}</Pill>
 
             {recipeCount > 0 && (
-              <Pill tone="success">
-                v0.5 recipe metadata
-              </Pill>
+              <Pill tone="success">v0.5 recipe metadata</Pill>
             )}
           </div>
 
@@ -534,9 +680,7 @@ export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps)
               </p>
             </div>
 
-            <Pill>
-              {filteredTaskPacks.length} visible
-            </Pill>
+            <Pill>{filteredTaskPacks.length} visible</Pill>
           </div>
         </div>
 
@@ -587,7 +731,8 @@ export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps)
             </h3>
 
             <p className="mt-2 text-sm leading-6 text-neutral-500">
-              Filter saved prompts by task type, target agent, generation mode, recipe metadata and text content.
+              Filter saved prompts by task type, target agent, generation mode,
+              recipe metadata and text content.
             </p>
           </div>
 
@@ -662,7 +807,7 @@ export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps)
                 "cf-invert-action inline-flex h-9 w-full items-center justify-center gap-2 rounded-full px-4 text-xs transition",
                 hasActiveFilters
                   ? "opacity-100"
-                  : "pointer-events-none opacity-40"
+                  : "pointer-events-none opacity-40",
               ].join(" ")}
             >
               <X size={13} />
@@ -683,9 +828,7 @@ export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps)
               </h3>
             </div>
 
-            <Pill>
-              {hasActiveFilters ? "Filtered" : "All history"}
-            </Pill>
+            <Pill>{hasActiveFilters ? "Filtered" : "All history"}</Pill>
           </div>
 
           <AnimatePresence mode="wait" initial={false}>
@@ -712,7 +855,7 @@ export function TaskPacksPage({ taskPacks, onOpenTaskPack }: TaskPacksPageProps)
                   taskTypeFilter,
                   targetFilter,
                   bodyModeFilter,
-                  sortMode
+                  sortMode,
                 ].join(":")}
                 className="min-h-0 overflow-y-auto pr-2"
                 initial={{ opacity: 0, y: 10 }}

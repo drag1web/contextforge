@@ -108,26 +108,66 @@ Goal: teach the user the main local-first workflow before GitHub integration.
 - [ ] Add Replay onboarding action in Settings.
 - [ ] Keep Skip available for experienced users.
 
-## v0.6 — Optional browser auth and cloud pairing
+## v0.6 — Optional GitHub workflow bridge
 
-Goal: add optional sign-in without making login required for local use.
+Goal: add optional browser auth and GitHub workflow metadata without making login required for local use.
 
-- [ ] Add GitHub/Google buttons.
-- [ ] Open website OAuth flow in browser.
-- [ ] Add pairing code screen.
-- [ ] Store token securely.
-- [ ] Add sign out.
-- [ ] Add account status.
-- [ ] Keep sync disabled when not signed in.
+- [x] Add GitHub button/foundation UI.
+- [x] Open GitHub device flow in browser.
+- [x] Add pairing code screen.
+- [x] Store GitHub token server-side/local-only.
+- [x] Add GitHub sign out.
+- [x] Add GitHub account status.
+- [x] Keep local mode available when not signed in.
 
-## v0.7 — Diff Review Lite
+## v0.6.0 — GitHub Issue Loop & Release Baseline
+
+Goal: close the optional GitHub issue workflow while preserving local-first desktop behavior.
+
+- [x] Add GitHub OAuth Device Flow start/poll routes.
+- [x] Add setup-required state when `GITHUB_OAUTH_CLIENT_ID` is missing.
+- [x] Store GitHub token server-side/local-only and never return it to the renderer.
+- [x] Add connected account status and sign out.
+- [x] Exclude GitHub auth data from workspace backups.
+- [x] Link local projects to GitHub repositories through local Git remotes.
+- [x] Add quick local Git setup for `git init` and GitHub `origin` configuration.
+- [x] Build a local Task Pack from a GitHub Issue.
+- [x] Create a GitHub Issue from a generated Task Pack.
+- [x] Save source/created issue metadata in Task Pack result and archive views.
+- [x] Keep project source files local; GitHub receives only metadata and generated task briefs.
+
+## v0.6.1 — Core Quality & Safety Hardening
+
+Goal: harden the Context Composer / selector / safety layer before adding more GitHub workflow complexity.
+
+- [ ] Add hard-blocks for requests to read or export `.env`, `.env.local`, tokens, keys, credentials and secrets.
+- [ ] Add prompt-injection and destructive-intent blocking before inventory and file selection.
+- [ ] Improve explicit target resolution: if a named file/page/component is not in inventory, block or ask for clarification.
+- [ ] Improve Ollama selector JSON contract with schema, retry/repair and raw-response diagnostics.
+- [ ] Calibrate context score so weak fallback selections cannot receive high-confidence scores.
+- [ ] Split user-selected task type from inferred implementation area and surface conflicts clearly.
+- [ ] Add docs/test/review routing that prefers README/package/config/test infrastructure over random pages.
+- [ ] Add self-core awareness for ContextForge selector, scanner, context composer, safety and Task Pack builder tasks.
+
+## v0.6.2 — PR / CI Workflows
+
+Goal: extend the optional GitHub bridge from issues to pull requests and CI checks.
+
+- [ ] Add PR browser for linked repositories.
+- [ ] Show PR title, author, branches, state and changed files count.
+- [ ] Create PR Review Task Packs from PR metadata and changed-file summaries.
+- [ ] Add GitHub Actions / checks summary for linked repositories or PRs.
+- [ ] Create Task Packs from failed CI checks.
+- [ ] Keep diffs bounded and metadata-first; do not upload local source files automatically.
+
+## v0.7 — Output Review & Safety Audit
 
 Goal: help users review AI-agent output without automatic code edits.
 
 - [ ] Paste diff.
 - [ ] Parse changed files.
 - [ ] Compare changes against selected files/rules.
-- [ ] Warn about forbidden/generated files.
+- [ ] Warn about forbidden/generated files, secrets and unexpected backend/frontend changes.
 - [ ] Save manual review status.
 
 ## v0.8 — Optional AI/Ollama polish

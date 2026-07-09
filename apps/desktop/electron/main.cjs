@@ -1,4 +1,4 @@
-﻿const { app, BrowserWindow, ipcMain, dialog, Menu, screen } = require("electron");
+const { app, BrowserWindow, ipcMain, dialog, Menu, screen, shell } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
 
@@ -9,6 +9,17 @@ const appIconPath = path.join(
   "assets",
   process.platform === "win32" ? "icon.ico" : "icon.png"
 );
+
+
+function isAllowedExternalUrl(rawUrl) {
+  try {
+    const url = new URL(rawUrl);
+
+    return url.protocol === "https:" && url.hostname === "github.com";
+  } catch {
+    return false;
+  }
+}
 
 function getWindowStatePath() {
   return path.join(app.getPath("userData"), "window-state.json");
@@ -148,6 +159,16 @@ function createWindow() {
 function getWindowFromEvent(event) {
   return BrowserWindow.fromWebContents(event.sender);
 }
+
+
+ipcMain.handle("shell:open-external", async (_event, rawUrl) => {
+  if (typeof rawUrl !== "string" || !isAllowedExternalUrl(rawUrl)) {
+    return false;
+  }
+
+  await shell.openExternal(rawUrl);
+  return true;
+});
 
 ipcMain.handle("dialog:select-project-folder", async () => {
   const result = await dialog.showOpenDialog({

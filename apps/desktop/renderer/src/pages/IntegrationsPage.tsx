@@ -71,13 +71,6 @@ const PRIMARY_CODING_TARGETS: TargetTool[] = ["codex", "cursor", "claude"];
 
 const CONNECTORS = [
   {
-    title: "GitHub",
-    description:
-      "Create issues from Task Packs and link work back to repositories.",
-    status: "v0.6 planned",
-    icon: <GitBranch size={16} />,
-  },
-  {
     title: "MCP / Tool permissions",
     description:
       "Future control layer for safe tool access and approval flows.",
@@ -331,7 +324,9 @@ function ProviderCardSelector({
                       : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/15 group-hover:text-white",
                   ].join(" ")}
                 >
-                  {active && option.activeIcon ? option.activeIcon : option.icon}
+                  {active && option.activeIcon
+                    ? option.activeIcon
+                    : option.icon}
                 </span>
 
                 {active && <CheckCircle2 size={17} className="text-black" />}
@@ -550,7 +545,73 @@ function ConnectorTile({
   );
 }
 
-export function IntegrationsPage() {
+function GitHubIntegrationPreview({
+  onOpenGitHub,
+}: {
+  onOpenGitHub?: () => void;
+}) {
+  return (
+    <article className="cf-card relative overflow-hidden p-5">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_10%_0%,rgba(52,211,153,0.13),transparent_28%),radial-gradient(circle_at_90%_0%,rgba(255,255,255,0.06),transparent_30%)]" />
+      <div className="relative flex flex-col gap-5 xl:flex-row xl:items-center xl:justify-between">
+        <div className="min-w-0">
+          <div className="mb-3 flex flex-wrap items-center gap-2">
+            <span className="cf-badge border-emerald-400/20 bg-emerald-400/10 text-emerald-200">
+              <GitBranch size={13} />
+              GitHub workspace
+            </span>
+            <span className="cf-badge">13.1–13.4 ready</span>
+            <span className="cf-badge">Optional</span>
+          </div>
+          <h3 className="text-xl font-semibold tracking-[-0.035em] text-white">
+            GitHub lives on its own page now.
+          </h3>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500">
+            Connect an account, link repos, import issues into Task Packs, or
+            publish Task Packs back to GitHub without mixing this page with AI
+            provider settings.
+          </p>
+        </div>
+
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Button
+            type="button"
+            variant="primary"
+            onClick={onOpenGitHub}
+            disabled={!onOpenGitHub}
+            className="disabled:pointer-events-none disabled:opacity-60"
+          >
+            <GitBranch size={15} />
+            Open GitHub page
+          </Button>
+        </div>
+      </div>
+
+      <div className="relative mt-4 grid gap-3 md:grid-cols-4">
+        {[
+          ["Auth", "Browser pairing"],
+          ["Repo", "Local Git linking"],
+          ["Issues", "Import/export"],
+          ["Safety", "Source stays local"],
+        ].map(([title, caption]) => (
+          <div
+            key={title}
+            className="rounded-2xl border border-neutral-900 bg-black/35 p-4"
+          >
+            <p className="text-sm font-semibold text-white">{title}</p>
+            <p className="mt-1 text-xs leading-5 text-neutral-500">{caption}</p>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
+export function IntegrationsPage({
+  onOpenGitHub,
+}: {
+  onOpenGitHub?: () => void;
+}) {
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [draft, setDraft] = useState<AppSettings | null>(null);
   const [status, setStatus] = useState<AiProviderStatus | null>(null);
@@ -853,14 +914,14 @@ export function IntegrationsPage() {
             </div>
 
             <h2 className="max-w-4xl text-[34px] font-semibold leading-[1.05] tracking-[-0.05em] text-white">
-              Connect internal AI providers and prepare Task Packs for the right
-              coding agent.
+              Connect internal AI providers, agent targets and upcoming workflow
+              integrations.
             </h2>
 
             <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-400">
-              Internal providers can refine prompts when AI-assisted mode is
-              enabled. Agent targets only control the final Task Pack format for
-              Codex, Cursor, Claude Code, Gemini, or a generic coding assistant.
+              AI providers refine local prompt workflows. Workflow integrations
+              such as GitHub will stay optional and only connect when the
+              developer explicitly chooses them.
             </p>
           </div>
 
@@ -938,6 +999,8 @@ export function IntegrationsPage() {
           {error}
         </div>
       )}
+
+      <GitHubIntegrationPreview onOpenGitHub={onOpenGitHub} />
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-5">
@@ -1490,10 +1553,10 @@ export function IntegrationsPage() {
               <PlugZap size={18} />
             </div>
             <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-              Connectors later
+              Future connectors
             </p>
             <h3 className="mt-2 text-base font-semibold text-white">
-              Next integration layer.
+              After GitHub foundation.
             </h3>
             <div className="mt-4 grid gap-3">
               {CONNECTORS.map((connector) => (

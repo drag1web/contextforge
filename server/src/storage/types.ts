@@ -143,7 +143,12 @@ export interface StorageAdapter {
   upsertScannedProject(project: ScannedProject): Promise<ProjectRecord>;
 
   listTaskPacks(): Promise<TaskPackRecord[]>;
+  getTaskPackById(taskPackId: number): Promise<TaskPackRecord | null>;
   createTaskPack(input: CreateTaskPackInput): Promise<TaskPackRecord>;
+  updateTaskPackGenerationRecipe(
+    taskPackId: number,
+    generationRecipe: unknown | null
+  ): Promise<TaskPackRecord | null>;
 
   listProjectMemories(projectId: number): Promise<ProjectMemoryRecord[]>;
   createProjectMemory(input: CreateProjectMemoryInput): Promise<ProjectMemoryRecord>;

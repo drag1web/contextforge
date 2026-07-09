@@ -3,6 +3,15 @@ import type {
   AppSettings,
   GenerationMetadata,
   GitDiffSummaryResult,
+  GitHubAuthPollResult,
+  GitHubCreatedIssueLink,
+  GitHubDeviceAuthStart,
+  GitHubIntegrationStatus,
+  GitHubIssueReference,
+  GitHubIssuesListResult,
+  GitHubIssueTaskPackSource,
+  GitHubRepositoryLink,
+  GitHubRepositoryLinkCandidate,
   GitStatusResult,
   AiProviderModel,
   AiProviderStatus,
@@ -49,18 +58,62 @@ async function request<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(`${API_URL}${url}`, {
     headers: {
       "Content-Type": "application/json",
-      ...options?.headers
+      ...options?.headers,
     },
-    ...options
+    ...options,
   });
 
   const data = await response.json();
 
   if (!data.ok) {
-    throw new ApiRequestError(data.message ?? "Request failed", response.status, data);
+    throw new ApiRequestError(
+      data.message ?? "Request failed",
+      response.status,
+      data,
+    );
   }
 
   return data;
+}
+
+export async function getGitHubIntegrationStatus(): Promise<GitHubIntegrationStatus> {
+  const data = await request<{ ok: true; status: GitHubIntegrationStatus }>(
+    "/integrations/github/status",
+  );
+
+  return data.status;
+}
+
+export async function startGitHubDeviceAuth(): Promise<GitHubDeviceAuthStart> {
+  const data = await request<{ ok: true; auth: GitHubDeviceAuthStart }>(
+    "/integrations/github/auth/start",
+    { method: "POST" },
+  );
+
+  return data.auth;
+}
+
+export async function pollGitHubDeviceAuth(
+  sessionId: string,
+): Promise<GitHubAuthPollResult> {
+  const data = await request<{ ok: true; result: GitHubAuthPollResult }>(
+    "/integrations/github/auth/poll",
+    {
+      method: "POST",
+      body: JSON.stringify({ sessionId }),
+    },
+  );
+
+  return data.result;
+}
+
+export async function signOutGitHub(): Promise<GitHubIntegrationStatus> {
+  const data = await request<{ ok: true; status: GitHubIntegrationStatus }>(
+    "/integrations/github/sign-out",
+    { method: "POST" },
+  );
+
+  return data.status;
 }
 
 export async function getProjects(): Promise<Project[]> {
@@ -71,7 +124,7 @@ export async function getProjects(): Promise<Project[]> {
 export async function addProject(localPath: string): Promise<Project> {
   const data = await request<{ ok: true; project: Project }>("/projects", {
     method: "POST",
-    body: JSON.stringify({ localPath })
+    body: JSON.stringify({ localPath }),
   });
 
   return data.project;
@@ -81,32 +134,173 @@ export async function rescanProject(projectId: number): Promise<Project> {
   const data = await request<{ ok: true; project: Project }>(
     `/projects/${projectId}/rescan`,
     {
-      method: "POST"
-    }
+      method: "POST",
+    },
   );
 
   return data.project;
 }
 
+export async function getProjectGitHubRepositoryLink(
+  projectId: number,
+  options: { refresh?: boolean } = {},
+): Promise<GitHubRepositoryLinkCandidate> {
+  const searchParams = new URLSearchParams();
 
-export async function getProjectGitStatus(projectId: number): Promise<GitStatusResult> {
+  if (options.refresh) {
+    searchParams.set("refresh", "true");
+  }
+
+  const query = searchParams.toString();
+  const data = await request<{
+    ok: true;
+    candidate: GitHubRepositoryLinkCandidate;
+  }>(`/projects/${projectId}/github/link${query ? `?${query}` : ""}`);
+
+  return data.candidate;
+}
+
+export async function initializeProjectGitRepository(
+  projectId: number,
+): Promise<GitHubRepositoryLinkCandidate> {
+  const data = await request<{
+    ok: true;
+    candidate: GitHubRepositoryLinkCandidate;
+  }>(`/projects/${projectId}/git/init`, { method: "POST" });
+
+  return data.candidate;
+}
+
+export async function setProjectGitHubOriginRemote(
+  projectId: number,
+  input: {
+    owner: string;
+    repo: string;
+    overwrite?: boolean;
+    initIfMissing?: boolean;
+  },
+): Promise<GitHubRepositoryLinkCandidate> {
+  const data = await request<{
+    ok: true;
+    candidate: GitHubRepositoryLinkCandidate;
+  }>(`/projects/${projectId}/github/remote`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return data.candidate;
+}
+
+export async function linkProjectGitHubRepository(
+  projectId: number,
+  input: {
+    owner?: string;
+    repo?: string;
+    source?: "remote-origin" | "manual";
+  } = {},
+): Promise<{
+  link: GitHubRepositoryLink;
+  candidate: GitHubRepositoryLinkCandidate;
+}> {
+  const data = await request<{
+    ok: true;
+    link: GitHubRepositoryLink;
+    candidate: GitHubRepositoryLinkCandidate;
+  }>(`/projects/${projectId}/github/link`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return {
+    link: data.link,
+    candidate: data.candidate,
+  };
+}
+
+export async function unlinkProjectGitHubRepository(
+  projectId: number,
+): Promise<GitHubRepositoryLinkCandidate> {
+  const data = await request<{
+    ok: true;
+    candidate: GitHubRepositoryLinkCandidate;
+  }>(`/projects/${projectId}/github/link`, { method: "DELETE" });
+
+  return data.candidate;
+}
+
+export async function getProjectGitHubIssues(
+  projectId: number,
+  options: {
+    state?: "open" | "closed" | "all";
+    search?: string;
+    labels?: string;
+    perPage?: number;
+  } = {},
+): Promise<GitHubIssuesListResult> {
+  const searchParams = new URLSearchParams();
+
+  if (options.state) {
+    searchParams.set("state", options.state);
+  }
+
+  if (options.search?.trim()) {
+    searchParams.set("search", options.search.trim());
+  }
+
+  if (options.labels?.trim()) {
+    searchParams.set("labels", options.labels.trim());
+  }
+
+  if (options.perPage) {
+    searchParams.set("perPage", String(options.perPage));
+  }
+
+  const query = searchParams.toString();
+  const data = await request<{ ok: true; result: GitHubIssuesListResult }>(
+    `/projects/${projectId}/github/issues${query ? `?${query}` : ""}`,
+  );
+
+  return data.result;
+}
+
+export async function getProjectGitHubIssue(
+  projectId: number,
+  issueNumber: number,
+): Promise<{ repository: GitHubRepositoryLink; issue: GitHubIssueReference }> {
+  const data = await request<{
+    ok: true;
+    repository: GitHubRepositoryLink;
+    issue: GitHubIssueReference;
+  }>(`/projects/${projectId}/github/issues/${issueNumber}`);
+
+  return {
+    repository: data.repository,
+    issue: data.issue,
+  };
+}
+
+export async function getProjectGitStatus(
+  projectId: number,
+): Promise<GitStatusResult> {
   const data = await request<{ ok: true; status: GitStatusResult }>(
-    `/projects/${projectId}/git/status`
+    `/projects/${projectId}/git/status`,
   );
 
   return data.status;
 }
 
-export async function getProjectGitDiffSummary(projectId: number): Promise<GitDiffSummaryResult> {
+export async function getProjectGitDiffSummary(
+  projectId: number,
+): Promise<GitDiffSummaryResult> {
   const data = await request<{ ok: true; diffSummary: GitDiffSummaryResult }>(
-    `/projects/${projectId}/git/diff-summary`
+    `/projects/${projectId}/git/diff-summary`,
   );
 
   return data.diffSummary;
 }
 
 export async function getProjectContextFiles(
-  projectId: number
+  projectId: number,
 ): Promise<ProjectContextFile[]> {
   const data = await request<{
     ok: true;
@@ -118,7 +312,7 @@ export async function getProjectContextFiles(
 
 export async function getProjectContextFile(
   projectId: number,
-  fileName: ProjectContextFile["fileName"]
+  fileName: ProjectContextFile["fileName"],
 ): Promise<{ markdown: string; contextFile: ProjectContextFile }> {
   const data = await request<{
     ok: true;
@@ -128,13 +322,15 @@ export async function getProjectContextFile(
 
   return {
     markdown: data.markdown,
-    contextFile: data.contextFile
+    contextFile: data.contextFile,
   };
 }
 
-export async function getProjectMemories(projectId: number): Promise<ProjectMemory[]> {
+export async function getProjectMemories(
+  projectId: number,
+): Promise<ProjectMemory[]> {
   const data = await request<{ ok: true; memories: ProjectMemory[] }>(
-    `/projects/${projectId}/memories`
+    `/projects/${projectId}/memories`,
   );
 
   return data.memories;
@@ -142,14 +338,14 @@ export async function getProjectMemories(projectId: number): Promise<ProjectMemo
 
 export async function createProjectMemory(
   projectId: number,
-  input: ProjectMemoryInput
+  input: ProjectMemoryInput,
 ): Promise<ProjectMemory> {
   const data = await request<{ ok: true; memory: ProjectMemory }>(
     `/projects/${projectId}/memories`,
     {
       method: "POST",
-      body: JSON.stringify(input)
-    }
+      body: JSON.stringify(input),
+    },
   );
 
   return data.memory;
@@ -158,14 +354,14 @@ export async function createProjectMemory(
 export async function updateProjectMemory(
   projectId: number,
   memoryId: number,
-  input: Partial<ProjectMemoryInput>
+  input: Partial<ProjectMemoryInput>,
 ): Promise<ProjectMemory> {
   const data = await request<{ ok: true; memory: ProjectMemory }>(
     `/projects/${projectId}/memories/${memoryId}`,
     {
       method: "PATCH",
-      body: JSON.stringify(input)
-    }
+      body: JSON.stringify(input),
+    },
   );
 
   return data.memory;
@@ -173,16 +369,16 @@ export async function updateProjectMemory(
 
 export async function deleteProjectMemory(
   projectId: number,
-  memoryId: number
+  memoryId: number,
 ): Promise<void> {
   await request<{ ok: true }>(`/projects/${projectId}/memories/${memoryId}`, {
-    method: "DELETE"
+    method: "DELETE",
   });
 }
 
 export async function getAgentsPreview(
   projectId: number,
-  options: { bypassCache?: boolean } = {}
+  options: { bypassCache?: boolean } = {},
 ): Promise<{
   markdown: string;
   generation?: GenerationMetadata;
@@ -210,14 +406,14 @@ export async function getAgentsPreview(
     markdown: data.markdown,
     generation: data.generation,
     projectMemories: data.projectMemories ?? [],
-    agentsFile: data.agentsFile
+    agentsFile: data.agentsFile,
   };
 }
 
 export async function saveAgentsFile(
   projectId: number,
   markdown?: string,
-  options: { fileName?: "AGENTS.md" | "AGENTS.generated.md" } = {}
+  options: { fileName?: "AGENTS.md" | "AGENTS.generated.md" } = {},
 ) {
   const data = await request<{
     ok: true;
@@ -227,17 +423,16 @@ export async function saveAgentsFile(
     method: "POST",
     body: JSON.stringify({
       markdown,
-      fileName: options.fileName
-    })
+      fileName: options.fileName,
+    }),
   });
 
   return data;
 }
 
-
 export async function getStorageAudit(): Promise<StorageAuditResult> {
   const data = await request<{ ok: true; audit: StorageAuditResult }>(
-    "/storage/audit"
+    "/storage/audit",
   );
 
   return data.audit;
@@ -246,14 +441,16 @@ export async function getStorageAudit(): Promise<StorageAuditResult> {
 export async function exportWorkspaceBackup(): Promise<WorkspaceBackupExportResult> {
   const data = await request<{ ok: true; backup: WorkspaceBackupExportResult }>(
     "/storage/backups/export",
-    { method: "POST" }
+    { method: "POST" },
   );
 
   return data.backup;
 }
 
 export async function getTaskPacks(): Promise<TaskPack[]> {
-  const data = await request<{ ok: true; taskPacks: TaskPack[] }>("/task-packs");
+  const data = await request<{ ok: true; taskPacks: TaskPack[] }>(
+    "/task-packs",
+  );
   return data.taskPacks;
 }
 
@@ -270,22 +467,57 @@ export async function createTaskPack(input: {
   customRules?: string[];
   acceptanceCriteriaPresetId?: string;
   acceptanceCriteria?: string[];
+  githubIssueSource?: GitHubIssueTaskPackSource;
 }): Promise<TaskPack> {
   const data = await request<{ ok: true; taskPack: TaskPack }>("/task-packs", {
     method: "POST",
-    body: JSON.stringify(input)
+    body: JSON.stringify(input),
   });
 
   return data.taskPack;
 }
 
+
+export async function createGitHubIssueFromTaskPack(
+  taskPackId: number,
+  input: {
+    title: string;
+    body: string;
+    labels?: string[];
+  },
+): Promise<{
+  taskPack: TaskPack;
+  issue: GitHubIssueReference;
+  githubCreatedIssue: GitHubCreatedIssueLink;
+}> {
+  const data = await request<{
+    ok: true;
+    taskPack: TaskPack;
+    issue: GitHubIssueReference;
+    githubCreatedIssue: GitHubCreatedIssueLink;
+  }>(`/task-packs/${taskPackId}/github/issue`, {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return {
+    taskPack: data.taskPack,
+    issue: data.issue,
+    githubCreatedIssue: data.githubCreatedIssue,
+  };
+}
+
 export async function getOllamaStatus(): Promise<OllamaStatus> {
-  const data = await request<{ ok: true; ollama: OllamaStatus }>("/ollama/health");
+  const data = await request<{ ok: true; ollama: OllamaStatus }>(
+    "/ollama/health",
+  );
   return data.ollama;
 }
 
 export async function getOllamaModels(): Promise<OllamaModel[]> {
-  const data = await request<{ ok: true; models: OllamaModel[] }>("/ollama/models");
+  const data = await request<{ ok: true; models: OllamaModel[] }>(
+    "/ollama/models",
+  );
   return data.models;
 }
 
@@ -295,11 +527,11 @@ export async function getAppSettings(): Promise<AppSettings> {
 }
 
 export async function updateAppSettings(
-  input: UpdateAppSettingsInput
+  input: UpdateAppSettingsInput,
 ): Promise<AppSettings> {
   const data = await request<{ ok: true; settings: AppSettings }>("/settings", {
     method: "PATCH",
-    body: JSON.stringify(input)
+    body: JSON.stringify(input),
   });
 
   return data.settings;
@@ -307,19 +539,21 @@ export async function updateAppSettings(
 
 export async function getAiIntegrationStatus(): Promise<AiProviderStatus> {
   const data = await request<{ ok: true; status: AiProviderStatus }>(
-    "/integrations/ai/status"
+    "/integrations/ai/status",
   );
   return data.status;
 }
 
 export async function getAiIntegrationModels(): Promise<AiProviderModel[]> {
   const data = await request<{ ok: true; models: AiProviderModel[] }>(
-    "/integrations/ai/models"
+    "/integrations/ai/models",
   );
   return data.models;
 }
 
-export async function searchWorkspace(query: string): Promise<WorkspaceSearchResponse> {
+export async function searchWorkspace(
+  query: string,
+): Promise<WorkspaceSearchResponse> {
   const searchParams = new URLSearchParams();
 
   searchParams.set("q", query);
@@ -332,7 +566,7 @@ export async function searchWorkspace(query: string): Promise<WorkspaceSearchRes
 
   return {
     query: data.query,
-    results: data.results
+    results: data.results,
   };
 }
 
@@ -347,7 +581,7 @@ export async function createContextComposerPreview(input: {
     preview: ContextComposerPreview;
   }>("/context-composer/preview", {
     method: "POST",
-    body: JSON.stringify(input)
+    body: JSON.stringify(input),
   });
 
   return data.preview;
@@ -365,13 +599,13 @@ export async function searchContextComposerFiles(input: {
     } & ContextComposerFileSearchResponse
   >("/context-composer/files", {
     method: "POST",
-    body: JSON.stringify(input)
+    body: JSON.stringify(input),
   });
 
   return {
     project: data.project,
     query: data.query,
-    results: data.results
+    results: data.results,
   };
 }
 
@@ -385,17 +619,19 @@ export async function readContextComposerFileSnippet(input: {
     } & ContextComposerFileSnippetResponse
   >("/context-composer/snippet", {
     method: "POST",
-    body: JSON.stringify(input)
+    body: JSON.stringify(input),
   });
 
   return {
     file: data.file,
-    snippet: data.snippet
+    snippet: data.snippet,
   };
 }
 
 export async function getTemplates(): Promise<PromptTemplate[]> {
-  const data = await request<{ ok: true; templates: PromptTemplate[] }>("/templates");
+  const data = await request<{ ok: true; templates: PromptTemplate[] }>(
+    "/templates",
+  );
   return data.templates;
 }
 
@@ -406,46 +642,55 @@ export async function createTemplate(input: {
   taskType: string;
   content: string;
 }): Promise<PromptTemplate> {
-  const data = await request<{ ok: true; template: PromptTemplate }>("/templates", {
-    method: "POST",
-    body: JSON.stringify(input)
-  });
+  const data = await request<{ ok: true; template: PromptTemplate }>(
+    "/templates",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
 
   return data.template;
 }
 
 export async function updateTemplate(
   id: string,
-  input: Partial<Pick<PromptTemplate, "name" | "description" | "targetTool" | "taskType" | "content">>
+  input: Partial<
+    Pick<
+      PromptTemplate,
+      "name" | "description" | "targetTool" | "taskType" | "content"
+    >
+  >,
 ): Promise<PromptTemplate> {
-  const data = await request<{ ok: true; template: PromptTemplate }>(`/templates/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(input)
-  });
+  const data = await request<{ ok: true; template: PromptTemplate }>(
+    `/templates/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(input),
+    },
+  );
 
   return data.template;
 }
 
 export async function deleteTemplate(id: string): Promise<void> {
   await request<{ ok: true }>(`/templates/${id}`, {
-    method: "DELETE"
+    method: "DELETE",
   });
 }
 
 export async function getRuleProfilesCatalog(): Promise<RuleProfilesCatalog> {
-  const data = await request<
-    {
-      ok: true;
-      ruleProfiles: RuleProfile[];
-      ruleItems: RuleItem[];
-      acceptanceCriteriaPresets: AcceptanceCriteriaPreset[];
-    }
-  >("/rule-profiles");
+  const data = await request<{
+    ok: true;
+    ruleProfiles: RuleProfile[];
+    ruleItems: RuleItem[];
+    acceptanceCriteriaPresets: AcceptanceCriteriaPreset[];
+  }>("/rule-profiles");
 
   return {
     ruleProfiles: data.ruleProfiles,
     ruleItems: data.ruleItems,
-    acceptanceCriteriaPresets: data.acceptanceCriteriaPresets
+    acceptanceCriteriaPresets: data.acceptanceCriteriaPresets,
   };
 }
 
@@ -457,28 +702,44 @@ export async function createRuleProfile(input: {
   customRules?: string[];
   acceptanceCriteriaPresetId?: string | null;
 }): Promise<RuleProfile> {
-  const data = await request<{ ok: true; ruleProfile: RuleProfile }>("/rule-profiles", {
-    method: "POST",
-    body: JSON.stringify(input)
-  });
+  const data = await request<{ ok: true; ruleProfile: RuleProfile }>(
+    "/rule-profiles",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
 
   return data.ruleProfile;
 }
 
 export async function updateRuleProfile(
   id: string,
-  input: Partial<Pick<RuleProfile, "name" | "description" | "taskType" | "enabledRuleIds" | "customRules" | "acceptanceCriteriaPresetId">>
+  input: Partial<
+    Pick<
+      RuleProfile,
+      | "name"
+      | "description"
+      | "taskType"
+      | "enabledRuleIds"
+      | "customRules"
+      | "acceptanceCriteriaPresetId"
+    >
+  >,
 ): Promise<RuleProfile> {
-  const data = await request<{ ok: true; ruleProfile: RuleProfile }>(`/rule-profiles/${id}`, {
-    method: "PUT",
-    body: JSON.stringify(input)
-  });
+  const data = await request<{ ok: true; ruleProfile: RuleProfile }>(
+    `/rule-profiles/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(input),
+    },
+  );
 
   return data.ruleProfile;
 }
 
 export async function deleteRuleProfile(id: string): Promise<void> {
   await request<{ ok: true }>(`/rule-profiles/${id}`, {
-    method: "DELETE"
+    method: "DELETE",
   });
 }
