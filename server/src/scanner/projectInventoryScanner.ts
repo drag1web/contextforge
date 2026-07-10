@@ -357,7 +357,11 @@ function classifyFileRole(relativePath: string, kind: ProjectInventoryFileKind):
     if (normalized.includes("/routes/") || normalized.startsWith("routes/") || normalized.includes("/controllers/") || normalized.startsWith("controllers/")) return "api-route";
     if (normalized.includes("/db/") || normalized.includes("/database/") || normalized.includes("/schema/") || normalized.endsWith("schema.prisma") || normalized.endsWith("schema.sql")) return "db-schema";
     if (normalized.includes("/repositories/") || normalized.includes("/repository/")) return "repository";
-    if (normalized.includes("/services/") || normalized.includes("/service/")) return normalized.includes("api") ? "client-api" : "service";
+    if (
+        normalized.includes("/services/") ||
+        normalized.includes("/service/") ||
+        /service\.(?:[cm]?[jt]sx?)$/.test(fileName)
+    ) return normalized.includes("api") ? "client-api" : "service";
     if (normalized.endsWith("/api.ts") || normalized.endsWith("/api.js") || normalized.includes("/api/client") || normalized.includes("/client/api")) return "client-api";
     if (normalized.includes("/store/") || normalized.includes("/stores/")) return "store";
     if (normalized.includes("/hooks/") || /^use[A-Z]/.test(fileName)) return "hook";

@@ -92,6 +92,10 @@ export interface BenchmarkMetrics {
   maximumCandidateSetSize: number;
   emptySelectionRate: number;
   unsafeSelectionRate: number;
+  actionableSelectionCases: number;
+  abstentionCases: number;
+  correctAbstentions: number;
+  abstentionDecisionAccuracy: number;
   confidenceCalibrationError: number;
   confidenceBuckets: ConfidenceBucket[];
   failuresBySeverity: Record<BenchmarkSeverity, number>;

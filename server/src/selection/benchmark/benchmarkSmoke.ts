@@ -79,6 +79,12 @@ async function main() {
   assert.ok(backend.candidates.some((candidate) => candidate.path === "server/src/repositories/issueMetadataRepository.ts"));
   const backendRanking = deterministicCandidateRanking(backend);
   assert.equal(backendRanking.selected.some((candidate) => candidate.path === "server/src/repositories/orderRepository.ts" && candidate.usage === "inspect-and-edit"), false);
+  assert.equal(
+    backendRanking.selected.some((candidate) =>
+      candidate.path === "server/src/services/githubIssuesService.ts"
+    ),
+    true,
+  );
 
   const tests = retrieveCandidates({ rawTask: "Add tests for calculateRoi", requestedTaskType: "tests", inventory: getBenchmarkFixture("library-stack") });
   assert.ok(tests.candidates.some((candidate) => candidate.path === "tests/roiCalculator.test.ts"));
@@ -123,6 +129,12 @@ async function main() {
   const terminalBlock = calculateBenchmarkMetrics([{ case: terminalBlockCase, outcome: { selectedFiles: [], candidatePaths: [], blocked: true, manualReview: false, implementationArea: "general", selectionSource: "blocked", finalConfidence: 0, qualityScore: 0 } }]);
   assert.equal(terminalBlock.results[0]?.passed, true);
   assert.equal(terminalBlock.metrics.manualReviewCorrectness, 1);
+  assert.equal(terminalBlock.metrics.actionableSelectionCases, 0);
+  assert.equal(terminalBlock.metrics.abstentionCases, 1);
+  assert.equal(terminalBlock.metrics.correctAbstentions, 1);
+  assert.equal(terminalBlock.metrics.abstentionDecisionAccuracy, 1);
+  assert.equal(terminalBlock.metrics.confidenceCalibrationError, 0);
+  assert.equal(terminalBlock.metrics.confidenceBuckets.every((bucket) => bucket.count === 0), true);
 
   const anyOfCase: SelectorBenchmarkCase = { ...metricCase, id: "metric-any-of", family: "metric-any-of", expected: { requiredSupportAnyOf: ["package.json", ".env.example"] } };
   const anyOfMeasured = calculateBenchmarkMetrics([{ case: anyOfCase, outcome: { selectedFiles: [{ path: "package.json", usage: "config-reference" }], candidatePaths: ["package.json"], blocked: false, manualReview: false, implementationArea: "docs", selectionSource: "shadow-deterministic", finalConfidence: 70, qualityScore: 70 } }]);
@@ -251,6 +263,13 @@ async function main() {
     ),
     true,
   );
+  assert.equal(
+    sqliteRanking.selected.some((candidate) =>
+      candidate.path === "src/server.ts" &&
+      candidate.usage === "inspect-only"
+    ),
+    true,
+  );
 
   const fullstackRetrieval = retrieveCandidates({
     rawTask: "Добавь backend endpoint фильтрации проектов по readiness и обнови UI при необходимости",
@@ -270,7 +289,76 @@ async function main() {
     fullstackRanking.selected.some((candidate) => candidate.path === "client/src/api.ts"),
     true,
   );
+  assert.equal(
+    fullstackRanking.selected.some((candidate) =>
+      candidate.path === "src/db/queries.ts" &&
+      candidate.usage === "inspect-only"
+    ),
+    true,
+  );
   await fs.rm(roleDir, { recursive: true, force: true });
+
+  const supportDir = await fs.mkdtemp(path.join(os.tmpdir(), "contextforge-support-priority-"));
+  const writeSupportFile = async (relativePath: string, content = "export const value = true;") => {
+    const absolutePath = path.join(supportDir, relativePath);
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, content, "utf8");
+  };
+  await writeSupportFile("README.md", "# Project\n\nSetup, architecture, verification.");
+  await writeSupportFile("package.json", "{\"scripts\":{\"test\":\"echo test\"}}");
+  await writeSupportFile(".env.example", "APP_PORT=3000");
+  await writeSupportFile("apps/desktop/renderer/README.md", "# Renderer");
+  await writeSupportFile("apps/desktop/renderer/package.json", "{\"scripts\":{}}");
+  await writeSupportFile("apps/desktop/renderer/vite.config.ts", "export default {};");
+  await writeSupportFile(
+    "server/src/routes/taskPacks.ts",
+    "import { saveIssueMetadata } from '../github/githubIssuesService';\nexport const taskPacksRouter = saveIssueMetadata;",
+  );
+  await writeSupportFile(
+    "server/src/github/githubIssuesService.ts",
+    "import type { GitHubIssueMetadata } from './githubTypes';\nimport type { StorageRecord } from '../storage/types';\nexport function saveIssueMetadata(value: GitHubIssueMetadata): StorageRecord { return value as StorageRecord; }",
+  );
+  await writeSupportFile("server/src/github/githubTypes.ts", "export interface GitHubIssueMetadata { id: number; }");
+  await writeSupportFile("server/src/storage/types.ts", "export interface StorageRecord { id: number; }");
+  const supportInventory = await scanProjectInventory(supportDir);
+  assert.equal(
+    supportInventory.files.find((file) => file.path === "server/src/github/githubIssuesService.ts")?.role,
+    "service",
+  );
+
+  const scopedDocsRetrieval = retrieveCandidates({
+    rawTask: "Обнови README: установка, архитектура, проверка",
+    requestedTaskType: "general",
+    inventory: supportInventory,
+  });
+  const scopedDocsRanking = deterministicCandidateRanking(scopedDocsRetrieval);
+  assert.equal(
+    scopedDocsRanking.selected.some((candidate) =>
+      ["package.json", ".env.example"].includes(candidate.path)
+    ),
+    true,
+  );
+  assert.equal(
+    scopedDocsRanking.selected.some((candidate) =>
+      candidate.path === "apps/desktop/renderer/README.md" &&
+      candidate.usage === "inspect-and-edit"
+    ),
+    false,
+  );
+
+  const metadataRetrieval = retrieveCandidates({
+    rawTask: "Добавь эндпоинт для сохранения GitHub issue metadata",
+    requestedTaskType: "general",
+    inventory: supportInventory,
+  });
+  const metadataRanking = deterministicCandidateRanking(metadataRetrieval);
+  assert.equal(
+    metadataRanking.selected.some((candidate) =>
+      candidate.path === "server/src/github/githubIssuesService.ts"
+    ),
+    true,
+  );
+  await fs.rm(supportDir, { recursive: true, force: true });
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "contextforge-benchmark-"));
   const manifestPath = path.join(tempDir, "projects.json");

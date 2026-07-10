@@ -170,6 +170,13 @@ const BACKEND_ROLES = new Set([
   "api-route", "service", "repository", "db-schema", "store", "server-entry",
 ]);
 
+const BACKEND_ENTRY_ROLES = new Set(["api-route", "server-entry"]);
+const BACKEND_LOGIC_ROLES = new Set(["service"]);
+const PERSISTENCE_ROLES = new Set(["repository", "db-schema", "store"]);
+const FRONTEND_PRIMARY_ROLES = new Set([
+  "page", "component", "ui-component", "hook", "client-api", "app-entry",
+]);
+
 function isTestCandidate(candidate: RetrievedCandidate) {
   return candidate.file.kind === "test" || candidate.file.role === "test";
 }
@@ -197,12 +204,42 @@ function isRelatedToAny(candidate: RetrievedCandidate, anchorPaths: Set<string>)
   );
 }
 
+function sharedPathPrefixDepth(pathValue: string, anchorPaths: Set<string>) {
+  const parts = pathValue.toLowerCase().split("/").filter(Boolean);
+  let best = 0;
+  for (const anchorPath of anchorPaths) {
+    const anchorParts = anchorPath.toLowerCase().split("/").filter(Boolean);
+    let depth = 0;
+    while (depth < parts.length && depth < anchorParts.length && parts[depth] === anchorParts[depth]) {
+      depth += 1;
+    }
+    best = Math.max(best, depth);
+  }
+  return best;
+}
+
+function parentDirectory(pathValue: string) {
+  const normalized = pathValue.toLowerCase().replace(/\\/g, "/").replace(/^\.\//, "");
+  const separator = normalized.lastIndexOf("/");
+  return separator >= 0 ? normalized.slice(0, separator) : "";
+}
+
+function isInSameDirectoryAsAny(pathValue: string, anchorPaths: Set<string>) {
+  const directory = parentDirectory(pathValue);
+  for (const anchorPath of anchorPaths) {
+    if (directory === parentDirectory(anchorPath)) return true;
+  }
+  return false;
+}
+
 function supportPriority(candidate: RetrievedCandidate, anchorPaths: Set<string>) {
   return (
     Number(isRelatedToAny(candidate, anchorPaths)) * 20_000 +
-    Number(candidate.channels.includes("exact-filename")) * 8_000 +
-    candidate.filenameMatchCount * 3_000 +
-    candidate.identityMatchCount * 1_200 +
+    Number(isInSameDirectoryAsAny(candidate.path, anchorPaths)) * 4_000 +
+    sharedPathPrefixDepth(candidate.path, anchorPaths) * 900 +
+    Number(candidate.channels.includes("exact-filename")) * 11_000 +
+    candidate.filenameMatchCount * 4_500 +
+    candidate.identityMatchCount * 2_200 +
     Number(candidate.channels.includes("lexical-path")) * 600 +
     candidate.graphRelationships.length * 80 +
     candidate.score
@@ -304,14 +341,205 @@ function choosePrimaryAnchors(
   }
 
   if (retrieval.implementationArea === "backend") {
-    return primary.filter((candidate) => BACKEND_ROLES.has(candidate.file.role)).slice(0, 4);
+    const backendPrimary = primary.filter((candidate) => BACKEND_ROLES.has(candidate.file.role));
+    const anchors: RetrievedCandidate[] = [];
+    const seen = new Set<string>();
+    const add = (candidate: RetrievedCandidate | undefined) => {
+      if (!candidate || seen.has(candidate.candidateId) || anchors.length >= 4) return;
+      anchors.push(candidate);
+      seen.add(candidate.candidateId);
+    };
+
+    add(backendPrimary.find((candidate) => BACKEND_ENTRY_ROLES.has(candidate.file.role)));
+    add(backendPrimary.find((candidate) => BACKEND_LOGIC_ROLES.has(candidate.file.role)));
+    add(backendPrimary.find((candidate) => PERSISTENCE_ROLES.has(candidate.file.role)));
+
+    const hasStrongIdentityAnchor = anchors.some((candidate) =>
+      candidate.explicit ||
+      candidate.identityMatchCount > 0
+    );
+    if (!hasStrongIdentityAnchor) {
+      add(backendPrimary.find((candidate) => !seen.has(candidate.candidateId)));
+    }
+
+    for (const candidate of backendPrimary) {
+      if (anchors.length >= 2) break;
+      add(candidate);
+    }
+    return anchors;
   }
 
   if (retrieval.implementationArea === "docs") {
-    return primary.filter((candidate) => candidate.file.kind === "docs").slice(0, 2);
+    const docs = primary.filter((candidate) => candidate.file.kind === "docs");
+    const explicitDocs = docs.filter((candidate) => candidate.explicit);
+    if (explicitDocs.length > 1) return explicitDocs.slice(0, 2);
+    return docs.slice(0, 1);
   }
 
   return primary.slice(0, 3);
+}
+
+function bestCoverageCandidate(
+  candidates: RetrievedCandidate[],
+  roles: Set<string>,
+  anchorPaths: Set<string>,
+  minimumScore: number,
+) {
+  const coverageResponsibilityPriority = (candidate: RetrievedCandidate) => {
+    const pathValue = candidate.path.toLowerCase();
+    if (/(?:^|\/)(?:queries?|repositories?|services?|types?)(?:[./]|$)/.test(pathValue)) return 1_200;
+    if (/(?:^|\/)(?:database|storage|schema)(?:[./]|$)/.test(pathValue)) return 600;
+    if (/(?:^|\/)(?:migrate|migrations?)(?:[./]|$)/.test(pathValue)) return -800;
+    return 0;
+  };
+  return [...candidates]
+    .filter((candidate) => roles.has(candidate.file.role))
+    .filter((candidate) =>
+      candidate.explicit ||
+      candidate.roleIntentMatch ||
+      candidate.filenameMatchCount > 0 ||
+      candidate.identityMatchCount > 0 ||
+      candidate.graphRelationships.length > 0 ||
+      candidate.score >= minimumScore
+    )
+    .sort((a, b) =>
+      coverageResponsibilityPriority(b) - coverageResponsibilityPriority(a) ||
+      supportPriority(b, anchorPaths) - supportPriority(a, anchorPaths) ||
+      b.score - a.score ||
+      a.path.localeCompare(b.path)
+    )[0];
+}
+
+function addCoverageCandidate(
+  result: RetrievedCandidate[],
+  selectedIds: Set<string>,
+  candidate: RetrievedCandidate | undefined,
+  selectionLimit: number,
+) {
+  if (!candidate || result.length >= selectionLimit || selectedIds.has(candidate.candidateId)) return;
+  result.push(candidate);
+  selectedIds.add(candidate.candidateId);
+}
+
+function docsSupportResponsibilityPriority(candidate: RetrievedCandidate) {
+  const fileName = candidate.file.name.toLowerCase();
+  if (/^(?:package\.json|pyproject\.toml|cargo\.toml|go\.mod|pom\.xml|composer\.json|gemfile|requirements(?:-dev)?\.txt)$/.test(fileName)) {
+    return 5_000;
+  }
+  if (/^(?:\.env|env)[._-](?:example|sample|template)$/.test(fileName)) return 4_500;
+  if (/^docker-compose(?:\.[^.]+)?\.ya?ml$/.test(fileName)) return 2_500;
+  if (/(?:lock|lockb)$/.test(fileName)) return -1_000;
+  return 0;
+}
+
+function bestDocsSupportCandidates(
+  candidates: RetrievedCandidate[],
+  anchorPaths: Set<string>,
+  limit: number,
+) {
+  return [...candidates]
+    .filter((candidate) => candidate.file.kind === "config" || candidate.file.role === "config")
+    .sort((a, b) =>
+      Number(isInSameDirectoryAsAny(b.path, anchorPaths)) * 20_000 -
+      Number(isInSameDirectoryAsAny(a.path, anchorPaths)) * 20_000 ||
+      docsSupportResponsibilityPriority(b) - docsSupportResponsibilityPriority(a) ||
+      supportPriority(b, anchorPaths) - supportPriority(a, anchorPaths) ||
+      b.score - a.score ||
+      a.path.localeCompare(b.path)
+    )
+    .slice(0, limit);
+}
+
+function retainLayerCoverage(
+  result: RetrievedCandidate[],
+  selectedIds: Set<string>,
+  retrieval: CandidateRetrievalResult,
+  selectionLimit: number,
+) {
+  const anchorPaths = new Set(result.map((candidate) => candidate.path.toLowerCase()));
+  const pool = retrieval.candidates.filter((candidate) => !selectedIds.has(candidate.candidateId));
+  const selectedRoles = new Set(result.map((candidate) => candidate.file.role));
+  const topScore = retrieval.candidates[0]?.score ?? 0;
+  const supportFloor = Math.max(30, topScore * 0.38);
+
+  if (retrieval.implementationArea === "docs") {
+    for (const candidate of bestDocsSupportCandidates(pool, anchorPaths, 2)) {
+      addCoverageCandidate(result, selectedIds, candidate, selectionLimit);
+    }
+  }
+
+  if (retrieval.implementationArea === "backend") {
+    const hasEntry = result.some((candidate) => BACKEND_ENTRY_ROLES.has(candidate.file.role));
+    const hasLogic = result.some((candidate) => BACKEND_LOGIC_ROLES.has(candidate.file.role));
+    const hasPersistence = result.some((candidate) => PERSISTENCE_ROLES.has(candidate.file.role));
+
+    if (hasEntry && !hasLogic) {
+      addCoverageCandidate(
+        result,
+        selectedIds,
+        bestCoverageCandidate(pool, BACKEND_LOGIC_ROLES, anchorPaths, supportFloor),
+        selectionLimit,
+      );
+    }
+
+    if (hasEntry && !hasPersistence) {
+      const persistence = bestCoverageCandidate(pool, PERSISTENCE_ROLES, anchorPaths, supportFloor + 8);
+      if (persistence?.roleIntentMatch || persistence?.graphRelationships.length || persistence?.identityMatchCount) {
+        addCoverageCandidate(result, selectedIds, persistence, selectionLimit);
+      }
+    }
+
+    if (hasPersistence && !hasEntry) {
+      addCoverageCandidate(
+        result,
+        selectedIds,
+        bestCoverageCandidate(pool, BACKEND_ENTRY_ROLES, anchorPaths, supportFloor),
+        selectionLimit,
+      );
+    }
+  }
+
+  if (retrieval.implementationArea === "fullstack") {
+    if (![...selectedRoles].some((role) => BACKEND_ENTRY_ROLES.has(role))) {
+      addCoverageCandidate(
+        result,
+        selectedIds,
+        bestCoverageCandidate(pool, BACKEND_ENTRY_ROLES, anchorPaths, supportFloor),
+        selectionLimit,
+      );
+    }
+
+    if (![...selectedRoles].some((role) => FRONTEND_PRIMARY_ROLES.has(role))) {
+      addCoverageCandidate(
+        result,
+        selectedIds,
+        bestCoverageCandidate(pool, FRONTEND_PRIMARY_ROLES, anchorPaths, supportFloor),
+        selectionLimit,
+      );
+    }
+
+    addCoverageCandidate(
+      result,
+      selectedIds,
+      bestCoverageCandidate(pool, PERSISTENCE_ROLES, anchorPaths, supportFloor),
+      selectionLimit,
+    );
+  }
+
+  if (retrieval.implementationArea === "tests") {
+    addCoverageCandidate(
+      result,
+      selectedIds,
+      [...pool]
+        .filter((candidate) => !isTestCandidate(candidate))
+        .sort((a, b) =>
+          supportPriority(b, anchorPaths) - supportPriority(a, anchorPaths) ||
+          b.score - a.score ||
+          a.path.localeCompare(b.path)
+        )[0],
+      selectionLimit,
+    );
+  }
 }
 
 function chooseAreaAwareCandidates(
@@ -348,18 +576,34 @@ function chooseAreaAwareCandidates(
   }
 
   const result = [...anchors];
+  retainLayerCoverage(result, selectedIds, retrieval, selectionLimit);
   for (const candidate of supportPool) {
     if (result.length >= selectionLimit) break;
+    if (selectedIds.has(candidate.candidateId)) continue;
     result.push(candidate);
+    selectedIds.add(candidate.candidateId);
   }
-  return result;
+  return {
+    candidates: result,
+    anchorIds: new Set(anchors.map((candidate) => candidate.candidateId)),
+  };
 }
 
 function deterministicUsage(
   candidate: RetrievedCandidate,
   retrieval: CandidateRetrievalResult,
+  anchorIds: Set<string>,
 ): SelectedTaskFileUsage {
   if (retrieval.reviewOnly) return "inspect-only";
+  if (!anchorIds.has(candidate.candidateId) && !candidate.explicit) {
+    if (
+      candidate.proposedUsage === "config-reference" ||
+      candidate.proposedUsage === "asset-reference"
+    ) {
+      return candidate.proposedUsage;
+    }
+    return "inspect-only";
+  }
   if (candidate.proposedTechnicalRole !== "primary" && !candidate.explicit) {
     if (
       candidate.proposedUsage === "config-reference" ||
@@ -394,17 +638,17 @@ export function deterministicCandidateRanking(
   );
   const ranked = chooseAreaAwareCandidates(grounded, retrieval, selectionLimit);
   const payload: CandidateRankingPayload = {
-    selected: ranked.map((candidate) => ({
+    selected: ranked.candidates.map((candidate) => ({
       candidateId: candidate.candidateId,
-      usage: deterministicUsage(candidate, retrieval),
+      usage: deterministicUsage(candidate, retrieval, ranked.anchorIds),
       reason:
         candidate.evidence.join("; ") ||
         "Grounded deterministic retrieval candidate.",
       confidence: Math.max(0.25, Math.min(0.92, candidate.score / 180)),
     })),
-    manualReview: ranked.length === 0,
+    manualReview: ranked.candidates.length === 0,
     reason:
-      ranked.length > 0
+      ranked.candidates.length > 0
         ? "Deterministic shadow ranking from grounded evidence, area coverage, and role caps."
         : "No candidate passed the deterministic ranking threshold.",
   };

@@ -70,3 +70,9 @@ The v0.6.2.2 shadow pass distinguishes implementation tests from test-data wordi
 The deterministic candidate limit is intentionally tighter, but validated explicit targets remain mandatory. Small multilingual aliases are limited to generic technical concepts such as home/landing, mapping/dictionaries, settings, and storage/database; they are not project-specific routing rules.
 
 A clean synthetic report is not a production accuracy claim. Always compare it with the real-project manifest report, especially primary-target accuracy, edit-target precision, candidate-set maximum, and critical/high failures.
+
+## Support coverage and benchmark finalization
+
+The v0.6.2.4 pass keeps final selection compact while retaining one evidence-backed support file from a missing architectural layer. Backend tasks can retain service or entry context around route/storage anchors, full-stack tasks retain backend, frontend, and persistence coverage, and test tasks keep the implementation source beside the test harness. Files retained only for coverage remain inspect-only unless they were already chosen as primary anchors.
+
+Confidence reporting now separates actionable selections from abstentions. Blocked, manual-review, and empty-selection outcomes are measured with abstention decision accuracy and no longer distort selection-confidence calibration buckets. The existing `confidenceCalibrationError` field therefore describes actionable selections only.

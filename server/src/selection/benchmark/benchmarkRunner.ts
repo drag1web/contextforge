@@ -121,7 +121,7 @@ export async function runSelectorBenchmark(argv = process.argv.slice(2)) {
   for (const item of filteredCases) splitCounts[item.split] += 1;
   const report: SelectorBenchmarkReport = {
     timestamp: new Date().toISOString(),
-    selectorVersion: "v0.6.2.3-evidence-role-finalization",
+    selectorVersion: "v0.6.2.5-final-support-prioritization",
     mode: options.live ? "mixed" : "deterministic",
     model: options.live ? settings.defaultOllamaModel : null,
     legacyMode: options.live ? "live" : "deterministic",

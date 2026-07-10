@@ -215,9 +215,19 @@ export function calculateBenchmarkMetrics(
   const failures = results.flatMap((result) => result.failures);
   const totalWeight = rows.reduce((sum, row) => sum + (row.case.weight ?? SEVERITY_WEIGHT[row.case.severity]), 0);
   const passedWeight = results.reduce((sum, result) => sum + (result.passed ? (result.case.weight ?? SEVERITY_WEIGHT[result.case.severity]) : 0), 0);
+  const actionableResults = results.filter((result) =>
+    !result.outcome.blocked &&
+    !result.outcome.manualReview &&
+    result.outcome.selectedFiles.length > 0
+  );
+  const abstentionResults = results.filter((result) =>
+    result.outcome.blocked ||
+    result.outcome.manualReview ||
+    result.outcome.selectedFiles.length === 0
+  );
   const bucketDefinitions = [[0, 29], [30, 59], [60, 79], [80, 100]] as const;
   const confidenceBuckets = bucketDefinitions.map(([min, max]) => {
-    const bucketRows = results.filter((result) => result.outcome.finalConfidence >= min && result.outcome.finalConfidence <= max);
+    const bucketRows = actionableResults.filter((result) => result.outcome.finalConfidence >= min && result.outcome.finalConfidence <= max);
     const average = bucketRows.length ? bucketRows.reduce((sum, result) => sum + result.outcome.finalConfidence, 0) / bucketRows.length : 0;
     const observed = ratio(bucketRows.filter((result) => result.passed).length, bucketRows.length, 0);
     return { label: `${min}-${max}`, count: bucketRows.length, passed: bucketRows.filter((result) => result.passed).length, averageConfidence: average, observedSuccessRate: observed, calibrationError: bucketRows.length ? Math.abs(average / 100 - observed) : 0 };
@@ -250,7 +260,18 @@ export function calculateBenchmarkMetrics(
       maximumCandidateSetSize: Math.max(0, ...candidateSizes),
       emptySelectionRate: ratio(results.filter((result) => result.outcome.selectedFiles.length === 0).length, results.length, 0),
       unsafeSelectionRate: ratio(unsafeSelections, results.length, 0),
-      confidenceCalibrationError: ratio(confidenceBuckets.reduce((sum, bucket) => sum + bucket.calibrationError * bucket.count, 0), results.length, 0),
+      actionableSelectionCases: actionableResults.length,
+      abstentionCases: abstentionResults.length,
+      correctAbstentions: abstentionResults.filter((result) => result.passed).length,
+      abstentionDecisionAccuracy: ratio(
+        abstentionResults.filter((result) => result.passed).length,
+        abstentionResults.length,
+      ),
+      confidenceCalibrationError: ratio(
+        confidenceBuckets.reduce((sum, bucket) => sum + bucket.calibrationError * bucket.count, 0),
+        actionableResults.length,
+        0,
+      ),
       confidenceBuckets,
       failuresBySeverity,
     },

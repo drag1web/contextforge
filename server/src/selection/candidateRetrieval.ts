@@ -243,7 +243,8 @@ function isTestLikeFile(file: ProjectInventoryFile) {
 
 const GENERIC_IDENTITY_TOKENS = new Set([
   "ui", "ux", "frontend", "backend", "server", "api", "page", "screen",
-  "component", "style", "route", "endpoint", "service", "file", "code",
+  "component", "style", "route", "endpoint", "service", "repository", "storage",
+  "database", "db", "schema", "query", "queries", "file", "code",
 ]);
 
 function isPrimaryRoleForArea(file: ProjectInventoryFile, area: TaskArea, hasIdentityEvidence: boolean) {

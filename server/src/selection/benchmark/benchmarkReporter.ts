@@ -27,7 +27,10 @@ function metricsMarkdown(title: string, metrics: BenchmarkMetrics) {
     `- Implementation-area accuracy: ${percent(metrics.implementationAreaAccuracy)}`,
     `- Candidate recall: ${percent(metrics.candidateRecall)}`,
     `- Candidate set average / max: ${metrics.averageCandidateSetSize.toFixed(1)} / ${metrics.maximumCandidateSetSize}`,
-    `- Confidence calibration error: ${metrics.confidenceCalibrationError.toFixed(3)}`,
+    `- Actionable selection cases: ${metrics.actionableSelectionCases}`,
+    `- Abstention cases / correct: ${metrics.abstentionCases} / ${metrics.correctAbstentions}`,
+    `- Abstention decision accuracy: ${percent(metrics.abstentionDecisionAccuracy)}`,
+    `- Selection confidence calibration error: ${metrics.confidenceCalibrationError.toFixed(3)}`,
     `- Failures: critical=${metrics.failuresBySeverity.critical}, high=${metrics.failuresBySeverity.high}, medium=${metrics.failuresBySeverity.medium}, low=${metrics.failuresBySeverity.low}`,
     "",
   ].join("\n");
@@ -59,7 +62,7 @@ export function renderBenchmarkMarkdown(report: SelectorBenchmarkReport) {
     "",
     metricsMarkdown("Legacy selector", report.legacy),
     metricsMarkdown("Shadow candidate pipeline", report.shadow),
-    "## Confidence buckets (shadow)",
+    "## Selection confidence buckets (shadow)",
     "",
     ...report.shadow.confidenceBuckets.map((bucket) => `- ${bucket.label}: n=${bucket.count}, success=${percent(bucket.observedSuccessRate)}, avg confidence=${bucket.averageConfidence.toFixed(1)}, error=${bucket.calibrationError.toFixed(3)}`),
     "",
@@ -67,7 +70,7 @@ export function renderBenchmarkMarkdown(report: SelectorBenchmarkReport) {
     "",
     ...(failureRows.length ? failureRows : ["- None"]),
     "",
-    "> Weighted score is an assertion pass score, not a claim of real-world selector accuracy. Reports contain fixture-relative paths and metrics only; they do not include local absolute paths, file contents, secrets, or raw model responses.",
+    "> Weighted score is an assertion pass score, not a claim of real-world selector accuracy. Confidence calibration uses actionable selections only; blocked, manual-review, and empty-selection outcomes are reported separately as abstentions. Reports contain fixture-relative paths and metrics only; they do not include local absolute paths, file contents, secrets, or raw model responses.",
     "",
   ].join("\n");
 }

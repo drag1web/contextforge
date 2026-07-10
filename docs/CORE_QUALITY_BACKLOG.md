@@ -287,3 +287,17 @@ This bounded pass adds:
 - real-scanner smoke coverage for backend entries, docs review, page/component support, SQLite storage, and full-stack client/server selection.
 
 The shadow pipeline remains benchmark-only. Passing synthetic cases is not evidence of production readiness; the local real-project manifest must be re-run and the remaining primary/edit-role failures reviewed before any rollout.
+
+## v0.6.2.4 — Support coverage and benchmark finalization
+
+The third real-project benchmark reduced shadow failures to three medium support-coverage misses. Primary targets, implementation area, candidate recall, and role assignment were already correct; final trimming could still drop the service/types/storage layer around a backend target or the persistence layer from a full-stack target.
+
+This bounded pass adds evidence-based architectural coverage after primary anchoring:
+
+- backend route/entry anchors can retain service or persistence support;
+- storage/database anchors can retain the server/API entry that integrates them;
+- full-stack selection retains backend, frontend, and persistence layers when grounded candidates exist;
+- test selections retain an implementation source alongside test anchors;
+- non-anchor coverage files remain inspect-only, protecting edit-target precision.
+
+Benchmark confidence reporting now excludes blocked/manual-review/empty outcomes from selection-confidence calibration and reports those outcomes separately as abstentions. Shadow remains benchmark-only and production continues to use the legacy selector.
