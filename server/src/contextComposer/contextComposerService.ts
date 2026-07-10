@@ -444,6 +444,19 @@ export async function buildContextComposerPreview(input: {
     manualSelectionConfirmed: false,
     contextQualityMode: settings.contextQualityMode
   });
+  const selectionConfidence = selectionQuality.signals.confidence / 100;
+  const taskIntentForPreview = {
+    ...taskIntent,
+    confidence: selectionConfidence
+  };
+  const fileSelectionForPreview: TaskFileSelection = {
+    ...fileSelection,
+    diagnostics: {
+      ...fileSelection.diagnostics,
+      modelConfidence: taskIntent.confidence,
+      finalConfidence: selectionConfidence
+    } as TaskFileSelection["diagnostics"]
+  };
 
   const suggestedFileGroups = buildSuggestedFileGroups({
     inventory,
@@ -482,8 +495,8 @@ export async function buildContextComposerPreview(input: {
       effectiveTaskArea,
       targetTool: input.targetTool
     },
-    taskIntent,
-    fileSelection,
+    taskIntent: taskIntentForPreview,
+    fileSelection: fileSelectionForPreview,
     selectionQuality,
     selectedFiles,
     suggestedFileGroups,

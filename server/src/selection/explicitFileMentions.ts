@@ -100,6 +100,14 @@ function extractLoosePathMentions(rawTask: string) {
   return mentions;
 }
 
+function extractNamedDocumentMentions(rawTask: string) {
+  const mentions: string[] = [];
+  if (/\breadme(?:\.md)?\b/i.test(rawTask) || /(?:^|\s)ридми(?:\s|$|[.,;:!?])/iu.test(rawTask)) {
+    mentions.push("README.md");
+  }
+  return mentions;
+}
+
 function getFileName(filePath: string) {
   return normalizePath(filePath).split("/").pop() ?? filePath;
 }
@@ -157,7 +165,8 @@ function findBestInventoryMatch(inventory: ProjectInventory, rawMention: string)
 export function resolveExplicitFileMentions(rawTask: string, inventory: ProjectInventory): ExplicitFileMentionResolution {
   const rawMentions = uniqueStrings([
     ...extractStrictPathMentions(rawTask),
-    ...extractLoosePathMentions(rawTask)
+    ...extractLoosePathMentions(rawTask),
+    ...extractNamedDocumentMentions(rawTask)
   ]).filter(looksLikeFilePath);
 
   const mentions = rawMentions.map((mention) => findBestInventoryMatch(inventory, mention));

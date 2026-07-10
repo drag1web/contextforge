@@ -24,9 +24,15 @@ export interface ContextSelectionQuality {
 
 export interface ContextSelectionQualitySignals {
   targetConfidence: number;
+  matchScore: number;
+  confidence: number;
   scopeSafety: number;
   contextCompleteness: number;
   protectedScopeRisk: number;
+  selectionSource: string;
+  implementationArea: string;
+  semanticGraphEvidence: number;
+  areaConflict: boolean;
   manualReviewReason: string | null;
   nextActions: string[];
 }
@@ -495,6 +501,10 @@ function buildQualitySignals({
   hasBackend,
   protectedBackendConstraint,
   createTargetCount,
+  selectionSource,
+  implementationArea,
+  semanticGraphEvidenceCount,
+  areaConflict,
 }: {
   selectedFiles: ProjectInventoryFile[];
   createTargetCount: number;
@@ -512,6 +522,10 @@ function buildQualitySignals({
   isCodeTask: boolean;
   hasBackend: boolean;
   protectedBackendConstraint: boolean;
+  selectionSource: string;
+  implementationArea: string;
+  semanticGraphEvidenceCount: number;
+  areaConflict: boolean;
 }): ContextSelectionQualitySignals {
   const totalContextCount = selectedFiles.length + createTargetCount;
   const targetConfidence = clampScore(
@@ -551,6 +565,47 @@ function buildQualitySignals({
   );
   const scopeSafety = clampScore(
     100 - protectedScopeRisk - (genericOnly && isCodeTask ? 12 : 0),
+  );
+  const matchScore = clampScore(
+    explicitPathSelected
+      ? 94
+      : hasOverlappingFile
+        ? 52 + strongOverlapFileCount * 14 + plausibleCodeFileCount * 6
+        : genericOnly
+          ? 24
+          : plausibleCodeFileCount > 0
+            ? 44 + plausibleCodeFileCount * 5
+            : totalContextCount > 0
+              ? 32
+              : 0,
+  );
+  let confidenceCap =
+    selectionSource === "blocked"
+      ? 0
+      : selectionSource === "fallback" && !explicitPathSelected && createTargetCount === 0
+      ? 72
+      : selectionSource === "manual-review"
+        ? 48
+        : 100;
+  if (totalContextCount === 0) confidenceCap = Math.min(confidenceCap, 24);
+  if (areaConflict) confidenceCap = Math.min(confidenceCap, 70);
+  if (
+    !explicitPathSelected &&
+    createTargetCount === 0 &&
+    semanticGraphEvidenceCount === 0
+  ) {
+    confidenceCap = Math.min(confidenceCap, 88);
+  }
+  const confidence = clampScore(
+    Math.min(
+      confidenceCap,
+      Math.round(
+        targetConfidence * 0.36 +
+          contextCompleteness * 0.24 +
+          scopeSafety * 0.24 +
+          matchScore * 0.16,
+      ),
+    ),
   );
   const manualReviewReason =
     blockingReasons[0] ?? (score < 78 ? (warnings[0] ?? null) : null);
@@ -601,9 +656,15 @@ function buildQualitySignals({
 
   return {
     targetConfidence,
+    matchScore,
+    confidence,
     scopeSafety,
     contextCompleteness,
     protectedScopeRisk,
+    selectionSource,
+    implementationArea,
+    semanticGraphEvidence: semanticGraphEvidenceCount,
+    areaConflict,
     manualReviewReason,
     nextActions: unique(nextActions).slice(0, 4),
   };
@@ -785,6 +846,16 @@ export function evaluateContextSelectionQuality(
   const warnings: string[] = [];
   const blockingReasons: string[] = [];
   const mode = input.contextQualityMode ?? "balanced";
+  const selectionSource =
+    input.fileSelection.diagnostics?.selectionSource ??
+    (input.fileSelection.usedFallback
+      ? input.fileSelection.selectedFiles.length === 0
+        ? "manual-review"
+        : "fallback"
+      : "ai");
+  const semanticGraphEvidenceCount =
+    input.fileSelection.diagnostics?.semanticGraphEvidence?.length ?? 0;
+  const areaConflict = Boolean(input.fileSelection.diagnostics?.areaConflict);
 
   const codeTaskAreas = new Set([
     "ui",
@@ -1018,11 +1089,46 @@ export function evaluateContextSelectionQuality(
     score -= 6;
   }
 
+  if (areaConflict) {
+    warnings.push(
+      input.fileSelection.diagnostics?.conflictReason ??
+        "Requested task type and inferred implementation area conflict. Review roles before generation.",
+    );
+    score -= 10;
+  }
+
   if (input.fileSelection.usedFallback) {
     warnings.push(
       "File selection used fallback logic. The selection is allowed when the ranked files look plausible, but review it if the task is high-risk.",
     );
     score -= mode === "strict" ? 22 : 12;
+  }
+
+  if (
+    selectionSource === "fallback" &&
+    !explicitPathSelected &&
+    !hasCreateTarget
+  ) {
+    warnings.push(
+      "Fallback context is capped below high confidence unless it is grounded by a strict explicit target match.",
+    );
+    score = Math.min(score, 72);
+  }
+
+  if (
+    score >= 90 &&
+    !explicitPathSelected &&
+    !hasCreateTarget &&
+    semanticGraphEvidenceCount === 0
+  ) {
+    warnings.push(
+      "High-confidence context requires an explicit target or semantic graph evidence. This selection needs confirmation.",
+    );
+    score = Math.min(score, 88);
+  }
+
+  if (selectionSource === "manual-review") {
+    score = Math.min(score, 48);
   }
 
   if (
@@ -1120,7 +1226,16 @@ export function evaluateContextSelectionQuality(
   }
 
   if (input.fileSelection.usedFallback) {
-    score = Math.min(score, mode === "advisory" ? 92 : mode === "strict" ? 84 : 88);
+    score = Math.min(
+      score,
+      explicitPathSelected || hasCreateTarget
+        ? mode === "advisory"
+          ? 92
+          : mode === "strict"
+            ? 84
+            : 88
+        : 72,
+    );
   }
 
   if (
@@ -1157,6 +1272,10 @@ export function evaluateContextSelectionQuality(
       hasBackend,
       protectedBackendConstraint,
       createTargetCount,
+      selectionSource,
+      implementationArea: area,
+      semanticGraphEvidenceCount,
+      areaConflict,
     }),
   };
 }

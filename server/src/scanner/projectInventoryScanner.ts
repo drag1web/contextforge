@@ -92,7 +92,8 @@ const GENERATED_PATH_PARTS = [
     "/.svelte-kit/",
     "/.turbo/",
     "/generated/",
-    "/.cache/"
+    "/.cache/",
+    "/reports/selector-benchmark/"
 ];
 
 const GENERATED_FILE_NAMES = new Set([
@@ -306,7 +307,9 @@ function getFileKind(relativePath: string): ProjectInventoryFileKind {
         normalized.includes(".test.") ||
         normalized.includes(".spec.") ||
         normalized.includes("/tests/") ||
-        normalized.includes("/__tests__/")
+        normalized.includes("/__tests__/") ||
+        normalized.includes(".smoke.") ||
+        normalized.includes(".replay.")
     ) {
         return "test";
     }
@@ -340,7 +343,17 @@ function classifyFileRole(relativePath: string, kind: ProjectInventoryFileKind):
     if (kind === "data") return "data";
     if (kind === "runtime") return "runtime";
 
-    if (normalized.startsWith("app/api/") || normalized.includes("/app/api/") || normalized.startsWith("pages/api/") || normalized.includes("/pages/api/") || fileName === "route.ts" || fileName === "route.js") return "api-route";
+    if (
+        normalized.startsWith("app/api/") ||
+        normalized.includes("/app/api/") ||
+        normalized.startsWith("pages/api/") ||
+        normalized.includes("/pages/api/") ||
+        normalized.startsWith("api/") ||
+        fileName === "route.ts" ||
+        fileName === "route.js" ||
+        fileName === "route.mjs" ||
+        fileName === "route.cjs"
+    ) return "api-route";
     if (normalized.includes("/routes/") || normalized.startsWith("routes/") || normalized.includes("/controllers/") || normalized.startsWith("controllers/")) return "api-route";
     if (normalized.includes("/db/") || normalized.includes("/database/") || normalized.includes("/schema/") || normalized.endsWith("schema.prisma") || normalized.endsWith("schema.sql")) return "db-schema";
     if (normalized.includes("/repositories/") || normalized.includes("/repository/")) return "repository";

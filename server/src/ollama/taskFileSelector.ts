@@ -33,6 +33,21 @@ export interface SelectedTaskFile {
 
 export type EffectiveTaskArea = TaskArea;
 export type AssetMode = "none" | "mixed" | "primary";
+export type SelectorSelectionSource =
+  | "ai"
+  | "repaired-ai"
+  | "retry-ai"
+  | "fallback"
+  | "blocked"
+  | "manual-review";
+export type SelectorParseStage =
+  | "not-run"
+  | "direct-json"
+  | "fenced-json"
+  | "balanced-json"
+  | "repair-json"
+  | "retry-json"
+  | "failed";
 
 export interface TaskFileSelection {
   selectedFiles: SelectedTaskFile[];
@@ -52,6 +67,21 @@ export interface TaskFileSelection {
     requestedTaskType: string;
     effectiveTaskArea: EffectiveTaskArea;
     usedFallback: boolean;
+    selectionSource?: SelectorSelectionSource;
+    inferredImplementationArea?: EffectiveTaskArea;
+    areaConflict?: boolean;
+    conflictReason?: string;
+    roleAdjustments?: string[];
+    semanticGraphEvidence?: string[];
+    rawModelResponseLength?: number;
+    parseStage?: SelectorParseStage;
+    parseStages?: SelectorParseStage[];
+    repairAttempted?: boolean;
+    retryAttempted?: boolean;
+    schemaValid?: boolean;
+    schemaError?: string;
+    modelConfidence?: number;
+    finalConfidence?: number;
   };
 }
 
@@ -178,6 +208,104 @@ function includesAny(value: string, terms: string[]) {
   const normalized = normalizeForCompare(value);
 
   return terms.some((term) => normalized.includes(normalizeForCompare(term)));
+}
+
+function getRoutingNormalizationText(value: string) {
+  const text = normalizeForCompare(value);
+  const tokens = new Set<string>();
+  const addWhen = (patterns: string[], normalizedTokens: string[]) => {
+    if (patterns.some((pattern) => text.includes(normalizeForCompare(pattern)))) {
+      normalizedTokens.forEach((token) => tokens.add(token));
+    }
+  };
+
+  addWhen(
+    [
+      "\u0438\u043d\u0442\u0435\u0440\u0444\u0435\u0439\u0441",
+      "\u0441\u0442\u0440\u0430\u043d\u0438\u0446",
+      "\u043a\u043e\u043c\u043f\u043e\u043d\u0435\u043d\u0442",
+      "\u0444\u043e\u0440\u043c",
+      "\u043a\u043d\u043e\u043f",
+      "\u043c\u043e\u0434\u0430\u043b",
+      "\u043a\u0430\u0440\u0442\u043e\u0447",
+      "\u0432\u0435\u0440\u0441\u0442",
+      "\u0434\u0438\u0437\u0430\u0439\u043d",
+      "\u0444\u0440\u043e\u043d\u0442",
+      "ui/ux",
+    ],
+    ["ui", "frontend", "page", "component", "layout", "style"],
+  );
+  addWhen(
+    [
+      "\u0431\u044d\u043a",
+      "\u0431\u0435\u043a\u0435\u043d\u0434",
+      "\u0441\u0435\u0440\u0432\u0435\u0440",
+      "\u0440\u043e\u0443\u0442",
+      "\u044d\u043d\u0434\u043f\u043e\u0438\u043d\u0442",
+      "\u0431\u0430\u0437\u0430",
+      "\u0431\u0434",
+      "\u0441\u0445\u0435\u043c",
+      "storage",
+      "repository",
+      "service",
+    ],
+    ["backend", "server", "api", "route", "endpoint", "storage", "database", "schema", "service"],
+  );
+  addWhen(
+    [
+      "\u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442",
+      "\u043e\u043f\u0438\u0441\u0430\u043d",
+      "\u0438\u043d\u0441\u0442\u0440\u0443\u043a",
+      "\u0443\u0441\u0442\u0430\u043d\u043e\u0432\u043a",
+      "readme",
+      "setup",
+    ],
+    ["docs", "documentation", "readme", "setup", "guide"],
+  );
+  addWhen(
+    [
+      "\u0442\u0435\u0441\u0442",
+      "\u043f\u043e\u043a\u0440\u044b\u0442",
+      "unit",
+      "smoke",
+      "replay",
+      "regression",
+    ],
+    ["tests", "test", "smoke", "replay", "regression", "coverage"],
+  );
+  addWhen(
+    [
+      "\u043f\u043e\u0441\u043c\u043e\u0442\u0440",
+      "\u043f\u0440\u043e\u0432\u0435\u0440",
+      "\u043f\u0440\u0435\u0434\u043b\u043e\u0436",
+      "\u0438\u0434\u0435\u0438",
+      "\u043e\u0446\u0435\u043d",
+      "\u043d\u0435 \u043c\u0435\u043d\u044f\u0439 \u043a\u043e\u0434",
+      "\u0431\u0435\u0437 \u043f\u0440\u0430\u0432\u043e\u043a",
+      "\u0442\u043e\u043b\u044c\u043a\u043e review",
+      "\u0442\u043e\u043b\u044c\u043a\u043e \u0430\u043d\u0430\u043b\u0438\u0437",
+    ],
+    ["review", "audit", "suggest", "proposal", "inspect-only", "no-edit"],
+  );
+  addWhen(
+    [
+      "\u044f\u0434\u0440\u043e",
+      "\u0441\u0435\u043b\u0435\u043a\u0442\u043e\u0440",
+      "\u0441\u043a\u0430\u043d\u0435\u0440",
+      "\u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442",
+      "scanner",
+      "context composer",
+      "fallback",
+      "scoring",
+      "confidence",
+      "safety",
+      "prompt generation",
+      "task pack builder",
+    ],
+    ["core", "selector", "scanner", "context composer", "fallback", "scoring", "safety", "task pack"],
+  );
+
+  return [...tokens].join(" ");
 }
 
 function matchesAny(value: string, patterns: RegExp[]) {
@@ -888,7 +1016,11 @@ function sanitizeUsageForFile(
     return requestedUsage === "inspect-only"
       ? "inspect-only"
       : "config-reference";
-  if (file.kind === "docs" || file.kind === "data" || file.kind === "runtime")
+  if (file.kind === "docs")
+    return requestedUsage === "inspect-and-edit"
+      ? "inspect-and-edit"
+      : "inspect-only";
+  if (file.kind === "data" || file.kind === "runtime")
     return "inspect-only";
   if (
     requestedUsage === "asset-reference" ||
@@ -1050,10 +1182,27 @@ function getSelectedTaskTypeArea(taskType: string): EffectiveTaskArea {
   return "general";
 }
 
+
+function hasDirectTestTaskIntent(rawTask: string, normalizedText?: string) {
+  const text = normalizeForCompare(normalizedText ?? rawTask);
+  if (/(?:тестов(?:ые|ых|ыми)?\s+(?:данн|запис|набор|баз)|test\s+(?:data|fixtures?))/iu.test(text)) {
+    const explicitWrite = /(?:добавь|напиши|создай|реализуй|покрой)[^.!?\n]{0,90}(?:тест(?:ы)?|проверки)(?=$|[\s,.;:!?])/iu.test(text) || /\b(?:add|write|create|implement)\b[^.!?\n]{0,90}\btests?\b/i.test(text);
+    if (!explicitWrite) return false;
+  }
+  return (
+    /\b(?:unit|integration|e2e|smoke|replay|regression)\s+tests?\b/i.test(text) ||
+    /\b(?:coverage|assertions?|test suite|test cases?)\b/i.test(text) ||
+    /\b(?:add|write|create|implement|update)\b[^.!?\n]{0,90}\btests?\b/i.test(text) ||
+    /(?:добавь|напиши|создай|реализуй|покрой)[^.!?\n]{0,90}(?:тест(?:ы)?|проверки)(?=$|[\s,.;:!?])/iu.test(text) ||
+    /(?:тест(?:ы)?|проверки)(?=$|[\s,.;:!?])\s+(?:для|на)\b/iu.test(text)
+  );
+}
+
 function scoreTaskArea(input: SelectTaskFilesInput) {
   const text = normalizeForCompare(
     [
       getPositiveTaskText(input.rawTask),
+      getRoutingNormalizationText(input.rawTask),
       input.taskIntent?.taskArea ?? "",
       ...(input.taskIntent?.intentTags ?? []),
       ...(input.taskIntent?.fileRoleHints ?? []),
@@ -1314,23 +1463,7 @@ function scoreTaskArea(input: SelectTaskFilesInput) {
   )
     scores.docs += docsAsSecondaryDeliverable ? 2 : 8;
   if (docsAsSecondaryDeliverable) scores.docs -= 4;
-  if (
-    includesAny(text, [
-      "test",
-      "tests",
-      "unit",
-      "e2e",
-      "spec",
-      "coverage",
-      "jest",
-      "vitest",
-      "playwright",
-      "тест",
-      "тесты",
-      "покрытие",
-    ])
-  )
-    scores.tests += 7;
+  if (hasDirectTestTaskIntent(input.rawTask, text)) scores.tests += 9;
   if (
     includesAny(text, [
       "bug",
@@ -1530,6 +1663,80 @@ function getEffectiveTaskArea(input: SelectTaskFilesInput): EffectiveTaskArea {
   const constraints = getTaskConstraints(input);
 
   if (
+    selectedArea === "general" &&
+    !hasDirectTestTaskIntent(input.rawTask, positiveText) &&
+    /(?:тестов(?:ые|ых|ыми)?\s+(?:данн|запис|набор|баз)|test\s+(?:data|fixtures?))/iu.test(positiveText) &&
+    includesAny(positiveText, [
+      "sqlite",
+      "storage",
+      "database",
+      "db",
+      "repository",
+      "хранилищ",
+      "база",
+      "бд",
+      "репозитор",
+    ])
+  ) {
+    return "backend";
+  }
+
+  if (
+    selectedArea === "general" &&
+    isReviewProposeOnlyTask(input) &&
+    (hasRuntimeUiSurfaceTerm(input.rawTask) ||
+      hasDirectUiSurfaceText(input.rawTask) ||
+      hasSimpleUiSurfaceText(input.rawTask))
+  ) {
+    return "ui";
+  }
+
+  if (
+    selectedArea === "general" &&
+    !constraints.noBackendMutation &&
+    !constraints.noFrontendMutation &&
+    includesAny(positiveText, [
+      "endpoint",
+      "api",
+      "server",
+      "backend",
+      "эндпоинт",
+      "сервер",
+      "бэкенд",
+      "бекенд",
+    ]) &&
+    includesAny(positiveText, [
+      "ui",
+      "frontend",
+      "client",
+      "page",
+      "screen",
+      "interface",
+      "интерфейс",
+      "фронтенд",
+      "клиент",
+      "страниц",
+      "экран",
+    ])
+  ) {
+    return "fullstack";
+  }
+
+  if (selectedArea === "docs" && hasPrimaryDocsIntent(input)) {
+    return "docs";
+  }
+
+  if (
+    selectedArea === "general" &&
+    hasPrimaryDocsIntent(input) &&
+    resolveExplicitFileMentions(positiveText, input.inventory).existingPaths.some(
+      (pathValue) => findInventoryFile(input.inventory, pathValue)?.kind === "docs",
+    )
+  ) {
+    return "docs";
+  }
+
+  if (
     selectedArea === "backend" &&
     (constraints.noFrontendMutation ||
       hasSimpleProtectedFrontendText(input.rawTask))
@@ -1571,6 +1778,39 @@ function getEffectiveTaskArea(input: SelectTaskFilesInput): EffectiveTaskArea {
   ).sort((a, b) => b[1] - a[1]);
   const [area, score] = sorted[0] ?? ["general", 0];
   return score > 0 ? area : "general";
+}
+
+function hasPrimaryDocsIntent(input: SelectTaskFilesInput) {
+  const text = normalizeForCompare(
+    [getPositiveTaskText(input.rawTask), getRoutingNormalizationText(input.rawTask)]
+      .join(" "),
+  );
+  const mentionsDocs = includesAny(text, [
+    "readme",
+    "docs",
+    "documentation",
+    "guide",
+    "instructions",
+    "setup",
+    "\u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442",
+    "\u043e\u043f\u0438\u0441\u0430\u043d",
+    "\u0438\u043d\u0441\u0442\u0440\u0443\u043a",
+    "\u0443\u0441\u0442\u0430\u043d\u043e\u0432",
+  ]);
+  const directDocsAction = includesAny(text, [
+    "update",
+    "edit",
+    "write",
+    "add",
+    "create",
+    "\u043e\u0431\u043d\u043e\u0432",
+    "\u0434\u043e\u0431\u0430\u0432",
+    "\u043d\u0430\u043f\u0438\u0448",
+    "\u043e\u043f\u0438\u0448",
+    "\u0441\u043e\u0437\u0434",
+  ]);
+
+  return mentionsDocs && directDocsAction;
 }
 
 function getConflictNote(
@@ -1693,7 +1933,11 @@ function addSemanticTokenIfIncludes(
 
 function buildSemanticTokens(input: SelectTaskFilesInput) {
   const text = normalizeForCompare(buildTaskText(input));
-  const tokens = new Set<string>();
+  const tokens = new Set<string>(
+    getRoutingNormalizationText(text)
+      .split(/\s+/)
+      .filter(Boolean),
+  );
 
   // Universal technical/UI meanings only. Business-domain words are not hardcoded here;
   // they are taken dynamically from the user's task and real inventory textHints.
@@ -3251,6 +3495,7 @@ function isDirectRoutePageMatch(
 function isHomePageTask(input: SelectTaskFilesInput) {
   return includesAny(getPositiveTaskText(input.rawTask), [
     "главн",
+    "home",
     "homepage",
     "home page",
     "landing",
@@ -3337,11 +3582,19 @@ function isWeakPageTargetToken(token: string) {
     "client",
     "customer",
     "company",
+    "project",
+    "projects",
+    "workspace",
+    "repo",
+    "repository",
     "data",
     "info",
     "content",
     "formal",
     "understand",
+    "better",
+    "improve",
+    "improvement",
   ].some((prefix) => normalized.startsWith(prefix));
 }
 
@@ -3684,7 +3937,9 @@ function getPageSemanticMatchScore(
     score -= 220;
   }
 
-  if (isRootPageFile(file) && !isHomePageTask(input)) {
+  if (isRootPageFile(file) && isHomePageTask(input)) {
+    score += 220;
+  } else if (isRootPageFile(file) && !isHomePageTask(input)) {
     score -= 160;
   }
 
@@ -3859,6 +4114,28 @@ function getSelectedConcretePageTargets(
     );
 }
 
+function getStrongConcretePageTargetsFromInventory(
+  input: SelectTaskFilesInput,
+  area: EffectiveTaskArea,
+  assetMode: AssetMode,
+  tokenContext: TokenContext,
+) {
+  return input.inventory.files
+    .filter((file) => canUseSemanticPageTargetFile(input, file, area, assetMode))
+    .map((file) => ({
+      file,
+      score: getPageSemanticMatchScore(file, input, tokenContext),
+    }))
+    .filter(
+      (item) =>
+        item.score >= 82 ||
+        hasStrongDomainPageIdentityEvidence(item.file, input, area, tokenContext),
+    )
+    .sort((a, b) => b.score - a.score || a.file.path.localeCompare(b.file.path))
+    .slice(0, 6)
+    .map((item) => item.file);
+}
+
 function getPrimaryConcretePageTargets(
   input: SelectTaskFilesInput,
   area: EffectiveTaskArea,
@@ -3935,6 +4212,23 @@ function scopeSelectionToPrimaryPageTargets(
       primaryPagePaths.has(normalizeForCompare(inventoryFile.path)),
     );
   });
+  for (const pageTarget of primaryPageTargets) {
+    if (
+      !pageScopedSelected.some(
+        (file) =>
+          normalizeForCompare(file.path) === normalizeForCompare(pageTarget.path),
+      )
+    ) {
+      pageScopedSelected.push(
+        makeSelectedFile(
+          pageTarget,
+          "Selected as the strongest concrete page target after validating route/page semantics against the real inventory.",
+          0.9,
+          defaultUsageForFile(pageTarget),
+        ),
+      );
+    }
+  }
 
   pageScopedSelected.push(
     ...getImportedReferenceFilesForPageTargets(
@@ -4124,6 +4418,129 @@ function getImportedReferenceFilesForPageTargets(
   }
 
   return references;
+}
+
+function getSemanticSupportFilesForSelectedTargets(
+  input: SelectTaskFilesInput,
+  selected: SelectedTaskFile[],
+  area: EffectiveTaskArea,
+  assetMode: AssetMode,
+) {
+  const selectedPaths = new Set(
+    selected.map((file) => normalizeForCompare(file.path)),
+  );
+  const targetFiles = selected
+    .filter(
+      (file) =>
+        file.usage === "inspect-and-edit" || file.usage === "create-and-edit",
+    )
+    .map((selectedFile) =>
+      input.inventory.files.find(
+        (file) =>
+          normalizeForCompare(file.path) ===
+          normalizeForCompare(selectedFile.path),
+      ),
+    )
+    .filter(Boolean) as ProjectInventoryFile[];
+
+  if (targetFiles.length === 0) return [];
+
+  const semanticGraph = buildProjectSemanticGraph(input.inventory);
+  const graphSupport = semanticGraph.getSupportFiles(
+    targetFiles.map((file) => file.path),
+    {
+      includeImportedBy: area === "tests",
+      includeRouteLocal: true,
+      maxPerTarget: 8,
+    },
+  );
+  const supportFiles: SelectedTaskFile[] = [];
+
+  for (const { file, edge } of graphSupport) {
+    if (supportFiles.length >= 8) break;
+    const normalizedPath = normalizeForCompare(file.path);
+    if (selectedPaths.has(normalizedPath)) continue;
+    if (!canUseSelectedFile(input, file, area, assetMode)) continue;
+    if (isAppShellOrEntrypointFile(file) && area !== "build") continue;
+    if (isSystemSeoFile(file) && !isSystemSeoRelevantForTask(input)) continue;
+    if (area === "ui" && isServerSidePath(file.path)) continue;
+
+    const target = targetFiles.find(
+      (targetFile) =>
+        normalizeForCompare(targetFile.path) === normalizeForCompare(edge.from),
+    );
+    const usage = getSemanticSupportUsage(input, file, edge.kind, area);
+    const confidence =
+      usage === "inspect-and-edit"
+        ? 0.76
+        : file.kind === "config"
+          ? 0.66
+          : 0.62;
+
+    supportFiles.push(
+      makeSelectedFile(
+        file,
+        usage === "inspect-and-edit"
+          ? `Semantic graph support for selected target ${target?.path ?? edge.from} via ${edge.kind}; marked editable because the task domain matches this related implementation layer.`
+          : `Semantic graph support for selected target ${target?.path ?? edge.from} via ${edge.kind}; inspect-only supporting context, not the primary edit target.`,
+        confidence,
+        usage,
+      ),
+    );
+    selectedPaths.add(normalizedPath);
+  }
+
+  return supportFiles;
+}
+
+function getSemanticSupportUsage(
+  input: SelectTaskFilesInput,
+  file: ProjectInventoryFile,
+  edgeKind: string,
+  area: EffectiveTaskArea,
+): SelectedTaskFileUsage {
+  if (file.kind === "asset") return "asset-reference";
+  if (file.kind === "config") return "config-reference";
+  if (isReviewProposeOnlyTask(input)) return "inspect-only";
+
+  if (area === "docs") {
+    return file.kind === "docs" ? "inspect-and-edit" : "inspect-only";
+  }
+
+  if (area === "tests") {
+    if (file.kind === "test" || edgeKind === "proposed-test") {
+      return "inspect-and-edit";
+    }
+    return "inspect-only";
+  }
+
+  if (area === "ui") {
+    if (
+      edgeKind === "component-import" ||
+      edgeKind === "style-import" ||
+      edgeKind === "route-local"
+    ) {
+      return "inspect-only";
+    }
+    return "inspect-only";
+  }
+
+  if (area === "backend" || area === "fullstack") {
+    if (isClientUiPath(file.path) && !isClientApiBridgePath(file.path)) {
+      return "inspect-only";
+    }
+    if (
+      ["service-import", "storage-import", "types-import", "route-local"].includes(
+        edgeKind,
+      ) &&
+      hasDomainSpecificFallbackEvidence(file, input)
+    ) {
+      return "inspect-and-edit";
+    }
+    return "inspect-only";
+  }
+
+  return "inspect-only";
 }
 
 function isRouteLocalPageImport(
@@ -4800,7 +5217,13 @@ function applyReferenceOnlySafetyGuard(
 ) {
   const tokenContext = buildTokenContext(input);
   const explicitPaths = new Set(
-    tokenContext.explicitExistingPaths.map(normalizeForCompare),
+    [
+      ...tokenContext.explicitExistingPaths,
+      ...getStructuredIntentTargets(input)
+        .filter((target) => structuredExplicitTargetLooksGrounded(input, target))
+        .map((target) => target.path)
+        .filter((pathValue): pathValue is string => Boolean(pathValue)),
+    ].map(normalizeForCompare),
   );
   const hasPageTarget = selectedFiles.some((selectedFile) => {
     const inventoryFile = findInventoryFile(input.inventory, selectedFile.path);
@@ -4831,8 +5254,27 @@ function applyReferenceOnlySafetyGuard(
         selectedFile.path,
       );
       if (!inventoryFile) return selectedFile;
-      if (explicitPaths.has(normalizeForCompare(inventoryFile.path)))
+      if (explicitPaths.has(normalizeForCompare(inventoryFile.path))) {
+        const explicitTargetCanBeEdited =
+          inventoryFile.kind === "source" ||
+          inventoryFile.kind === "style" ||
+          inventoryFile.kind === "test";
+        if (
+          explicitTargetCanBeEdited &&
+          selectedFile.usage === "inspect-only"
+        ) {
+          return {
+            ...selectedFile,
+            usage: "inspect-and-edit" as SelectedTaskFileUsage,
+            reason: selectedFile.reason.includes(
+              "Explicit inventory target kept editable",
+            )
+              ? selectedFile.reason
+              : `${selectedFile.reason} Explicit inventory target kept editable after final safety validation.`,
+          };
+        }
         return selectedFile;
+      }
 
       const implementationDocsReference =
         (inventoryFile.kind === "docs" ||
@@ -5882,7 +6324,13 @@ function isSpecificPageOrFileTask(
     return true;
   if (area === "ui" || area === "general" || area === "bugfix") {
     const tokenContext = buildTokenContext(input);
+    const hasConcreteSemanticSurface =
+      hasSpecificUiObjectIntent(input) ||
+      isHomePageTask(input) ||
+      tokenContext.routeMentions.length > 0 ||
+      getConcretePageLocationTokens(input).length > 0;
     if (
+      hasConcreteSemanticSurface &&
       input.inventory.files
         .filter((file) => isPageLikeTargetFile(file))
         .some(
@@ -5953,7 +6401,9 @@ function isAmbiguousLowSignalTask(
   if (hasExplicitPrimaryTarget(input, area)) return false;
   if (tokenContext.explicitExistingPaths.length > 0) return false;
   if (tokenContext.explicitMissingPaths.length > 0) return false;
-  if (tokenContext.routeMentions.length > 0) return false;
+  if (extractRouteMentions(input.rawTask).length > 0) return false;
+  if (getConcretePageLocationTokens(input).length > 0) return false;
+  if (hasRawConcretePageLocation(input, area, tokenContext)) return false;
   if (hasCreateTargetIntent(input)) return false;
 
   const text = normalizeForCompare(getPositiveTaskText(input.rawTask));
@@ -5971,6 +6421,20 @@ function isAmbiguousLowSignalTask(
         "change",
         "fix",
         "code",
+        "front",
+        "frontend",
+        "backend",
+        "server",
+        "client",
+        "page",
+        "component",
+        "interface",
+        "polish",
+        "visual",
+        "layout",
+        "feel",
+        "ui",
+        "ux",
       ].includes(token),
   );
 
@@ -5983,6 +6447,7 @@ function isAmbiguousLowSignalTask(
       "fix",
       "update",
       "change",
+      "polish",
       "\u0441\u0434\u0435\u043b\u0430\u0439",
       "\u0443\u043b\u0443\u0447\u0448",
       "\u043b\u0443\u0447\u0448\u0435",
@@ -6172,6 +6637,13 @@ function scoreFileFallback(
     if (filePath.endsWith("readme.md")) score += 45;
     if (isPackageOrConfigPath(file.path)) score += 32;
     if (file.kind === "source") score -= 35;
+    const hasExplicitMarkdownTarget = tokenContext.explicitExistingPaths.some(
+      (pathValue) => {
+        const explicitFile = findInventoryFile(input.inventory, pathValue);
+        return explicitFile?.kind === "docs";
+      },
+    );
+    if (hasExplicitMarkdownTarget && file.kind === "source") score -= 90;
   }
 
   if (area === "build") {
@@ -6230,7 +6702,27 @@ function selectedPriority(
     priority += 520;
   }
 
+  if (file.reason.toLowerCase().includes("semantic graph support")) {
+    priority += file.usage === "inspect-and-edit" ? 190 : 95;
+  }
+
   const tokenContextForPriority = buildTokenContext(input);
+  const inventoryFileForPriority = findInventoryFile(input.inventory, file.path);
+  const weakFallbackReason = file.reason
+    .toLowerCase()
+    .includes("domain-specific graph/token evidence is weak");
+  if (inventoryFileForPriority) {
+    if (hasDomainSpecificFallbackEvidence(inventoryFileForPriority, input)) {
+      priority += 95;
+    }
+    if (
+      area === "backend" &&
+      file.usage === "inspect-only" &&
+      weakFallbackReason
+    ) {
+      priority -= 95;
+    }
+  }
   const pathStrongMatchCount = getStrongTokenMatchCount(
     file.path,
     tokenContextForPriority.strongTokens,
@@ -7976,6 +8468,143 @@ function getSpecificIdentityOverlap(
   );
 }
 
+function getDomainSpecificFallbackTokens(input: SelectTaskFilesInput) {
+  const genericTechnicalTokens = new Set([
+    "add",
+    "create",
+    "change",
+    "update",
+    "fix",
+    "handle",
+    "handling",
+    "implement",
+    "improve",
+    "backend",
+    "server",
+    "route",
+    "routes",
+    "endpoint",
+    "endpoints",
+    "api",
+    "service",
+    "services",
+    "client",
+    "frontend",
+    "front",
+    "code",
+    "logic",
+    "project",
+    "projects",
+    "workspace",
+    "repo",
+    "repository",
+    "better",
+    "improve",
+    "improvement",
+  ]);
+
+  return getSpecificPositiveTokens(input).filter(
+    (token) =>
+      !genericTechnicalTokens.has(normalizeForCompare(token)) &&
+      !isWeakPageTargetToken(token),
+  );
+}
+
+function hasDomainSpecificFallbackEvidence(
+  file: ProjectInventoryFile,
+  input: SelectTaskFilesInput,
+) {
+  const tokens = getDomainSpecificFallbackTokens(input);
+  if (tokens.length === 0) return false;
+
+  const identityOverlap = getSpecificIdentityOverlap(file, tokens);
+  const positiveOverlap = getSpecificPositiveOverlap(file, tokens);
+
+  return (
+    identityOverlap >= 2 ||
+    positiveOverlap >= 2 ||
+    (identityOverlap >= 1 && positiveOverlap >= 1)
+  );
+}
+
+function hasStrongDomainPageIdentityEvidence(
+  file: ProjectInventoryFile,
+  input: SelectTaskFilesInput,
+  area: EffectiveTaskArea,
+  tokenContext: TokenContext,
+) {
+  if (!isPageLikeTargetFile(file)) return false;
+  if (isSensitivePath(file.path) || isGeneratedDoNotEditPath(file.path))
+    return false;
+  if (area === "ui" && isServerSidePath(file.path)) return false;
+  if (area === "backend" && isClientUiPath(file.path)) return false;
+
+  const tokens = getDomainSpecificFallbackTokens(input).filter(
+    (token) => !["frontend", "front"].includes(normalizeForCompare(token)),
+  );
+  if (tokens.length === 0) return false;
+
+  const identityText = normalizeForCompare(
+    [
+      file.path,
+      file.name,
+      file.role,
+      file.routePath ?? "",
+      ...(file.symbols ?? []),
+      ...(file.exports ?? []),
+    ].join(" "),
+  );
+  const identityOverlap = tokens.reduce(
+    (count, token) => count + (filePartMatchesToken(identityText, token) ? 1 : 0),
+    0,
+  );
+  if (identityOverlap >= 2) return true;
+
+  return (
+    identityOverlap >= 1 &&
+    getPageSemanticMatchScore(file, input, tokenContext) >= 60
+  );
+}
+
+function getFallbackCandidateUsage(
+  input: SelectTaskFilesInput,
+  effectiveTaskArea: EffectiveTaskArea,
+  file: ProjectInventoryFile,
+) {
+  if (isReviewProposeOnlyTask(input)) return "inspect-only";
+
+  if (effectiveTaskArea === "docs" && file.kind === "docs")
+    return "inspect-and-edit";
+
+  if (
+    isBroadUiScopeTask(input, effectiveTaskArea) &&
+    isPageLikeTargetFile(file)
+  )
+    return "inspect-only";
+
+  const requestedUsage = defaultUsageForFile(file);
+
+  if (
+    (effectiveTaskArea === "backend" || effectiveTaskArea === "fullstack") &&
+    requestedUsage === "inspect-and-edit"
+  ) {
+    if (isClientApiBridgePath(file.path)) return "inspect-only";
+
+    if (isServerSidePath(file.path) && !hasDomainSpecificFallbackEvidence(file, input)) {
+      return "inspect-only";
+    }
+  }
+
+  if (
+    effectiveTaskArea === "ui" &&
+    (isServerSidePath(file.path) || isClientApiBridgePath(file.path))
+  ) {
+    return "inspect-only";
+  }
+
+  return requestedUsage;
+}
+
 function hasGroundedStructuredConcreteTarget(
   input: SelectTaskFilesInput,
   area: EffectiveTaskArea,
@@ -8131,6 +8760,7 @@ function shouldBlockUngroundedFormTarget(
   )
     return false;
   if (hasRawConcretePageLocation(input, area, tokenContext)) return false;
+  if (hasStrongGroundedPageTarget(input, area, tokenContext)) return false;
   return !hasGroundedFormIdentityTarget(input, area);
 }
 
@@ -8165,6 +8795,27 @@ function hasStrongGroundedPageTarget(
   const tokens = getSpecificPositiveTokens(input);
   const objectTokens =
     getSpecificUiObjectTokens(input).map(normalizeForCompare);
+  const semanticIdentityTokens = buildSemanticTokens(input)
+    .map(normalizeForCompare)
+    .filter(
+      (token) =>
+        token.length >= 3 &&
+        ![
+          "ui",
+          "ux",
+          "frontend",
+          "backend",
+          "server",
+          "api",
+          "page",
+          "component",
+          "layout",
+          "style",
+          "form",
+          "input",
+          "field",
+        ].includes(token),
+    );
   const rawLocationTokens = getRawSpecificPositiveTokens(input).filter(
     (token) => !objectTokens.includes(normalizeForCompare(token)),
   );
@@ -8173,6 +8824,14 @@ function hasStrongGroundedPageTarget(
     .filter((file) => canUseSelectedFile(input, file, area, "none"))
     .filter((file) => isPageLikeTargetFile(file))
     .some((file) => {
+      if (hasStrongDomainPageIdentityEvidence(file, input, area, tokenContext))
+        return true;
+      if (
+        semanticIdentityTokens.length > 0 &&
+        getSpecificIdentityOverlap(file, semanticIdentityTokens) >= 1 &&
+        getPageSemanticMatchScore(file, input, tokenContext) >= 60
+      )
+        return true;
       if (getPageSemanticMatchScore(file, input, tokenContext) < 70)
         return false;
       if (getSpecificIdentityOverlap(file, tokens) < 1) return false;
@@ -8241,7 +8900,7 @@ function getConcretePageLocationTokens(input: SelectTaskFilesInput) {
     /\b(?:on|in|to)\s+(?:the\s+)?([a-z0-9 _-]{2,70}?)\s+(?:page|screen|view|route|section|tab)\b/gi,
     /\b(?:page|screen|view|route|section|tab)\s+(?:for|of|called|named)?\s*([a-z0-9 _-]{2,70})/gi,
     /(?:\u043d\u0430|\u0432)\s+(?:\u0441\u0442\u0440\u0430\u043d\u0438\u0446(?:\u0443|\u0435|\u0435\u0439|\u0430)|\u044d\u043a\u0440\u0430\u043d(?:\u0435|\u0430)?|\u0440\u0430\u0437\u0434\u0435\u043b(?:\u0435|\u0430)?|\u0432\u043a\u043b\u0430\u0434\u043a(?:\u0435|\u0443))\s+([^.!?,;\n]{2,70})/giu,
-    /(?:\u0441\u0442\u0440\u0430\u043d\u0438\u0446(?:\u0430|\u0443|\u0435)|\u044d\u043a\u0440\u0430\u043d|\u0440\u0430\u0437\u0434\u0435\u043b|\u0432\u043a\u043b\u0430\u0434\u043a\u0430)\s+([^.!?,;\n]{2,70})/giu,
+    /(?:\u0441\u0442\u0440\u0430\u043d\u0438\u0446(?:\u0430|\u0443|\u0435|\u044b)|\u044d\u043a\u0440\u0430\u043d|\u0440\u0430\u0437\u0434\u0435\u043b|\u0432\u043a\u043b\u0430\u0434\u043a\u0430)\s+([^.!?,;\n]{2,70})/giu,
   ]);
 
   const directText = normalizeForCompare(positiveText);
@@ -8319,6 +8978,42 @@ function hasRawConcretePageLocation(
     );
 }
 
+function isVagueUiPolishTask(
+  input: SelectTaskFilesInput,
+  tokenContext: TokenContext,
+) {
+  if (tokenContext.explicitExistingPaths.length > 0) return false;
+  if (extractRouteMentions(input.rawTask).length > 0) return false;
+  if (getConcretePageLocationTokens(input).length > 0) return false;
+  if (hasHeaderSurfaceIntent(input) || hasFooterSurfaceIntent(input)) return false;
+  if (isHomePageTask(input)) return false;
+  if (
+    extractExplicitSymbolTargetNames(input.rawTask).some((targetName) =>
+      inventoryHasExplicitSymbolTarget(input.inventory, targetName),
+    )
+  )
+    return false;
+  if (hasSpecificUiObjectIntent(input)) return false;
+  if (getStructuredIntentTargets(input).some((target) => target.path || target.routePath))
+    return false;
+  if (
+    input.inventory.files.some((file) =>
+      hasStrongDomainPageIdentityEvidence(
+        file,
+        input,
+        getEffectiveTaskArea(input),
+        tokenContext,
+      ),
+    )
+  )
+    return false;
+
+  return matchesAny(getPositiveTaskText(input.rawTask), [
+    /\b(?:ui|ux|interface|visual|polish|design|make\s+it\s+feel|feel\s+better|look\s+better)\b/i,
+    /(?:\u0438\u043d\u0442\u0435\u0440\u0444\u0435\u0439\u0441|\u0432\u0438\u0437\u0443\u0430\u043b|\u0434\u0438\u0437\u0430\u0439\u043d|\u043a\u0440\u0430\u0441\u0438\u0432|\u0441\u043e\u0432\u0440\u0435\u043c\u0435\u043d|\u0434\u043e\u0440\u043e\u0436|\u043f\u043e\u043b\u0438\u0440)/i,
+  ]);
+}
+
 function shouldRequireManualTargetReview(
   input: SelectTaskFilesInput,
   area: EffectiveTaskArea,
@@ -8327,7 +9022,14 @@ function shouldRequireManualTargetReview(
 ) {
   if (selected.length > 0) return false;
   if (area !== "ui" && area !== "general" && area !== "bugfix") return false;
+  if (isVagueUiPolishTask(input, tokenContext)) return true;
   if (!hasSpecificUiObjectIntent(input)) return false;
+  if (
+    extractExplicitSymbolTargetNames(input.rawTask).some((targetName) =>
+      inventoryHasExplicitSymbolTarget(input.inventory, targetName),
+    )
+  )
+    return false;
   if (hasHeaderSurfaceIntent(input)) return false;
   if (hasFooterSurfaceIntent(input)) return false;
   const tokens = getSpecificPositiveTokens(input);
@@ -9031,7 +9733,7 @@ function isTestPlanningTask(input: SelectTaskFilesInput, area: EffectiveTaskArea
   const text = normalizeForCompare(buildTaskText(input));
   const testIntent =
     /\b(?:test|tests|testing|coverage|scenarios|strategy)\b/i.test(text) ||
-    /(?:\u0442\u0435\u0441\u0442|\u0442\u0435\u0441\u0442\u044b|\u0441\u0446\u0435\u043d\u0430\u0440|\u043f\u0440\u043e\u0432\u0435\u0440)/i.test(
+    /(?:\u0442\u0435\u0441\u0442|\u0442\u0435\u0441\u0442\u044b|\u0441\u0446\u0435\u043d\u0430\u0440)/i.test(
       text,
     );
   const planningIntent =
@@ -9137,6 +9839,287 @@ function getTestPlanningReferenceFiles(
         normalizeForCompare(file.path).endsWith("package.json")
         ? "config-reference"
         : "inspect-only",
+    ),
+  );
+}
+
+function isReviewProposeOnlyTask(input: SelectTaskFilesInput) {
+  const text = normalizeForCompare(buildTaskText(input));
+  const hasReviewIntent =
+    /\b(?:review|audit|assess|analyze|analyse|suggest|recommend|proposal|propose|ideas|feedback|critique)\b/i.test(
+      text,
+    ) ||
+    /(?:\u043f\u0440\u043e\u0432\u0435\u0440|\u043e\u0446\u0435\u043d|\u0430\u0443\u0434\u0438\u0442|\u043f\u0440\u0435\u0434\u043b\u043e\u0436|\u0438\u0434\u0435\u0438|\u0440\u0435\u0432\u044c\u044e|\u0441\u043e\u0432\u0435\u0442)/i.test(
+      text,
+    );
+  const explicitNoEdit =
+    /\b(?:do\s+not|don't|dont|without)\s+(?:edit|change|modify|touch|rewrite|implement)\b/i.test(
+      text,
+    ) ||
+    /\b(?:no|only)\s+(?:code\s+)?(?:changes|edits|implementation)\b/i.test(
+      text,
+    ) ||
+    /(?:\u043d\u0435\s+(?:\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440|\u043c\u0435\u043d\u044f|\u0442\u0440\u043e\u0433|\u0438\u0437\u043c\u0435\u043d)|\u0431\u0435\u0437\s+(?:\u0438\u0437\u043c\u0435\u043d|\u043f\u0440\u0430\u0432\u043e\u043a)|\u0442\u043e\u043b\u044c\u043a\u043e\s+(?:\u043f\u0440\u0435\u0434\u043b\u043e\u0436|\u0440\u0435\u0432\u044c\u044e|\u043e\u0446\u0435\u043d))/i.test(
+      text,
+    );
+  const directEditIntent =
+    /\b(?:edit|change|fix|implement|add|create|update|rewrite|refactor|build)\b/i.test(
+      text,
+    ) ||
+    /(?:\u0441\u0434\u0435\u043b|\u0443\u043b\u0443\u0447\u0448|\u0438\u0437\u043c\u0435\u043d|\u0438\u0441\u043f\u0440\u0430\u0432|\u0440\u0435\u0430\u043b\u0438\u0437|\u0434\u043e\u0431\u0430\u0432|\u0441\u043e\u0437\u0434|\u043f\u0435\u0440\u0435\u043f\u0438\u0448|\u0440\u0435\u0444\u0430\u043a\u0442\u043e\u0440)/i.test(
+      text,
+    ) ||
+    /(?:\u043e\u0431\u043d\u043e\u0432|\u043d\u0430\u043f\u0438\u0448|\u043e\u043f\u0438\u0448|\u0434\u043e\u0440\u0430\u0431\u043e\u0442|\u043f\u043e\u0447\u0438\u043d)/i.test(
+      text,
+    );
+
+  if (explicitNoEdit && directEditIntent && !hasReviewIntent) return false;
+
+  return explicitNoEdit || (hasReviewIntent && !directEditIntent);
+}
+
+function isCoreSelfTask(input: SelectTaskFilesInput) {
+  const text = normalizeForCompare(buildTaskText(input));
+  return includesAny(text, [
+    "\u044f\u0434\u0440\u043e",
+    "\u0441\u0435\u043b\u0435\u043a\u0442\u043e\u0440",
+    "\u0441\u043a\u0430\u043d\u0435\u0440",
+    "\u043a\u043e\u043d\u0442\u0435\u043a\u0441\u0442",
+    "\u043e\u0446\u0435\u043d\u043a\u0430",
+    "\u0441\u043a\u043e\u0440\u0438\u043d\u0433",
+    "\u0431\u0435\u0437\u043e\u043f\u0430\u0441",
+    "selector",
+    "file selector",
+    "task file selector",
+    "fallback",
+    "scoring",
+    "context quality",
+    "manual review",
+    "safety policy",
+    "safety validator",
+    "inventory scanner",
+    "scanner",
+    "context composer",
+    "composer",
+    "task pack builder",
+    "taskpack builder",
+    "prompt generation",
+    "ollama json",
+    "json repair",
+    "replay test",
+    "smoke test",
+  ]);
+}
+
+function getAreaConflictDiagnostics(
+  selection: TaskFileSelection,
+  input?: SelectTaskFilesInput,
+) {
+  const requestedTaskType =
+    input?.taskType ?? selection.diagnostics?.requestedTaskType ?? "general";
+  const requestedArea = getSelectedTaskTypeArea(requestedTaskType);
+  const inferredImplementationArea = selection.effectiveTaskArea;
+  const areaConflict =
+    requestedArea !== "general" && requestedArea !== inferredImplementationArea;
+  const conflictReason =
+    selection.conflictNote ??
+    (areaConflict
+      ? `Requested task type "${requestedTaskType}" maps to ${requestedArea}, but implementation files route to ${inferredImplementationArea}.`
+      : undefined);
+
+  return {
+    inferredImplementationArea,
+    areaConflict,
+    conflictReason,
+  };
+}
+
+function getSelectionRoleAdjustments(
+  selection: TaskFileSelection,
+  input?: SelectTaskFilesInput,
+) {
+  const reviewOnly = input ? isReviewProposeOnlyTask(input) : false;
+  const adjustments: string[] = [];
+
+  for (const file of selection.selectedFiles) {
+    if (reviewOnly && file.usage !== "inspect-only") {
+      adjustments.push(
+        `${file.path}: review/propose-only task should keep this as inspect-only.`,
+      );
+      continue;
+    }
+    if (file.usage === "inspect-only") {
+      adjustments.push(`${file.path}: inspect-only support/reference context.`);
+    } else if (file.usage === "config-reference") {
+      adjustments.push(`${file.path}: config reference, not implementation edit target.`);
+    } else if (file.usage === "asset-reference") {
+      adjustments.push(`${file.path}: asset reference, not code edit target.`);
+    } else if (file.usage === "create-and-edit") {
+      adjustments.push(`${file.path}: planned new file from explicit in-project target.`);
+    }
+  }
+
+  return [...new Set(adjustments)].slice(0, 12);
+}
+
+function getSemanticGraphEvidence(
+  selection: TaskFileSelection,
+  input?: SelectTaskFilesInput,
+) {
+  if (!input || selection.selectedFiles.length < 2) return [];
+
+  const selectedPaths = new Set(
+    selection.selectedFiles.map((file) => normalizeForCompare(file.path)),
+  );
+  const graph = buildProjectSemanticGraph(input.inventory);
+  const evidence: string[] = [];
+
+  for (const selectedFile of selection.selectedFiles) {
+    const node = graph.getNode(selectedFile.path);
+    if (!node) continue;
+    const edges = [...node.imports, ...node.importedBy, ...node.routeLocal];
+    for (const edge of edges) {
+      const relatedPath = edge.kind === "imported-by" ? edge.from : edge.to;
+      if (!selectedPaths.has(normalizeForCompare(relatedPath))) continue;
+      evidence.push(`${edge.from} -> ${edge.to} (${edge.kind})`);
+    }
+  }
+
+  for (const selectedFile of selection.selectedFiles) {
+    if (/semantic graph/i.test(selectedFile.reason)) {
+      evidence.push(`${selectedFile.path}: ${selectedFile.reason}`);
+    }
+  }
+
+  return [...new Set(evidence)].slice(0, 16);
+}
+
+function isInternalCoreSelectorFile(file: ProjectInventoryFile) {
+  const filePath = normalizeForCompare(file.path);
+  return (
+    filePath.includes("server/src/ollama/taskfileselector") ||
+    filePath.includes("server/src/selection/") ||
+    filePath.includes("server/src/contextcomposer/") ||
+    filePath.includes("server/src/scanner/") ||
+    filePath.includes("server/src/routes/taskpacks")
+  );
+}
+
+function getCoreSelfReferenceFiles(
+  input: SelectTaskFilesInput,
+  reviewOnly = false,
+): SelectedTaskFile[] {
+  const text = normalizeForCompare(buildTaskText(input));
+  const selectedArea = getSelectedTaskTypeArea(input.taskType);
+  const testsMode = selectedArea === "tests";
+  const candidates = input.inventory.files
+    .filter((file) =>
+      isInternalCoreSelectorFile(file) &&
+      (reviewOnly
+        ? canUseCoreSelfReferenceFile(file)
+        : canUseSelectedFile(input, file, "backend", "none")),
+    )
+    .map((file) => {
+      const filePath = normalizeForCompare(file.path);
+      let score = 0;
+      const isSelector = filePath.includes("server/src/ollama/taskfileselector");
+      const isSelectorTest =
+        filePath.includes("taskfileselector.replay") ||
+        filePath.includes("taskfileselector.smoke");
+      const isQuality = filePath.includes("server/src/selection/contextquality");
+      const isSafety = filePath.includes("server/src/selection/safetypolicy");
+      const isGraph = filePath.includes("server/src/selection/projectsemanticgraph");
+      const isExplicitMentions = filePath.includes(
+        "server/src/selection/explicitfilementions",
+      );
+
+      if (isSelector && !isSelectorTest) score += 92;
+      if (isSelectorTest) score += testsMode ? 118 : 76;
+      if (isQuality && includesAny(text, ["scoring", "quality", "confidence", "fallback", "manual review"])) score += 116;
+      if (isSafety && includesAny(text, ["safety", "policy", "secret", "blocked"])) score += 116;
+      if (isGraph && includesAny(text, ["semantic graph", "graph", "imports"])) score += 104;
+      if (isExplicitMentions && includesAny(text, ["explicit target", "missing target", "file mention"])) score += 104;
+      if (filePath.includes("server/src/contextcomposer/") && text.includes("composer")) score += 96;
+      if (filePath.includes("server/src/routes/taskpacks") && includesAny(text, ["task pack", "prompt generation"])) score += 92;
+      if (filePath.includes("server/src/scanner/") && includesAny(text, ["scanner", "inventory"])) score += 96;
+      return { file, score };
+    })
+    .filter((item) => item.score >= 70)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, getSelectionLimitFromSettings(input, "backend", "none"));
+
+  return candidates.map(({ file, score }) =>
+    makeSelectedFile(
+      file,
+      "Selected by generic core/self routing because the task mentions ContextForge selector, safety, scanner, context composer, scoring, prompt generation, or Task Pack core behavior.",
+      Math.min(0.9, Math.max(0.62, score / 150)),
+      reviewOnly ||
+        file.kind === "docs" ||
+        file.kind === "config" ||
+        (testsMode &&
+          !normalizeForCompare(file.path).includes(".replay") &&
+          !normalizeForCompare(file.path).includes(".smoke"))
+        ? file.kind === "config"
+          ? "config-reference"
+          : "inspect-only"
+        : defaultUsageForFile(file),
+    ),
+  );
+}
+
+function canUseCoreSelfReferenceFile(file: ProjectInventoryFile) {
+  if (isSensitivePath(file.path)) return false;
+  if (file.kind === "runtime" || file.kind === "asset") return false;
+  if (file.isLikelyGenerated) return false;
+  if (isLockFilePath(file.path)) return false;
+  if (isGeneratedDoNotEditPath(file.path)) return false;
+  return isInternalCoreSelectorFile(file);
+}
+
+function getReviewOnlyReferenceFiles(
+  input: SelectTaskFilesInput,
+  area: EffectiveTaskArea,
+  assetMode: AssetMode,
+  tokenContext: TokenContext,
+): SelectedTaskFile[] {
+  const relaxedReferenceCandidates = input.inventory.files
+    .filter((file) => {
+      if (isSensitivePath(file.path)) return false;
+      if (file.kind === "runtime") return false;
+      if (file.isLikelyGenerated) return false;
+      if (file.kind === "asset" && assetMode === "none") return false;
+      return area === "ui"
+        ? file.kind === "source" || file.kind === "style"
+        : canUseSelectedFile(input, file, area, assetMode);
+    })
+    .map((file) => ({
+      file,
+      score:
+        scoreFileFallback(file, tokenContext, input, area, assetMode) +
+        (taskMentionsStructuredPath(input.rawTask, file.path) ? 90 : 0) +
+        (file.routePath &&
+        normalizeForCompare(input.rawTask).includes(
+          normalizeForCompare(file.routePath).replace(/^\//, ""),
+        )
+          ? 70
+          : 0),
+    }))
+    .filter((item) => item.score >= 38);
+  const scored = [
+    ...relaxedReferenceCandidates,
+    ...getScoredCandidates(input, area, assetMode, tokenContext, []),
+  ];
+  const trimmed = trimLowValueFallbackCandidates(scored, tokenContext, area)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, Math.max(3, getSelectionLimitFromSettings(input, area, assetMode)))
+    .filter((item) => item.score >= 38);
+
+  return trimmed.map(({ file, score }) =>
+    makeSelectedFile(
+      file,
+      "Selected as inspect-only review context because the task asks for suggestions, review, or proposal rather than code edits.",
+      Math.min(0.78, Math.max(0.42, score / 130)),
+      file.kind === "config" ? "config-reference" : "inspect-only",
     ),
   );
 }
@@ -9272,6 +10255,35 @@ function buildFallbackSelection(
     };
   }
 
+  if (
+    tokenContext.explicitMissingPaths.length > 0 &&
+    !hasCreateTargetIntent(input)
+  ) {
+    return {
+      selectedFiles: [],
+      rejectedModelPaths: tokenContext.explicitMissingPaths,
+      source: "fallback",
+      usedFallback: true,
+      durationMs: getDurationMs(startedAt),
+      effectiveTaskArea,
+      assetMode,
+      conflictNote,
+      notes: [
+        "Fallback file selection was used.",
+        "Explicit target path was mentioned by the user but was not found in the project inventory. ContextForge blocked automatic substitution with similar files.",
+        "Manual target selection or a corrected path is required before generation.",
+        `Missing explicit path(s): ${tokenContext.explicitMissingPaths.slice(0, 6).join(", ")}.`,
+        `Effective task area: ${effectiveTaskArea}.`,
+        `Asset mode: ${assetMode}.`,
+        conflictNote ?? "No task type conflict detected.",
+        ...constraints.notes,
+      ],
+      diagnostics: {
+        selectionSource: "manual-review",
+      } as TaskFileSelection["diagnostics"],
+    };
+  }
+
   if (missingExplicitSymbolTargets.length > 0) {
     return {
       selectedFiles: [],
@@ -9297,6 +10309,42 @@ function buildFallbackSelection(
     };
   }
 
+  if (isCoreSelfTask(input)) {
+    const reviewOnly = isReviewProposeOnlyTask(input);
+    const coreFiles = getCoreSelfReferenceFiles(input, reviewOnly);
+    const coreEffectiveTaskArea =
+      getSelectedTaskTypeArea(input.taskType) === "tests" ? "tests" : "backend";
+    return {
+      selectedFiles: coreFiles,
+      rejectedModelPaths: tokenContext.explicitMissingPaths,
+      source: "fallback",
+      usedFallback: true,
+      durationMs: getDurationMs(startedAt),
+      effectiveTaskArea: coreEffectiveTaskArea,
+      assetMode,
+      conflictNote:
+        conflictNote ??
+        (effectiveTaskArea !== coreEffectiveTaskArea
+          ? `Core/self routing selected server core files while preserving requested task type "${input.taskType}".`
+          : undefined),
+      notes: [
+        "Fallback file selection was used.",
+        "Core/self routing profile detected selector, safety, scanner, context composer, scoring, prompt generation, or Task Pack core behavior.",
+        reviewOnly
+          ? "Review/propose-only intent detected; selected files are inspect-only references."
+          : "Core files were selected by generic technical role, not by project-specific rules.",
+        "Selected task type is preserved separately from implementation area diagnostics.",
+        `Effective task area: ${coreEffectiveTaskArea}.`,
+        `Asset mode: ${assetMode}.`,
+        conflictNote ?? "No task type conflict detected.",
+        ...constraints.notes,
+        coreFiles.length > 0
+          ? "Core/self candidates were grounded in real inventory paths."
+          : "No core/self files matching selector, safety, scanner, composer, or Task Pack builder roles were found.",
+      ],
+    };
+  }
+
   if (isAmbiguousLowSignalTask(input, effectiveTaskArea, tokenContext)) {
     return {
       selectedFiles: [],
@@ -9315,6 +10363,36 @@ function buildFallbackSelection(
         `Asset mode: ${assetMode}.`,
         conflictNote ?? "No task type conflict detected.",
         ...constraints.notes,
+      ],
+    };
+  }
+
+  if (isReviewProposeOnlyTask(input)) {
+    const reviewFiles = getReviewOnlyReferenceFiles(
+      input,
+      effectiveTaskArea,
+      assetMode,
+      tokenContext,
+    );
+    return {
+      selectedFiles: reviewFiles,
+      rejectedModelPaths: tokenContext.explicitMissingPaths,
+      source: "fallback",
+      usedFallback: true,
+      durationMs: getDurationMs(startedAt),
+      effectiveTaskArea,
+      assetMode,
+      conflictNote,
+      notes: [
+        "Fallback file selection was used.",
+        "Review/propose-only routing detected; ContextForge selected reference context without edit targets.",
+        `Effective task area: ${effectiveTaskArea}.`,
+        `Asset mode: ${assetMode}.`,
+        conflictNote ?? "No task type conflict detected.",
+        ...constraints.notes,
+        reviewFiles.length > 0
+          ? "No inspect-and-edit files were selected because the task asks for review, suggestions, or proposal only."
+          : "No safe reference files were found for this review/propose-only task.",
       ],
     };
   }
@@ -9355,14 +10433,22 @@ function buildFallbackSelection(
         input,
         effectiveTaskArea,
       );
+      const primaryExplicitDocs =
+        effectiveTaskArea === "docs" && inventoryFile.kind === "docs";
       selected.push(
         makeSelectedFile(
           inventoryFile,
-          secondaryDocs
+          primaryExplicitDocs
+            ? "Explicit documentation target validated against the inventory; markdown documentation is the primary edit surface."
+            : secondaryDocs
             ? "Mentioned as a secondary documentation deliverable; include as reference after source/API context."
             : "Explicitly mentioned by the user and validated against the real project inventory.",
-          secondaryDocs ? 0.72 : 0.95,
-          secondaryDocs ? "inspect-only" : defaultUsageForFile(inventoryFile),
+          primaryExplicitDocs ? 0.97 : secondaryDocs ? 0.72 : 0.95,
+          primaryExplicitDocs
+            ? "inspect-and-edit"
+            : secondaryDocs
+              ? "inspect-only"
+              : defaultUsageForFile(inventoryFile),
         ),
       );
     }
@@ -9689,6 +10775,27 @@ function buildFallbackSelection(
     explicitPrimaryFiles.length > 0 &&
     isSpecificPageOrFileTask(input, effectiveTaskArea)
   ) {
+    if (effectiveTaskArea === "docs") {
+      const referenceFiles = input.inventory.files.filter((file) => {
+        const filePath = normalizeForCompare(file.path);
+        return (
+          filePath.endsWith("package.json") ||
+          filePath.endsWith(".env.example") ||
+          filePath.endsWith(".env.sample") ||
+          filePath.endsWith(".env.template")
+        );
+      });
+      for (const referenceFile of referenceFiles) {
+        selected.push(
+          makeSelectedFile(
+            referenceFile,
+            "Added as safe setup/config reference for the explicit documentation target.",
+            0.82,
+            "config-reference",
+          ),
+        );
+      }
+    }
     const finalSelectedFiles = ensureHelpfulCoverage(
       selected,
       input,
@@ -9774,10 +10881,15 @@ function buildFallbackSelection(
     }
   }
 
-  const selectedPageTargets = getSelectedConcretePageTargets(
-    selected,
-    input.inventory,
-  );
+  const selectedPageTargets = [
+    ...getSelectedConcretePageTargets(selected, input.inventory),
+    ...getStrongConcretePageTargetsFromInventory(
+      input,
+      effectiveTaskArea,
+      assetMode,
+      tokenContext,
+    ),
+  ];
   if (
     selectedPageTargets.length > 0 &&
     isSpecificPageOrFileTask(input, effectiveTaskArea)
@@ -9794,6 +10906,24 @@ function buildFallbackSelection(
     const pageScopedSelected = selected.filter((file) =>
       pageTargetPaths.has(normalizeForCompare(file.path)),
     );
+    for (const pageTarget of primaryPageTargets) {
+      if (
+        !pageScopedSelected.some(
+          (file) =>
+            normalizeForCompare(file.path) ===
+            normalizeForCompare(pageTarget.path),
+        )
+      ) {
+        pageScopedSelected.push(
+          makeSelectedFile(
+            pageTarget,
+            "Selected as the strongest concrete page target after validating route/page semantics against the real inventory.",
+            0.9,
+            defaultUsageForFile(pageTarget),
+          ),
+        );
+      }
+    }
     pageScopedSelected.push(
       ...getImportedReferenceFilesForPageTargets(
         input,
@@ -9887,16 +11017,31 @@ function buildFallbackSelection(
     effectiveTaskArea,
   );
 
+  const allowCoreSelfFallbackCandidates = isCoreSelfTask(input);
+
   for (const { file, score } of trimmed) {
-    const requestedUsage =
-      isBroadUiScopeTask(input, effectiveTaskArea) && isPageLikeTargetFile(file)
-        ? "inspect-only"
-        : defaultUsageForFile(file);
+    if (
+      !allowCoreSelfFallbackCandidates &&
+      isInternalCoreSelectorFile(file)
+    ) {
+      continue;
+    }
+
+    const requestedUsage = getFallbackCandidateUsage(
+      input,
+      effectiveTaskArea,
+      file,
+    );
+    const defaultUsage = defaultUsageForFile(file);
+    const usageWasDowngraded =
+      defaultUsage === "inspect-and-edit" && requestedUsage === "inspect-only";
 
     selected.push(
       makeSelectedFile(
         file,
-        score > 45
+        usageWasDowngraded
+          ? "Selected as inspect-only fallback context because its technical role is relevant, but domain-specific graph/token evidence is weak."
+          : score > 45
           ? "Selected by universal fallback ranking based on task meaning, file kind, path overlap, and technical role."
           : "Selected by universal fallback ranking as potentially useful context.",
         Math.min(0.84, Math.max(0.35, score / 120)),
@@ -9904,6 +11049,15 @@ function buildFallbackSelection(
       ),
     );
   }
+
+  selected.push(
+    ...getSemanticSupportFilesForSelectedTargets(
+      input,
+      selected,
+      effectiveTaskArea,
+      assetMode,
+    ),
+  );
 
   const finalSelectedFiles = ensureRequiredFullstackLayers(
     rankAndCapSelection(
@@ -10142,23 +11296,118 @@ function extractBalancedJsonFragments(value: string) {
   return fragments;
 }
 
-function extractJsonObject(value: string) {
+function extractJsonObjectWithStage(value: string): {
+  json: unknown | null;
+  stage: SelectorParseStage;
+} {
   const trimmed = value.trim();
   const direct = parseJsonCandidate(trimmed);
-  if (direct) return direct;
+  if (direct) return { json: direct, stage: "direct-json" };
 
   const fenced = [...trimmed.matchAll(/```(?:json)?\s*([\s\S]*?)```/gi)]
     .map((match) => match[1])
     .map(parseJsonCandidate)
     .find(Boolean);
-  if (fenced) return fenced;
+  if (fenced) return { json: fenced, stage: "fenced-json" };
 
   for (const fragment of extractBalancedJsonFragments(trimmed)) {
     const parsed = parseJsonCandidate(fragment);
-    if (parsed) return parsed;
+    if (parsed) return { json: parsed, stage: "balanced-json" };
   }
 
-  return null;
+  return { json: null, stage: "failed" };
+}
+
+function extractJsonObject(value: string) {
+  return extractJsonObjectWithStage(value).json;
+}
+
+function redactSelectorResponse(value: string) {
+  return value
+    .replace(
+      /([A-Z0-9_]*(?:SECRET|TOKEN|API[_-]?KEY|PASSWORD|PRIVATE[_-]?KEY)[A-Z0-9_]*\s*[:=]\s*)["']?[^"'\s,}]+["']?/gi,
+      "$1[REDACTED]",
+    )
+    .replace(
+      /(sk-[A-Za-z0-9_-]{12,}|ghp_[A-Za-z0-9_]{12,}|github_pat_[A-Za-z0-9_]{12,})/g,
+      "[REDACTED_TOKEN]",
+    )
+    .replace(
+      /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
+      "[REDACTED_PRIVATE_KEY]",
+    );
+}
+
+function validateSelectorJsonContract(value: unknown): {
+  ok: boolean;
+  reason?: string;
+} {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return { ok: false, reason: "Selector response must be a JSON object." };
+  }
+
+  const data = value as Record<string, unknown>;
+  if (!Array.isArray(data.selectedFiles)) {
+    return {
+      ok: false,
+      reason: "Selector response must contain selectedFiles array.",
+    };
+  }
+
+  if (data.selectedFiles.length === 0) {
+    const notes = getModelNotes(value);
+    if (notes.length === 0) {
+      return {
+        ok: false,
+        reason:
+          "Selector returned an empty selectedFiles array without an explanatory notes entry.",
+      };
+    }
+    return { ok: true };
+  }
+
+  for (const [index, item] of data.selectedFiles.entries()) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      return {
+        ok: false,
+        reason: `selectedFiles[${index}] must be an object.`,
+      };
+    }
+    const row = item as Record<string, unknown>;
+    const filePath = normalizeString(row.path);
+    if (!filePath) {
+      return {
+        ok: false,
+        reason: `selectedFiles[${index}] is missing a non-empty path.`,
+      };
+    }
+    if (!isValidUsage(row.usage)) {
+      return {
+        ok: false,
+        reason: `selectedFiles[${index}] has missing or invalid usage.`,
+      };
+    }
+    if (!normalizeString(row.reason)) {
+      return {
+        ok: false,
+        reason: `selectedFiles[${index}] is missing a grounded reason.`,
+      };
+    }
+    if (typeof row.confidence !== "number" || !Number.isFinite(row.confidence)) {
+      return {
+        ok: false,
+        reason: `selectedFiles[${index}] is missing numeric confidence.`,
+      };
+    }
+    if (row.confidence < 0 || row.confidence > 1) {
+      return {
+        ok: false,
+        reason: `selectedFiles[${index}] confidence must be between 0 and 1.`,
+      };
+    }
+  }
+
+  return { ok: true };
 }
 
 function getModelFileItems(value: unknown): unknown[] {
@@ -10255,12 +11504,30 @@ function withSelectorSafetyProfile(
     ...finalized.notes,
     ...selection.notes,
   ];
+  const notesText = notes.join(" ").toLowerCase();
+  const inferredSelectionSource: SelectorSelectionSource =
+    selection.diagnostics?.selectionSource ??
+    (finalized.selectedFiles.length === 0
+      ? notesText.includes("hard safety") ||
+        notesText.includes("unsafe") ||
+        notesText.includes("out-of-project") ||
+        notesText.includes("secret") ||
+        notesText.includes("blocked")
+        ? "blocked"
+        : "manual-review"
+      : selection.usedFallback
+        ? "fallback"
+        : "ai");
+  const areaDiagnostics = getAreaConflictDiagnostics(selection, input);
+  const roleAdjustments = getSelectionRoleAdjustments(selection, input);
+  const semanticGraphEvidence = getSemanticGraphEvidence(selection, input);
 
   return {
     ...selection,
     selectedFiles: finalized.selectedFiles,
     notes,
     diagnostics: {
+      ...selection.diagnostics,
       selectorVersion: SELECTOR_ENGINE_VERSION,
       safetyProfile: SELECTOR_SAFETY_PROFILE,
       generationMode:
@@ -10275,6 +11542,12 @@ function withSelectorSafetyProfile(
         "unknown",
       effectiveTaskArea: selection.effectiveTaskArea,
       usedFallback: selection.usedFallback,
+      selectionSource: inferredSelectionSource,
+      inferredImplementationArea: areaDiagnostics.inferredImplementationArea,
+      areaConflict: areaDiagnostics.areaConflict,
+      conflictReason: areaDiagnostics.conflictReason,
+      roleAdjustments,
+      semanticGraphEvidence,
     },
   };
 }
@@ -10446,6 +11719,49 @@ ${rawResponse.slice(0, 6000)}
 `.trim();
 }
 
+function buildSelectorRetryPrompt(input: SelectTaskFilesInput) {
+  const effectiveTaskArea = getEffectiveTaskArea(input);
+  const assetMode = getAssetMode(input);
+  const compactInventory = compactInventoryForPrompt(input.inventory);
+
+  return `
+Return strict JSON only. The previous selector response was invalid.
+
+Task:
+${input.rawTask}
+
+User-selected task type: ${input.taskType}
+Implementation area diagnostic: ${effectiveTaskArea}
+Asset mode: ${assetMode}
+
+Use only paths from this inventory:
+${JSON.stringify(compactInventory)}
+
+Required JSON contract:
+{
+  "selectedFiles": [
+    {
+      "path": "exact/path/from/inventory",
+      "usage": "inspect-and-edit|create-and-edit|inspect-only|asset-reference|config-reference",
+      "reason": "short reason grounded in inventory role/path/symbols/textHints/imports",
+      "confidence": 0.0
+    }
+  ],
+  "notes": ["short diagnostic note"]
+}
+
+Rules:
+- Output one JSON object only.
+- Do not use Markdown.
+- Do not invent paths.
+- Every selectedFiles item must include path, usage, reason, and numeric confidence between 0 and 1.
+- For docs tasks, prefer README/docs and package/config references.
+- For tests/planning tasks, prefer package/test config/existing tests/source-under-test references.
+- For review/propose-only tasks, use inspect-only/reference usage unless the user explicitly asks to edit.
+- If no real file is safe to select, return { "selectedFiles": [], "notes": ["No safe high-confidence inventory target was found."] }.
+`.trim();
+}
+
 async function requestSelectorJson({
   ollamaUrl,
   model,
@@ -10474,17 +11790,22 @@ async function requestSelectorJson({
       ok: false as const,
       status: response.status,
       raw: "",
+      rawLength: 0,
       json: null,
+      parseStage: "not-run" as SelectorParseStage,
     };
   }
 
   const data = (await response.json()) as OllamaGenerateResponse;
   const raw = String(data.response ?? "");
+  const extracted = extractJsonObjectWithStage(raw);
   return {
     ok: true as const,
     status: response.status,
     raw,
-    json: extractJsonObject(raw),
+    rawLength: raw.length,
+    json: extracted.json,
+    parseStage: extracted.stage,
   };
 }
 
@@ -10521,6 +11842,16 @@ export async function selectTaskFiles(
         {
           ...fallback,
           durationMs: getDurationMs(startedAt),
+          diagnostics: {
+            selectionSource: "fallback",
+            rawModelResponseLength: firstAttempt.rawLength,
+            parseStage: firstAttempt.parseStage,
+            parseStages: [firstAttempt.parseStage],
+            repairAttempted: false,
+            retryAttempted: false,
+            schemaValid: false,
+            schemaError: `Ollama responded with status ${firstAttempt.status}.`,
+          } as TaskFileSelection["diagnostics"],
           notes: [
             ...fallback.notes,
             `Ollama file selector responded with status ${firstAttempt.status}.`,
@@ -10531,26 +11862,116 @@ export async function selectTaskFiles(
       );
     }
 
-    let json = firstAttempt.json;
+    let json: unknown | null = null;
+    let selectionSource: SelectorSelectionSource = "ai";
+    let parseStage = firstAttempt.parseStage;
+    const parseStages: SelectorParseStage[] = [firstAttempt.parseStage];
     const repairNotes: string[] = [];
-    if (!json) {
+    let repairAttempted = false;
+    let retryAttempted = false;
+    let schema = validateSelectorJsonContract(firstAttempt.json);
+
+    if (firstAttempt.json && schema.ok) {
+      json = firstAttempt.json;
+    } else {
+      repairAttempted = true;
       const repairAttempt = await requestSelectorJson({
         ollamaUrl: settings.ollamaUrl,
         model: settings.defaultOllamaModel,
-        prompt: buildSelectorRepairPrompt(firstAttempt.raw),
+        prompt: buildSelectorRepairPrompt(
+          redactSelectorResponse(firstAttempt.raw),
+        ),
         numPredict: 700,
       });
+      parseStages.push(
+        repairAttempt.parseStage === "not-run"
+          ? "not-run"
+          : repairAttempt.parseStage === "failed"
+            ? "failed"
+            : "repair-json",
+      );
 
-      if (repairAttempt.ok && repairAttempt.json) {
+      const repairSchema = validateSelectorJsonContract(repairAttempt.json);
+      if (repairAttempt.ok && repairAttempt.json && repairSchema.ok) {
         json = repairAttempt.json;
+        selectionSource = "repaired-ai";
+        parseStage = "repair-json";
+        schema = repairSchema;
         repairNotes.push(
           "Ollama file selector JSON was repaired after an invalid first response.",
         );
       } else {
         repairNotes.push(
-          "Ollama file selector returned invalid JSON and repair did not produce valid JSON.",
+          repairSchema.reason
+            ? `Ollama file selector repair failed schema validation: ${repairSchema.reason}`
+            : "Ollama file selector returned invalid JSON and repair did not produce valid JSON.",
         );
       }
+    }
+
+    if (!json) {
+      retryAttempted = true;
+      const retryAttempt = await requestSelectorJson({
+        ollamaUrl: settings.ollamaUrl,
+        model: settings.defaultOllamaModel,
+        prompt: buildSelectorRetryPrompt(inputWithSettings),
+        numPredict: 900,
+      });
+      parseStages.push(
+        retryAttempt.parseStage === "not-run"
+          ? "not-run"
+          : retryAttempt.parseStage === "failed"
+            ? "failed"
+            : "retry-json",
+      );
+
+      const retrySchema = validateSelectorJsonContract(retryAttempt.json);
+      if (retryAttempt.ok && retryAttempt.json && retrySchema.ok) {
+        json = retryAttempt.json;
+        selectionSource = "retry-ai";
+        parseStage = "retry-json";
+        schema = retrySchema;
+        repairNotes.push(
+          "Ollama file selector produced valid JSON after one strict retry.",
+        );
+      } else {
+        schema = retrySchema;
+        repairNotes.push(
+          retrySchema.reason
+            ? `Ollama file selector strict retry failed schema validation: ${retrySchema.reason}`
+            : "Ollama file selector strict retry did not produce valid JSON.",
+        );
+      }
+    }
+
+    if (!json) {
+      return withSelectorSafetyProfile(
+        {
+          ...fallback,
+          durationMs: getDurationMs(startedAt),
+          diagnostics: {
+            selectionSource: "fallback",
+            rawModelResponseLength: firstAttempt.rawLength,
+            parseStage,
+            parseStages,
+            repairAttempted,
+            retryAttempted,
+            schemaValid: false,
+            schemaError:
+              schema.reason ??
+              "Ollama selector response did not satisfy the strict JSON contract.",
+          } as TaskFileSelection["diagnostics"],
+          notes: [
+            ...fallback.notes,
+            ...repairNotes,
+            schema.reason
+              ? `Ollama file selector failed strict JSON contract: ${schema.reason}`
+              : "Ollama file selector failed strict JSON contract.",
+          ],
+        },
+        inputWithSettings,
+        settings,
+      );
     }
 
     const normalized = normalizeModelSelection(
@@ -10562,6 +11983,19 @@ export async function selectTaskFiles(
     return withSelectorSafetyProfile(
       {
         ...normalized,
+        diagnostics: {
+          selectionSource: normalized.usedFallback
+            ? normalized.selectedFiles.length === 0
+              ? "manual-review"
+              : "fallback"
+            : selectionSource,
+          rawModelResponseLength: firstAttempt.rawLength,
+          parseStage,
+          parseStages,
+          repairAttempted,
+          retryAttempted,
+          schemaValid: true,
+        } as TaskFileSelection["diagnostics"],
         notes: [...repairNotes, ...normalized.notes],
       },
       inputWithSettings,
@@ -10572,6 +12006,17 @@ export async function selectTaskFiles(
       {
         ...fallback,
         durationMs: getDurationMs(startedAt),
+        diagnostics: {
+          selectionSource: "fallback",
+          rawModelResponseLength: 0,
+          parseStage: "failed",
+          parseStages: ["failed"],
+          repairAttempted: false,
+          retryAttempted: false,
+          schemaValid: false,
+          schemaError:
+            error instanceof Error ? error.message : "Ollama selector failed.",
+        } as TaskFileSelection["diagnostics"],
         notes: [
           ...fallback.notes,
           error instanceof Error

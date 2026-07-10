@@ -9,6 +9,11 @@ export type SemanticGraphEdgeKind =
     | "hook-import"
     | "style-import"
     | "client-api-import"
+    | "service-import"
+    | "storage-import"
+    | "types-import"
+    | "test-target"
+    | "proposed-test"
     | "route-local"
     | "imported-by";
 
@@ -117,6 +122,30 @@ function resolveImportToInventoryFile(
     return undefined;
 }
 
+function extractImportLikeSpecifiers(file: ProjectInventoryFile) {
+    const specifiers = new Set<string>();
+    for (const importPath of file.imports ?? []) {
+        if (importPath) specifiers.add(importPath);
+    }
+
+    const preview = file.contentPreview ?? "";
+    const patterns = [
+        /\bimport\s+(?:type\s+)?(?:[^"'`]*?\s+from\s+)?["'`]([^"'`]+)["'`]/g,
+        /\brequire\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g,
+        /\bimport\s*\(\s*["'`]([^"'`]+)["'`]\s*\)/g,
+        /@import\s+(?:url\()?["'`]([^"'`]+)["'`]\)?/g
+    ];
+
+    for (const pattern of patterns) {
+        for (const match of preview.matchAll(pattern)) {
+            const specifier = match[1]?.trim();
+            if (specifier) specifiers.add(specifier);
+        }
+    }
+
+    return [...specifiers];
+}
+
 function isRouteLocal(sourceFile: ProjectInventoryFile, targetFile: ProjectInventoryFile) {
     const sourceDir = getSourceDirectory(sourceFile.path);
     const targetPath = normalizeForCompare(targetFile.path);
@@ -124,12 +153,67 @@ function isRouteLocal(sourceFile: ProjectInventoryFile, targetFile: ProjectInven
 }
 
 function classifyImportEdge(sourceFile: ProjectInventoryFile, targetFile: ProjectInventoryFile): SemanticGraphEdgeKind {
-    if (targetFile.kind === "style" || targetFile.role === "style") return "style-import";
-    if (targetFile.role === "hook") return "hook-import";
-    if (targetFile.role === "client-api" || normalizeForCompare(targetFile.path).includes("/api/")) return "client-api-import";
+    const targetPath = normalizeForCompare(targetFile.path);
+    const targetRole = String(targetFile.role ?? "").toLowerCase();
+    if (targetFile.kind === "style" || targetRole === "style") return "style-import";
+    if (targetRole === "hook" || targetPath.includes("/hooks/")) return "hook-import";
+    if (
+        targetRole === "client-api" ||
+        /(?:^|\/)(?:api|client|clients)\//.test(targetPath) ||
+        /(?:^|\/)(?:api|client)\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(targetPath)
+    ) return "client-api-import";
+    if (
+        targetRole === "service" ||
+        /(?:^|\/)(?:service|services|controller|controllers|handler|handlers)\//.test(targetPath)
+    ) return "service-import";
+    if (
+        targetRole === "repository" ||
+        targetRole === "storage" ||
+        /(?:^|\/)(?:storage|repository|repositories|db|data)\//.test(targetPath)
+    ) return "storage-import";
+    if (
+        targetRole === "types" ||
+        targetRole === "schema" ||
+        targetRole === "db-schema" ||
+        /(?:^|\/)(?:types|schemas|schema)\//.test(targetPath) ||
+        /\.(?:d\.ts|schema\.ts|schema\.js|sql)$/i.test(targetPath)
+    ) return "types-import";
     if (targetFile.role === "component" || targetFile.role === "ui-component") return "component-import";
     if (isRouteLocal(sourceFile, targetFile)) return "route-local";
     return "import";
+}
+
+function findLikelySourceForTestFile(
+    testFile: ProjectInventoryFile,
+    filesByPath: Map<string, ProjectInventoryFile>
+) {
+    const testPath = normalizePath(testFile.path);
+    const candidates = [
+        testPath
+            .replace(/(?:^|\/)__tests__\//, "/")
+            .replace(/\.(test|spec)\.(tsx|jsx|ts|js)$/i, ".$2"),
+        testPath
+            .replace(/(?:^|\/)tests?\//, "/src/")
+            .replace(/\.(test|spec)\.(tsx|jsx|ts|js)$/i, ".$2")
+    ];
+
+    for (const candidate of candidates) {
+        const file = filesByPath.get(normalizeForCompare(candidate));
+        if (file) return file;
+    }
+
+    const basename = testPath
+        .split("/")
+        .pop()
+        ?.replace(/\.(test|spec)\.(tsx|jsx|ts|js)$/i, "")
+        .toLowerCase();
+    if (!basename) return undefined;
+
+    return [...filesByPath.values()].find((file) => {
+        if (file.kind === "test") return false;
+        const fileBase = file.name.replace(/\.(tsx|jsx|ts|js|mjs|cjs)$/i, "").toLowerCase();
+        return fileBase === basename;
+    });
 }
 
 function makeNode(file: ProjectInventoryFile): SemanticGraphNode {
@@ -163,7 +247,7 @@ export function buildProjectSemanticGraph(inventory: ProjectInventory): ProjectS
     };
 
     for (const sourceFile of inventory.files) {
-        for (const importPath of sourceFile.imports ?? []) {
+        for (const importPath of extractImportLikeSpecifiers(sourceFile)) {
             const targetFile = resolveImportToInventoryFile(sourceFile, importPath, filesByPath);
             if (!targetFile) continue;
 
@@ -173,6 +257,22 @@ export function buildProjectSemanticGraph(inventory: ProjectInventory): ProjectS
                 importPath,
                 kind: classifyImportEdge(sourceFile, targetFile)
             });
+        }
+
+        if (sourceFile.kind === "test" || sourceFile.role === "test") {
+            const targetFile = findLikelySourceForTestFile(sourceFile, filesByPath);
+            if (targetFile) {
+                addEdge({
+                    from: sourceFile.path,
+                    to: targetFile.path,
+                    kind: "test-target"
+                });
+                addEdge({
+                    from: targetFile.path,
+                    to: sourceFile.path,
+                    kind: "proposed-test"
+                });
+            }
         }
     }
 
@@ -192,11 +292,17 @@ export function buildProjectSemanticGraph(inventory: ProjectInventory): ProjectS
                 const node = nodes.get(normalizeForCompare(targetPath));
                 if (!node) continue;
 
+                const edgeSeen = new Set<string>();
                 const edges = [
                     ...node.imports,
                     ...(includeRouteLocal ? node.routeLocal : []),
                     ...(includeImportedBy ? node.importedBy : [])
-                ];
+                ].filter((edge) => {
+                    const key = `${edge.from}->${edge.to}:${edge.kind}`;
+                    if (edgeSeen.has(key)) return false;
+                    edgeSeen.add(key);
+                    return true;
+                });
 
                 for (const edge of edges) {
                     if (support.length >= targetPaths.length * maxPerTarget) return support;
