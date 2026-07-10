@@ -1,0 +1,11 @@
+{
+  "projects": [
+    {
+      "id": "local-project-id",
+      "localPath": "<absolute-local-project-path>",
+      "enabled": false,
+      "tags": ["typescript", "frontend"],
+      "caseFile": "<optional-relative-case-file.json>"
+    }
+  ]
+}

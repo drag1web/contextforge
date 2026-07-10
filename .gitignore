@@ -24,3 +24,8 @@ server/data/*.sqlite-*
 server/data/*.db
 server/data/*.db-*
 server/data/*.backup.sqlite
+
+# Generated selector benchmark reports and local real-project manifests
+reports/selector-benchmark/
+selector-benchmark.projects.json
+server/selector-benchmark.projects.json
