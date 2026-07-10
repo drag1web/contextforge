@@ -57,6 +57,7 @@ export function renderBenchmarkMarkdown(report: SelectorBenchmarkReport) {
     `- Split filter: ${report.split}`,
     `- Family filter: ${report.family ?? "all"}`,
     `- Split counts: development=${report.splitCounts.development}, regression=${report.splitCounts.regression}, validation=${report.splitCounts.validation}`,
+    `- Case source: ${report.caseSource}`,
     `- Available external projects: ${report.availableProjects.join(", ") || "none"}`,
     `- Skipped external projects: ${report.skippedProjects.join(", ") || "none"}`,
     "",
@@ -66,11 +67,33 @@ export function renderBenchmarkMarkdown(report: SelectorBenchmarkReport) {
     "",
     ...report.shadow.confidenceBuckets.map((bucket) => `- ${bucket.label}: n=${bucket.count}, success=${percent(bucket.observedSuccessRate)}, avg confidence=${bucket.averageConfidence.toFixed(1)}, error=${bucket.calibrationError.toFixed(3)}`),
     "",
+    ...(report.validation
+      ? [
+          "## Closed validation",
+          "",
+          `- Validation digest: ${report.validation.integrity.actualDigest}`,
+          `- Lock status: ${report.validation.integrity.verified ? "verified" : "unverified"}`,
+          `- Case digest / project fingerprints: ${report.validation.integrity.caseDigestVerified ? "verified" : "unverified"} / ${report.validation.integrity.projectFingerprintsVerified ? "verified" : "unverified"}`,
+          `- Cases / families / projects: ${report.validation.coverage.caseCount} / ${report.validation.coverage.familyCount} / ${report.validation.coverage.projectCount}`,
+          `- Languages: en=${report.validation.coverage.languageCounts.en}, ru=${report.validation.coverage.languageCounts.ru}, mixed=${report.validation.coverage.languageCounts.mixed}`,
+          `- Task types / implementation areas: ${report.validation.coverage.taskTypeCount} / ${report.validation.coverage.areaCount}`,
+          `- Primary / support / edit-scope expectations: ${report.validation.coverage.primaryExpectationCases} / ${report.validation.coverage.supportExpectationCases} / ${report.validation.coverage.editScopeCases}`,
+          `- Role / safety expectations: ${report.validation.coverage.roleExpectationCases} / ${report.validation.coverage.safetyExpectationCases}`,
+          `- Manual-review / missing-target / abstention expectations: ${report.validation.coverage.manualReviewExpectationCases} / ${report.validation.coverage.missingTargetExpectationCases} / ${report.validation.coverage.abstentionExpectationCases}`,
+          ...(report.validation.gate
+            ? [
+                `- Gate: ${report.validation.gate.profile} — ${report.validation.gate.passed ? "passed" : "failed"}`,
+                ...report.validation.gate.failures.map((failure) => `  - ${failure}`),
+              ]
+            : ["- Gate: not requested"]),
+          "",
+        ]
+      : []),
     "## Failed cases",
     "",
     ...(failureRows.length ? failureRows : ["- None"]),
     "",
-    "> Weighted score is an assertion pass score, not a claim of real-world selector accuracy. Confidence calibration uses actionable selections only; blocked, manual-review, and empty-selection outcomes are reported separately as abstentions. Reports contain fixture-relative paths and metrics only; they do not include local absolute paths, file contents, secrets, or raw model responses.",
+    "> Weighted score is an assertion pass score, not a claim of real-world selector accuracy. A closed-validation claim additionally requires an external-only validation split, a matching validation lock, and a passing coverage/quality gate. Confidence calibration uses actionable selections only; blocked, manual-review, and empty-selection outcomes are reported separately as abstentions. Reports contain fixture-relative paths and metrics only; they do not include local absolute paths, file contents, secrets, or raw model responses.",
     "",
   ].join("\n");
 }

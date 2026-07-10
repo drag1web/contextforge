@@ -5,6 +5,57 @@ export type BenchmarkSplit = "development" | "regression" | "validation";
 export type BenchmarkLanguage = "en" | "ru" | "mixed";
 export type BenchmarkSeverity = "critical" | "high" | "medium" | "low";
 
+export type ValidationGateProfile = "standard" | "strict";
+
+export interface ValidationCoverageSummary {
+  caseCount: number;
+  familyCount: number;
+  projectCount: number;
+  projectFixtures: string[];
+  taskTypeCount: number;
+  taskTypes: string[];
+  areaCount: number;
+  implementationAreas: string[];
+  languageCounts: Record<BenchmarkLanguage, number>;
+  severityCounts: Record<BenchmarkSeverity, number>;
+  primaryExpectationCases: number;
+  supportExpectationCases: number;
+  editScopeCases: number;
+  roleExpectationCases: number;
+  safetyExpectationCases: number;
+  manualReviewExpectationCases: number;
+  missingTargetExpectationCases: number;
+  abstentionExpectationCases: number;
+}
+
+export interface ValidationPackLock {
+  schemaVersion: 2;
+  createdAt: string;
+  digest: string;
+  caseCount: number;
+  familyCount: number;
+  projectFixtures: string[];
+  projectFingerprints: Record<string, string>;
+}
+
+export interface ValidationIntegritySummary {
+  lockPath: string | null;
+  expectedDigest: string | null;
+  actualDigest: string;
+  caseDigestVerified: boolean;
+  projectFingerprintsVerified: boolean;
+  verified: boolean;
+  caseCount: number;
+  familyCount: number;
+}
+
+export interface ValidationGateResult {
+  profile: ValidationGateProfile;
+  passed: boolean;
+  failures: string[];
+  coverage: ValidationCoverageSummary;
+}
+
 export interface BenchmarkExpected {
   blocked?: boolean;
   manualReview?: boolean;
@@ -125,6 +176,12 @@ export interface SelectorBenchmarkReport {
   splitCounts: Record<BenchmarkSplit, number>;
   availableProjects: string[];
   skippedProjects: string[];
+  caseSource: "built-in-and-external" | "external-only";
+  validation: {
+    integrity: ValidationIntegritySummary;
+    coverage: ValidationCoverageSummary;
+    gate: ValidationGateResult | null;
+  } | null;
   legacy: BenchmarkMetrics;
   shadow: BenchmarkMetrics;
   failedCaseIds: {

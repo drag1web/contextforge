@@ -1,4 +1,4 @@
-﻿node_modules
+node_modules
 dist
 dist-electron
 
@@ -26,6 +26,19 @@ server/data/*.db-*
 server/data/*.backup.sqlite
 
 # Generated selector benchmark reports and local real-project manifests
-reports/selector-benchmark/
+reports/selector-benchmark*/
+server/reports/selector-benchmark*/
 selector-benchmark.projects.json
 server/selector-benchmark.projects.json
+selector-benchmark-cases/*.real.json
+
+# Private closed-validation packs and sanitized inventory snapshots
+selector-validation.projects.json
+server/selector-validation.projects.json
+selector-validation-cases/
+selector-validation.lock.json
+server/selector-validation.lock.json
+reports/selector-validation*/
+server/reports/selector-validation*/
+reports/selector-inventory-snapshot*.json
+server/reports/selector-inventory-snapshot*.json

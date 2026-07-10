@@ -11,6 +11,8 @@
     "test:selector:replay": "tsx src/ollama/taskFileSelector.replay.ts",
     "test:selector:benchmark": "tsx src/selection/benchmark/benchmarkSmoke.ts",
     "benchmark:selector": "tsx src/selection/benchmark/benchmarkRunner.ts",
+    "benchmark:selector:validation": "tsx src/selection/benchmark/benchmarkRunner.ts --split validation --external-only",
+    "benchmark:selector:snapshot": "tsx src/selection/benchmark/benchmarkSnapshot.ts",
     "start": "node dist/index.js"
   },
   "dependencies": {

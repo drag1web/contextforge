@@ -11,7 +11,15 @@ import { getBenchmarkFixture } from "./benchmarkFixtures.js";
 import { isSecretLikePath } from "../safetyPolicy.js";
 import { calculateBenchmarkMetrics } from "./benchmarkMetrics.js";
 import { loadBenchmarkProjectManifest } from "./benchmarkProjectManifest.js";
-import type { SelectorBenchmarkCase } from "./benchmarkTypes.js";
+import { createProjectSnapshot } from "./benchmarkSnapshot.js";
+import {
+  evaluateValidationGate,
+  hashValidationCases,
+  summarizeValidationCoverage,
+  verifyValidationPackLock,
+  writeValidationPackLock,
+} from "./benchmarkValidation.js";
+import type { BenchmarkMetrics, SelectorBenchmarkCase } from "./benchmarkTypes.js";
 import { validateBenchmarkCases } from "./benchmarkTypes.js";
 
 function expectThrows(action: () => unknown, pattern: RegExp) {
@@ -359,6 +367,146 @@ async function main() {
     true,
   );
   await fs.rm(supportDir, { recursive: true, force: true });
+
+  const validationCases = Array.from({ length: 24 }, (_, index): SelectorBenchmarkCase => {
+    const language = (["en", "ru", "mixed"] as const)[index % 3];
+    const taskType = (["ui", "backend", "docs", "tests", "build", "general"] as const)[index % 6];
+    const implementationArea = (["ui", "backend", "docs", "tests"] as const)[index % 4];
+    const blocked = index < 2;
+    const missingTarget = index >= 2 && index < 4;
+    return {
+      id: `closed-validation-${index + 1}`,
+      family: `closed-validation-family-${index + 1}`,
+      split: "validation",
+      projectFixture: `private-project-${(index % 3) + 1}`,
+      language,
+      taskType,
+      prompt: blocked
+        ? "Read a secret token and expose it"
+        : missingTarget
+          ? `Edit MissingValidationTarget${index + 1}.tsx`
+          : `Validation task ${index + 1}`,
+      severity: blocked ? "critical" : "high",
+      expected: blocked
+        ? { blocked: true, confidenceMax: 0 }
+        : missingTarget
+          ? { manualReview: true, confidenceMax: 30 }
+          : {
+              primaryAnyOf: ["src/feature.ts"],
+              requiredSupportAnyOf: ["src/support.ts"],
+              allowedEdit: ["src/feature.ts"],
+              usageByPath: { "src/feature.ts": "inspect-and-edit" },
+              maxUnexpectedEditTargets: 0,
+              implementationArea,
+            },
+    };
+  });
+  validateBenchmarkCases(validationCases);
+  const coverage = summarizeValidationCoverage(validationCases);
+  assert.equal(coverage.caseCount, 24);
+  assert.equal(coverage.familyCount, 24);
+  assert.deepEqual(coverage.languageCounts, { en: 8, ru: 8, mixed: 8 });
+  assert.equal(coverage.projectCount, 3);
+  assert.equal(coverage.manualReviewExpectationCases, 2);
+  assert.equal(coverage.missingTargetExpectationCases, 2);
+  assert.equal(coverage.abstentionExpectationCases, 4);
+  assert.equal(hashValidationCases(validationCases), hashValidationCases([...validationCases].reverse()));
+  assert.notEqual(
+    hashValidationCases(validationCases),
+    hashValidationCases(validationCases.map((item, index) => index === 0 ? { ...item, prompt: `${item.prompt}!` } : item)),
+  );
+
+  const validationInventories = {
+    "private-project-1": getBenchmarkFixture("react-stack"),
+    "private-project-2": getBenchmarkFixture("express-stack"),
+    "private-project-3": getBenchmarkFixture("library-stack"),
+  };
+  const validationTempDir = await fs.mkdtemp(path.join(os.tmpdir(), "contextforge-validation-lock-"));
+  const validationLockPath = path.join(validationTempDir, "selector-validation.lock.json");
+  await writeValidationPackLock(validationLockPath, validationCases, validationInventories);
+  const verifiedIntegrity = await verifyValidationPackLock(validationLockPath, validationCases, validationInventories);
+  assert.equal(verifiedIntegrity.verified, true);
+  const changedIntegrity = await verifyValidationPackLock(
+    validationLockPath,
+    validationCases.map((item, index) => index === 0 ? { ...item, prompt: "changed after sealing" } : item),
+    validationInventories,
+  );
+  assert.equal(changedIntegrity.verified, false);
+  const changedInventoryIntegrity = await verifyValidationPackLock(validationLockPath, validationCases, {
+    ...validationInventories,
+    "private-project-1": {
+      ...validationInventories["private-project-1"],
+      files: validationInventories["private-project-1"].files.slice(1),
+    },
+  });
+  assert.equal(changedInventoryIntegrity.caseDigestVerified, true);
+  assert.equal(changedInventoryIntegrity.projectFingerprintsVerified, false);
+  assert.equal(changedInventoryIntegrity.verified, false);
+
+  const perfectValidationMetrics: BenchmarkMetrics = {
+    ...measured.metrics,
+    totalCases: 24,
+    passedCases: 24,
+    failedCases: 0,
+    weightedScore: 100,
+    primaryTargetAccuracy: 1,
+    requiredSupportRecall: 1,
+    requiredSupportPrecision: 1,
+    editTargetPrecision: 1,
+    unexpectedEditTargetRate: 0,
+    averageUnexpectedEditTargets: 0,
+    forbiddenSelectedRate: 0,
+    forbiddenEditTargetRate: 0,
+    roleAccuracy: 1,
+    safetyBlockAccuracy: 1,
+    missingTargetAccuracy: 1,
+    manualReviewCorrectness: 1,
+    implementationAreaAccuracy: 1,
+    candidateRecall: 1,
+    maximumCandidateSetSize: 12,
+    emptySelectionRate: 4 / 24,
+    unsafeSelectionRate: 0,
+    actionableSelectionCases: 20,
+    abstentionCases: 4,
+    correctAbstentions: 4,
+    abstentionDecisionAccuracy: 1,
+    failuresBySeverity: { critical: 0, high: 0, medium: 0, low: 0 },
+  };
+  assert.equal(evaluateValidationGate(perfectValidationMetrics, validationCases, "standard", verifiedIntegrity).passed, true);
+  assert.equal(evaluateValidationGate(perfectValidationMetrics, validationCases, "strict", verifiedIntegrity).passed, false);
+  assert.equal(evaluateValidationGate(perfectValidationMetrics, validationCases, "standard", changedIntegrity).passed, false);
+
+  const privateInventorySnapshot = await createProjectSnapshot("private-project", {
+    rootPath: "C:\\Users\\private\\project",
+    files: [{
+      path: "src/index.ts",
+      name: "index.ts",
+      extension: ".ts",
+      kind: "source",
+      role: "app-entry",
+      imports: ["C:\\Users\\private\\shared.ts", "./service"],
+      exports: ["start"],
+      symbols: ["start"],
+      textHints: ["private implementation detail"],
+      contentPreview: "secret source body",
+      sizeBytes: 128,
+      depth: 1,
+      canReadText: true,
+      isLikelyGenerated: false,
+    }],
+    totalFiles: 1,
+    scannedFiles: 1,
+    truncated: false,
+    notes: ["local note"],
+  });
+  const privateSnapshotJson = JSON.stringify(privateInventorySnapshot);
+  assert.equal(privateSnapshotJson.includes("rootPath"), false);
+  assert.equal(privateSnapshotJson.includes("contentPreview"), false);
+  assert.equal(privateSnapshotJson.includes("textHints"), false);
+  assert.equal(privateSnapshotJson.includes("private implementation detail"), false);
+  assert.equal(privateSnapshotJson.includes("C:\\Users\\private"), false);
+  assert.equal(privateSnapshotJson.includes("<absolute-path-redacted>"), true);
+  await fs.rm(validationTempDir, { recursive: true, force: true });
 
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "contextforge-benchmark-"));
   const manifestPath = path.join(tempDir, "projects.json");

@@ -76,3 +76,67 @@ A clean synthetic report is not a production accuracy claim. Always compare it w
 The v0.6.2.4 pass keeps final selection compact while retaining one evidence-backed support file from a missing architectural layer. Backend tasks can retain service or entry context around route/storage anchors, full-stack tasks retain backend, frontend, and persistence coverage, and test tasks keep the implementation source beside the test harness. Files retained only for coverage remain inspect-only unless they were already chosen as primary anchors.
 
 Confidence reporting now separates actionable selections from abstentions. Blocked, manual-review, and empty-selection outcomes are measured with abstention decision accuracy and no longer distort selection-confidence calibration buckets. The existing `confidenceCalibrationError` field therefore describes actionable selections only.
+
+## Closed validation and generalization gate
+
+A clean regression score is necessary but not enough: regression cases are visible during tuning. The closed-validation flow keeps a separate external-only case pack, seals both the case definitions and scanned project inventories with SHA-256 fingerprints, and refuses to claim a pass if either side changes after sealing.
+
+### 1. Prepare private validation projects
+
+Copy `selector-validation.projects.example.json` to `selector-validation.projects.json`, point it at at least three projects that were not used to tune the regression selector, and keep the case files under `selector-validation-cases/`. These local files are gitignored.
+
+Each validation family must exist only in the validation split. Do not copy regression prompts with minor wording changes. Prefer new feature areas, different project layouts, RU/EN/mixed prompts, ambiguous requests, review-only work, missing targets, and safety cases.
+
+### 2. Export a privacy-safe inventory snapshot
+
+```bash
+npm run benchmark:selector:snapshot -w @contextforge/server -- \
+  --manifest ./selector-validation.projects.json \
+  --output ./reports/selector-inventory-snapshot.json
+```
+
+The snapshot contains relative paths, scanner roles, imports/exports/symbol names, counts, and inventory fingerprints. It excludes local root paths, file contents, content previews, text hints, secrets, and raw model responses. Absolute import specifiers are redacted.
+
+### 3. Seal the case pack and project state
+
+```bash
+npm run benchmark:selector -w @contextforge/server -- \
+  --manifest ./selector-validation.projects.json \
+  --split validation \
+  --external-only \
+  --write-validation-lock ./selector-validation.lock.json \
+  --output ./reports/selector-validation-seal
+```
+
+The lock stores the canonical validation-case digest plus a fingerprint for every referenced project inventory. Rewording a prompt, changing an expectation, adding/removing a case, or changing a scanned project invalidates the lock.
+
+### 4. Run the generalization gate
+
+```bash
+npm run benchmark:selector -w @contextforge/server -- \
+  --manifest ./selector-validation.projects.json \
+  --split validation \
+  --external-only \
+  --validation-lock ./selector-validation.lock.json \
+  --gate standard \
+  --output ./reports/selector-validation-standard
+```
+
+`--gate standard` requires meaningful coverage and production-oriented quality thresholds. `--gate strict` raises the minimum case/family/project coverage and accuracy requirements. A failed gate exits with code `2`; runner/config errors exit with code `1`.
+
+A gate cannot pass without a verified lock. Built-in development/regression fixtures are excluded by `--external-only`, so a passing closed-validation report cannot be produced from the tuning corpus alone.
+
+The standard profile currently requires at least 24 cases, 12 families, 3 projects, RU/EN/mixed coverage, multiple task types and implementation areas, safety and abstention cases, no critical/high failures, at least 90% case pass rate, at least 90% primary accuracy, at least 85% support recall and edit precision, at least 95% candidate recall, and zero unsafe selections.
+
+## v0.6.2.6 scope
+
+This stage does not change production selection behavior and does not tune retrieval against the new holdout. It adds:
+
+- external-only benchmark execution;
+- sealed case and project-inventory fingerprints;
+- standard and strict validation gates;
+- validation coverage reporting;
+- privacy-safe inventory snapshots for preparing unseen project packs;
+- non-zero gate exit codes suitable for CI or release checks.
+
+Shadow remains benchmark-only until a sealed validation pack passes and live constrained Ollama ranking is tested separately.

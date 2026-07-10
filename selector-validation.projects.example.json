@@ -1,0 +1,22 @@
+{
+  "projects": [
+    {
+      "id": "validation-project-a",
+      "localPath": "../project-a",
+      "enabled": true,
+      "caseFile": "selector-validation-cases/project-a.validation.json"
+    },
+    {
+      "id": "validation-project-b",
+      "localPath": "../project-b",
+      "enabled": true,
+      "caseFile": "selector-validation-cases/project-b.validation.json"
+    },
+    {
+      "id": "validation-project-c",
+      "localPath": "../project-c",
+      "enabled": true,
+      "caseFile": "selector-validation-cases/project-c.validation.json"
+    }
+  ]
+}

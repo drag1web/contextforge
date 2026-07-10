@@ -17,6 +17,8 @@
     "build": "npm run build -w @contextforge/renderer && npm run build -w @contextforge/server",
     "test:selector": "npm run test:selector -w @contextforge/server",
     "benchmark:selector": "npm run benchmark:selector -w @contextforge/server",
+    "benchmark:selector:validation": "npm run benchmark:selector:validation -w @contextforge/server",
+    "benchmark:selector:snapshot": "npm run benchmark:selector:snapshot -w @contextforge/server",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
     "db:logs": "docker compose logs -f postgres"

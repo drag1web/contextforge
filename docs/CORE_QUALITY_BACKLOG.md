@@ -301,3 +301,13 @@ This bounded pass adds evidence-based architectural coverage after primary ancho
 - non-anchor coverage files remain inspect-only, protecting edit-target precision.
 
 Benchmark confidence reporting now excludes blocked/manual-review/empty outcomes from selection-confidence calibration and reports those outcomes separately as abstentions. Shadow remains benchmark-only and production continues to use the legacy selector.
+
+## v0.6.2.5 — Final support prioritization
+
+The fourth real-project pass reached 28/28 on the current regression corpus without expanding the candidate budget. Root documentation now prefers root-level package/environment support over nested renderer configuration, and strong service/type/storage clusters outrank generic backend services. This is a regression milestone, not a generalization claim, because the 28 cases were visible during tuning.
+
+## v0.6.2.6 — Closed validation and generalization foundation
+
+The next stage freezes an unseen external-only validation pack before using its results to make selector changes. Case definitions and referenced project inventories receive SHA-256 fingerprints; changing either invalidates the lock. Standard and strict gates require minimum project/language/task-family coverage plus safety, abstention, retrieval, role, and edit-precision thresholds.
+
+A privacy-safe snapshot command exports relative inventory metadata without root paths, file contents, text previews, or secrets. This allows new project structures to be reviewed and validation expectations to be authored without publishing full source trees. The stage intentionally does not alter selector ranking behavior.
