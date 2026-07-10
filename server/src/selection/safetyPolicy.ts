@@ -86,6 +86,20 @@ const SECRET_ACTION_PATTERNS = [
   /(?:\u043f\u0440\u043e\u0447\u0438\u0442\u0430\u0439|\u043f\u043e\u043a\u0430\u0436\u0438|\u0432\u044b\u0432\u0435\u0434\u0438|\u0441\u043a\u043e\u043f\u0438\u0440\u0443\u0439|\u0434\u043e\u0431\u0430\u0432\u044c|\u0432\u043a\u043b\u044e\u0447\u0438|\u043f\u0435\u0440\u0435\u0434\u0430\u0439|\u0441\u043e\u0445\u0440\u0430\u043d\u0438|\u0437\u0430\u043f\u0438\u0448\u0438|\u0437\u0430\u043a\u043e\u043c\u043c\u0438\u0442\u044c)/i,
 ];
 
+const SECRET_SAFETY_VALIDATION_PATTERNS = [
+  /\b(?:mask|masking|redact|redaction|sanitize|sanitise|scrub|detect|prevent|block|validate|test|assert)[a-z]*\b[^.!?\n]{0,100}\b(?:secret|token|api[-_\s]?key|private[-_\s]?key|password|credential)/i,
+  /\b(?:secret|token|api[-_\s]?key|private[-_\s]?key|password|credential)[a-z]*\b[^.!?\n]{0,100}\b(?:mask|redact|sanitize|sanitise|scrub|detect|prevent|block|validate|test|assert)/i,
+  /(?:маскир|редактир|санитиз|скрыт|обезлич|провер|тестир|блокир)[^.!?\n]{0,100}(?:секрет|токен|ключ|парол|уч[её]тн)/iu,
+  /(?:секрет|токен|ключ|парол|уч[её]тн)[^.!?\n]{0,100}(?:маскир|редактир|санитиз|скрыт|обезлич|провер|тестир|блокир)/iu,
+];
+
+const AUTH_TOKEN_BEHAVIOR_PATTERNS = [
+  /\b(?:auth|authentication|session|jwt|bearer)\b[^.!?\n]{0,100}\b(?:token|tokens)\b/i,
+  /\b(?:token|tokens)\b[^.!?\n]{0,100}\b(?:expiry|expiration|validation|verify|verification|refresh|rotate|revocation|session|jwt|auth)\b/i,
+  /(?:авторизац|аутентификац|сесси|jwt)[^.!?\n]{0,100}(?:токен)/iu,
+  /(?:токен)[^.!?\n]{0,100}(?:срок|истеч|провер|валидац|обнов|отзыв|сесси|авторизац|jwt)/iu,
+];
+
 const NEGATED_SECRET_CONSTRAINT_PATTERNS = [
   /\b(?:do\s+not|don't|never|must\s+not|should\s+not)\s+(?:read|show|print|dump|copy|include|paste|send|pass|expose|leak|add|store|save|write|commit)\b/i,
   /\bwithout\s+(?:adding|including|reading|showing|printing|copying|sending|passing|exposing|leaking|storing|saving|writing|committing)?[^.!?;,:\n]{0,40}\b(?:secret|secrets|token|tokens|api[-_\s]?key|private[-_\s]?key|password|credentials|client[-_\s]?secret|database_url|\.env)\b/i,
@@ -109,6 +123,15 @@ function asksToExposeSecretContent(text: string) {
 
     if (!mentionsSecret) return false;
     if (containsAny(clause, NEGATED_SECRET_CONSTRAINT_PATTERNS)) return false;
+    if (
+      containsAny(clause, SECRET_SAFETY_VALIDATION_PATTERNS) &&
+      !containsAny(clause, SECRET_PATH_PATTERNS)
+    ) return false;
+    if (
+      containsAny(clause, AUTH_TOKEN_BEHAVIOR_PATTERNS) &&
+      !containsAny(clause, SECRET_PATH_PATTERNS) &&
+      !/\b(?:show|print|dump|copy|paste|send|expose|leak)\b/i.test(clause)
+    ) return false;
 
     return (
       containsAny(clause, SECRET_EXFILTRATION_PATTERNS) ||

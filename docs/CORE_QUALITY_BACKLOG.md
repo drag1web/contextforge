@@ -311,3 +311,15 @@ The fourth real-project pass reached 28/28 on the current regression corpus with
 The next stage freezes an unseen external-only validation pack before using its results to make selector changes. Case definitions and referenced project inventories receive SHA-256 fingerprints; changing either invalidates the lock. Standard and strict gates require minimum project/language/task-family coverage plus safety, abstention, retrieval, role, and edit-precision thresholds.
 
 A privacy-safe snapshot command exports relative inventory metadata without root paths, file contents, text previews, or secrets. This allows new project structures to be reviewed and validation expectations to be authored without publishing full source trees. The stage intentionally does not alter selector ranking behavior.
+
+## v0.6.3.1 — Assembly stabilization and stable validation integrity
+
+The first live closed-validation run confirmed that the Context Assembly Engine materially improves cross-project generalization, but assembly must not replace stronger retrieval anchors with weaker support files. Stabilization priorities are:
+
+- preserve grounded UI/page and backend route/entry anchors through final role assignment;
+- reserve task-linked and directly imported support before generic neighbours;
+- retain root docs/config support, framework layouts, and full-stack persistence coverage when evidence exists;
+- keep support inspect-only unless implementation intent and anchor evidence justify edit;
+- keep validation fingerprints independent of scanner implementation details.
+
+The validation lock now fingerprints normalized relative paths and raw file contents. A guarded one-time migration path is available for schema-v2 locks and must preserve the original validation case digest. The shadow pipeline remains benchmark-only until both the 28-case regression pack and the unchanged 40-case closed validation pack pass their intended gates on real local projects.

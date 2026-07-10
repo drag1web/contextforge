@@ -140,3 +140,31 @@ This stage does not change production selection behavior and does not tune retri
 - non-zero gate exit codes suitable for CI or release checks.
 
 Shadow remains benchmark-only until a sealed validation pack passes and live constrained Ollama ranking is tested separately.
+
+## Assembly stabilization and stable validation integrity
+
+The first closed-validation run after introducing the Context Assembly Engine improved the unseen 40-case holdout from 16/40 to 37/40, but it also exposed two release-blocking issues: strong regression anchors could be demoted by assembly support, and validation project fingerprints depended on scanner-derived metadata. The latter made unchanged projects appear modified whenever scanner classification improved.
+
+The v0.6.3.1 stabilization pass keeps retrieval, assembly, role assignment, and validation integrity separate:
+
+- strong page, route, controller, server-entry, and exact-symbol anchors remain eligible edit targets when task intent requires implementation;
+- docs/config candidates cannot replace a grounded UI implementation anchor;
+- direct imported UI support and task-linked domain support are reserved before generic graph neighbours;
+- root documentation tasks reserve root package/environment support;
+- navigation tasks can retain the nearest/importing framework layout;
+- full-stack tasks reserve backend entry and persistence coverage without promoting support files to edit by default;
+- project locks now use normalized relative paths plus raw content hashes only (`path-content-v1`). Scanner roles, imports, exports, and symbols no longer affect the project fingerprint.
+
+Existing schema-v2 locks can be migrated explicitly with `--migrate-validation-lock`. Migration refuses to proceed if the sealed validation-case digest, case count, family count, or project IDs differ. It updates only the project fingerprint algorithm and project fingerprints, writes atomically, and preserves the sealed case digest.
+
+```bash
+npm run benchmark:selector -w @contextforge/server -- \
+  --manifest ./selector-validation.projects.json \
+  --split validation \
+  --external-only \
+  --validation-lock ./selector-validation.lock.json \
+  --migrate-validation-lock \
+  --output ./reports/selector-validation-migration
+```
+
+A migrated lock is not a new validation pack: prompts and expectations remain sealed. After migration, rerun both the visible regression corpus and the unchanged Standard/Strict validation gates before committing or enabling the shadow pipeline.

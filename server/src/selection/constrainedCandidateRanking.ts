@@ -1,5 +1,6 @@
 import type { SelectedTaskFileUsage } from "../ollama/taskFileSelector.js";
 import type { CandidateRetrievalResult, RetrievedCandidate } from "./candidateRetrieval.js";
+import { assembleContextCandidates } from "./contextAssemblyEngine.js";
 
 export interface CandidateRankingSelection {
   candidateId: string;
@@ -30,6 +31,10 @@ export interface ValidatedCandidateRanking {
   valid: boolean;
 }
 
+interface CandidateRankingValidationOptions {
+  trustedEditCandidateIds?: ReadonlySet<string>;
+}
+
 const VALID_USAGES = new Set<SelectedTaskFileUsage>([
   "inspect-and-edit", "create-and-edit", "inspect-only", "asset-reference", "config-reference",
 ]);
@@ -37,10 +42,18 @@ const VALID_USAGES = new Set<SelectedTaskFileUsage>([
 function clampUsageToCandidate(
   candidate: RetrievedCandidate,
   requestedUsage: SelectedTaskFileUsage,
+  trustedEdit = false,
 ): { usage: SelectedTaskFileUsage; adjustment?: CandidateUsageAdjustment } {
   const proposed = candidate.proposedUsage;
-  const roleCappedUsage =
-    candidate.proposedTechnicalRole === "primary" || candidate.explicit
+  const trustedEditable =
+    trustedEdit &&
+    candidate.file.kind !== "asset" &&
+    candidate.file.kind !== "runtime" &&
+    candidate.file.kind !== "data" &&
+    requestedUsage === "inspect-and-edit";
+  const roleCappedUsage = trustedEditable
+    ? "inspect-and-edit"
+    : candidate.proposedTechnicalRole === "primary" || candidate.explicit
       ? proposed
       : proposed === "config-reference" || proposed === "asset-reference"
         ? proposed
@@ -85,7 +98,7 @@ function clampUsageToCandidate(
     };
   }
 
-  if (candidate.proposedTechnicalRole !== "primary" && !candidate.explicit && requestedUsage === "inspect-and-edit") {
+  if (!trustedEditable && candidate.proposedTechnicalRole !== "primary" && !candidate.explicit && requestedUsage === "inspect-and-edit") {
     return {
       usage: "inspect-only",
       adjustment: {
@@ -109,6 +122,7 @@ function normalizeConfidence(value: unknown) {
 export function validateCandidateRanking(
   value: unknown,
   candidates: RetrievedCandidate[],
+  options: CandidateRankingValidationOptions = {},
 ): ValidatedCandidateRanking {
   const candidateMap = new Map(candidates.map((candidate) => [candidate.candidateId, candidate]));
   const data = value && typeof value === "object" ? value as Record<string, unknown> : {};
@@ -131,7 +145,11 @@ export function validateCandidateRanking(
     }
     const requestedUsage = String(record.usage ?? candidate.proposedUsage) as SelectedTaskFileUsage;
     const normalizedUsage = VALID_USAGES.has(requestedUsage) ? requestedUsage : candidate.proposedUsage;
-    const constrained = clampUsageToCandidate(candidate, normalizedUsage);
+    const constrained = clampUsageToCandidate(
+      candidate,
+      normalizedUsage,
+      options.trustedEditCandidateIds?.has(candidateId) ?? false,
+    );
     if (constrained.adjustment) usageAdjustments.push(constrained.adjustment);
     selected.push({
       candidateId,
@@ -589,12 +607,53 @@ function chooseAreaAwareCandidates(
   };
 }
 
+function effectiveCandidateRole(candidate: RetrievedCandidate) {
+  const pathValue = candidate.path.toLowerCase().replace(/\\/g, "/");
+  const fileName = candidate.file.name.toLowerCase();
+  const fileStem = fileName.replace(/\.[^.]+$/, "");
+  if (/^layout\.(?:tsx|jsx|ts|js)$/.test(fileName)) return "layout";
+  if (/(?:^|\/)(?:types?|contracts?|models?)(?:\/|$)/.test(pathValue)) return "types";
+  if (/(?:^|\/)(?:utils|utilities|helpers|lib)(?:\/|$)/.test(pathValue)) {
+    if (/(?:api|client)$/.test(fileStem)) return "client-api";
+    return "utility";
+  }
+  if (/(?:^|\/)services?(?:\/|$)/.test(pathValue)) {
+    if (/(?:^|\/)(?:web|client|frontend|renderer)(?:\/|$)/.test(pathValue)) return "client-api";
+    return "service";
+  }
+  if (
+    (pathValue.startsWith("server/") || pathValue.includes("/server/")) &&
+    /^(?:auth|session|queue|worker|processor|provider|manager|ai)$/.test(fileStem)
+  ) return "service";
+  if (
+    /(?:^|\/)(?:db|database|storage|repositories?|persistence)(?:\/|$)/.test(pathValue) &&
+    /(?:quer(?:y|ies)|repository|database|storage|schema|model|adapter)/.test(fileName)
+  ) return "repository";
+  return candidate.file.role;
+}
+
+function anchorCanEdit(candidate: RetrievedCandidate, retrieval: CandidateRetrievalResult) {
+  if (["asset", "runtime", "data", "unknown"].includes(candidate.file.kind)) return false;
+  const role = effectiveCandidateRole(candidate);
+  if (retrieval.implementationArea === "ui") return FRONTEND_ROLES.has(role);
+  if (retrieval.implementationArea === "backend") return BACKEND_ROLES.has(role) || role === "types";
+  if (retrieval.implementationArea === "fullstack") return FRONTEND_ROLES.has(role) || BACKEND_ROLES.has(role) || role === "types";
+  if (retrieval.implementationArea === "tests") return isTestCandidate(candidate);
+  if (retrieval.implementationArea === "docs") return candidate.file.kind === "docs" || role === "docs";
+  if (retrieval.implementationArea === "build") return candidate.file.kind === "config" || role === "config" || role === "app-entry" || role === "server-entry";
+  if (retrieval.implementationArea === "bugfix" || retrieval.implementationArea === "refactor") return candidate.file.kind === "source" || candidate.file.kind === "style";
+  return candidate.file.kind === "source" || candidate.file.kind === "style";
+}
+
 function deterministicUsage(
   candidate: RetrievedCandidate,
   retrieval: CandidateRetrievalResult,
   anchorIds: Set<string>,
 ): SelectedTaskFileUsage {
   if (retrieval.reviewOnly) return "inspect-only";
+  if (anchorIds.has(candidate.candidateId) && anchorCanEdit(candidate, retrieval)) {
+    return "inspect-and-edit";
+  }
   if (!anchorIds.has(candidate.candidateId) && !candidate.explicit) {
     if (
       candidate.proposedUsage === "config-reference" ||
@@ -636,7 +695,7 @@ export function deterministicCandidateRanking(
   const grounded = retrieval.candidates.filter((candidate) =>
     isGroundedSelectionCandidate(candidate, retrieval, topScore),
   );
-  const ranked = chooseAreaAwareCandidates(grounded, retrieval, selectionLimit);
+  const ranked = assembleContextCandidates(grounded, retrieval, selectionLimit);
   const payload: CandidateRankingPayload = {
     selected: ranked.candidates.map((candidate) => ({
       candidateId: candidate.candidateId,
@@ -652,5 +711,7 @@ export function deterministicCandidateRanking(
         ? "Deterministic shadow ranking from grounded evidence, area coverage, and role caps."
         : "No candidate passed the deterministic ranking threshold.",
   };
-  return validateCandidateRanking(payload, retrieval.candidates);
+  return validateCandidateRanking(payload, retrieval.candidates, {
+    trustedEditCandidateIds: ranked.anchorIds,
+  });
 }

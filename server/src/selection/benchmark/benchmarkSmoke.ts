@@ -15,6 +15,7 @@ import { createProjectSnapshot } from "./benchmarkSnapshot.js";
 import {
   evaluateValidationGate,
   hashValidationCases,
+  migrateValidationPackLock,
   summarizeValidationCoverage,
   verifyValidationPackLock,
   writeValidationPackLock,
@@ -69,6 +70,18 @@ async function main() {
     true,
   );
   assert.equal(negatedSecretConstraint.implementationArea, "backend");
+  const secretMaskingTests = retrieveCandidates({
+    rawTask: "Add tests for masking tokens and private keys in diff output",
+    requestedTaskType: "tests",
+    inventory: getBenchmarkFixture("selector-core"),
+  });
+  assert.equal(secretMaskingTests.blocked, false);
+  const authTokenBehavior = retrieveCandidates({
+    rawTask: "Fix JWT token expiry validation without exposing token values",
+    requestedTaskType: "backend",
+    inventory: getBenchmarkFixture("express-stack"),
+  });
+  assert.equal(authTokenBehavior.blocked, false);
   assert.equal(inferRetrievalArea("Добавь тесты для safety policy selector", "general"), "tests");
   assert.equal(inferRetrievalArea("Посмотри страницу документации и предложи улучшения, код не меняй", "general"), "ui");
   assert.equal(inferRetrievalArea("Добавь backend endpoint фильтрации проектов по readiness и обнови UI при необходимости", "general"), "fullstack");
@@ -80,6 +93,13 @@ async function main() {
   const missing = retrieveCandidates({ rawTask: "Edit NonExistingSettingsPanel.tsx", requestedTaskType: "general", inventory: react });
   assert.equal(missing.manualReview, true);
   assert.equal(missing.candidates.length, 0);
+  const missingRouteGroup = retrieveCandidates({
+    rawTask: "Edit app/(site)/admin/page.tsx and keep the public pages unchanged",
+    requestedTaskType: "ui",
+    inventory: react,
+  });
+  assert.equal(missingRouteGroup.manualReview, true);
+  assert.equal(missingRouteGroup.candidates.length, 0);
 
   const backend = retrieveCandidates({ rawTask: "Add an endpoint to persist GitHub issue metadata", requestedTaskType: "backend", inventory: getBenchmarkFixture("express-stack") });
   assert.ok(backend.candidates.some((candidate) => candidate.path === "server/src/routes/issues.ts"));
@@ -195,6 +215,12 @@ async function main() {
   await writeRoleFile("src/db/migrateLicensesRegistry.ts");
   await writeRoleFile("src/server.ts");
   await writeRoleFile("client/src/api.ts");
+  for (let index = 0; index < 36; index += 1) {
+    await writeRoleFile(
+      `client/src/pages/ReadinessNoise${index}.tsx`,
+      `export function ReadinessNoise${index}() { return null; }`,
+    );
+  }
   const roleInventory = await scanProjectInventory(roleDir);
   assert.equal(roleInventory.files.find((file) => file.path === "server/index.mjs")?.role, "server-entry");
   assert.equal(roleInventory.files.find((file) => file.path === "api/[...path].mjs")?.role, "api-route");
@@ -287,6 +313,10 @@ async function main() {
   const fullstackRanking = deterministicCandidateRanking(fullstackRetrieval);
   assert.equal(fullstackRetrieval.implementationArea, "fullstack");
   assert.equal(
+    fullstackRetrieval.candidates.some((candidate) => candidate.path === "src/db/queries.ts"),
+    true,
+  );
+  assert.equal(
     fullstackRanking.selected.some((candidate) =>
       candidate.path === "src/server.ts" &&
       candidate.usage === "inspect-and-edit"
@@ -328,6 +358,10 @@ async function main() {
   );
   await writeSupportFile("server/src/github/githubTypes.ts", "export interface GitHubIssueMetadata { id: number; }");
   await writeSupportFile("server/src/storage/types.ts", "export interface StorageRecord { id: number; }");
+  for (let index = 0; index < 16; index += 1) {
+    await writeSupportFile(`packages/workspace-${index}/package.json`, "{\"scripts\":{}}");
+    await writeSupportFile(`packages/workspace-${index}/tsconfig.json`, "{}");
+  }
   const supportInventory = await scanProjectInventory(supportDir);
   assert.equal(
     supportInventory.files.find((file) => file.path === "server/src/github/githubIssuesService.ts")?.role,
@@ -340,10 +374,14 @@ async function main() {
     inventory: supportInventory,
   });
   const scopedDocsRanking = deterministicCandidateRanking(scopedDocsRetrieval);
+  assert.equal(scopedDocsRetrieval.candidates.some((candidate) => candidate.path === "package.json"), true);
+  assert.equal(scopedDocsRetrieval.candidates.some((candidate) => candidate.path === ".env.example"), true);
   assert.equal(
-    scopedDocsRanking.selected.some((candidate) =>
-      ["package.json", ".env.example"].includes(candidate.path)
-    ),
+    scopedDocsRanking.selected.some((candidate) => candidate.path === "package.json"),
+    true,
+  );
+  assert.equal(
+    scopedDocsRanking.selected.some((candidate) => candidate.path === ".env.example"),
     true,
   );
   assert.equal(
@@ -366,7 +404,71 @@ async function main() {
     ),
     true,
   );
+  assert.equal(
+    metadataRanking.selected.some((candidate) =>
+      candidate.path === "server/src/routes/taskPacks.ts" && candidate.usage === "inspect-and-edit"
+    ),
+    true,
+  );
+  assert.equal(
+    metadataRanking.selected.find((candidate) => candidate.path === "server/src/github/githubIssuesService.ts")?.usage,
+    "inspect-only",
+  );
   await fs.rm(supportDir, { recursive: true, force: true });
+
+  const stabilizationDir = await fs.mkdtemp(path.join(os.tmpdir(), "contextforge-assembly-stabilization-"));
+  const writeStabilizationFile = async (relativePath: string, content = "export const value = true;") => {
+    const absolutePath = path.join(stabilizationDir, relativePath);
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, content, "utf8");
+  };
+  await writeStabilizationFile("BACKEND_SETUP.md", "# Backend setup");
+  await writeStabilizationFile("src/pages/HomePage.tsx", "export function HomePage() { return null; }");
+  await writeStabilizationFile(
+    "apps/web/src/pages/dashboard/Dashboard.tsx",
+    "export function Dashboard() { const riskSignals = []; const emptyState = riskSignals.length === 0; return emptyState ? null : <section />; }",
+  );
+  await writeStabilizationFile("apps/web/src/components/shared/RiskReportBlocks.tsx", "export function RiskReportBlocks() { return null; }");
+  await writeStabilizationFile("apps/web/src/components/shared/SourceCards.tsx", "export function SourceCards() { return null; }");
+  await writeStabilizationFile("apps/web/src/components/ui/Feedback.tsx", "export function EmptyState() { return null; }");
+  await writeStabilizationFile("apps/web/src/api.ts", "export const api = true;");
+  await writeStabilizationFile("apps/api/src/routes/dashboard.controller.ts", "export const dashboardController = true;");
+  await writeStabilizationFile(
+    "metall-perm/src/components/site/HeaderNav.tsx",
+    "import { Button } from '../../ui/Button'; export function HeaderNav() { return <Button />; }",
+  );
+  await writeStabilizationFile("metall-perm/src/components/ui/Button.tsx", "export function Button() { return null; }");
+  await writeStabilizationFile(
+    "metall-perm/src/app/(site)/layout.tsx",
+    "import { HeaderNav } from '@/components/site/HeaderNav'; export function SiteLayout() { return <HeaderNav />; }",
+  );
+  const stabilizationInventory = await scanProjectInventory(stabilizationDir);
+
+  const homeUi = deterministicCandidateRanking(retrieveCandidates({
+    rawTask: "Улучши UI/UX главной страницы; backend/API не трогай",
+    requestedTaskType: "general",
+    inventory: stabilizationInventory,
+  }));
+  assert.equal(homeUi.selected.some((candidate) => candidate.path === "src/pages/HomePage.tsx" && candidate.usage === "inspect-and-edit"), true);
+  assert.equal(homeUi.selected.some((candidate) => candidate.path === "BACKEND_SETUP.md" && candidate.usage === "inspect-and-edit"), false);
+
+  const dashboardSignals = deterministicCandidateRanking(retrieveCandidates({
+    rawTask: "Improve the Dashboard risk signal cards and empty states for narrow screens. Do not change API behavior.",
+    requestedTaskType: "ui",
+    inventory: stabilizationInventory,
+  }));
+  assert.equal(dashboardSignals.selected.some((candidate) => candidate.path === "apps/web/src/components/shared/RiskReportBlocks.tsx"), true);
+
+  const mobileNavigationRetrieval = retrieveCandidates({
+    rawTask: "Improve mobile navigation active states and keyboard focus without changing page content.",
+    requestedTaskType: "ui",
+    inventory: stabilizationInventory,
+  });
+  const mobileNavigation = deterministicCandidateRanking(mobileNavigationRetrieval);
+  assert.equal(mobileNavigationRetrieval.candidates.some((candidate) => candidate.path === "metall-perm/src/app/(site)/layout.tsx"), true);
+  assert.equal(mobileNavigation.selected.some((candidate) => candidate.path === "metall-perm/src/app/(site)/layout.tsx"), true);
+  assert.equal(mobileNavigation.selected.some((candidate) => candidate.path === "metall-perm/src/components/site/HeaderNav.tsx" && candidate.usage === "inspect-and-edit"), true);
+  await fs.rm(stabilizationDir, { recursive: true, force: true });
 
   const validationCases = Array.from({ length: 24 }, (_, index): SelectorBenchmarkCase => {
     const language = (["en", "ru", "mixed"] as const)[index % 3];
@@ -426,6 +528,35 @@ async function main() {
   await writeValidationPackLock(validationLockPath, validationCases, validationInventories);
   const verifiedIntegrity = await verifyValidationPackLock(validationLockPath, validationCases, validationInventories);
   assert.equal(verifiedIntegrity.verified, true);
+  const metadataChangedIntegrity = await verifyValidationPackLock(validationLockPath, validationCases, {
+    ...validationInventories,
+    "private-project-1": {
+      ...validationInventories["private-project-1"],
+      files: validationInventories["private-project-1"].files.map((file) => ({
+        ...file,
+        role: "unknown" as const,
+        imports: [],
+        exports: [],
+        symbols: [],
+        textHints: [],
+      })),
+    },
+  });
+  assert.equal(metadataChangedIntegrity.verified, true);
+
+  const legacyLockPath = path.join(validationTempDir, "selector-validation.legacy.lock.json");
+  const currentLock = JSON.parse(await fs.readFile(validationLockPath, "utf8"));
+  await fs.writeFile(legacyLockPath, JSON.stringify({
+    ...currentLock,
+    schemaVersion: 2,
+    fingerprintAlgorithm: "scanner-metadata-v1",
+    projectFingerprints: Object.fromEntries(currentLock.projectFixtures.map((projectId: string) => [projectId, "legacy-scanner-coupled-fingerprint"])),
+  }, null, 2), "utf8");
+  const migration = await migrateValidationPackLock(legacyLockPath, validationCases, validationInventories);
+  assert.equal(migration.migrated, true);
+  const migratedIntegrity = await verifyValidationPackLock(legacyLockPath, validationCases, validationInventories);
+  assert.equal(migratedIntegrity.verified, true);
+
   const changedIntegrity = await verifyValidationPackLock(
     validationLockPath,
     validationCases.map((item, index) => index === 0 ? { ...item, prompt: "changed after sealing" } : item),

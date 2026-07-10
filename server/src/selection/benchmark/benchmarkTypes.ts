@@ -29,13 +29,16 @@ export interface ValidationCoverageSummary {
 }
 
 export interface ValidationPackLock {
-  schemaVersion: 2;
+  schemaVersion: 2 | 3;
   createdAt: string;
   digest: string;
   caseCount: number;
   familyCount: number;
   projectFixtures: string[];
   projectFingerprints: Record<string, string>;
+  fingerprintAlgorithm?: "scanner-metadata-v1" | "path-content-v1";
+  migratedFromSchemaVersion?: 2;
+  migratedAt?: string;
 }
 
 export interface ValidationIntegritySummary {

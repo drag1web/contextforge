@@ -26,6 +26,8 @@ export type ProjectInventoryFileRole =
     | "repository"
     | "db-schema"
     | "store"
+    | "types"
+    | "utility"
     | "hook"
     | "style"
     | "config"
@@ -334,6 +336,7 @@ function getFileKind(relativePath: string): ProjectInventoryFileKind {
 function classifyFileRole(relativePath: string, kind: ProjectInventoryFileKind): ProjectInventoryFileRole {
     const normalized = normalizePath(relativePath).toLowerCase();
     const fileName = normalized.split("/").pop() ?? normalized;
+    const stem = path.basename(fileName, path.extname(fileName));
 
     if (kind === "docs") return "docs";
     if (kind === "style") return "style";
@@ -355,22 +358,59 @@ function classifyFileRole(relativePath: string, kind: ProjectInventoryFileKind):
         fileName === "route.cjs"
     ) return "api-route";
     if (normalized.includes("/routes/") || normalized.startsWith("routes/") || normalized.includes("/controllers/") || normalized.startsWith("controllers/")) return "api-route";
-    if (normalized.includes("/db/") || normalized.includes("/database/") || normalized.includes("/schema/") || normalized.endsWith("schema.prisma") || normalized.endsWith("schema.sql")) return "db-schema";
+    // Frontend structural folders take precedence over domain-looking route names
+    // such as pages/repositories or components/services.
+    if (["page.tsx", "page.jsx", "page.ts", "page.js"].includes(fileName) || normalized.includes("/pages/")) return "page";
+    if (["layout.tsx", "layout.jsx", "layout.ts", "layout.js", "template.tsx", "template.jsx"].includes(fileName)) return "layout";
+    if (normalized.includes("/components/ui/") || normalized.includes("/ui/")) return "ui-component";
+    if (normalized.includes("/components/")) return "component";
+    if (normalized.includes("/db/") || normalized.includes("/database/") || normalized.includes("/schema/") || normalized.endsWith("schema.prisma") || normalized.endsWith("schema.sql") || /^(?:db|database)\.(?:[cm]?[jt]s)$/.test(fileName)) return "db-schema";
     if (normalized.includes("/repositories/") || normalized.includes("/repository/")) return "repository";
+    if (
+        normalized.includes("/types/") ||
+        normalized.includes("/interfaces/") ||
+        /(?:^|[.-])types?\.(?:[cm]?[jt]sx?)$/.test(fileName) ||
+        /(?:^|[.-])interfaces?\.(?:[cm]?[jt]sx?)$/.test(fileName)
+    ) return "types";
     if (
         normalized.includes("/services/") ||
         normalized.includes("/service/") ||
         /service\.(?:[cm]?[jt]sx?)$/.test(fileName)
-    ) return normalized.includes("api") ? "client-api" : "service";
-    if (normalized.endsWith("/api.ts") || normalized.endsWith("/api.js") || normalized.includes("/api/client") || normalized.includes("/client/api")) return "client-api";
+    ) {
+        const clientSideService =
+            normalized.includes("/client/") ||
+            normalized.includes("/web/") ||
+            normalized.includes("/frontend/") ||
+            normalized.includes("/renderer/");
+        return clientSideService ? "client-api" : "service";
+    }
+    if (
+        normalized.endsWith("/api.ts") ||
+        normalized.endsWith("/api.js") ||
+        normalized.includes("/api/client") ||
+        normalized.includes("/client/api") ||
+        normalized.includes("/lib/api") ||
+        /(?:api|client)\.(?:[cm]?[jt]sx?)$/.test(fileName) ||
+        /(?:api|client)$/.test(stem)
+    ) return "client-api";
     if (normalized.includes("/store/") || normalized.includes("/stores/")) return "store";
-    if (normalized.includes("/hooks/") || /^use[A-Z]/.test(fileName)) return "hook";
+    if (normalized.includes("/hooks/") || /^use[a-z0-9]/.test(stem)) return "hook";
     if (fileName === "server.ts" || fileName === "server.js" || normalized.startsWith("server/index.")) return "server-entry";
+    if (/^(?:robots|sitemap|manifest|middleware)\.(?:[cm]?[jt]s)$/.test(fileName)) return "config";
+    if (/^(?:config|settings)\.(?:[cm]?[jt]s)$/.test(fileName) && (normalized.startsWith("server/") || normalized.includes("/server/"))) return "config";
+    if (
+        normalized.includes("/utils/") ||
+        normalized.includes("/utilities/") ||
+        normalized.includes("/helpers/") ||
+        normalized.includes("/lib/") ||
+        /^(?:calculations?|formatters?|validators?|parsers?|classify|scoring|risk|appearance)(?:[.-]|$)/.test(stem)
+    ) return "utility";
+    if (
+        (normalized.startsWith("server/") || normalized.includes("/server/")) &&
+        /^(?:auth|session|queue|worker|processor|provider|manager|ai)(?:[.-]|$)/.test(stem)
+    ) return "service";
     if (["app.tsx", "app.jsx", "main.tsx", "main.jsx", "index.tsx", "index.jsx"].includes(fileName)) return "app-entry";
-    if (["page.tsx", "page.jsx", "page.ts", "page.js"].includes(fileName) || normalized.includes("/pages/")) return "page";
-    if (["layout.tsx", "layout.jsx", "layout.ts", "layout.js", "template.tsx", "template.jsx"].includes(fileName)) return "layout";
-    if (normalized.includes("/components/ui/") || normalized.includes("/ui/")) return "ui-component";
-    if (normalized.includes("/components/") || /^[A-Z]/.test(path.basename(fileName, path.extname(fileName)))) return "component";
+    if (/^[A-Z]/.test(path.basename(relativePath.split("/").pop() ?? fileName, path.extname(fileName)))) return "component";
     if ((normalized.startsWith("src/app/") || normalized.includes("/src/app/") || normalized.startsWith("app/") || normalized.includes("/app/")) && [".tsx", ".jsx"].includes(path.extname(fileName))) return "component";
 
     return kind === "source" ? "unknown" : kind;
@@ -408,6 +448,8 @@ function shouldIncludeFile(relativePath: string) {
     const normalized = normalizePath(relativePath).toLowerCase();
     if (normalized.includes("/node_modules/")) return false;
     if (normalized.includes("/.git/")) return false;
+    // Runtime repository mirrors/clones are user data, not implementation files of the host project.
+    if (/(?:^|\/)storage\/repositories\/[a-z0-9_-]{12,}(?:\/|$)/.test(normalized)) return false;
     return true;
 }
 

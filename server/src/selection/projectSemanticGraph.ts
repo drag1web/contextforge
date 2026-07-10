@@ -10,6 +10,7 @@ export type SemanticGraphEdgeKind =
     | "style-import"
     | "client-api-import"
     | "service-import"
+    | "utility-import"
     | "storage-import"
     | "types-import"
     | "test-target"
@@ -66,7 +67,11 @@ function resolveImportBasePath(sourceFile: ProjectInventoryFile, importPath: str
     if (!rawImport || rawImport.startsWith("node:") || isPackageImport(rawImport)) return undefined;
 
     if (rawImport.startsWith("@/")) {
-        return `src/${rawImport.slice(2)}`;
+        const normalizedSource = normalizePath(sourceFile.path);
+        const sourceParts = normalizedSource.split("/");
+        const srcIndex = sourceParts.lastIndexOf("src");
+        const workspacePrefix = srcIndex >= 0 ? sourceParts.slice(0, srcIndex).join("/") : "";
+        return [workspacePrefix, "src", rawImport.slice(2)].filter(Boolean).join("/");
     }
 
     if (!rawImport.startsWith("./") && !rawImport.startsWith("../")) {
@@ -158,14 +163,18 @@ function classifyImportEdge(sourceFile: ProjectInventoryFile, targetFile: Projec
     if (targetFile.kind === "style" || targetRole === "style") return "style-import";
     if (targetRole === "hook" || targetPath.includes("/hooks/")) return "hook-import";
     if (
-        targetRole === "client-api" ||
-        /(?:^|\/)(?:api|client|clients)\//.test(targetPath) ||
-        /(?:^|\/)(?:api|client)\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(targetPath)
-    ) return "client-api-import";
-    if (
         targetRole === "service" ||
         /(?:^|\/)(?:service|services|controller|controllers|handler|handlers)\//.test(targetPath)
     ) return "service-import";
+    if (
+        targetRole === "utility" ||
+        /(?:^|\/)(?:utils|utilities|helpers|lib)\//.test(targetPath)
+    ) return "utility-import";
+    if (
+        targetRole === "client-api" ||
+        /(?:^|\/)(?:src\/api|client|clients)\//.test(targetPath) ||
+        /(?:^|\/)(?:api|client)\.(?:ts|tsx|js|jsx|mjs|cjs)$/.test(targetPath)
+    ) return "client-api-import";
     if (
         targetRole === "repository" ||
         targetRole === "storage" ||

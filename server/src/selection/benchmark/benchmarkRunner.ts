@@ -13,6 +13,7 @@ import { loadBenchmarkProjectManifest } from "./benchmarkProjectManifest.js";
 import { writeBenchmarkReport } from "./benchmarkReporter.js";
 import {
   evaluateValidationGate,
+  migrateValidationPackLock,
   summarizeValidationCoverage,
   unverifiedValidationIntegrity,
   verifyValidationPackLock,
@@ -36,6 +37,7 @@ interface RunnerOptions {
   manifestPath?: string;
   validationLockPath?: string;
   writeValidationLockPath?: string;
+  migrateValidationLock: boolean;
   gate: ValidationGateProfile | null;
 }
 
@@ -89,6 +91,7 @@ function parseArgs(argv: string[]): RunnerOptions {
   const validationLockPath = readValue("--validation-lock");
   const writeValidationLockPath = readValue("--write-validation-lock");
   const externalOnly = argv.includes("--external-only");
+  const migrateValidationLock = argv.includes("--migrate-validation-lock");
   if (validationLockPath && writeValidationLockPath) throw new Error("Use either --validation-lock or --write-validation-lock, not both.");
   if ((validationLockPath || writeValidationLockPath || gateValue) && splitValue !== "validation") {
     throw new Error("Validation lock and gate options require --split validation.");
@@ -97,6 +100,7 @@ function parseArgs(argv: string[]): RunnerOptions {
     throw new Error("Sealed validation operations require --external-only so built-in tuning cases are excluded.");
   }
   if (gateValue && !validationLockPath) throw new Error("--gate requires --validation-lock.");
+  if (migrateValidationLock && !validationLockPath) throw new Error("--migrate-validation-lock requires --validation-lock.");
   return {
     split: splitValue as RunnerOptions["split"],
     family: readValue("--family") ?? null,
@@ -106,6 +110,7 @@ function parseArgs(argv: string[]): RunnerOptions {
     manifestPath: readValue("--manifest"),
     validationLockPath,
     writeValidationLockPath,
+    migrateValidationLock,
     gate: (gateValue as ValidationGateProfile | undefined) ?? null,
   };
 }
@@ -204,6 +209,10 @@ export async function runSelectorBenchmark(argv = process.argv.slice(2)) {
       await writeValidationPackLock(options.writeValidationLockPath, filteredCases, inventories);
       integrity = await verifyValidationPackLock(options.writeValidationLockPath, filteredCases, inventories);
     } else if (options.validationLockPath) {
+      if (options.migrateValidationLock) {
+        const migration = await migrateValidationPackLock(options.validationLockPath, filteredCases, inventories);
+        console.log(`validation lock migration: ${migration.migrated ? "migrated to stable content fingerprints" : "already current"}`);
+      }
       integrity = await verifyValidationPackLock(options.validationLockPath, filteredCases, inventories);
     }
     const coverage = summarizeValidationCoverage(filteredCases);
@@ -218,7 +227,7 @@ export async function runSelectorBenchmark(argv = process.argv.slice(2)) {
   for (const item of filteredCases) splitCounts[item.split] += 1;
   const report: SelectorBenchmarkReport = {
     timestamp: new Date().toISOString(),
-    selectorVersion: "v0.6.2.6-closed-validation-foundation",
+    selectorVersion: "v0.6.3.2-retrieval-coverage",
     mode: options.live ? "mixed" : "deterministic",
     model: options.live ? settings.defaultOllamaModel : null,
     legacyMode: options.live ? "live" : "deterministic",

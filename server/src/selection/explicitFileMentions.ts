@@ -58,6 +58,16 @@ function looksLikeFilePath(value: string) {
 function extractStrictPathMentions(rawTask: string) {
   const mentions: string[] = [];
 
+  // Prefer a conservative no-whitespace path matcher first. It handles route
+  // groups such as app/(site)/admin/page.tsx without swallowing surrounding prose.
+  const compactSlashPathRegex = new RegExp(
+    `(?:^|[\\s(\\[{'"\`])((?:[A-Za-z]:)?(?:[A-Za-z0-9_.@()\\[\\]{}+~$!#%&=,'\`^-]+[\\\\/])+[A-Za-z0-9_.@()\\[\\]{}+~$!#%&=,'\`^-]+\\.(?:${FILE_EXTENSION_PATTERN}))(?=$|[\\s)\\]}'"\`,;:!?])`,
+    "gi"
+  );
+  for (const match of rawTask.matchAll(compactSlashPathRegex)) {
+    if (match[1]) mentions.push(match[1]);
+  }
+
   // Explicit slash/backslash paths, including Windows absolute paths.
   const slashPathRegex = new RegExp(
     `(?:^|[\\s(\\[{'\"\`])((?:[A-Za-z]:)?[${PATH_CHARS}]+(?:[\\\\/][${PATH_CHARS}]+)+\\.(?:${FILE_EXTENSION_PATTERN}))(?=$|[\\s)\\]}'\"\`,;:!?])`,
@@ -147,6 +157,13 @@ function findBestInventoryMatch(inventory: ProjectInventory, rawMention: string)
   const relativeSuffix = files.find((file) => normalizeForCompare(file.path).endsWith(`/${comparable}`));
   if (relativeSuffix) {
     return { raw: rawMention, normalized, matchedPath: relativeSuffix.path, matchKind: "relative-suffix" };
+  }
+
+  // A path-like mention is an explicit location contract. Falling back to any
+  // file with the same basename (for example another page.tsx) hides missing
+  // targets and can produce unsafe substitute edits.
+  if (normalized.includes("/")) {
+    return { raw: rawMention, normalized };
   }
 
   const mentionName = path.basename(normalized).toLowerCase();

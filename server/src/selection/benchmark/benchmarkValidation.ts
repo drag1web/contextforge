@@ -3,7 +3,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 
 import type { ProjectInventory } from "../../scanner/projectInventoryScanner.js";
-import { fingerprintProjectInventory } from "./benchmarkFingerprint.js";
+import {
+  fingerprintProjectInventory,
+  PROJECT_FINGERPRINT_ALGORITHM,
+} from "./benchmarkFingerprint.js";
 import type {
   BenchmarkLanguage,
   BenchmarkMetrics,
@@ -16,7 +19,7 @@ import type {
   ValidationPackLock,
 } from "./benchmarkTypes.js";
 
-const LOCK_SCHEMA_VERSION = 2 as const;
+const LOCK_SCHEMA_VERSION = 3 as const;
 
 const GATE_THRESHOLDS = {
   standard: {
@@ -199,6 +202,7 @@ export async function createValidationPackLock(
   return {
     schemaVersion: LOCK_SCHEMA_VERSION,
     createdAt: new Date().toISOString(),
+    fingerprintAlgorithm: PROJECT_FINGERPRINT_ALGORITHM,
     digest: hashValidationCases(cases),
     caseCount: coverage.caseCount,
     familyCount: coverage.familyCount,
@@ -222,13 +226,48 @@ export async function writeValidationPackLock(
 export async function readValidationPackLock(lockPath: string): Promise<ValidationPackLock> {
   const absolutePath = path.resolve(lockPath);
   const parsed = JSON.parse(await fs.readFile(absolutePath, "utf8")) as ValidationPackLock;
-  if (parsed.schemaVersion !== LOCK_SCHEMA_VERSION) {
+  if (parsed.schemaVersion !== 2 && parsed.schemaVersion !== LOCK_SCHEMA_VERSION) {
     throw new Error(`Unsupported validation lock schema: ${String(parsed.schemaVersion)}`);
   }
   if (!parsed.digest || !Number.isInteger(parsed.caseCount) || !Number.isInteger(parsed.familyCount) || !parsed.projectFingerprints) {
     throw new Error("Validation lock is missing required fields.");
   }
   return parsed;
+}
+
+export async function migrateValidationPackLock(
+  lockPath: string,
+  cases: SelectorBenchmarkCase[],
+  inventories: Record<string, ProjectInventory>,
+) {
+  const absolutePath = path.resolve(lockPath);
+  const existing = await readValidationPackLock(absolutePath);
+  const coverage = summarizeValidationCoverage(cases);
+  const actualDigest = hashValidationCases(cases);
+  const caseIdentityMatches =
+    existing.digest === actualDigest &&
+    existing.caseCount === coverage.caseCount &&
+    existing.familyCount === coverage.familyCount &&
+    JSON.stringify([...existing.projectFixtures].sort()) === JSON.stringify(coverage.projectFixtures);
+  if (!caseIdentityMatches) {
+    throw new Error("Validation lock migration refused because the sealed case set does not match the current validation cases.");
+  }
+  if (existing.schemaVersion === LOCK_SCHEMA_VERSION && existing.fingerprintAlgorithm === PROJECT_FINGERPRINT_ALGORITHM) {
+    return { lock: existing, absolutePath, migrated: false };
+  }
+  const migrated: ValidationPackLock = {
+    ...existing,
+    schemaVersion: LOCK_SCHEMA_VERSION,
+    fingerprintAlgorithm: PROJECT_FINGERPRINT_ALGORITHM,
+    projectFingerprints: await fingerprintValidationProjects(cases, inventories),
+    migratedFromSchemaVersion: 2,
+    migratedAt: new Date().toISOString(),
+  };
+  const temporaryPath = `${absolutePath}.tmp`;
+  await fs.writeFile(temporaryPath, `${JSON.stringify(migrated, null, 2)}
+`, "utf8");
+  await fs.rename(temporaryPath, absolutePath);
+  return { lock: migrated, absolutePath, migrated: true };
 }
 
 export async function verifyValidationPackLock(

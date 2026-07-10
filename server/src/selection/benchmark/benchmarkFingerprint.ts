@@ -20,6 +20,8 @@ export interface PublicInventoryFileMetadata {
   isLikelyGenerated: boolean;
 }
 
+export const PROJECT_FINGERPRINT_ALGORITHM = "path-content-v1" as const;
+
 function sanitizeSpecifier(value: string) {
   return path.isAbsolute(value) || /^[a-zA-Z]:[\\/]/.test(value) ? "<absolute-path-redacted>" : value;
 }
@@ -56,29 +58,33 @@ function safeInventoryFilePath(inventory: ProjectInventory, relativePath: string
   return absolute;
 }
 
+/**
+ * Fingerprints project source state without depending on scanner-derived roles,
+ * symbols, imports, routes, or other metadata that can legitimately change when
+ * the scanner implementation improves.
+ */
 export async function fingerprintProjectInventory(inventory: ProjectInventory) {
   const hash = createHash("sha256");
-  const metadata = publicInventoryFiles(inventory);
-  hash.update(JSON.stringify({
-    totalFiles: inventory.totalFiles,
-    scannedFiles: inventory.scannedFiles,
-    truncated: inventory.truncated,
-    files: metadata,
-  }));
+  hash.update(PROJECT_FINGERPRINT_ALGORITHM);
+  const files = [...inventory.files]
+    .map((file) => ({ path: file.path.replace(/\\/g, "/"), file }))
+    .sort((left, right) => left.path.localeCompare(right.path));
 
-  for (const file of metadata) {
-    hash.update("\0");
-    hash.update(file.path);
-    const absolutePath = safeInventoryFilePath(inventory, file.path);
+  for (const entry of files) {
+    hash.update("\0path\0");
+    hash.update(entry.path);
+    const absolutePath = safeInventoryFilePath(inventory, entry.file.path);
     if (!absolutePath) {
-      hash.update("<unsafe-path>");
+      hash.update("\0<unsafe-path>");
       continue;
     }
     try {
       const data = await fs.readFile(absolutePath);
+      hash.update("\0content\0");
       hash.update(createHash("sha256").update(data).digest());
     } catch {
-      hash.update("<unreadable>");
+      hash.update("\0<unreadable>");
+      hash.update(String(entry.file.sizeBytes));
     }
   }
   return hash.digest("hex");
