@@ -1,5 +1,17 @@
 # Selector Benchmark
 
+## v0.6.4 internal rollout status
+
+The validated Shadow pipeline is now connected to real Context Composer and Task Pack generation behind an explicit local setting:
+
+- `legacy` — current production selector only; default for existing users.
+- `shadow_compare` — Legacy creates the Task Pack while Shadow runs against the same inventory snapshot and records local comparison diagnostics.
+- `shadow_primary` — Shadow creates the Task Pack; only technical execution or validation failures trigger a visible Legacy fallback.
+
+Safety blocks, missing explicit targets, manual review, and legitimate abstention do not trigger Legacy fallback. Diagnostics are local-only, bounded to 50 records, and exclude source content, snippets, raw prompts, secrets, `.env` values, and absolute paths. Switching Settings back to Legacy is the immediate rollback path.
+
+This rollout does not change benchmark expectations, validation cases, validation locks, or gate thresholds. TS/JS remains the current deep-support boundary; polyglot support is deferred.
+
 The selector benchmark is the measurement foundation for a future retrieval-first ContextForge pipeline. It does not replace production Task Pack selection in v0.6.2.0.
 
 ## Pipelines

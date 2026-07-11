@@ -39,7 +39,8 @@ export type SelectorSelectionSource =
   | "retry-ai"
   | "fallback"
   | "blocked"
-  | "manual-review";
+  | "manual-review"
+  | "shadow-deterministic";
 export type SelectorParseStage =
   | "not-run"
   | "direct-json"
@@ -52,7 +53,7 @@ export type SelectorParseStage =
 export interface TaskFileSelection {
   selectedFiles: SelectedTaskFile[];
   rejectedModelPaths: string[];
-  source: "ollama" | "fallback";
+  source: "ollama" | "fallback" | "shadow";
   usedFallback: boolean;
   durationMs: number;
   notes: string[];

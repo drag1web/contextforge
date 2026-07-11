@@ -45,6 +45,7 @@ const testSettings: AppSettings = {
     tests: 7,
   },
   contextQualityMode: "balanced",
+  selectorPipelineMode: "legacy",
   sidebarShowDescriptions: false,
   onboardingEnabled: true,
   onboardingShowEveryLaunch: true,

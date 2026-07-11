@@ -22,6 +22,7 @@ import {
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
+  Trash2,
   WandSparkles,
   XCircle,
   type LucideIcon
@@ -29,19 +30,26 @@ import {
 
 import {
   exportWorkspaceBackup,
+  clearSelectorDiagnosticsHistory,
   getAppSettings,
+  getSelectorDiagnosticsHistory,
   getStorageAudit,
   getOllamaModels,
   getOllamaStatus,
   updateAppSettings
 } from "../api/client";
 
-import type { AppSettings, OllamaModel, OllamaStatus, StorageAuditResult, WorkspaceBackupExportResult } from "../types";
+import type { AppSettings, OllamaModel, OllamaStatus, SelectorPipelineDiagnostics, StorageAuditResult, WorkspaceBackupExportResult } from "../types";
 import { CustomSelect } from "../components/ui/CustomSelect";
+import { Button } from "../components/ui/Button";
 import { SlidingSelectionIndicator } from "../components/ui/SlidingSelectionIndicator";
 import { appMeta } from "../config/appMeta";
 import { keyboardShortcuts } from "../config/keyboardShortcuts";
 import { TARGET_TOOL_OPTIONS } from "../components/ai/aiToolOptions";
+import {
+  getSelectorModeCopy,
+  SELECTOR_PIPELINE_MODES,
+} from "../components/selector/selectorPipelinePresentation";
 import {
   applyAppLanguage,
   resolveAppLanguage,
@@ -338,6 +346,7 @@ function withSettingsDefaults(settings: AppSettings): AppSettings {
     onboardingEnabled: settings.onboardingEnabled ?? true,
     onboardingShowEveryLaunch: settings.onboardingShowEveryLaunch ?? true,
     contextQualityMode: settings.contextQualityMode ?? "balanced",
+    selectorPipelineMode: settings.selectorPipelineMode ?? "legacy",
     composerFileLimits: {
       ...DEFAULT_COMPOSER_FILE_LIMITS,
       ...(settings.composerFileLimits ?? {})
@@ -1475,6 +1484,7 @@ export function SettingsPage() {
   const [storageAudit, setStorageAudit] = useState<StorageAuditResult | null>(null);
   const [isStorageAuditLoading, setIsStorageAuditLoading] = useState(false);
   const [models, setModels] = useState<OllamaModel[]>([]);
+  const [selectorDiagnosticsHistory, setSelectorDiagnosticsHistory] = useState<SelectorPipelineDiagnostics[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<"refresh" | "save" | null>(null);
 
@@ -1547,10 +1557,14 @@ export function SettingsPage() {
       setIsLoading(true);
       setActiveAction("refresh");
 
-      const [appSettings, status, modelList] = await Promise.all([
+      const [appSettings, status, modelList, diagnosticsHistory] = await Promise.all([
         getAppSettings(),
         getOllamaStatus(),
-        getOllamaModels()
+        getOllamaModels(),
+        getSelectorDiagnosticsHistory().catch((error) => {
+          console.warn("Failed to load optional selector diagnostics history", error);
+          return [];
+        })
       ]);
 
       const normalizedSettings = withSettingsDefaults(appSettings);
@@ -1560,6 +1574,7 @@ export function SettingsPage() {
       void applyAppLanguage(normalizedSettings.language ?? "system");
       setOllamaStatus(status);
       setModels(modelList);
+      setSelectorDiagnosticsHistory(diagnosticsHistory);
 
     } catch (error) {
       console.error("Failed to refresh settings", error);
@@ -1617,6 +1632,15 @@ export function SettingsPage() {
     } finally {
       setIsLoading(false);
       setActiveAction(null);
+    }
+  }
+
+  async function handleClearSelectorDiagnostics() {
+    try {
+      await clearSelectorDiagnosticsHistory();
+      setSelectorDiagnosticsHistory([]);
+    } catch (error) {
+      console.error("Failed to clear selector diagnostics", error);
     }
   }
 
@@ -2046,6 +2070,79 @@ export function SettingsPage() {
                     description={t("settings.composerDescription")}
                   />
 
+
+                  <SettingCard
+                    icon={<Layers3 size={18} />}
+                    label={t("settings.selectorExperimentalLabel")}
+                    title={t("settings.selectorRolloutTitle")}
+                    description={t("settings.selectorRolloutDescription")}
+                  >
+                    <div className="grid gap-3 md:grid-cols-3">
+                      {SELECTOR_PIPELINE_MODES.map((value) => {
+                        const option = getSelectorModeCopy(value, t);
+                        const isActive = (settingsDraft?.selectorPipelineMode ?? "legacy") === value;
+                        return (
+                          <button
+                            key={value}
+                            type="button"
+                            onClick={() => updateSettingsDraft({ selectorPipelineMode: value })}
+                            className={[
+                              "group rounded-2xl border p-4 text-left transition duration-200",
+                              isActive
+                                ? "border-white bg-white text-black"
+                                : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white hover:bg-white hover:text-black"
+                            ].join(" ")}
+                          >
+                            <div className="mb-3 flex items-center justify-between gap-3">
+                              <span className={[
+                                "grid size-9 place-items-center rounded-xl border transition",
+                                isActive
+                                  ? "border-black/10 bg-black/5 text-black"
+                                  : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black"
+                              ].join(" ")}>
+                                <Layers3 size={15} />
+                              </span>
+                              {isActive && <CheckCircle2 size={16} className="text-black" />}
+                            </div>
+                            <p className={["text-sm font-semibold", isActive ? "text-black" : "text-white group-hover:text-black"].join(" ")}>{option.label}</p>
+                            <p className={["mt-1 text-xs leading-5", isActive ? "text-black/55" : "text-neutral-600 group-hover:text-black/55"].join(" ")}>{option.description}</p>
+                          </button>
+                        );
+                      })}
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-neutral-900 bg-black/35 p-4">
+                      <div>
+                        <p className="text-sm font-medium text-white">{t("settings.selectorHistoryTitle")}</p>
+                        <p className="mt-1 text-xs text-neutral-600">
+                          {t("settings.selectorHistoryDescription", { count: selectorDiagnosticsHistory.length })}
+                        </p>
+                      </div>
+                      <Button
+                        variant="secondary"
+                        disabled={selectorDiagnosticsHistory.length === 0}
+                        onClick={handleClearSelectorDiagnostics}
+                      >
+                        <Trash2 size={15} />
+                        {t("settings.selectorClearHistory")}
+                      </Button>
+                    </div>
+                    {selectorDiagnosticsHistory.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {selectorDiagnosticsHistory.slice(0, 3).map((record) => (
+                          <div key={record.id} className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-neutral-900 px-3 py-2">
+                            <div className="min-w-0">
+                              <p className="truncate text-xs font-medium text-neutral-300">
+                                {getSelectorModeCopy(record.requestedMode, t).label} · {record.effectivePipeline}
+                              </p>
+                              <p className="mt-0.5 text-[10px] text-neutral-700">{new Date(record.timestamp).toLocaleString()}</p>
+                            </div>
+                            <span className="cf-badge shrink-0">{record.status}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </SettingCard>
 
                   <SettingCard
                     icon={<ShieldCheck size={18} />}

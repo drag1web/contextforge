@@ -8,7 +8,6 @@ import {
   type TaskIntentAnalysis
 } from "../ollama/taskIntentAnalyzer.js";
 import {
-  selectTaskFiles,
   type SelectedTaskFileUsage,
   type TaskFileSelection
 } from "../ollama/taskFileSelector.js";
@@ -23,6 +22,11 @@ import {
   type ContextSelectionQuality
 } from "../selection/contextQuality.js";
 import { isSecretLikePath } from "../selection/safetyPolicy.js";
+import {
+  finalizeSelectorDiagnostics,
+  runSelectorPipeline,
+  type SelectorPipelineDiagnostics,
+} from "../selection/selectorPipelineOrchestrator.js";
 
 interface ProjectReadinessReport {
   issues: string[];
@@ -85,6 +89,7 @@ export interface ContextComposerPreview {
     notes: string[];
   };
   notes: string[];
+  selectorDiagnostics?: SelectorPipelineDiagnostics;
 }
 
 export interface ContextComposerFileSearchResult extends ComposerFileReference {
@@ -416,13 +421,16 @@ export async function buildContextComposerPreview(input: {
     projectTree: inventory.files.map((file) => file.path)
   });
 
-  const fileSelection = await selectTaskFiles({
+  const pipeline = await runSelectorPipeline({
     rawTask: input.rawTask,
     taskType: input.taskType,
     targetTool: input.targetTool,
     inventory,
-    taskIntent
+    taskIntent,
+    settings,
+    projectRef: String(project.id),
   });
+  const fileSelection = pipeline.selection;
 
   const selectedFiles = buildFileReferences({
     inventory,
@@ -457,6 +465,11 @@ export async function buildContextComposerPreview(input: {
       finalConfidence: selectionConfidence
     } as TaskFileSelection["diagnostics"]
   };
+  const selectorDiagnostics = finalizeSelectorDiagnostics(
+    pipeline.diagnostics,
+    selectionQuality,
+    fileSelectionForPreview,
+  );
 
   const suggestedFileGroups = buildSuggestedFileGroups({
     inventory,
@@ -517,7 +530,8 @@ export async function buildContextComposerPreview(input: {
       suggestedFileGroups,
       clarifyingQuestions,
       snippets
-    })
+    }),
+    selectorDiagnostics,
   };
 }
 

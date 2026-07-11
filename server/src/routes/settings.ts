@@ -2,6 +2,8 @@ import { Router } from "express";
 import { z } from "zod";
 import {
   getAppSettings,
+  getSelectorDiagnosticsHistory,
+  clearSelectorDiagnosticsHistory,
   updateAppSettings,
 } from "../settings/settingsService.js";
 
@@ -61,10 +63,36 @@ const updateSettingsSchema = z.object({
   theme: z.enum(["system", "dark", "light"]).optional(),
   composerFileLimits: composerFileLimitsSchema.optional(),
   contextQualityMode: z.enum(["advisory", "balanced", "strict"]).optional(),
+  selectorPipelineMode: z.enum(["legacy", "shadow_compare", "shadow_primary"]).optional(),
   sidebarShowDescriptions: z.boolean().optional(),
   onboardingEnabled: z.boolean().optional(),
   onboardingShowEveryLaunch: z.boolean().optional(),
   onboardingCompleted: z.boolean().optional(),
+});
+
+settingsRouter.get("/selector-diagnostics", async (_req, res) => {
+  try {
+    res.json({ ok: true, history: await getSelectorDiagnosticsHistory() });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      message: "Failed to load selector diagnostics",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+settingsRouter.delete("/selector-diagnostics", async (_req, res) => {
+  try {
+    await clearSelectorDiagnosticsHistory();
+    res.json({ ok: true });
+  } catch (error) {
+    res.status(500).json({
+      ok: false,
+      message: "Failed to clear selector diagnostics",
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
 });
 
 settingsRouter.get("/", async (_req, res) => {

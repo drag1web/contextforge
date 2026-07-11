@@ -29,6 +29,10 @@ import { createGitHubIssueFromTaskPack } from "../api/client";
 import { TaskPackExportActions } from "../components/taskPacks/TaskPackExportActions";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
+import {
+  getSelectorPipelineLabel,
+  SelectorDiagnosticsModal,
+} from "../components/selector/SelectorDiagnosticsModal";
 
 interface TaskPackResultPageProps {
   taskPack: TaskPack;
@@ -860,6 +864,7 @@ export function TaskPackResultPage({
   const [isCopied, setIsCopied] = useState(false);
   const [currentTaskPack, setCurrentTaskPack] = useState(taskPack);
   const [isCreateIssueOpen, setIsCreateIssueOpen] = useState(false);
+  const [isSelectorDiagnosticsOpen, setIsSelectorDiagnosticsOpen] = useState(false);
 
   useEffect(() => {
     setCurrentTaskPack(taskPack);
@@ -876,6 +881,7 @@ export function TaskPackResultPage({
   );
   const sourceIssue = currentTaskPack.generationRecipe?.githubIssue;
   const createdIssue = currentTaskPack.generationRecipe?.githubCreatedIssue;
+  const selectorDiagnostics = currentTaskPack.generationRecipe?.selectorDiagnostics;
 
   function handleTaskPackUpdated(nextTaskPack: TaskPack) {
     setCurrentTaskPack(nextTaskPack);
@@ -912,6 +918,10 @@ export function TaskPackResultPage({
 
               {currentTaskPack.generationRecipe && (
                 <Pill tone="success">v0.5 recipe</Pill>
+              )}
+
+              {selectorDiagnostics && (
+                <Pill>{getSelectorPipelineLabel(selectorDiagnostics, t)}</Pill>
               )}
 
               {currentTaskPack.generationRecipe?.githubIssue && (
@@ -983,6 +993,13 @@ export function TaskPackResultPage({
             )}
 
             <TaskPackExportActions taskPack={currentTaskPack} compact />
+
+            {selectorDiagnostics && (
+              <Button variant="secondary" onClick={() => setIsSelectorDiagnosticsOpen(true)}>
+                <ShieldCheck size={15} />
+                {t("taskPackResult.selectorDiagnostics")}
+              </Button>
+            )}
 
             <Button variant="primary" onClick={handleCopyPrompt}>
               {isCopied ? <Check size={15} /> : <Copy size={15} />}
@@ -1072,6 +1089,13 @@ export function TaskPackResultPage({
           taskPack={currentTaskPack}
           onClose={() => setIsCreateIssueOpen(false)}
           onCreated={handleTaskPackUpdated}
+        />
+      )}
+
+      {isSelectorDiagnosticsOpen && selectorDiagnostics && (
+        <SelectorDiagnosticsModal
+          diagnostics={selectorDiagnostics}
+          onClose={() => setIsSelectorDiagnosticsOpen(false)}
         />
       )}
     </section>

@@ -1,5 +1,31 @@
 # ContextForge Core Quality & Safety Backlog
 
+## v0.6.4-alpha — Shadow Internal Rollout & Real Task Pack Integration
+
+Completed in this phase:
+
+- Connected the validated deterministic Shadow retrieval/ranking/assembly pipeline to real Context Composer previews and Task Pack generation through a separate typed orchestrator.
+- Added `legacy`, `shadow_compare`, and `shadow_primary` modes with Legacy as the persisted default.
+- Kept Compare output on Legacy while collecting local Shadow comparison diagnostics from the same inventory snapshot.
+- Added Shadow-first production context in Shadow mode and limited Legacy fallback to technical execution/contract failures.
+- Preserved Shadow hard safety blocks, missing explicit targets, manual review, and legitimate abstention without fallback bypass.
+- Added backend path/candidate/role validation, deduplication, edit-role caps, file limits, and relative-path checks before downstream composition.
+- Added privacy-safe diagnostics, bounded 50-run history, Settings controls, Task Pack badges, and a compact diagnostics modal.
+- Added rollout smoke coverage for backend orchestration, persistence defaults/history privacy, backward compatibility, and renderer badge states.
+
+Rollback:
+
+- Existing users remain on `legacy`.
+- Internal testers can select Compare or Shadow in Settings → Composer → Experimental AI Core.
+- Returning the setting to Legacy immediately restores the previous selector path; Legacy was not removed.
+
+Remaining risk:
+
+- Compare and Shadow remain internal/experimental until more live Task Pack runs are reviewed.
+- Deep retrieval/graph support is currently focused on TS/JS; Python, C, C++, and other polyglot adapters are future work.
+- The semantic graph remains a lightweight heuristic rather than a TypeScript compiler graph.
+- Live Ollama intent behavior and large-project latency still need broader manual testing.
+
 This backlog captures the next engineering focus after the v0.6.0 GitHub issue loop baseline.
 
 Source: `contextforge_project_tests_filled_report.docx` manual matrix covering 21 Task Pack test runs across `contextforge-website`, `metall-perm`, `roi-calculator` and `license-monitor`.

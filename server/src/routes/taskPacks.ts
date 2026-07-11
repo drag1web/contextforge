@@ -4,7 +4,10 @@ import { Router } from "express";
 import { z } from "zod";
 
 import { storage } from "../storage/index.js";
-import { getAppSettings } from "../settings/settingsService.js";
+import {
+  appendSelectorDiagnostics,
+  getAppSettings,
+} from "../settings/settingsService.js";
 import {
   buildTaskPackRulesTemplatePrompt,
   RulesServiceError,
@@ -15,7 +18,6 @@ import {
   type TaskIntentAnalysis,
 } from "../ollama/taskIntentAnalyzer.js";
 import {
-  selectTaskFiles,
   type TaskFileSelection,
   type SelectedTaskFileUsage,
 } from "../ollama/taskFileSelector.js";
@@ -36,6 +38,11 @@ import type {
   GitHubIssueTaskPackSource,
 } from "../github/githubTypes.js";
 import { createGitHubIssueForProject } from "../github/githubIssuesService.js";
+import {
+  finalizeSelectorDiagnostics,
+  runSelectorPipeline,
+  type SelectorPipelineDiagnostics,
+} from "../selection/selectorPipelineOrchestrator.js";
 
 export const taskPacksRouter = Router();
 
@@ -163,6 +170,7 @@ interface TaskPackGenerationRecipe {
   };
   githubIssue?: GitHubIssueTaskPackSource;
   githubCreatedIssue?: GitHubCreatedIssueLink;
+  selectorDiagnostics?: SelectorPipelineDiagnostics;
 }
 
 const MAX_SNIPPET_FILES = 5;
@@ -1591,13 +1599,16 @@ taskPacksRouter.post("/", async (req, res) => {
       projectTree: inventory.files.map((file) => file.path),
     });
 
-    const automaticFileSelection = await selectTaskFiles({
+    const selectorPipeline = await runSelectorPipeline({
       rawTask: parsed.data.rawTask,
       taskType: parsed.data.taskType,
       targetTool: parsed.data.targetTool,
       inventory,
       taskIntent,
+      settings,
+      projectRef: String(project.id),
     });
+    const automaticFileSelection = selectorPipeline.selection;
 
     const manualSelectionRequested = Array.isArray(
       parsed.data.selectedFilePaths,
@@ -1632,6 +1643,12 @@ taskPacksRouter.post("/", async (req, res) => {
       manualSelectionConfirmed: manualSelectionRequested,
       contextQualityMode: settings.contextQualityMode,
     });
+    const selectorDiagnostics = finalizeSelectorDiagnostics(
+      selectorPipeline.diagnostics,
+      selectionQuality,
+      fileSelection,
+      { manualSelectionApplied: manualSelectionRequested },
+    );
 
     const shouldBlockAutomaticGeneration =
       settings.contextQualityMode !== "advisory" &&
@@ -1645,6 +1662,7 @@ taskPacksRouter.post("/", async (req, res) => {
         message:
           "ContextForge could not select safe/relevant files automatically. Review files in Context Composer and generate from the confirmed selection.",
         selectionQuality,
+        selectorDiagnostics,
       });
       return;
     }
@@ -1687,10 +1705,13 @@ taskPacksRouter.post("/", async (req, res) => {
     });
 
     const templatePrompt = taskPackTemplate.prompt;
-    const generationRecipe = buildGenerationRecipeMetadata(
+    const generationRecipe = {
+      ...buildGenerationRecipeMetadata(
       taskPackTemplate.recipe,
       parsed.data.githubIssueSource,
-    );
+      ),
+      selectorDiagnostics,
+    };
 
     const contextAwareTemplatePrompt = buildContextAwareTemplatePrompt(
       templatePrompt,
@@ -1737,6 +1758,12 @@ taskPacksRouter.post("/", async (req, res) => {
       generationDurationMs: generation.durationMs,
       generationRecipe,
     });
+
+    try {
+      await appendSelectorDiagnostics(selectorDiagnostics);
+    } catch (error) {
+      console.warn("Failed to persist selector diagnostics history:", error);
+    }
 
     res.json({
       ok: true,

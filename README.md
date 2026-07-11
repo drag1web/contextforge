@@ -4,8 +4,8 @@
 
 It scans local repositories, detects stack and scripts, builds project context, generates `AGENTS.md`, and creates structured Task Packs for tools like **Codex**, **Cursor**, **Claude Code**, and other AI coding assistants.
 
-Current version: **v0.6.0-alpha**  
-Current app phase: **Phase 0.6.0 — GitHub Issue Loop & Release Baseline**
+Current version: **v0.6.4-alpha**
+Current app phase: **Phase 0.6.4 — Shadow Internal Rollout & Real Task Pack Integration**
 
 This release closes the optional GitHub issue loop while preserving local-first desktop behavior: browser pairing, repository linking, Issue → Task Pack and Task Pack → GitHub Issue are available without uploading project source files.
 
@@ -19,6 +19,8 @@ This release closes the optional GitHub issue loop while preserving local-first 
 - Generates an `AGENTS.md` draft for the selected project.
 - Saves `AGENTS.md` into the project root.
 - Creates AI Task Packs from a raw user task.
+- Supports opt-in Legacy, Compare, and Shadow selector modes for internal Task Pack rollout.
+- Shows privacy-safe local selector diagnostics and a bounded 50-run history without source content or absolute paths.
 - Scores Task Pack quality with checks for clarity, scope, rules, acceptance criteria, verification and safety.
 - Shows Context Review Lite with selected files, reasons, snippets, warnings and review signals.
 - Shows context load/budget hints with compact, standard and detailed target modes.
@@ -118,7 +120,7 @@ STORAGE_DRIVER=sqlite
 SQLITE_DB_PATH=./data/contextforge.sqlite
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.6.0-alpha
+APP_VERSION=0.6.4-alpha
 
 # Optional GitHub integration. ContextForge works without this.
 GITHUB_OAUTH_CLIENT_ID=
@@ -134,7 +136,7 @@ STORAGE_DRIVER=postgres
 DATABASE_URL=postgresql://contextforge:contextforge@127.0.0.1:5433/contextforge
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.6.0-alpha
+APP_VERSION=0.6.4-alpha
 ```
 
 ---
@@ -203,7 +205,7 @@ Expected `/api/health` version:
 {
   "ok": true,
   "service": "contextforge-server",
-  "version": "0.6.0-alpha"
+  "version": "0.6.4-alpha"
 }
 ```
 

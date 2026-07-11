@@ -434,6 +434,7 @@ const resources = {
         generated: "Generated Task Pack",
         back: "Back",
         openArchive: "Open archive",
+        selectorDiagnostics: "Selector diagnostics",
         copyPrompt: "Copy prompt",
         copied: "Copied",
         target: "Target",
@@ -449,6 +450,73 @@ const resources = {
         ollamaDescription: "The final Task Pack body was refined by Ollama and validated by ContextForge.",
         fallbackDescriptionWithMessage: "{{message}} Intent analysis and file selection may still use Ollama; the final markdown body was kept stable by ContextForge.",
         fallbackDescription: "The final markdown body was rendered with ContextForge's safe template. Intent analysis and file selection may still use Ollama."
+      },
+      selectorDiagnostics: {
+        title: "Selector diagnostics",
+        eyebrow: "Local rollout data",
+        copied: "Copied",
+        copyJson: "Copy diagnostics JSON",
+        requestedActual: "Requested {{requested}}; the actual Task Pack used {{actual}}.",
+        requestedSuggested: "Requested {{requested}}; {{suggested}} produced the initial suggestion before manual confirmation.",
+        manualOverrideNotice: "The final file list was confirmed manually; the pipeline badge describes the original suggestion.",
+        fallbackTitle: "Legacy fallback",
+        compareFailureTitle: "Shadow comparison failed",
+        notScored: "Not scored",
+        selectionState: "Selection state",
+        primary: "Primary",
+        safetyBlocked: "Safety blocked",
+        manualReview: "Manual review",
+        missingTarget: "Missing target",
+        timings: "Timings",
+        candidates: "Candidates",
+        notRun: "Not run",
+        legacyVsShadow: "Legacy vs Shadow",
+        legacyOnly: "Legacy only",
+        shadowOnly: "Shadow only",
+        selectedPaths: "Selected relative paths",
+        noFiles: "No files were selected.",
+        none: "None",
+        yes: "Yes",
+        no: "No",
+        agrees: "Agrees",
+        differs: "Differs",
+        states: {
+          success: "success",
+          fallback: "fallback",
+          blocked: "blocked",
+          manualReview: "manual review"
+        },
+        metrics: {
+          area: "Area",
+          confidence: "Confidence",
+          quality: "Quality",
+          elapsed: "Elapsed",
+          pathOverlap: "Path overlap",
+          editOverlap: "Edit overlap",
+          primary: "Primary",
+          safety: "Safety"
+        },
+        badges: {
+          legacy: "Legacy",
+          shadow: "Shadow",
+          legacyFallback: "Legacy fallback",
+          compareLegacyOutput: "Compare · Legacy output",
+          manualSelection: "Manual selection · {{suggested}} suggested"
+        },
+        modes: {
+          legacy: {
+            label: "Legacy",
+            description: "Stable current selector. Shadow is not used."
+          },
+          shadow_compare: {
+            label: "Compare",
+            description: "Legacy creates the Task Pack while Shadow produces local comparison diagnostics."
+          },
+          shadow_primary: {
+            label: "Shadow",
+            description: "The new deterministic selector creates the Task Pack; technical failures fall back to Legacy."
+          }
+        }
       },
       taskPackExport: {
         markdown: "Export .md",
@@ -480,6 +548,12 @@ const resources = {
         aiEngine: "AI Engine",
         generation: "Generation",
         composer: "Composer",
+        selectorExperimentalLabel: "Experimental AI Core",
+        selectorRolloutTitle: "Selector rollout mode",
+        selectorRolloutDescription: "Choose which context selector produces Task Packs. Compare and Shadow are intended for internal testing.",
+        selectorHistoryTitle: "Local diagnostics history",
+        selectorHistoryDescription: "{{count}} of 50 bounded records. No source content or absolute paths.",
+        selectorClearHistory: "Clear history",
         interface: "Interface",
         shortcuts: "Shortcuts",
         system: "System",
@@ -1014,6 +1088,7 @@ const resources = {
         generated: "Сгенерированный Task Pack",
         back: "Назад",
         openArchive: "Открыть архив",
+        selectorDiagnostics: "Диагностика выбора контекста",
         copyPrompt: "Копировать промпт",
         copied: "Скопировано",
         target: "Target",
@@ -1029,6 +1104,73 @@ const resources = {
         ollamaDescription: "Финальное body Task Pack было улучшено Ollama и валидировано ContextForge.",
         fallbackDescriptionWithMessage: "{{message}} Intent analysis и file selection всё ещё могут использовать Ollama; финальное markdown body было оставлено стабильным ContextForge.",
         fallbackDescription: "Финальное markdown body было создано через safe template ContextForge. Intent analysis и file selection всё ещё могут использовать Ollama."
+      },
+      selectorDiagnostics: {
+        title: "Диагностика выбора контекста",
+        eyebrow: "Локальные данные тестирования",
+        copied: "Скопировано",
+        copyJson: "Копировать diagnostics JSON",
+        requestedActual: "Запрошен режим {{requested}}; итоговый Task Pack использовал {{actual}}.",
+        requestedSuggested: "Запрошен режим {{requested}}; {{suggested}} сформировал исходную рекомендацию до ручного подтверждения.",
+        manualOverrideNotice: "Финальный список файлов подтверждён вручную; badge показывает исходную рекомендацию pipeline.",
+        fallbackTitle: "Откат на Legacy",
+        compareFailureTitle: "Сравнение Shadow не выполнено",
+        notScored: "Не оценено",
+        selectionState: "Состояние выбора",
+        primary: "Основная цель",
+        safetyBlocked: "Заблокировано безопасностью",
+        manualReview: "Ручная проверка",
+        missingTarget: "Цель не найдена",
+        timings: "Время выполнения",
+        candidates: "Кандидаты",
+        notRun: "Не запускался",
+        legacyVsShadow: "Legacy и Shadow",
+        legacyOnly: "Только Legacy",
+        shadowOnly: "Только Shadow",
+        selectedPaths: "Выбранные относительные пути",
+        noFiles: "Файлы не выбраны.",
+        none: "Нет",
+        yes: "Да",
+        no: "Нет",
+        agrees: "Совпадает",
+        differs: "Отличается",
+        states: {
+          success: "успешно",
+          fallback: "откат",
+          blocked: "заблокировано",
+          manualReview: "ручная проверка"
+        },
+        metrics: {
+          area: "Область",
+          confidence: "Уверенность",
+          quality: "Качество",
+          elapsed: "Общее время",
+          pathOverlap: "Совпадение путей",
+          editOverlap: "Совпадение edit-целей",
+          primary: "Основная цель",
+          safety: "Безопасность"
+        },
+        badges: {
+          legacy: "Legacy",
+          shadow: "Shadow",
+          legacyFallback: "Откат на Legacy",
+          compareLegacyOutput: "Сравнение · итог Legacy",
+          manualSelection: "Ручной выбор · рекомендация {{suggested}}"
+        },
+        modes: {
+          legacy: {
+            label: "Legacy",
+            description: "Стабильный текущий selector. Shadow не используется."
+          },
+          shadow_compare: {
+            label: "Сравнение",
+            description: "Task Pack создаёт Legacy, а Shadow параллельно формирует локальную диагностику сравнения."
+          },
+          shadow_primary: {
+            label: "Shadow",
+            description: "Новое детерминированное ядро создаёт Task Pack; при техническом сбое выполняется откат на Legacy."
+          }
+        }
       },
       taskPackExport: {
         markdown: "Экспорт .md",
@@ -1060,6 +1202,12 @@ const resources = {
         aiEngine: "AI Engine",
         generation: "Генерация",
         composer: "Composer",
+        selectorExperimentalLabel: "Экспериментальное AI-ядро",
+        selectorRolloutTitle: "Режим выбора контекста",
+        selectorRolloutDescription: "Выберите, какой selector формирует Task Pack. Режимы сравнения и Shadow предназначены для внутреннего тестирования.",
+        selectorHistoryTitle: "Локальная история диагностики",
+        selectorHistoryDescription: "{{count}} из 50 записей. Исходный код и абсолютные пути не сохраняются.",
+        selectorClearHistory: "Очистить историю",
         interface: "Интерфейс",
         shortcuts: "Горячие клавиши",
         system: "Система",

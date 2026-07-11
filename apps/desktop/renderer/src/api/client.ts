@@ -454,6 +454,17 @@ export async function getTaskPacks(): Promise<TaskPack[]> {
   return data.taskPacks;
 }
 
+export async function getSelectorDiagnosticsHistory() {
+  const data = await request<{ ok: true; history: import("../types").SelectorPipelineDiagnostics[] }>(
+    "/settings/selector-diagnostics",
+  );
+  return data.history;
+}
+
+export async function clearSelectorDiagnosticsHistory() {
+  await request<{ ok: true }>("/settings/selector-diagnostics", { method: "DELETE" });
+}
+
 export async function createTaskPack(input: {
   projectId: number;
   rawTask: string;

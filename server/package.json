@@ -1,6 +1,6 @@
 {
   "name": "@contextforge/server",
-  "version": "0.6.0-alpha",
+  "version": "0.6.4-alpha",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -10,6 +10,7 @@
     "test:selector": "tsx src/ollama/taskFileSelector.smoke.ts",
     "test:selector:replay": "tsx src/ollama/taskFileSelector.replay.ts",
     "test:selector:benchmark": "tsx src/selection/benchmark/benchmarkSmoke.ts",
+    "test:selector:rollout": "tsx src/selection/pipelineRollout.smoke.ts",
     "benchmark:selector": "tsx src/selection/benchmark/benchmarkRunner.ts",
     "benchmark:selector:validation": "tsx src/selection/benchmark/benchmarkRunner.ts --split validation --external-only",
     "benchmark:selector:snapshot": "tsx src/selection/benchmark/benchmarkSnapshot.ts",

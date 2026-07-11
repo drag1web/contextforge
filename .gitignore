@@ -3,6 +3,7 @@ dist
 dist-electron
 
 .env
+*.env.disabled
 *.log
 
 apps/desktop/renderer/dist
@@ -24,6 +25,8 @@ server/data/*.sqlite-*
 server/data/*.db
 server/data/*.db-*
 server/data/*.backup.sqlite
+data/backups/
+server/data/backups/
 
 # Generated selector benchmark reports and local real-project manifests
 reports/selector-benchmark*/
@@ -42,3 +45,5 @@ reports/selector-validation*/
 server/reports/selector-validation*/
 reports/selector-inventory-snapshot*.json
 server/reports/selector-inventory-snapshot*.json
+reports/selector-regression*/
+server/reports/selector-regression*/

@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.6.4-alpha — Shadow Internal Rollout & Real Task Pack Integration
+
+### Added
+
+- Added typed `legacy`, `shadow_compare`, and `shadow_primary` selector rollout modes.
+- Added a selector pipeline orchestrator that reuses one inventory snapshot, validates Shadow output, and preserves the existing Task Pack context contract.
+- Added visible technical fallback metadata without allowing Legacy to bypass Shadow safety, missing-target, manual-review, or legitimate abstention decisions.
+- Added privacy-safe local selector diagnostics with bounded 50-record history, comparison overlap, relative paths, roles, flags, and timings.
+- Added a compact experimental selector control in Settings and a Task Pack pipeline badge with a diagnostics modal.
+- Added backend and renderer rollout smoke tests.
+
+### Safety
+
+- Diagnostics never store source content, snippets, raw prompts, secrets, `.env` values, or absolute local paths.
+- Shadow remains opt-in; existing installations default to Legacy.
+- Shadow is currently deeply validated for TS/JS projects. Polyglot adapters remain a separate future phase.
+
+### Fixed after rollout audit
+
+- Hardened relative-path validation across Windows, Linux, and macOS path formats, including nested `..` traversal segments.
+- Bound each Shadow candidate ID to its real retrieved path instead of trusting an independently supplied path value.
+- Sanitized technical failure messages again before local persistence so absolute paths and secret-like values cannot leak through typed Shadow errors.
+- Separated technical fallback state from context-quality state so `Legacy fallback` remains visible alongside blocked/manual-review results.
+- Marked manual Composer overrides explicitly in diagnostics and Task Pack badges.
+- Made diagnostics history tolerant of malformed or older local records and prevented optional history failures from blocking Settings.
+- Localized the selector rollout controls, badges, history, and diagnostics modal for English and Russian.
+
+### Rollback
+
+- Select **Legacy** in Settings → Composer → Experimental AI Core to immediately return Task Pack generation to the previous selector.
+- In Shadow mode, only technical failures trigger a visible Legacy fallback.
+
 ## 0.6.0-alpha — GitHub Issue Loop & Release Baseline
 
 ### Added

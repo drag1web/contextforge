@@ -1,5 +1,26 @@
+import path from "node:path";
+
 import { config } from "../config/index.js";
 import { storage } from "../storage/index.js";
+import {
+  sanitizeSelectorDiagnosticMessage,
+  type SelectorPipelineDiagnostics,
+  type SelectorFallbackReasonCode,
+} from "../selection/selectorPipelineOrchestrator.js";
+
+export type SelectorPipelineMode = "legacy" | "shadow_compare" | "shadow_primary";
+
+function normalizeSelectorPipelineMode(value: unknown): SelectorPipelineMode {
+  return value === "shadow_compare" || value === "shadow_primary" ? value : "legacy";
+}
+
+export async function readSelectorPipelineMode(
+  read: <T>(key: string, fallback: T) => Promise<T> = getSettingValue,
+) {
+  return normalizeSelectorPipelineMode(
+    await read("selector_pipeline_mode", "legacy" as SelectorPipelineMode),
+  );
+}
 
 export interface AppSettings {
   ollamaUrl: string;
@@ -30,6 +51,7 @@ export interface AppSettings {
   theme: "system" | "dark" | "light";
   composerFileLimits: ComposerFileLimits;
   contextQualityMode: ContextQualityMode;
+  selectorPipelineMode: SelectorPipelineMode;
   sidebarShowDescriptions: boolean;
   onboardingEnabled: boolean;
   onboardingShowEveryLaunch: boolean;
@@ -89,6 +111,7 @@ const defaultSettings: AppSettings = {
     tests: 7,
   },
   contextQualityMode: "balanced",
+  selectorPipelineMode: "legacy",
   sidebarShowDescriptions: false,
   onboardingEnabled: true,
   onboardingShowEveryLaunch: true,
@@ -115,6 +138,7 @@ const settingKeyMap = {
   theme: "theme",
   composerFileLimits: "composer_file_limits",
   contextQualityMode: "context_quality_mode",
+  selectorPipelineMode: "selector_pipeline_mode",
   sidebarShowDescriptions: "sidebar_show_descriptions",
   onboardingEnabled: "onboarding_enabled",
   onboardingShowEveryLaunch: "onboarding_show_every_launch",
@@ -210,6 +234,7 @@ export async function getAppSettings(): Promise<AppSettings> {
       settingKeyMap.contextQualityMode,
       defaultSettings.contextQualityMode,
     ),
+    selectorPipelineMode: await readSelectorPipelineMode(),
     sidebarShowDescriptions: await getSettingValue(
       settingKeyMap.sidebarShowDescriptions,
       defaultSettings.sidebarShowDescriptions,
@@ -227,6 +252,185 @@ export async function getAppSettings(): Promise<AppSettings> {
       defaultSettings.onboardingCompleted,
     ),
   };
+}
+
+const selectorDiagnosticsHistoryKey = "selector_diagnostics_history";
+const SELECTOR_DIAGNOSTICS_HISTORY_LIMIT = 50;
+const selectorFailureCodes = new Set<SelectorFallbackReasonCode>([
+  "shadow_exception",
+  "shadow_timeout",
+  "shadow_invalid_result",
+  "shadow_unknown_candidate",
+  "shadow_unknown_path",
+  "shadow_contract_violation",
+]);
+const selectorUsageRoles = new Set([
+  "inspect-and-edit",
+  "create-and-edit",
+  "inspect-only",
+  "asset-reference",
+  "config-reference",
+]);
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function finiteNumber(value: unknown, fallback: number, min = 0, max = Number.MAX_SAFE_INTEGER) {
+  return typeof value === "number" && Number.isFinite(value)
+    ? Math.max(min, Math.min(max, value))
+    : fallback;
+}
+
+function isSafeDiagnosticPath(value: unknown): value is string {
+  if (typeof value !== "string") return false;
+  const normalized = value.replace(/\\/g, "/").replace(/^\.\//, "").trim();
+  if (!normalized || /^[a-z]:/i.test(normalized) || path.posix.isAbsolute(normalized) || path.win32.isAbsolute(normalized)) return false;
+  return !normalized.split("/").some((segment) => segment === "..");
+}
+
+function normalizeFailure(value: unknown): SelectorPipelineDiagnostics["fallback"] {
+  const record = asRecord(value);
+  if (!record || !selectorFailureCodes.has(record.code as SelectorFallbackReasonCode)) return null;
+  return {
+    code: record.code as SelectorFallbackReasonCode,
+    message: sanitizeSelectorDiagnosticMessage(record.message),
+  };
+}
+
+function normalizeSummary(
+  value: unknown,
+  fallbackPipeline: SelectorPipelineDiagnostics["effectivePipeline"],
+): SelectorPipelineDiagnostics["actual"] | null {
+  const record = asRecord(value);
+  if (!record) return null;
+  const pipeline = record.pipeline === "shadow" ? "shadow" : record.pipeline === "legacy" ? "legacy" : fallbackPipeline;
+  const selectedFiles = Array.isArray(record.selectedFiles)
+    ? record.selectedFiles.flatMap((fileValue) => {
+        const file = asRecord(fileValue);
+        if (!file || !isSafeDiagnosticPath(file.path) || !selectorUsageRoles.has(file.usage as string)) return [];
+        return [{ path: file.path, usage: file.usage as SelectorPipelineDiagnostics["actual"]["selectedFiles"][number]["usage"] }];
+      })
+    : [];
+  return {
+    pipeline,
+    selectedFiles,
+    primaryTarget: isSafeDiagnosticPath(record.primaryTarget) ? record.primaryTarget : null,
+    implementationArea: typeof record.implementationArea === "string" && record.implementationArea.trim()
+      ? record.implementationArea.slice(0, 64)
+      : "general",
+    confidence: Math.round(finiteNumber(record.confidence, 0, 0, 100)),
+    quality: typeof record.quality === "number" && Number.isFinite(record.quality)
+      ? Math.round(finiteNumber(record.quality, 0, 0, 100))
+      : null,
+    blocked: record.blocked === true,
+    manualReview: record.manualReview === true,
+    missingTarget: record.missingTarget === true,
+    candidateCount: Math.round(finiteNumber(record.candidateCount, 0, 0, 10_000)),
+  };
+}
+
+function normalizeComparison(value: unknown): SelectorPipelineDiagnostics["comparison"] {
+  const record = asRecord(value);
+  if (!record) return null;
+  const safePaths = (paths: unknown) => Array.isArray(paths) ? paths.filter(isSafeDiagnosticPath) : [];
+  return {
+    primaryTargetAgreement: record.primaryTargetAgreement === true,
+    implementationAreaAgreement: record.implementationAreaAgreement === true,
+    selectedPathOverlap: finiteNumber(record.selectedPathOverlap, 0, 0, 1),
+    editTargetOverlap: finiteNumber(record.editTargetOverlap, 0, 0, 1),
+    legacyOnlyPaths: safePaths(record.legacyOnlyPaths),
+    shadowOnlyPaths: safePaths(record.shadowOnlyPaths),
+    safetyDecisionAgreement: record.safetyDecisionAgreement === true,
+    manualReviewAgreement: record.manualReviewAgreement === true,
+  };
+}
+
+function normalizeSelectorDiagnosticsRecord(value: unknown): SelectorPipelineDiagnostics | null {
+  const record = asRecord(value);
+  if (!record || typeof record.timestamp !== "string" || !Number.isFinite(Date.parse(record.timestamp))) return null;
+
+  const requestedMode = normalizeSelectorPipelineMode(record.requestedMode);
+  const effectivePipeline = record.effectivePipeline === "shadow" ? "shadow" : "legacy";
+  const oldFailure = normalizeFailure(record.fallback);
+  const fallback = requestedMode === "shadow_compare" ? null : oldFailure;
+  const shadowFailure = normalizeFailure(record.shadowFailure) ?? (requestedMode === "shadow_compare" ? oldFailure : null);
+  const actual = normalizeSummary(record.actual, effectivePipeline);
+  if (!actual) return null;
+
+  const executionStatus = fallback || record.executionStatus === "fallback" ? "fallback" : "success";
+  const qualityStatus = record.qualityStatus === "blocked" || record.qualityStatus === "warning" || record.qualityStatus === "ready"
+    ? record.qualityStatus
+    : record.status === "blocked"
+      ? "blocked"
+      : record.status === "manual-review"
+        ? "warning"
+        : "ready";
+  const status = executionStatus === "fallback"
+    ? "fallback"
+    : qualityStatus === "blocked"
+      ? "blocked"
+      : actual.manualReview
+        ? "manual-review"
+        : "success";
+  const timings = asRecord(record.timings);
+
+  return {
+    id: typeof record.id === "string" ? record.id.slice(0, 128) : `${Date.parse(record.timestamp)}`,
+    timestamp: record.timestamp,
+    projectRef: typeof record.projectRef === "string" ? record.projectRef.slice(0, 64) : "unknown",
+    taskHash: typeof record.taskHash === "string" ? record.taskHash.slice(0, 64) : "unknown",
+    requestedMode,
+    effectivePipeline,
+    status,
+    executionStatus,
+    qualityStatus,
+    selectionOrigin: record.selectionOrigin === "manual_override" ? "manual_override" : "pipeline",
+    fallback,
+    shadowFailure,
+    timings: {
+      totalMs: Math.round(finiteNumber(timings?.totalMs, 0, 0, 3_600_000)),
+      legacyMs: typeof timings?.legacyMs === "number" ? Math.round(finiteNumber(timings.legacyMs, 0, 0, 3_600_000)) : null,
+      shadowMs: typeof timings?.shadowMs === "number" ? Math.round(finiteNumber(timings.shadowMs, 0, 0, 3_600_000)) : null,
+    },
+    actual,
+    legacy: normalizeSummary(record.legacy, "legacy"),
+    shadow: normalizeSummary(record.shadow, "shadow"),
+    comparison: normalizeComparison(record.comparison),
+  };
+}
+
+function sanitizeSelectorDiagnostics(record: SelectorPipelineDiagnostics): SelectorPipelineDiagnostics {
+  const normalized = normalizeSelectorDiagnosticsRecord(record);
+  if (!normalized) throw new Error("Selector diagnostics record failed local privacy validation.");
+  return normalized;
+}
+
+export function normalizeSelectorDiagnosticsHistory(value: unknown) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map(normalizeSelectorDiagnosticsRecord)
+    .filter((record): record is SelectorPipelineDiagnostics => record !== null)
+    .slice(0, SELECTOR_DIAGNOSTICS_HISTORY_LIMIT);
+}
+
+export async function getSelectorDiagnosticsHistory(): Promise<SelectorPipelineDiagnostics[]> {
+  const value = await getSettingValue<unknown>(selectorDiagnosticsHistoryKey, []);
+  return normalizeSelectorDiagnosticsHistory(value);
+}
+
+export async function appendSelectorDiagnostics(record: SelectorPipelineDiagnostics) {
+  const history = await getSelectorDiagnosticsHistory();
+  const next = [sanitizeSelectorDiagnostics(record), ...history]
+    .slice(0, SELECTOR_DIAGNOSTICS_HISTORY_LIMIT);
+  await storage.setSettingValue(selectorDiagnosticsHistoryKey, next);
+  return next;
+}
+
+export async function clearSelectorDiagnosticsHistory() {
+  await storage.setSettingValue(selectorDiagnosticsHistoryKey, []);
 }
 
 export async function getOpenAiCompatibleApiKey(): Promise<string | null> {

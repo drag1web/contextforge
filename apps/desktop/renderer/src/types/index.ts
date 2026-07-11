@@ -380,6 +380,52 @@ export interface TaskPackGenerationRecipe {
   };
   githubIssue?: GitHubIssueTaskPackSource;
   githubCreatedIssue?: GitHubCreatedIssueLink;
+  selectorDiagnostics?: SelectorPipelineDiagnostics;
+}
+
+export type SelectorPipelineMode = "legacy" | "shadow_compare" | "shadow_primary";
+export type EffectiveSelectorPipeline = "legacy" | "shadow";
+
+export interface SelectorSelectionSummary {
+  pipeline: EffectiveSelectorPipeline;
+  selectedFiles: Array<{ path: string; usage: string }>;
+  primaryTarget: string | null;
+  implementationArea: string;
+  confidence: number;
+  quality: number | null;
+  blocked: boolean;
+  manualReview: boolean;
+  missingTarget: boolean;
+  candidateCount: number;
+}
+
+export interface SelectorPipelineDiagnostics {
+  id: string;
+  timestamp: string;
+  projectRef: string;
+  taskHash: string;
+  requestedMode: SelectorPipelineMode;
+  effectivePipeline: EffectiveSelectorPipeline;
+  status: "success" | "fallback" | "blocked" | "manual-review";
+  executionStatus?: "success" | "fallback";
+  qualityStatus?: "ready" | "warning" | "blocked";
+  selectionOrigin?: "pipeline" | "manual_override";
+  fallback: { code: string; message: string } | null;
+  shadowFailure?: { code: string; message: string } | null;
+  timings: { totalMs: number; legacyMs: number | null; shadowMs: number | null };
+  actual: SelectorSelectionSummary;
+  legacy: SelectorSelectionSummary | null;
+  shadow: SelectorSelectionSummary | null;
+  comparison: {
+    primaryTargetAgreement: boolean;
+    implementationAreaAgreement: boolean;
+    selectedPathOverlap: number;
+    editTargetOverlap: number;
+    legacyOnlyPaths: string[];
+    shadowOnlyPaths: string[];
+    safetyDecisionAgreement: boolean;
+    manualReviewAgreement: boolean;
+  } | null;
 }
 
 export interface TaskPack {
@@ -666,6 +712,7 @@ export interface AppSettings {
     tests: number;
   };
   contextQualityMode: "advisory" | "balanced" | "strict";
+  selectorPipelineMode: SelectorPipelineMode;
   sidebarShowDescriptions: boolean;
   onboardingEnabled: boolean;
   onboardingShowEveryLaunch: boolean;
@@ -817,6 +864,7 @@ export interface ContextComposerPreview {
     notes: string[];
   };
   notes: string[];
+  selectorDiagnostics?: SelectorPipelineDiagnostics;
 }
 
 export interface ContextComposerFileSearchResult extends ContextComposerFileReference {

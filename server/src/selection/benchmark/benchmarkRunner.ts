@@ -73,6 +73,7 @@ const deterministicBenchmarkSettings: Awaited<ReturnType<typeof getAppSettings>>
     tests: 7,
   },
   contextQualityMode: "balanced",
+  selectorPipelineMode: "legacy",
   sidebarShowDescriptions: false,
   onboardingEnabled: true,
   onboardingShowEveryLaunch: false,
