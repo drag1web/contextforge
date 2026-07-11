@@ -1,6 +1,6 @@
 {
   "name": "@contextforge/renderer",
-  "version": "0.6.5-alpha",
+  "version": "0.6.6-alpha",
   "private": true,
   "type": "module",
   "scripts": {

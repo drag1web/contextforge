@@ -12,11 +12,14 @@ import {
   buildTaskPackRulesTemplatePrompt,
   RulesServiceError,
 } from "../rules/rulesService.js";
-import { generateWithConfiguredOllama } from "../ollama/ollamaService.js";
 import {
   analyzeTaskIntent,
   type TaskIntentAnalysis,
 } from "../ollama/taskIntentAnalyzer.js";
+import {
+  generateReliableTaskPack,
+  type TaskPackGenerationDiagnostics,
+} from "../ollama/taskPackGenerationReliability.js";
 import {
   type TaskFileSelection,
   type SelectedTaskFileUsage,
@@ -172,6 +175,7 @@ interface TaskPackGenerationRecipe {
   githubIssue?: GitHubIssueTaskPackSource;
   githubCreatedIssue?: GitHubCreatedIssueLink;
   selectorDiagnostics?: SelectorPipelineDiagnostics;
+  generationDiagnostics?: TaskPackGenerationDiagnostics;
 }
 
 const MAX_SNIPPET_FILES = 5;
@@ -184,16 +188,6 @@ const PROTECTED_SECTION_TITLES = new Set([
   "Code Context Snippets",
   "Non-Text / Asset References",
   "ContextForge Assisted Notes",
-]);
-
-const STRUCTURAL_SECTION_TITLES = new Set([
-  "Agent Instructions",
-  "Constraints",
-  "Known AI-Readiness Issues",
-  "Acceptance Criteria",
-  "Verification",
-  "Expected Final Response",
-  "ContextForge Rules & Criteria",
 ]);
 
 const LANGUAGE_BY_EXTENSION: Record<string, string> = {
@@ -1088,38 +1082,6 @@ function normalizeSectionTitle(value: string) {
   return value.trim().replace(/\s+/g, " ");
 }
 
-function getSecondLevelHeadings(markdown: string) {
-  return markdown
-    .split(/\r?\n/)
-    .map((line) => line.match(/^##\s+(.+?)\s*$/)?.[1])
-    .filter((value): value is string => Boolean(value))
-    .map(normalizeSectionTitle);
-}
-
-function hasAllRequiredTemplateSections(
-  candidate: string,
-  fallbackPrompt: string,
-) {
-  const candidateHeadings = new Set(getSecondLevelHeadings(candidate));
-  const fallbackHeadings = getSecondLevelHeadings(fallbackPrompt);
-
-  return fallbackHeadings.every((heading) => {
-    if (PROTECTED_SECTION_TITLES.has(heading)) {
-      return true;
-    }
-
-    return candidateHeadings.has(heading);
-  });
-}
-
-function hasAllStructuralSections(candidate: string) {
-  const candidateHeadings = new Set(getSecondLevelHeadings(candidate));
-
-  return Array.from(STRUCTURAL_SECTION_TITLES).every((heading) =>
-    candidateHeadings.has(heading),
-  );
-}
-
 function removeProtectedSections(markdown: string) {
   const lines = markdown.split(/\r?\n/);
   const output: string[] = [];
@@ -1164,29 +1126,6 @@ function insertBeforeSection(
   return markdown.replace(marker, `\n${content}\n\n---\n\n${sectionTitle}`);
 }
 
-function ensureHeading(markdown: string) {
-  const trimmed = markdown.trim();
-
-  if (trimmed.startsWith("# AI Task Pack")) {
-    return trimmed;
-  }
-
-  const firstTaskPackIndex = trimmed.indexOf("# AI Task Pack");
-
-  if (firstTaskPackIndex >= 0) {
-    return trimmed.slice(firstTaskPackIndex).trim();
-  }
-
-  return `# AI Task Pack\n\n${trimmed}`;
-}
-
-function normalizeMarkdownSeparators(markdown: string) {
-  return markdown
-    .replace(/\n(?:\s*---\s*\n){2,}/g, "\n\n---\n\n")
-    .replace(/\n{4,}/g, "\n\n\n")
-    .trim();
-}
-
 function restoreProtectedSections(
   markdown: string,
   context: UniversalTaskPackContext,
@@ -1212,162 +1151,6 @@ function buildContextAwareTemplatePrompt(
     context,
   );
 }
-
-function buildTaskPackGenerationPrompt({
-  project,
-  contextAwareTemplatePrompt,
-  rawTask,
-  taskType,
-  targetTool,
-  context,
-}: {
-  project: ProjectRow;
-  contextAwareTemplatePrompt: string;
-  rawTask: string;
-  taskType: string;
-  targetTool: string;
-  context: UniversalTaskPackContext;
-}) {
-  const hasTestScript = Boolean(project.scripts?.test);
-
-  return `
-You are ContextForge's local AI generation engine.
-
-Your job:
-Improve the surrounding Task Pack instructions for an external AI coding agent.
-
-Important:
-- The Task Pack is for ${targetTool}.
-- The external coding agent will perform the edits, not you.
-- Do not claim that you edited files.
-- Do not invent files, APIs, scripts, folders, dependencies, or implementation details.
-- Use only the project metadata and validated context provided.
-- Preserve the user's actual task.
-- Keep the document focused, safe, and actionable.
-- Do not rewrite or summarize code snippets.
-- Do not replace snippets with placeholder comments.
-- Do not remove file candidates selected by ContextForge.
-- Protected context sections are backend-generated and will be restored after your generation:
-  - Project Memory
-  - Relevant File Candidates
-  - Code Context Snippets
-  - Non-Text / Asset References
-  - ContextForge Assisted Notes
-- Rules, criteria and custom template sections are strict ContextForge contract sections.
-- Preserve all section headings from the Template Task Pack.
-- Do not remove, rename, summarize, or paraphrase:
-  - Agent Instructions
-  - Constraints
-  - Acceptance Criteria
-  - Verification
-  - Expected Final Response
-  - ContextForge Rules & Criteria
-- Output Markdown only.
-- Do not wrap the answer in code fences.
-- Do not add commentary before or after the document.
-- The first line must be exactly: # AI Task Pack
-- The "## Task Type" section must preserve the user-selected/requested task type. Mention the inferred area separately in ContextForge Assisted Notes only.
-- ${
-    hasTestScript
-      ? "The project has a test script. You may include it in verification."
-      : "The project has no detected test script. Do not recommend npm run test."
-  }
-
-Required document structure:
-# AI Task Pack
-## Target Tool
-## Task Type
-## Task
-## Project Context
-## Project Memory
-## Relevant File Candidates
-## Code Context Snippets
-## Agent Instructions
-## Constraints
-## Known AI-Readiness Issues
-## Acceptance Criteria
-## ContextForge Rules & Criteria
-## Verification
-## ContextForge Assisted Notes
-## Expected Final Response
-
-Project metadata:
-${JSON.stringify(
-  buildExportSafeProjectMetadata(project),
-  null,
-  2,
-)}
-
-User task:
-${rawTask}
-
-Requested task type:
-${taskType}
-
-Effective task area:
-${context.effectiveTaskArea}
-
-Target tool:
-${targetTool}
-
-Validated task context summary:
-${JSON.stringify(
-  {
-    relevantFiles: context.relevantFiles,
-    projectMemories: context.projectMemories
-      .filter((memory) => memory.isEnabled)
-      .map((memory) => ({
-        title: memory.title,
-        category: memory.category,
-      })),
-    fileReferences: context.fileReferences,
-    taskIntent: context.taskIntent,
-    fileSelection: {
-      source: context.fileSelection.source,
-      usedFallback: context.fileSelection.usedFallback,
-      rejectedModelPaths: context.fileSelection.rejectedModelPaths,
-      notes: context.fileSelection.notes,
-    },
-    selectionQuality: context.selectionQuality,
-    inventorySummary: context.inventorySummary,
-  },
-  null,
-  2,
-)}
-
-Template Task Pack:
-${contextAwareTemplatePrompt}
-`.trim();
-}
-
-function postProcessGeneratedTaskPack(
-  generatedPrompt: string,
-  fallbackPrompt: string,
-  context: UniversalTaskPackContext,
-) {
-  const candidate = generatedPrompt.trim().startsWith("# AI Task Pack")
-    ? generatedPrompt
-    : fallbackPrompt;
-
-  const withHeading = ensureHeading(candidate);
-  const withEffectiveTaskType = normalizeTaskTypeSection(withHeading, context);
-  const restored = restoreProtectedSections(withEffectiveTaskType, context);
-
-  if (
-    !hasAllRequiredTemplateSections(restored, fallbackPrompt) ||
-    !hasAllStructuralSections(restored)
-  ) {
-    return normalizeMarkdownSeparators(
-      normalizeTaskTypeSection(
-        restoreProtectedSections(fallbackPrompt, context),
-        context,
-      ),
-    );
-  }
-
-  return normalizeMarkdownSeparators(restored);
-}
-
 
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === "object" && !Array.isArray(value));
@@ -1703,38 +1486,45 @@ taskPacksRouter.post("/", async (req, res) => {
     });
 
     const templatePrompt = taskPackTemplate.prompt;
-    const generationRecipe = {
-      ...buildGenerationRecipeMetadata(
-      taskPackTemplate.recipe,
-      parsed.data.githubIssueSource,
-      ),
-      selectorDiagnostics,
-    };
 
     const contextAwareTemplatePrompt = buildContextAwareTemplatePrompt(
       templatePrompt,
       universalContext,
     );
 
-    const generation = await generateWithConfiguredOllama({
+    const generation = await generateReliableTaskPack({
       fallbackContent: contextAwareTemplatePrompt,
-      expectedHeading: "# AI Task Pack",
-      numPredict: 2200,
-      prompt: buildTaskPackGenerationPrompt({
-        project,
-        contextAwareTemplatePrompt,
-        rawTask: parsed.data.rawTask,
-        taskType: parsed.data.taskType,
-        targetTool: parsed.data.targetTool,
-        context: universalContext,
-      }),
+      project: {
+        name: project.name,
+        packageManager: project.packageManager,
+        detectedStack: project.detectedStack,
+        readinessScore: project.readinessScore,
+        scripts: project.scripts,
+      },
+      rawTask: parsed.data.rawTask,
+      taskType: parsed.data.taskType,
+      targetTool: parsed.data.targetTool,
+      effectiveTaskArea: universalContext.effectiveTaskArea,
+      relevantFiles: universalContext.fileReferences.map((file) => ({
+        path: file.path,
+        usage: file.usage,
+        reason: file.reason,
+      })),
+      taskIntent: universalContext.taskIntent,
+      selectionQuality: universalContext.selectionQuality,
+      templatePrompt: contextAwareTemplatePrompt,
     });
 
-    const generatedPrompt = postProcessGeneratedTaskPack(
-      generation.content,
-      contextAwareTemplatePrompt,
-      universalContext,
-    );
+    const generationRecipe = {
+      ...buildGenerationRecipeMetadata(
+        taskPackTemplate.recipe,
+        parsed.data.githubIssueSource,
+      ),
+      selectorDiagnostics,
+      generationDiagnostics: generation.diagnostics,
+    };
+
+    const generatedPrompt = generation.content;
 
     const title = parsed.data.githubIssueSource
       ? createTitle(

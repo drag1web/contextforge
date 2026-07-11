@@ -1,6 +1,6 @@
 {
   "name": "contextforge",
-  "version": "0.6.5-alpha",
+  "version": "0.6.6-alpha",
   "private": true,
   "description": "Desktop AI devtool for preparing software projects for AI agents.",
   "type": "module",
@@ -23,7 +23,8 @@
     "benchmark:selector:snapshot": "npm run benchmark:selector:snapshot -w @contextforge/server",
     "db:up": "docker compose up -d",
     "db:down": "docker compose down",
-    "db:logs": "docker compose logs -f postgres"
+    "db:logs": "docker compose logs -f postgres",
+    "test:generation:taskpack": "npm run test:generation:taskpack -w @contextforge/server"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",

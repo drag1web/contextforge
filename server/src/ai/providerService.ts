@@ -31,6 +31,8 @@ export interface AiGenerateInput {
   prompt: string;
   temperature?: number;
   numPredict?: number;
+  responseFormat?: "text" | "json";
+  timeoutMs?: number;
 }
 
 export interface AiGenerateResult {
@@ -513,7 +515,10 @@ export async function generateWithConfiguredAi({
   prompt,
   temperature = 0.1,
   numPredict = 1600,
+  responseFormat = "text",
+  timeoutMs = 120_000,
 }: AiGenerateInput): Promise<AiGenerateResult> {
+  const signal = timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
   const settings = await getAppSettings();
   const model = getConfiguredModel(settings);
 
@@ -526,6 +531,7 @@ export async function generateWithConfiguredAi({
     const response = await fetch(`${url}/chat/completions`, {
       method: "POST",
       headers: await getOpenAiHeaders(),
+      signal,
       body: JSON.stringify({
         model,
         messages: [
@@ -536,6 +542,9 @@ export async function generateWithConfiguredAi({
         ],
         temperature,
         max_tokens: numPredict,
+        ...(responseFormat === "json"
+          ? { response_format: { type: "json_object" } }
+          : {}),
       }),
     });
 
@@ -570,6 +579,7 @@ export async function generateWithConfiguredAi({
     const response = await fetch(`${url}/messages`, {
       method: "POST",
       headers: await getAnthropicHeaders(),
+      signal,
       body: JSON.stringify({
         model,
         max_tokens: numPredict,
@@ -617,6 +627,7 @@ export async function generateWithConfiguredAi({
         headers: {
           "Content-Type": "application/json",
         },
+        signal,
         body: JSON.stringify({
           contents: [
             {
@@ -631,6 +642,9 @@ export async function generateWithConfiguredAi({
           generationConfig: {
             temperature,
             maxOutputTokens: numPredict,
+            ...(responseFormat === "json"
+              ? { responseMimeType: "application/json" }
+              : {}),
           },
         }),
       },
@@ -660,10 +674,12 @@ export async function generateWithConfiguredAi({
     headers: {
       "Content-Type": "application/json",
     },
+    signal,
     body: JSON.stringify({
       model,
       prompt,
       stream: false,
+      ...(responseFormat === "json" ? { format: "json" } : {}),
       options: {
         temperature,
         num_predict: numPredict,

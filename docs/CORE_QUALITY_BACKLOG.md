@@ -1,5 +1,28 @@
 # ContextForge Core Quality & Safety Backlog
 
+## v0.6.6-alpha — Task Pack Generation Reliability
+
+Completed:
+
+- Replaced full-markdown model regeneration with a strict structured Task Pack refinement schema.
+- Added direct/fenced/balanced JSON extraction, deterministic local repair, and one controlled retry.
+- Added prompt budgeting that excludes code snippets and protected backend sections from the AI request.
+- Added precise fallback reason codes for empty, truncated, invalid, schema-invalid, provider, model and composition failures.
+- Added privacy-safe generation diagnostics and a compact Task Pack result modal.
+- Kept the validated context-aware template as the final fallback in every failure path.
+- Added JSON response hints and bounded timeouts for configured providers.
+- Added semantic policy filtering for unauthorized Git actions, unknown file references, and forced verification-success claims.
+- Added generic missing-value ambiguity handling and cross-section consistency so clarification safeguards cannot conflict with completion, verification, or final-response requirements.
+- Added semantic deduplication and section-specific refinement limits to keep AI guidance compact without restricting task types.
+- Advanced the generation cache contract after semantic-policy and consistency changes.
+- Added 31 reliability smoke scenarios without changing selector benchmark expectations.
+
+Remaining live checks:
+
+- Compare real Ollama models such as Gemma and Llama on short, long, RU, EN and mixed-language Task Packs.
+- Confirm repaired/retried/fallback badges and diagnostics in packaged Electron.
+- Re-run the private 28-case regression and sealed 40-case validation before release commit.
+
 ## v0.6.5-alpha — Shadow Precision & Abstention UX
 
 Completed in this phase:

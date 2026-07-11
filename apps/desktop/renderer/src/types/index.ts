@@ -346,6 +346,76 @@ export interface GitHubCreatedIssueLink {
   createdFromTaskPackId: number;
 }
 
+
+export type TaskPackGenerationFailureCode =
+  | "template_mode"
+  | "model_not_configured"
+  | "provider_error"
+  | "empty_response"
+  | "invalid_json"
+  | "schema_invalid"
+  | "truncated_response"
+  | "retry_failed"
+  | "composition_failed"
+  | "semantic_policy_rejected";
+
+export type TaskPackGenerationStatus =
+  | "template"
+  | "generated"
+  | "repaired"
+  | "retried"
+  | "fallback";
+
+export interface TaskPackGenerationAttemptDiagnostics {
+  attempt: 1 | 2;
+  phase: "initial" | "retry";
+  durationMs: number;
+  responseChars: number;
+  parseStage:
+    | "direct-json"
+    | "fenced-json"
+    | "balanced-json"
+    | "local-repair"
+    | "failed"
+    | "not-run";
+  schemaValid: boolean;
+  issueCodes: string[];
+  providerError: boolean;
+}
+
+export interface TaskPackGenerationDiagnostics {
+  version: 1 | 2;
+  status: TaskPackGenerationStatus;
+  provider: "ollama" | "openai-compatible" | "anthropic" | "gemini" | null;
+  model: string | null;
+  cached: boolean;
+  fallbackReason: TaskPackGenerationFailureCode | null;
+  prompt: {
+    originalChars: number;
+    finalChars: number;
+    budgetChars: number;
+    compacted: boolean;
+    truncatedFields: string[];
+  };
+  attempts: TaskPackGenerationAttemptDiagnostics[];
+  output: {
+    finalChars: number;
+    refinementItems: number;
+    validationIssueCodes: string[];
+    policy?: {
+      acceptedItems: number;
+      rejectedItems: number;
+      rewrittenItems: number;
+      injectedItems: number;
+      consistencyAdjustedItems?: number;
+      deduplicatedItems?: number;
+      limitedItems?: number;
+      rejectionCodes: string[];
+      ambiguityCodes: string[];
+      consistencyCodes?: string[];
+    };
+  };
+}
 export interface TaskPackGenerationRecipe {
   template: {
     id: string;
@@ -381,6 +451,7 @@ export interface TaskPackGenerationRecipe {
   githubIssue?: GitHubIssueTaskPackSource;
   githubCreatedIssue?: GitHubCreatedIssueLink;
   selectorDiagnostics?: SelectorPipelineDiagnostics;
+  generationDiagnostics?: TaskPackGenerationDiagnostics;
 }
 
 export type SelectorPipelineMode = "legacy" | "shadow_compare" | "shadow_primary";

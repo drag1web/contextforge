@@ -179,12 +179,16 @@ Goal: make live Shadow selections smaller, more explainable, and honest when a t
 
 Goal: reduce `Ollama returned unusable content` and make final Task Pack generation predictable.
 
-- [ ] Add a strict response schema for generated Task Packs.
-- [ ] Add bounded parsing, repair and controlled retry.
-- [ ] Detect truncated and incomplete responses.
-- [ ] Validate required sections before accepting a generated Task Pack.
-- [ ] Record precise fallback reasons without storing sensitive source content.
-- [ ] Improve template fallback quality and prompt-size budgeting.
+- [x] Add a strict response schema for generated Task Packs.
+- [x] Add bounded parsing, repair and controlled retry.
+- [x] Detect truncated and incomplete responses.
+- [x] Validate required sections before accepting a generated Task Pack.
+- [x] Record precise fallback reasons without storing sensitive source content.
+- [x] Improve template fallback quality and prompt-size budgeting.
+- [x] Filter unauthorized Git actions, forced verification claims, and unknown file references from AI refinements.
+- [x] Add generic missing-value clarification safeguards and cross-section consistency.
+- [x] Deduplicate near-identical refinement items and apply bounded per-section limits.
+- [x] Add privacy-safe semantic-policy and consistency diagnostics.
 
 ## v0.6.7-alpha — Task Understanding & Clarification
 

@@ -1,6 +1,6 @@
 {
   "name": "@contextforge/server",
-  "version": "0.6.5-alpha",
+  "version": "0.6.6-alpha",
   "private": true,
   "type": "module",
   "main": "dist/index.js",
@@ -14,7 +14,8 @@
     "benchmark:selector": "tsx src/selection/benchmark/benchmarkRunner.ts",
     "benchmark:selector:validation": "tsx src/selection/benchmark/benchmarkRunner.ts --split validation --external-only",
     "benchmark:selector:snapshot": "tsx src/selection/benchmark/benchmarkSnapshot.ts",
-    "start": "node dist/index.js"
+    "start": "node dist/index.js",
+    "test:generation:taskpack": "tsx src/ollama/taskPackGenerationReliability.smoke.ts"
   },
   "dependencies": {
     "@types/sql.js": "^1.4.11",

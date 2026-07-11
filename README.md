@@ -4,10 +4,10 @@
 
 It scans local repositories, detects stack and scripts, builds project context, generates `AGENTS.md`, and creates structured Task Packs for tools like **Codex**, **Cursor**, **Claude Code**, and other AI coding assistants.
 
-Current version: **v0.6.5-alpha**
-Current app phase: **Phase 0.6.5 — Shadow Precision & Abstention UX**
+Current version: **v0.6.6-alpha**
+Current app phase: **Phase 0.6.6 — Task Pack Generation Reliability**
 
-This release sharpens the opt-in Shadow selector used by real Task Pack generation: uncertain tasks now abstain instead of reporting a false success, supporting context is more compact, edit roles require stronger evidence, and exported Task Packs no longer expose the absolute local project root.
+This release hardens final Task Pack generation: AI providers now return bounded structured refinements, ContextForge validates and safely composes them into the protected template, retries malformed responses once, filters unsafe or contradictory instructions, distinguishes missing values from explicit literals, and switches only genuinely incomplete tasks into a consistent clarification flow.
 
 ---
 
@@ -37,7 +37,11 @@ This release sharpens the opt-in Shadow selector used by real Task Pack generati
 - Applies prompt templates, rule profiles and acceptance criteria.
 - Supports custom template/profile copy, edit and delete flows for reusable project workflows.
 - Uses a Context Composer flow to select relevant files/snippets for a task.
-- Supports optional Ollama generation/refinement with fallback to safe template mode.
+- Supports optional Ollama and configured AI-provider refinement through a strict structured response contract with repair, retry, and validated template fallback.
+- Filters unauthorized Git actions, forced verification-success claims, unknown file references, and cross-section contradictions from AI refinements.
+- Keeps ambiguous missing-value tasks in clarification mode: no files are changed and implementation verification is deferred until the user supplies the required value.
+- Recognizes and preserves explicit user-provided replacement values in quoted, assigned, numeric, URL, color, version, and similar literal forms without project-specific rules.
+- Shows privacy-safe Task Pack generation diagnostics without storing raw prompts, model responses, source snippets, secrets, or absolute paths.
 - Stores projects, settings and generated Task Packs in a local SQLite database by default.
 - Supports an optional GitHub device-auth foundation for future repository and issue workflows.
 - Links local projects to GitHub repository metadata through local Git remotes without uploading source files.
@@ -123,7 +127,7 @@ STORAGE_DRIVER=sqlite
 SQLITE_DB_PATH=./data/contextforge.sqlite
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.6.5-alpha
+APP_VERSION=0.6.6-alpha
 
 # Optional GitHub integration. ContextForge works without this.
 GITHUB_OAUTH_CLIENT_ID=
@@ -139,7 +143,7 @@ STORAGE_DRIVER=postgres
 DATABASE_URL=postgresql://contextforge:contextforge@127.0.0.1:5433/contextforge
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.6.5-alpha
+APP_VERSION=0.6.6-alpha
 ```
 
 ---
@@ -208,7 +212,7 @@ Expected `/api/health` version:
 {
   "ok": true,
   "service": "contextforge-server",
-  "version": "0.6.5-alpha"
+  "version": "0.6.6-alpha"
 }
 ```
 

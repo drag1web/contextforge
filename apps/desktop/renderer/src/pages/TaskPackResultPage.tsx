@@ -33,6 +33,7 @@ import {
   getSelectorPipelineLabel,
   SelectorDiagnosticsModal,
 } from "../components/selector/SelectorDiagnosticsModal";
+import { GenerationDiagnosticsModal } from "../components/generation/GenerationDiagnosticsModal";
 
 interface TaskPackResultPageProps {
   taskPack: TaskPack;
@@ -865,6 +866,7 @@ export function TaskPackResultPage({
   const [currentTaskPack, setCurrentTaskPack] = useState(taskPack);
   const [isCreateIssueOpen, setIsCreateIssueOpen] = useState(false);
   const [isSelectorDiagnosticsOpen, setIsSelectorDiagnosticsOpen] = useState(false);
+  const [isGenerationDiagnosticsOpen, setIsGenerationDiagnosticsOpen] = useState(false);
 
   useEffect(() => {
     setCurrentTaskPack(taskPack);
@@ -882,6 +884,7 @@ export function TaskPackResultPage({
   const sourceIssue = currentTaskPack.generationRecipe?.githubIssue;
   const createdIssue = currentTaskPack.generationRecipe?.githubCreatedIssue;
   const selectorDiagnostics = currentTaskPack.generationRecipe?.selectorDiagnostics;
+  const generationDiagnostics = currentTaskPack.generationRecipe?.generationDiagnostics;
 
   function handleTaskPackUpdated(nextTaskPack: TaskPack) {
     setCurrentTaskPack(nextTaskPack);
@@ -1001,6 +1004,13 @@ export function TaskPackResultPage({
               </Button>
             )}
 
+            {generationDiagnostics && (
+              <Button variant="secondary" onClick={() => setIsGenerationDiagnosticsOpen(true)}>
+                <Bot size={15} />
+                {t("taskPackResult.generationDiagnostics")}
+              </Button>
+            )}
+
             <Button variant="primary" onClick={handleCopyPrompt}>
               {isCopied ? <Check size={15} /> : <Copy size={15} />}
               {isCopied
@@ -1096,6 +1106,13 @@ export function TaskPackResultPage({
         <SelectorDiagnosticsModal
           diagnostics={selectorDiagnostics}
           onClose={() => setIsSelectorDiagnosticsOpen(false)}
+        />
+      )}
+
+      {isGenerationDiagnosticsOpen && generationDiagnostics && (
+        <GenerationDiagnosticsModal
+          diagnostics={generationDiagnostics}
+          onClose={() => setIsGenerationDiagnosticsOpen(false)}
         />
       )}
     </section>

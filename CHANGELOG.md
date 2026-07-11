@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.6.6-alpha — Task Pack Generation Reliability
+
+### Added
+
+- Added a strict structured AI-refinement schema instead of allowing the model to rewrite the full Task Pack.
+- Added bounded JSON parsing, local repair, one controlled retry, prompt budgeting, and precise fallback reason codes.
+- Added privacy-safe generation diagnostics with attempt timelines, prompt/output sizes, parse stages, semantic-policy counters, and issue codes.
+- Added local semantic policy enforcement for unauthorized Git actions, invented file references, forced verification-success claims, and missing required replacement values.
+- Added cross-section consistency handling that switches ambiguous replacement tasks into clarification mode instead of producing contradictory implementation, acceptance, verification, and final-response requirements.
+- Added semantic near-duplicate removal and section-specific refinement limits so small tasks do not expand into oversized AI guidance.
+- Added explicit replacement-value grounding for guillemets, smart/ASCII quotes, assignment syntax, URLs, colors, numbers, versions, and other literal values without project-specific rules.
+
+### Changed
+
+- AI now returns task-specific refinement items that ContextForge composes into the validated backend template.
+- Cached generation contracts were advanced so older semantic-policy outputs are not reused after consistency hardening.
+- Ambiguous tasks now explicitly report that no files were changed, request the missing value, and defer implementation verification until clarification is provided.
+- Fully specified replacement tasks no longer enter clarification mode, and exact user-provided literal values are preserved without paraphrasing.
+- Provider responses remain useful when individual refinement items are rejected or rewritten; one unsafe item no longer forces a full Task Pack fallback.
+
+### Safety and privacy
+
+- Generated refinements cannot authorize commit, push, merge, pull requests, tags, or release publishing unless the user explicitly requested the action.
+- Refinements cannot force the coding agent to claim tests, builds, or manual verification succeeded.
+- Generation diagnostics do not store raw prompts, model responses, source snippets, secrets, or absolute local paths.
+
+### Validation
+
+- Task Pack generation reliability smoke: 35 scenarios.
+- Selector rollout smoke: 32 scenarios.
+- Legacy replay: 108/108.
+- Synthetic selector benchmark: 54/54 across 24 families.
+- Private real-project regression and sealed validation remain maintainer-only release checks.
+
 ## 0.6.5-alpha — Shadow Precision & Abstention UX
 
 ### Added
