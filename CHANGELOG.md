@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.6.5-alpha — Shadow Precision & Abstention UX
+
+### Added
+
+- Added an explicit Shadow decision outcome: `selected`, `abstained`, or `blocked`.
+- Added machine-readable abstention reasons and actionable Full Review guidance when no implementation target can be confirmed safely.
+- Added human-readable selection explanations and evidence-strength labels to selector diagnostics.
+- Added privacy-safe Task Pack project metadata that keeps the real local root internal and exports `<local-project>` instead.
+- Expanded selector rollout smoke coverage from 25 to 32 scenarios.
+
+### Changed
+
+- Tightened Context Assembly support budgets so simple tasks keep a compact, evidence-backed file set.
+- Strengthened edit-role assignment: supporting and reference files remain inspect-only unless grounded primary evidence permits editing.
+- Improved UI/full-stack support retention around direct imports, client API boundaries, backend entries, and persistence layers without promoting weak neighbours.
+- Replaced `success + 0 files` with an explicit manual-review abstention flow.
+- Removed project/business-specific runtime aliases from candidate retrieval; business meaning continues to come from task intent while runtime matching stays project-agnostic.
+- Improved the blocked-generation response so an abstention explains that the target was not confirmed rather than presenting it as a generic safety failure.
+
+### Safety and privacy
+
+- Abstention never triggers a Legacy fallback in Shadow mode.
+- Manual file confirmation can resolve an abstention without weakening actual safety blocks.
+- Persisted abstention diagnostics remain bounded, sanitized, relative-path-only, and tolerant of older/corrupted records.
+- Absolute local project roots are excluded from generated, refined, and rule-driven Task Pack prompts.
+
+### Validation
+
+- Deterministic selector smoke: passed.
+- Legacy replay: 108/108.
+- Synthetic selector benchmark: 54/54 across 24 families.
+- Rollout smoke: 32 scenarios.
+- Real-project 28-case regression and sealed 40-case validation require the private local manifests and must be rerun in the maintainer environment before release commit.
+
 ## 0.6.4-alpha — Shadow Internal Rollout & Real Task Pack Integration
 
 ### Added

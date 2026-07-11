@@ -136,62 +136,113 @@ Goal: close the optional GitHub issue workflow while preserving local-first desk
 - [x] Save source/created issue metadata in Task Pack result and archive views.
 - [x] Keep project source files local; GitHub receives only metadata and generated task briefs.
 
-## v0.6.1 — Core Quality & Safety Hardening
+## v0.6.1–v0.6.3 — Selector Core Hardening & Validation Foundation
 
-Goal: harden the Context Composer / selector / safety layer before adding more GitHub workflow complexity.
+Goal: replace weak project-specific selection behavior with a universal, safety-first selector foundation.
 
-- [ ] Add hard-blocks for requests to read or export `.env`, `.env.local`, tokens, keys, credentials and secrets.
-- [ ] Add prompt-injection and destructive-intent blocking before inventory and file selection.
-- [ ] Improve explicit target resolution: if a named file/page/component is not in inventory, block or ask for clarification.
-- [ ] Improve Ollama selector JSON contract with schema, retry/repair and raw-response diagnostics.
-- [ ] Calibrate context score so weak fallback selections cannot receive high-confidence scores.
-- [ ] Split user-selected task type from inferred implementation area and surface conflicts clearly.
-- [ ] Add docs/test/review routing that prefers README/package/config/test infrastructure over random pages.
-- [ ] Add self-core awareness for ContextForge selector, scanner, context composer, safety and Task Pack builder tasks.
+- [x] Add secret and prompt-injection safety policies.
+- [x] Protect explicit missing targets and review-only requests.
+- [x] Add deterministic candidate retrieval from real inventory.
+- [x] Add constrained ranking with role caps and candidate-ID validation.
+- [x] Add semantic project graph and Context Assembly Engine.
+- [x] Add replay, synthetic benchmark, real regression and sealed closed-validation infrastructure.
+- [x] Stabilize validation locks with content fingerprints.
+- [x] Validate the Shadow core on 28 real regression cases and 40 sealed holdout cases.
 
-## v0.6.2 — PR / CI Workflows
+## v0.6.4-alpha — Shadow Internal Rollout & Real Task Pack Integration
 
-Goal: extend the optional GitHub bridge from issues to pull requests and CI checks.
+Goal: connect the validated Shadow selector to the real Task Pack workflow without removing Legacy.
 
-- [ ] Add PR browser for linked repositories.
-- [ ] Show PR title, author, branches, state and changed files count.
-- [ ] Create PR Review Task Packs from PR metadata and changed-file summaries.
-- [ ] Add GitHub Actions / checks summary for linked repositories or PRs.
-- [ ] Create Task Packs from failed CI checks.
-- [ ] Keep diffs bounded and metadata-first; do not upload local source files automatically.
+- [x] Add Legacy, Compare and Shadow rollout modes.
+- [x] Add a selector pipeline orchestrator shared by preview and final generation.
+- [x] Keep Compare output on Legacy while recording local Shadow diagnostics.
+- [x] Use Shadow as the real selection in Shadow mode.
+- [x] Limit Legacy fallback to technical failures.
+- [x] Add bounded privacy-safe diagnostics history, badges and modal UI.
+- [x] Preserve safety, missing-target and manual-review decisions across fallback.
+- [x] Add manual-selection origin and fallback visibility.
 
-## v0.7 — Output Review & Safety Audit
+## v0.6.5-alpha — Shadow Precision & Abstention UX
 
-Goal: help users review AI-agent output without automatic code edits.
+Goal: make live Shadow selections smaller, more explainable, and honest when a target cannot be confirmed.
 
-- [ ] Paste diff.
-- [ ] Parse changed files.
-- [ ] Compare changes against selected files/rules.
-- [ ] Warn about forbidden/generated files, secrets and unexpected backend/frontend changes.
-- [ ] Save manual review status.
+- [x] Replace `success + 0 files` with an explicit abstention outcome.
+- [x] Add stable abstention reason codes and Full Review actions.
+- [x] Tighten support budgets and prune weak contextual neighbours.
+- [x] Keep supporting/reference files inspect-only without strong edit evidence.
+- [x] Add human-readable selection reasons and evidence-strength labels.
+- [x] Remove business/project-specific runtime aliases.
+- [x] Remove absolute local roots from exported Task Pack metadata.
+- [x] Expand rollout smoke coverage for abstention, precision and privacy.
 
-## v0.8 — Optional AI/Ollama polish
+## v0.6.6-alpha — Ollama Task Pack Generation Reliability
 
-Goal: make AI enhancement useful but never required.
+Goal: reduce `Ollama returned unusable content` and make final Task Pack generation predictable.
 
-- [ ] Improve model selector.
-- [ ] Add connection check polish.
-- [ ] Improve fallback to template mode.
-- [ ] Improve AI file selector.
-- [ ] Improve AI summaries.
+- [ ] Add a strict response schema for generated Task Packs.
+- [ ] Add bounded parsing, repair and controlled retry.
+- [ ] Detect truncated and incomplete responses.
+- [ ] Validate required sections before accepting a generated Task Pack.
+- [ ] Record precise fallback reasons without storing sensitive source content.
+- [ ] Improve template fallback quality and prompt-size budgeting.
 
-## v1.0 — Stable desktop release
+## v0.6.7-alpha — Task Understanding & Clarification
 
-Goal: a portfolio-ready desktop app that can be used by real users.
+Goal: handle informal and ambiguous user tasks without confident guessing.
 
-- [ ] SQLite by default.
-- [ ] No Docker required.
-- [ ] Stable installer.
-- [ ] Portable build.
-- [ ] Onboarding.
-- [ ] Empty states.
-- [ ] Error boundaries.
-- [ ] Full RU/EN localization.
-- [ ] Demo project.
-- [ ] Screenshots/GIFs.
-- [ ] Release notes.
+- [ ] Show a compact interpretation of goal, target, actions and constraints.
+- [ ] Detect missing context and ask one focused clarification question.
+- [ ] Let the user confirm or correct the interpreted task before selection.
+- [ ] Preserve RU/EN/mixed-language intent without project-specific rules.
+- [ ] Keep fallback intent analysis available when Ollama is offline.
+
+## v0.6.8-alpha — Shadow Readiness & Default Evaluation
+
+Goal: decide whether Shadow is ready to become recommended for new installations.
+
+- [ ] Review local Compare/Shadow history across varied real projects.
+- [ ] Measure abstention, manual overrides, fallbacks and supporting-context size.
+- [ ] Add a local readiness summary without cloud telemetry.
+- [ ] Keep Legacy available even if Shadow becomes recommended.
+- [ ] Do not change the default until release gates and live smoke checks pass.
+
+## v0.7.x — Repository Intelligence & Output Review
+
+Goal: connect Task Packs more deeply to Git/GitHub state and review agent output safely.
+
+- [ ] Add a separate Project Details page for readiness, scanner, Git/GitHub state and recent Task Packs.
+- [ ] Build Task Packs from PR metadata, review comments and failed CI checks.
+- [ ] Use bounded branch/diff/commit context without uploading local source automatically.
+- [ ] Parse pasted or local diffs and compare changes against selected files and project rules.
+- [ ] Warn about unexpected edits, generated files, secrets and scope drift.
+
+## v0.8.x — Task Pack Workflow & Multi-Agent Work
+
+Goal: turn Task Packs into a reusable workflow rather than one-off prompts.
+
+- [ ] Add Task Pack versions, drafts and comparison.
+- [ ] Add project task history and lifecycle states.
+- [ ] Split large work into frontend, backend, tests, docs and review packs.
+- [ ] Adapt outputs for Codex, Claude Code, Cursor, Gemini and generic agents.
+- [ ] Pass bounded results from one agent step to the next.
+
+## v0.9.x — Production Hardening
+
+Goal: prepare a dependable public desktop release.
+
+- [ ] Harden SQLite migrations, backup/restore and corruption recovery.
+- [ ] Add installer, portable build, signed releases and update flow.
+- [ ] Improve bundle size, code splitting and large-project performance.
+- [ ] Finish onboarding, accessibility, RU/EN localization and error boundaries.
+- [ ] Complete security and privacy audits.
+
+## v1.0.0 — Stable desktop release
+
+Goal: a production-ready local-first workspace for real AI-assisted development.
+
+- [ ] Add and scan a local project without Docker or mandatory sign-in.
+- [ ] Understand a natural-language task and clarify ambiguity.
+- [ ] Select explainable, safe, real project context.
+- [ ] Generate and export a reliable Task Pack for the chosen agent.
+- [ ] Keep source code local unless the user explicitly chooses an external workflow.
+- [ ] Preserve project/task history across restarts with a stable desktop release.

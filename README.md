@@ -4,10 +4,10 @@
 
 It scans local repositories, detects stack and scripts, builds project context, generates `AGENTS.md`, and creates structured Task Packs for tools like **Codex**, **Cursor**, **Claude Code**, and other AI coding assistants.
 
-Current version: **v0.6.4-alpha**
-Current app phase: **Phase 0.6.4 — Shadow Internal Rollout & Real Task Pack Integration**
+Current version: **v0.6.5-alpha**
+Current app phase: **Phase 0.6.5 — Shadow Precision & Abstention UX**
 
-This release closes the optional GitHub issue loop while preserving local-first desktop behavior: browser pairing, repository linking, Issue → Task Pack and Task Pack → GitHub Issue are available without uploading project source files.
+This release sharpens the opt-in Shadow selector used by real Task Pack generation: uncertain tasks now abstain instead of reporting a false success, supporting context is more compact, edit roles require stronger evidence, and exported Task Packs no longer expose the absolute local project root.
 
 ---
 
@@ -20,7 +20,10 @@ This release closes the optional GitHub issue loop while preserving local-first 
 - Saves `AGENTS.md` into the project root.
 - Creates AI Task Packs from a raw user task.
 - Supports opt-in Legacy, Compare, and Shadow selector modes for internal Task Pack rollout.
-- Shows privacy-safe local selector diagnostics and a bounded 50-run history without source content or absolute paths.
+- Lets Shadow abstain with a clear reason and Full Review actions when it cannot confirm a safe implementation target.
+- Keeps supporting context compact and limits edit roles to evidence-backed primary targets.
+- Shows privacy-safe local selector diagnostics, human-readable selection reasons, and a bounded 50-run history without source content or absolute paths.
+- Exports Task Pack project metadata without the machine-specific absolute project root.
 - Scores Task Pack quality with checks for clarity, scope, rules, acceptance criteria, verification and safety.
 - Shows Context Review Lite with selected files, reasons, snippets, warnings and review signals.
 - Shows context load/budget hints with compact, standard and detailed target modes.
@@ -120,7 +123,7 @@ STORAGE_DRIVER=sqlite
 SQLITE_DB_PATH=./data/contextforge.sqlite
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.6.4-alpha
+APP_VERSION=0.6.5-alpha
 
 # Optional GitHub integration. ContextForge works without this.
 GITHUB_OAUTH_CLIENT_ID=
@@ -136,7 +139,7 @@ STORAGE_DRIVER=postgres
 DATABASE_URL=postgresql://contextforge:contextforge@127.0.0.1:5433/contextforge
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.6.4-alpha
+APP_VERSION=0.6.5-alpha
 ```
 
 ---
@@ -205,7 +208,7 @@ Expected `/api/health` version:
 {
   "ok": true,
   "service": "contextforge-server",
-  "version": "0.6.4-alpha"
+  "version": "0.6.5-alpha"
 }
 ```
 
@@ -217,11 +220,11 @@ The current project now has a strong v0.6 alpha foundation: scanner, readiness r
 
 The main MVP gaps are now:
 
-1. Harden the core selector/safety layer for secrets, prompt injection, explicit target misses and weak fallback confidence.
-2. Package a friendly desktop build and installer/portable release.
-3. Polish onboarding and first-run guidance.
-4. Add PR / CI workflows after the core hardening pass.
-5. Keep GitHub/cloud workflows optional and local-first.
+1. Harden Ollama Task Pack generation so schema repair/retry prevents frequent template fallback.
+2. Improve task-understanding and clarification UX for highly informal or ambiguous requests.
+3. Evaluate enough live Shadow runs before considering it as the recommended/default selector.
+4. Package a friendly desktop build and installer/portable release.
+5. Polish onboarding, project details, and first-run guidance while keeping GitHub/cloud workflows optional and local-first.
 
 See:
 

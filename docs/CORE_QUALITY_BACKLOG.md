@@ -1,5 +1,35 @@
 # ContextForge Core Quality & Safety Backlog
 
+## v0.6.5-alpha — Shadow Precision & Abstention UX
+
+Completed in this phase:
+
+- Replaced empty successful Shadow selections with an explicit `abstained` decision and manual-review UX.
+- Added stable abstention reason codes for missing explicit targets, no grounded candidates, no ranked candidates, ambiguous targets, and empty Legacy selections.
+- Added focused next actions for clarification, Full Review, manual file selection, and rescanning after real file changes.
+- Tightened Context Assembly support budgets and evidence scoring to reduce unrelated pages, backend modules, migrations, and weak graph neighbours.
+- Preserved required architectural coverage for backend, full-stack, tests, docs, build, and persistence tasks.
+- Kept edit roles on grounded anchors; supporting/reference candidates remain inspect-only unless explicit or primary evidence permits editing.
+- Added human-readable selection reasons and evidence-strength labels to local diagnostics.
+- Removed business/project-specific runtime aliases from candidate retrieval. Ollama intent may still provide task-specific domain terms, while runtime selection remains project-agnostic.
+- Removed the absolute local root from exported Task Pack project metadata while preserving it internally for scanning and file reads.
+- Expanded rollout smoke coverage for abstention, privacy, compact selection, edit-role limits, history sanitization, and safe Task Pack prompts.
+
+Current rollout policy:
+
+- Existing users remain on `legacy` by default.
+- Compare continues to create the real Task Pack through Legacy and records Shadow decisions locally.
+- Shadow remains opt-in and does not use Legacy to bypass abstention, missing-target, manual-review, or safety decisions.
+- TS/JS remains the deeply supported project family; polyglot adapters are a later phase.
+
+Release checks in this source audit:
+
+- Selector smoke passed.
+- Legacy replay passed 108/108.
+- Synthetic benchmark passed 54/54 across 24 families.
+- Rollout smoke passed 32 scenarios.
+- Private 28-case real regression and sealed 40-case validation are intentionally not bundled in source archives and must be run in the maintainer environment.
+
 ## v0.6.4-alpha — Shadow Internal Rollout & Real Task Pack Integration
 
 Completed in this phase:

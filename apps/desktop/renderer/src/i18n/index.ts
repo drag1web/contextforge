@@ -475,6 +475,54 @@ const resources = {
         shadowOnly: "Shadow only",
         selectedPaths: "Selected relative paths",
         noFiles: "No files were selected.",
+        abstention: {
+          title: "Target not confirmed",
+          shadowTitle: "Shadow did not confirm a target",
+          compareNotice: "Compare still used Legacy for the actual Task Pack. Shadow's abstention is shown only as rollout evidence.",
+          nextActions: "Next safe actions",
+          codes: {
+            explicit_target_missing: "Named target is missing",
+            no_grounded_candidates: "No grounded candidates",
+            no_ranked_candidates: "No candidate passed",
+            ambiguous_target: "Target is ambiguous",
+            legacy_empty_selection: "Legacy selected nothing"
+          },
+          messages: {
+            explicit_target_missing: "The task named a target that does not exist in the current project inventory.",
+            no_grounded_candidates: "No project file had enough grounded evidence to become a safe task target.",
+            no_ranked_candidates: "Candidates were found, but none passed the deterministic selection threshold.",
+            ambiguous_target: "The task area was understood, but the implementation target could not be confirmed safely.",
+            legacy_empty_selection: "Legacy did not produce a usable file selection for this task."
+          },
+          actions: {
+            explicit_target_missing: {
+              1: "Check the target name or path.",
+              2: "Rescan the project if files changed recently.",
+              3: "Choose the intended file manually in Full Review."
+            },
+            no_grounded_candidates: {
+              1: "Mention the page, feature, symbol, route, or file more specifically.",
+              2: "Open Full Review and choose the intended file manually."
+            },
+            no_ranked_candidates: {
+              1: "Clarify the expected change or the affected feature.",
+              2: "Review the retrieved candidates and confirm files manually."
+            },
+            ambiguous_target: {
+              1: "Add the affected page, component, route, service, or behavior to the task.",
+              2: "Choose the intended file manually in Full Review."
+            },
+            legacy_empty_selection: {
+              1: "Clarify the task target.",
+              2: "Choose files manually in Full Review."
+            }
+          }
+        },
+        evidence: {
+          strong: "Strong evidence",
+          supporting: "Supporting evidence",
+          reference: "Reference only"
+        },
         none: "None",
         yes: "Yes",
         no: "No",
@@ -1129,6 +1177,54 @@ const resources = {
         shadowOnly: "Только Shadow",
         selectedPaths: "Выбранные относительные пути",
         noFiles: "Файлы не выбраны.",
+        abstention: {
+          title: "Целевая область не подтверждена",
+          shadowTitle: "Shadow не смог подтвердить цель",
+          compareNotice: "Фактический Task Pack в режиме сравнения всё равно создал Legacy. Отказ Shadow показан только как диагностический результат.",
+          nextActions: "Что можно сделать безопасно",
+          codes: {
+            explicit_target_missing: "Указанная цель не найдена",
+            no_grounded_candidates: "Нет подтверждённых кандидатов",
+            no_ranked_candidates: "Кандидаты не прошли отбор",
+            ambiguous_target: "Цель неоднозначна",
+            legacy_empty_selection: "Legacy не выбрал файлы"
+          },
+          messages: {
+            explicit_target_missing: "В задаче указана цель, которой нет в текущем inventory проекта.",
+            no_grounded_candidates: "Ни для одного файла проекта не найдено достаточно подтверждений, чтобы безопасно считать его целью задачи.",
+            no_ranked_candidates: "Кандидаты найдены, но ни один из них не прошёл детерминированный порог выбора.",
+            ambiguous_target: "Общая область задачи понятна, но конкретную цель реализации безопасно подтвердить не удалось.",
+            legacy_empty_selection: "Legacy не смог сформировать пригодный список файлов для этой задачи."
+          },
+          actions: {
+            explicit_target_missing: {
+              1: "Проверь название или путь целевого файла.",
+              2: "Пересканируй проект, если файлы недавно изменились.",
+              3: "Выбери нужный файл вручную в Full Review."
+            },
+            no_grounded_candidates: {
+              1: "Укажи страницу, функцию, символ, маршрут или файл точнее.",
+              2: "Открой Full Review и выбери нужный файл вручную."
+            },
+            no_ranked_candidates: {
+              1: "Уточни ожидаемое изменение или затронутую функцию.",
+              2: "Просмотри найденных кандидатов и подтверди файлы вручную."
+            },
+            ambiguous_target: {
+              1: "Добавь в задачу затронутую страницу, компонент, маршрут, сервис или поведение.",
+              2: "Выбери нужный файл вручную в Full Review."
+            },
+            legacy_empty_selection: {
+              1: "Уточни цель задачи.",
+              2: "Выбери файлы вручную в Full Review."
+            }
+          }
+        },
+        evidence: {
+          strong: "Сильное основание",
+          supporting: "Вспомогательный контекст",
+          reference: "Только справка"
+        },
         none: "Нет",
         yes: "Да",
         no: "Нет",

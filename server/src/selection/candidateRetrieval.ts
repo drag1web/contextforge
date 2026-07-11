@@ -163,13 +163,10 @@ function expandTechnicalToken(token: string) {
   if (/^хранилищ/u.test(token)) expanded.push("storage", "database", "db");
   if (/^сводн/u.test(token)) expanded.push("summary", "status");
   if (/^библиотек/u.test(token)) expanded.push("library");
-  if (/^игр/u.test(token)) expanded.push("game", "games");
   if (/^сортир/u.test(token)) expanded.push("sort", "sorting");
-  if (/^полк/u.test(token)) expanded.push("shelf", "shelves");
-  if (/^расч[её]т/u.test(token)) expanded.push("calculation", "calculate", "calculator", "roi");
+  if (/^расч[её]т/u.test(token)) expanded.push("calculation", "calculate", "calculator");
   if (/^нулев/u.test(token)) expanded.push("zero", "invalid");
   if (/^отриц/u.test(token)) expanded.push("negative", "invalid");
-  if (/^окупаем/u.test(token)) expanded.push("payback", "roi");
   if (/^навигац/u.test(token)) expanded.push("navigation", "nav", "header", "menu");
   if (/^мобил/u.test(token)) expanded.push("mobile", "responsive", "breakpoint");
   if (/^брейкпоинт/u.test(token)) expanded.push("breakpoint", "responsive");
@@ -177,9 +174,7 @@ function expandTechnicalToken(token: string) {
   if (/^фильтр/u.test(token)) expanded.push("filter", "filtering");
   if (/^зависим/u.test(token)) expanded.push("dependency", "dependencies");
   if (/^очеред/u.test(token)) expanded.push("queue", "queues");
-  if (/^заявк/u.test(token)) expanded.push("lead", "request", "form");
   if (/^каталог/u.test(token)) expanded.push("catalog");
-  if (/^сталь/u.test(token) || /^металл/u.test(token)) expanded.push("steel");
   if (/^валидац/u.test(token)) expanded.push("validation", "validate");
   if (/^авторизац/u.test(token) || /^аутентификац/u.test(token)) expanded.push("auth", "authentication");
   if (/^документ/u.test(token)) expanded.push("docs", "documentation");
@@ -194,7 +189,7 @@ function expandTechnicalToken(token: string) {
     if (token.endsWith("ing") && token.length > 6) expanded.push(token.slice(0, -3));
     if (token === "navigation") expanded.push("nav", "header", "menu");
     if (token === "authentication") expanded.push("auth");
-    if (token === "calculation" || token === "calculator") expanded.push("calculate", "roi");
+    if (token === "calculation" || token === "calculator") expanded.push("calculate");
     if (token === "responsive") expanded.push("breakpoint", "mobile");
     if (token === "appearance") expanded.push("theme", "style");
     if (token === "pull") expanded.push("pr");

@@ -1,0 +1,61 @@
+warning: in the working copy of '.env.example', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'CHANGELOG.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'PATCH_NOTES.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'README.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'apps/desktop/renderer/package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'apps/desktop/renderer/src/components/selector/SelectorDiagnosticsModal.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'apps/desktop/renderer/src/config/appMeta.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'apps/desktop/renderer/src/i18n/index.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'apps/desktop/renderer/src/pages/ContextComposerPage.tsx', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'apps/desktop/renderer/src/types/index.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/CORE_QUALITY_BACKLOG.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/MVP.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/ROADMAP.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'docs/SELECTOR_BENCHMARK.md', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package-lock.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'packages/shared/package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/package.json', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/src/config/index.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/src/ollama/promptEnhancers.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/src/prompt/taskPackBuilder.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/src/routes/taskPacks.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/src/rules/rulesService.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/src/selection/benchmark/benchmarkSmoke.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/src/selection/candidateRetrieval.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/src/selection/constrainedCandidateRanking.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/src/selection/contextAssemblyEngine.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/src/selection/pipelineRollout.smoke.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/src/selection/selectorPipelineOrchestrator.ts', LF will be replaced by CRLF the next time Git touches it
+warning: in the working copy of 'server/src/settings/settingsService.ts', LF will be replaced by CRLF the next time Git touches it
+ .env.example                                       |   2 [32m+[m[31m-[m
+ CHANGELOG.md                                       |  34 [32m++[m
+ PATCH_NOTES.md                                     |  86 [32m++[m[31m---[m
+ README.md                                          |  27 [32m+[m[31m-[m
+ apps/desktop/renderer/package.json                 |   2 [32m+[m[31m-[m
+ .../selector/SelectorDiagnosticsModal.tsx          |  84 [32m+++[m[31m-[m
+ apps/desktop/renderer/src/config/appMeta.ts        |   6 [32m+[m[31m-[m
+ apps/desktop/renderer/src/i18n/index.ts            |  96 [32m+++++[m
+ .../renderer/src/pages/ContextComposerPage.tsx     | 101 [32m+++[m[31m--[m
+ apps/desktop/renderer/src/types/index.ts           |  21 [32m+[m[31m-[m
+ docs/CORE_QUALITY_BACKLOG.md                       |  30 [32m++[m
+ docs/MVP.md                                        |   5 [32m+[m[31m-[m
+ docs/ROADMAP.md                                    | 141 [32m++++[m[31m---[m
+ docs/SELECTOR_BENCHMARK.md                         |   4 [32m+[m[31m-[m
+ package-lock.json                                  |  36 [32m+[m[31m-[m
+ package.json                                       |   2 [32m+[m[31m-[m
+ packages/shared/package.json                       |   2 [32m+[m[31m-[m
+ server/package.json                                |   2 [32m+[m[31m-[m
+ server/src/config/index.ts                         |   2 [32m+[m[31m-[m
+ server/src/ollama/promptEnhancers.ts               |  10 [32m+[m[31m-[m
+ server/src/prompt/taskPackBuilder.ts               |   8 [32m+[m[31m-[m
+ server/src/routes/taskPacks.ts                     |  18 [32m+[m[31m-[m
+ server/src/rules/rulesService.ts                   |  10 [32m+[m[31m-[m
+ server/src/selection/benchmark/benchmarkSmoke.ts   |  86 [32m+++++[m
+ server/src/selection/candidateRetrieval.ts         |   9 [32m+[m[31m-[m
+ .../src/selection/constrainedCandidateRanking.ts   |  89 [32m++++[m[31m-[m
+ server/src/selection/contextAssemblyEngine.ts      | 426 [32m++++++++++++++++++++[m[31m-[m
+ server/src/selection/pipelineRollout.smoke.ts      | 121 [32m+++++[m[31m-[m
+ .../src/selection/selectorPipelineOrchestrator.ts  | 192 [32m+++++++++[m[31m-[m
+ server/src/settings/settingsService.ts             |  59 [32m++[m[31m-[m
+ 30 files changed, 1464 insertions(+), 247 deletions(-)

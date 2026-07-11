@@ -22,6 +22,21 @@ export type EffectiveSelectorPipeline = "legacy" | "shadow";
 export type SelectorExecutionStatus = "success" | "fallback";
 export type SelectorQualityStatus = "ready" | "warning" | "blocked";
 export type SelectorSelectionOrigin = "pipeline" | "manual_override";
+export type SelectorDecisionOutcome = "selected" | "abstained" | "blocked";
+export type SelectorEvidenceStrength = "strong" | "supporting" | "reference";
+
+export type SelectorAbstentionReasonCode =
+  | "explicit_target_missing"
+  | "no_grounded_candidates"
+  | "no_ranked_candidates"
+  | "ambiguous_target"
+  | "legacy_empty_selection";
+
+export interface SelectorAbstention {
+  code: SelectorAbstentionReasonCode;
+  message: string;
+  nextActions: string[];
+}
 
 export type SelectorFallbackReasonCode =
   | "shadow_exception"
@@ -33,7 +48,12 @@ export type SelectorFallbackReasonCode =
 
 export interface SelectorSelectionSummary {
   pipeline: EffectiveSelectorPipeline;
-  selectedFiles: Array<{ path: string; usage: SelectedTaskFileUsage }>;
+  selectedFiles: Array<{
+    path: string;
+    usage: SelectedTaskFileUsage;
+    reason: string;
+    evidenceStrength: SelectorEvidenceStrength;
+  }>;
   primaryTarget: string | null;
   implementationArea: string;
   confidence: number;
@@ -42,6 +62,8 @@ export interface SelectorSelectionSummary {
   manualReview: boolean;
   missingTarget: boolean;
   candidateCount: number;
+  outcome: SelectorDecisionOutcome;
+  abstention: SelectorAbstention | null;
 }
 
 export interface SelectorComparisonDiagnostics {
@@ -166,6 +188,81 @@ function getPrimaryTarget(files: SelectedTaskFile[]) {
   return files.find((file) => isEditableUsage(file.usage))?.path ?? files[0]?.path ?? null;
 }
 
+function evidenceStrengthForUsage(usage: SelectedTaskFileUsage): SelectorEvidenceStrength {
+  if (usage === "inspect-and-edit" || usage === "create-and-edit") return "strong";
+  if (usage === "config-reference" || usage === "asset-reference") return "reference";
+  return "supporting";
+}
+
+function normalizeSelectionReason(value: unknown) {
+  const reason = typeof value === "string" ? value.trim() : "";
+  return reason ? reason.slice(0, 500) : "Selected from grounded project evidence.";
+}
+
+function shadowAbstentionFor(
+  retrieval: CandidateRetrievalResult,
+  ranking: ValidatedCandidateRanking,
+  selection: TaskFileSelection,
+): SelectorAbstention | null {
+  if (retrieval.blocked || selection.selectedFiles.length > 0) return null;
+
+  if (retrieval.explicitMissingPaths.length > 0) {
+    return {
+      code: "explicit_target_missing",
+      message: "The task named a target that does not exist in the current project inventory.",
+      nextActions: [
+        "Check the target name or path.",
+        "Rescan the project if files changed recently.",
+        "Choose the intended file manually in Full Review.",
+      ],
+    };
+  }
+
+  if (retrieval.candidates.length === 0) {
+    return {
+      code: "no_grounded_candidates",
+      message: "No project file had enough grounded evidence to become a safe task target.",
+      nextActions: [
+        "Mention the page, feature, symbol, route, or file more specifically.",
+        "Open Full Review and choose the intended file manually.",
+      ],
+    };
+  }
+
+  if (ranking.selected.length === 0) {
+    return {
+      code: "no_ranked_candidates",
+      message: "Candidates were found, but none passed the deterministic selection threshold.",
+      nextActions: [
+        "Clarify the expected change or the affected feature.",
+        "Review the retrieved candidates and confirm files manually.",
+      ],
+    };
+  }
+
+  return {
+    code: "ambiguous_target",
+    message: "The task area was understood, but the implementation target could not be confirmed safely.",
+    nextActions: [
+      "Add the affected page, component, route, service, or behavior to the task.",
+      "Choose the intended file manually in Full Review.",
+    ],
+  };
+}
+
+function legacyAbstentionFor(selection: TaskFileSelection): SelectorAbstention | null {
+  const flags = getSelectionFlags(selection);
+  if (flags.blocked || selection.selectedFiles.length > 0) return null;
+  return {
+    code: "legacy_empty_selection",
+    message: "Legacy did not produce a usable file selection for this task.",
+    nextActions: [
+      "Clarify the task target.",
+      "Choose files manually in Full Review.",
+    ],
+  };
+}
+
 function selectionConfidence(selection: TaskFileSelection) {
   const explicit = selection.diagnostics?.finalConfidence;
   if (typeof explicit === "number" && Number.isFinite(explicit)) {
@@ -181,19 +278,29 @@ function buildSummary(
   selection: TaskFileSelection,
   candidateCount: number,
   missingTarget: boolean,
+  abstention: SelectorAbstention | null = null,
 ): SelectorSelectionSummary {
   const flags = getSelectionFlags(selection);
+  const blocked = flags.blocked;
+  const selected = selection.selectedFiles.length > 0;
   return {
     pipeline,
-    selectedFiles: selection.selectedFiles.map((file) => ({ path: normalizeRelativePath(file.path), usage: file.usage })),
+    selectedFiles: selection.selectedFiles.map((file) => ({
+      path: normalizeRelativePath(file.path),
+      usage: file.usage,
+      reason: normalizeSelectionReason(file.reason),
+      evidenceStrength: evidenceStrengthForUsage(file.usage),
+    })),
     primaryTarget: getPrimaryTarget(selection.selectedFiles),
     implementationArea: selection.effectiveTaskArea,
-    confidence: flags.blocked ? 0 : selectionConfidence(selection),
+    confidence: blocked ? 0 : selectionConfidence(selection),
     quality: null,
-    blocked: flags.blocked,
+    blocked,
     manualReview: flags.manualReview,
-    missingTarget,
+    missingTarget: missingTarget || (!blocked && !selected),
     candidateCount,
+    outcome: blocked ? "blocked" : selected ? "selected" : "abstained",
+    abstention: blocked || selected ? null : abstention,
   };
 }
 
@@ -335,7 +442,7 @@ function shadowSelectionFromResult(
     effectiveTaskArea: retrieval.implementationArea,
     assetMode: selectedFiles.some((file) => file.usage === "asset-reference") ? "mixed" : "none",
     diagnostics: {
-      selectorVersion: "v0.6.4-shadow-rollout",
+      selectorVersion: "v0.6.5-shadow-precision",
       safetyProfile: "shadow-validated",
       generationMode: settings.generationMode,
       model: null,
@@ -412,19 +519,32 @@ export function finalizeSelectorDiagnostics(
   selection?: TaskFileSelection,
   options: { manualSelectionApplied?: boolean } = {},
 ) {
+  const selectionHasFiles = (selection?.selectedFiles.length ?? diagnostics.actual.selectedFiles.length) > 0;
+  const selectorRequestedManualReview = diagnostics.actual.manualReview;
+  const finalManualReview = options.manualSelectionApplied && selectionHasFiles
+    ? quality.requiredManualReview
+    : selectorRequestedManualReview || quality.requiredManualReview;
+  const finalMissingTarget = options.manualSelectionApplied && selectionHasFiles
+    ? false
+    : diagnostics.actual.missingTarget || !selectionHasFiles;
   const confidence = quality.status === "blocked"
     ? 0
-    : quality.requiredManualReview
+    : finalManualReview
       ? Math.min(45, quality.signals?.confidence ?? diagnostics.actual.confidence)
       : quality.signals?.confidence ?? diagnostics.actual.confidence;
   const executionStatus: SelectorExecutionStatus = diagnostics.fallback ? "fallback" : diagnostics.executionStatus;
+  const selectorSafetyBlocked = diagnostics.actual.blocked;
+  const abstained = !selectionHasFiles && !selectorSafetyBlocked;
+  const qualityBlockedWithSelection = quality.status === "blocked" && selectionHasFiles;
+  const finalBlocked = selectorSafetyBlocked || qualityBlockedWithSelection;
   const status = executionStatus === "fallback"
     ? "fallback" as const
-    : quality.status === "blocked"
+    : finalBlocked
       ? "blocked" as const
-      : quality.requiredManualReview
+      : abstained || finalManualReview
         ? "manual-review" as const
         : "success" as const;
+  const manualOverrideResolvedAbstention = options.manualSelectionApplied && selectionHasFiles;
   return {
     ...diagnostics,
     status,
@@ -435,15 +555,27 @@ export function finalizeSelectorDiagnostics(
       ...diagnostics.actual,
       ...(selection
         ? {
-            selectedFiles: selection.selectedFiles.map((file) => ({ path: normalizeRelativePath(file.path), usage: file.usage })),
+            selectedFiles: selection.selectedFiles.map((file) => ({
+              path: normalizeRelativePath(file.path),
+              usage: file.usage,
+              reason: normalizeSelectionReason(file.reason),
+              evidenceStrength: evidenceStrengthForUsage(file.usage),
+            })),
             primaryTarget: getPrimaryTarget(selection.selectedFiles),
             implementationArea: selection.effectiveTaskArea,
           }
         : {}),
       confidence: Math.max(0, Math.min(100, Math.round(confidence))),
       quality: quality.score,
-      blocked: quality.status === "blocked",
-      manualReview: quality.requiredManualReview,
+      blocked: finalBlocked,
+      manualReview: abstained || finalManualReview,
+      missingTarget: finalMissingTarget,
+      outcome: finalBlocked
+        ? "blocked" as const
+        : selectionHasFiles
+          ? "selected" as const
+          : "abstained" as const,
+      abstention: manualOverrideResolvedAbstention ? null : diagnostics.actual.abstention,
     },
   };
 }
@@ -489,7 +621,13 @@ export async function runSelectorPipeline(
 
   if (requestedMode === "legacy") {
     const selection = await runLegacy();
-    const summary = buildSummary("legacy", selection, selection.selectedFiles.length, false);
+    const summary = buildSummary(
+      "legacy",
+      selection,
+      selection.selectedFiles.length,
+      selection.selectedFiles.length === 0,
+      legacyAbstentionFor(selection),
+    );
     return {
       selection,
       diagnostics: {
@@ -514,7 +652,13 @@ export async function runSelectorPipeline(
     const [legacySettled, shadowSettled] = await Promise.allSettled([runLegacy(), runShadow()]);
     if (legacySettled.status === "rejected") throw legacySettled.reason;
     const legacySelection = legacySettled.value;
-    const legacySummary = buildSummary("legacy", legacySelection, legacySelection.selectedFiles.length, false);
+    const legacySummary = buildSummary(
+      "legacy",
+      legacySelection,
+      legacySelection.selectedFiles.length,
+      legacySelection.selectedFiles.length === 0,
+      legacyAbstentionFor(legacySelection),
+    );
     let shadowSummary: SelectorSelectionSummary | null = null;
     let comparison: SelectorComparisonDiagnostics | null = null;
     let shadowFailure: SelectorPipelineDiagnostics["shadowFailure"] = null;
@@ -523,7 +667,13 @@ export async function runSelectorPipeline(
         "shadow",
         shadowSettled.value.selection,
         shadowSettled.value.raw.retrieval.candidates.length,
-        shadowSettled.value.raw.retrieval.explicitMissingPaths.length > 0,
+        shadowSettled.value.raw.retrieval.explicitMissingPaths.length > 0 ||
+          shadowSettled.value.selection.selectedFiles.length === 0,
+        shadowAbstentionFor(
+          shadowSettled.value.raw.retrieval,
+          shadowSettled.value.raw.ranking,
+          shadowSettled.value.selection,
+        ),
       );
       comparison = compareSummaries(legacySummary, shadowSummary);
     } else {
@@ -556,7 +706,9 @@ export async function runSelectorPipeline(
       "shadow",
       shadow.selection,
       shadow.raw.retrieval.candidates.length,
-      shadow.raw.retrieval.explicitMissingPaths.length > 0,
+      shadow.raw.retrieval.explicitMissingPaths.length > 0 ||
+        shadow.selection.selectedFiles.length === 0,
+      shadowAbstentionFor(shadow.raw.retrieval, shadow.raw.ranking, shadow.selection),
     );
     return {
       selection: shadow.selection,
@@ -579,7 +731,13 @@ export async function runSelectorPipeline(
   } catch (rawError) {
     const error = technicalError(rawError);
     const legacySelection = await runLegacy();
-    const legacySummary = buildSummary("legacy", legacySelection, legacySelection.selectedFiles.length, false);
+    const legacySummary = buildSummary(
+      "legacy",
+      legacySelection,
+      legacySelection.selectedFiles.length,
+      legacySelection.selectedFiles.length === 0,
+      legacyAbstentionFor(legacySelection),
+    );
     return {
       selection: legacySelection,
       diagnostics: {

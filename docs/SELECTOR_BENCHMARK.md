@@ -1,8 +1,8 @@
 # Selector Benchmark
 
-## v0.6.4 internal rollout status
+## v0.6.5 precision and abstention status
 
-The validated Shadow pipeline is now connected to real Context Composer and Task Pack generation behind an explicit local setting:
+The validated Shadow pipeline remains connected to real Context Composer and Task Pack generation behind an explicit local setting:
 
 - `legacy` — current production selector only; default for existing users.
 - `shadow_compare` — Legacy creates the Task Pack while Shadow runs against the same inventory snapshot and records local comparison diagnostics.

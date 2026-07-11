@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, Copy, GitCompareArrows, ShieldCheck, Timer, Workflow } from "lucide-react";
+import { Check, CircleHelp, Copy, GitCompareArrows, ShieldCheck, Timer, Workflow } from "lucide-react";
 
 import type { SelectorPipelineDiagnostics } from "../../types";
 import { Button } from "../ui/Button";
@@ -17,6 +17,15 @@ function Metric({ label, value }: { label: string; value: string }) {
   );
 }
 
+
+const ABSTENTION_ACTION_COUNTS: Record<string, number> = {
+  explicit_target_missing: 3,
+  no_grounded_candidates: 2,
+  no_ranked_candidates: 2,
+  ambiguous_target: 2,
+  legacy_empty_selection: 2,
+};
+
 export function SelectorDiagnosticsModal({
   diagnostics,
   onClose,
@@ -32,6 +41,20 @@ export function SelectorDiagnosticsModal({
     ? t("selectorDiagnostics.badges.shadow")
     : t("selectorDiagnostics.badges.legacy");
   const stateKey = diagnostics.status === "manual-review" ? "manualReview" : diagnostics.status;
+
+  function abstentionMessage(abstention: NonNullable<SelectorPipelineDiagnostics["actual"]["abstention"]>) {
+    return t(`selectorDiagnostics.abstention.messages.${abstention.code}`, {
+      defaultValue: abstention.message,
+    });
+  }
+
+  function abstentionActions(abstention: NonNullable<SelectorPipelineDiagnostics["actual"]["abstention"]>) {
+    const count = ABSTENTION_ACTION_COUNTS[abstention.code] ?? abstention.nextActions.length;
+    return Array.from({ length: count }, (_, index) => t(
+      `selectorDiagnostics.abstention.actions.${abstention.code}.${index + 1}`,
+      { defaultValue: abstention.nextActions[index] ?? "" },
+    )).filter(Boolean);
+  }
 
   async function copyDiagnostics() {
     await navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2));
@@ -91,6 +114,53 @@ export function SelectorDiagnosticsModal({
             <div className="mt-4 rounded-2xl border border-sky-500/25 bg-sky-500/5 p-4 text-sm text-sky-100">
               <strong>{t("selectorDiagnostics.compareFailureTitle")} · {diagnostics.shadowFailure.code}</strong>
               <p className="mt-1 text-sky-100/65">{diagnostics.shadowFailure.message}</p>
+            </div>
+          )}
+
+
+          {diagnostics.actual.outcome === "abstained" && diagnostics.actual.abstention && (
+            <div className="mt-4 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-4 text-sm text-amber-50">
+              <div className="flex items-start gap-3">
+                <CircleHelp className="mt-0.5 shrink-0 text-amber-300" size={17} />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong>{t("selectorDiagnostics.abstention.title")}</strong>
+                    <span className="cf-badge">{t(`selectorDiagnostics.abstention.codes.${diagnostics.actual.abstention.code}`)}</span>
+                  </div>
+                  <p className="mt-2 leading-6 text-amber-100/70">{abstentionMessage(diagnostics.actual.abstention)}</p>
+                  {abstentionActions(diagnostics.actual.abstention).length > 0 && (
+                    <div className="mt-3">
+                      <p className="cf-tech-label text-[10px] uppercase text-amber-200/45">
+                        {t("selectorDiagnostics.abstention.nextActions")}
+                      </p>
+                      <ul className="mt-2 space-y-1.5 text-xs leading-5 text-amber-100/65">
+                        {abstentionActions(diagnostics.actual.abstention).map((action) => (
+                          <li key={action}>• {action}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+
+          {diagnostics.requestedMode === "shadow_compare" && diagnostics.shadow?.outcome === "abstained" && diagnostics.shadow.abstention && (
+            <div className="mt-4 rounded-2xl border border-sky-400/25 bg-sky-400/[0.05] p-4 text-sm text-sky-50">
+              <div className="flex items-start gap-3">
+                <CircleHelp className="mt-0.5 shrink-0 text-sky-300" size={17} />
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <strong>{t("selectorDiagnostics.abstention.shadowTitle")}</strong>
+                    <span className="cf-badge">{t(`selectorDiagnostics.abstention.codes.${diagnostics.shadow.abstention.code}`)}</span>
+                  </div>
+                  <p className="mt-2 leading-6 text-sky-100/70">{abstentionMessage(diagnostics.shadow.abstention)}</p>
+                  <p className="mt-2 text-xs leading-5 text-sky-100/50">
+                    {t("selectorDiagnostics.abstention.compareNotice")}
+                  </p>
+                </div>
+              </div>
             </div>
           )}
         </section>
@@ -166,9 +236,15 @@ export function SelectorDiagnosticsModal({
             {diagnostics.actual.selectedFiles.length === 0 ? (
               <p className="text-sm text-neutral-600">{t("selectorDiagnostics.noFiles")}</p>
             ) : diagnostics.actual.selectedFiles.map((file) => (
-              <div key={`${file.path}:${file.usage}`} className="flex items-center justify-between gap-4 rounded-xl border border-neutral-900 px-3 py-2">
-                <code className="min-w-0 truncate text-xs text-neutral-300">{file.path}</code>
-                <span className="cf-badge shrink-0">{file.usage}</span>
+              <div key={`${file.path}:${file.usage}`} className="rounded-xl border border-neutral-900 px-3 py-3">
+                <div className="flex items-start justify-between gap-4">
+                  <code className="min-w-0 break-all text-xs text-neutral-200">{file.path}</code>
+                  <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                    <span className="cf-badge">{file.usage}</span>
+                    <span className="cf-badge">{t(`selectorDiagnostics.evidence.${file.evidenceStrength}`)}</span>
+                  </div>
+                </div>
+                <p className="mt-2 text-xs leading-5 text-neutral-500">{file.reason}</p>
               </div>
             ))}
           </div>

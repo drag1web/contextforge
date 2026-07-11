@@ -108,7 +108,7 @@ Not required for the MVP:
 
 ## MVP release checklist
 
-- [x] Versions are synced to `0.6.0-alpha`.
+- [x] Versions are synced to `0.6.5-alpha`.
 - [x] README describes the actual project state.
 - [x] `/api/health` returns the current version.
 - [x] SQLite storage is available for desktop.
@@ -119,6 +119,9 @@ Not required for the MVP:
 - [x] Scanner is stable across several project types.
 - [x] Task Pack Quality Score is available before export.
 - [x] Context Review Lite explains selected files, warnings and context load.
+- [x] Legacy, Compare and Shadow selector modes are connected to real Task Pack generation.
+- [x] Shadow abstains instead of reporting success when it cannot confirm a safe target.
+- [x] Exported Task Packs omit the absolute local project root.
 - [x] Local Git status detects branch, latest commit, dirty state and staged/unstaged/untracked files.
 - [x] Changed files can be added to Task Pack drafts as awareness-only context.
 - [x] Diff Review Lite summarizes local changes, review signals, suggested verification and Task Pack alignment.

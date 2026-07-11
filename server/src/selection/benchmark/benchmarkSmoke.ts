@@ -416,6 +416,52 @@ async function main() {
   );
   await fs.rm(supportDir, { recursive: true, force: true });
 
+  const authSupportDir = await fs.mkdtemp(path.join(os.tmpdir(), "contextforge-auth-config-support-"));
+  const writeAuthSupportFile = async (relativePath: string, content = "export const value = true;") => {
+    const absolutePath = path.join(authSupportDir, relativePath);
+    await fs.mkdir(path.dirname(absolutePath), { recursive: true });
+    await fs.writeFile(absolutePath, content, "utf8");
+  };
+  await writeAuthSupportFile(
+    "server/auth.ts",
+    "export function validateTokenExpiration() { return true; }",
+  );
+  await writeAuthSupportFile(
+    "server/config.ts",
+    "export const config = { port: 3000 };",
+  );
+  await writeAuthSupportFile(
+    "server/index.ts",
+    "import { validateTokenExpiration } from './auth'; export const server = validateTokenExpiration;",
+  );
+  await writeAuthSupportFile("server/ai.ts");
+  await writeAuthSupportFile("server/db.ts");
+  await writeAuthSupportFile("src/assets/react.svg", "<svg />");
+  const authSupportInventory = await scanProjectInventory(authSupportDir);
+  const authSupportRetrieval = retrieveCandidates({
+    rawTask: "Add token expiration validation to the server authentication flow. Do not change the React client.",
+    requestedTaskType: "backend",
+    inventory: authSupportInventory,
+  });
+  const authSupportRanking = deterministicCandidateRanking(authSupportRetrieval);
+  assert.equal(
+    authSupportRanking.selected.some((candidate) =>
+      candidate.path === "server/auth.ts" && candidate.usage === "inspect-and-edit"
+    ),
+    true,
+  );
+  assert.equal(
+    authSupportRanking.selected.some((candidate) => candidate.path === "server/index.ts"),
+    true,
+  );
+  assert.equal(
+    authSupportRanking.selected.some((candidate) =>
+      candidate.path === "server/config.ts" && candidate.usage !== "inspect-and-edit"
+    ),
+    true,
+  );
+  await fs.rm(authSupportDir, { recursive: true, force: true });
+
   const stabilizationDir = await fs.mkdtemp(path.join(os.tmpdir(), "contextforge-assembly-stabilization-"));
   const writeStabilizationFile = async (relativePath: string, content = "export const value = true;") => {
     const absolutePath = path.join(stabilizationDir, relativePath);
@@ -468,6 +514,46 @@ async function main() {
   assert.equal(mobileNavigationRetrieval.candidates.some((candidate) => candidate.path === "metall-perm/src/app/(site)/layout.tsx"), true);
   assert.equal(mobileNavigation.selected.some((candidate) => candidate.path === "metall-perm/src/app/(site)/layout.tsx"), true);
   assert.equal(mobileNavigation.selected.some((candidate) => candidate.path === "metall-perm/src/components/site/HeaderNav.tsx" && candidate.usage === "inspect-and-edit"), true);
+
+  await writeStabilizationFile(
+    "src/pages/MappingPage.tsx",
+    "import { Dropdown } from '../components/Dropdown'; import { Button } from '../ui/Button'; export function MappingPage() { return <><Dropdown /><Button /></>; }",
+  );
+  await writeStabilizationFile("src/components/Dropdown.tsx", "export function Dropdown() { return null; }");
+  await writeStabilizationFile("src/ui/Button.tsx", "export function Button() { return null; }");
+  await writeStabilizationFile("src/auth/AuthContext.tsx", "export const AuthContext = true;");
+  await writeStabilizationFile("src/ui/cn.ts", "export function cn() { return ''; }");
+  await writeStabilizationFile("src/hooks/useBreakpoint.js", "import '../App.css'; export function useBreakpoint() { return false; }");
+  await writeStabilizationFile("src/App.css", ".app { display: block; }");
+  const retentionInventory = await scanProjectInventory(stabilizationDir);
+
+  const mappingControls = deterministicCandidateRanking(retrieveCandidates({
+    rawTask: "Improve the mapping controls UX and keep backend behavior unchanged.",
+    requestedTaskType: "ui",
+    inventory: retentionInventory,
+  }));
+  assert.equal(mappingControls.selected.some((candidate) => candidate.path === "src/pages/MappingPage.tsx"), true);
+  assert.equal(mappingControls.selected.some((candidate) => candidate.path === "src/components/Dropdown.tsx"), true);
+  assert.equal(mappingControls.selected.some((candidate) => candidate.path === "src/ui/Button.tsx"), true);
+
+  const breakpointRefactor = deterministicCandidateRanking(retrieveCandidates({
+    rawTask: "Extract repeated responsive logic into useBreakpoint and keep the visual layout unchanged.",
+    requestedTaskType: "refactor",
+    inventory: retentionInventory,
+  }));
+  assert.equal(breakpointRefactor.selected.some((candidate) => candidate.path === "src/hooks/useBreakpoint.js"), true);
+  assert.equal(breakpointRefactor.selected.some((candidate) => candidate.path === "src/App.css"), true);
+
+  const coreSupport = deterministicCandidateRanking(retrieveCandidates({
+    rawTask: "Доработай fallback scoring и manual review в ядре ContextForge",
+    requestedTaskType: "general",
+    inventory: getBenchmarkFixture("selector-core"),
+  }));
+  assert.equal(coreSupport.selected.some((candidate) =>
+    candidate.path === "server/src/selection/projectSemanticGraph.ts" ||
+    candidate.path === "server/src/ollama/taskFileSelector.replay.ts"
+  ), true);
+
   await fs.rm(stabilizationDir, { recursive: true, force: true });
 
   const validationCases = Array.from({ length: 24 }, (_, index): SelectorBenchmarkCase => {

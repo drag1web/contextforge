@@ -675,6 +675,73 @@ function deterministicUsage(
   return candidate.proposedUsage;
 }
 
+function roleLabel(candidate: RetrievedCandidate) {
+  const role = effectiveCandidateRole(candidate);
+  if (role === "page") return "page";
+  if (role === "component" || role === "ui-component") return "UI component";
+  if (role === "layout") return "layout";
+  if (role === "style") return "style file";
+  if (role === "hook") return "hook";
+  if (role === "client-api") return "client API module";
+  if (role === "api-route") return "API route";
+  if (role === "service") return "service";
+  if (role === "repository") return "repository";
+  if (role === "db-schema" || role === "store") return "storage module";
+  if (role === "types") return "shared types file";
+  if (role === "test") return "test file";
+  if (role === "docs") return "documentation file";
+  if (role === "config") return "configuration file";
+  return "project file";
+}
+
+function hasDirectSupportRelationship(candidate: RetrievedCandidate, anchorPaths: ReadonlySet<string>) {
+  return candidate.graphRelationships.some((relationship) => anchorPaths.has(relationship.relatedPath.toLowerCase()) && [
+    "service-import",
+    "utility-import",
+    "storage-import",
+    "types-import",
+    "client-api-import",
+    "hook-import",
+    "component-import",
+    "style-import",
+    "route-local",
+    "test-target",
+    "proposed-test",
+    "import",
+  ].includes(relationship.kind));
+}
+
+function humanSelectionReason(
+  candidate: RetrievedCandidate,
+  usage: SelectedTaskFileUsage,
+  anchorIds: Set<string>,
+  anchorPaths: ReadonlySet<string>,
+) {
+  const label = roleLabel(candidate);
+  if (candidate.explicit) {
+    return `Explicitly named in the task and confirmed as a real ${label} in the project inventory.`;
+  }
+  if (anchorIds.has(candidate.candidateId)) {
+    if (candidate.filenameMatchCount > 0 || candidate.identityMatchCount > 0) {
+      return `Primary ${label} whose path, name, or symbols directly match the task target.`;
+    }
+    if (candidate.roleIntentMatch) {
+      return `Primary ${label} whose technical responsibility matches the requested change.`;
+    }
+    return `Primary ${label} selected from the strongest grounded project evidence.`;
+  }
+  if (hasDirectSupportRelationship(candidate, anchorPaths)) {
+    return `Supporting ${label} directly connected to the primary target through project imports or structural relationships.`;
+  }
+  if (candidate.filenameMatchCount > 0 || candidate.identityMatchCount > 0) {
+    return `Supporting ${label} that shares task-specific names or symbols with the requested change.`;
+  }
+  if (usage === "config-reference" || usage === "asset-reference") {
+    return `Reference ${label} included only to preserve relevant project configuration or asset context.`;
+  }
+  return `Supporting ${label} retained as contextual evidence for the selected implementation target.`;
+}
+
 export function deterministicCandidateRanking(
   retrieval: CandidateRetrievalResult,
   maxSelected?: number,
@@ -696,15 +763,21 @@ export function deterministicCandidateRanking(
     isGroundedSelectionCandidate(candidate, retrieval, topScore),
   );
   const ranked = assembleContextCandidates(grounded, retrieval, selectionLimit);
+  const anchorPaths = new Set(
+    ranked.candidates
+      .filter((candidate) => ranked.anchorIds.has(candidate.candidateId))
+      .map((candidate) => candidate.path.toLowerCase()),
+  );
   const payload: CandidateRankingPayload = {
-    selected: ranked.candidates.map((candidate) => ({
-      candidateId: candidate.candidateId,
-      usage: deterministicUsage(candidate, retrieval, ranked.anchorIds),
-      reason:
-        candidate.evidence.join("; ") ||
-        "Grounded deterministic retrieval candidate.",
-      confidence: Math.max(0.25, Math.min(0.92, candidate.score / 180)),
-    })),
+    selected: ranked.candidates.map((candidate) => {
+      const usage = deterministicUsage(candidate, retrieval, ranked.anchorIds);
+      return {
+        candidateId: candidate.candidateId,
+        usage,
+        reason: humanSelectionReason(candidate, usage, ranked.anchorIds, anchorPaths),
+        confidence: Math.max(0.25, Math.min(0.92, candidate.score / 180)),
+      };
+    }),
     manualReview: ranked.candidates.length === 0,
     reason:
       ranked.candidates.length > 0

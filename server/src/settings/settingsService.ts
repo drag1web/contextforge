@@ -6,6 +6,7 @@ import {
   sanitizeSelectorDiagnosticMessage,
   type SelectorPipelineDiagnostics,
   type SelectorFallbackReasonCode,
+  type SelectorAbstentionReasonCode,
 } from "../selection/selectorPipelineOrchestrator.js";
 
 export type SelectorPipelineMode = "legacy" | "shadow_compare" | "shadow_primary";
@@ -271,6 +272,14 @@ const selectorUsageRoles = new Set([
   "asset-reference",
   "config-reference",
 ]);
+const selectorEvidenceStrengths = new Set(["strong", "supporting", "reference"]);
+const selectorAbstentionCodes = new Set<SelectorAbstentionReasonCode>([
+  "explicit_target_missing",
+  "no_grounded_candidates",
+  "no_ranked_candidates",
+  "ambiguous_target",
+  "legacy_empty_selection",
+]);
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
@@ -311,9 +320,41 @@ function normalizeSummary(
     ? record.selectedFiles.flatMap((fileValue) => {
         const file = asRecord(fileValue);
         if (!file || !isSafeDiagnosticPath(file.path) || !selectorUsageRoles.has(file.usage as string)) return [];
-        return [{ path: file.path, usage: file.usage as SelectorPipelineDiagnostics["actual"]["selectedFiles"][number]["usage"] }];
+        return [{
+          path: file.path,
+          usage: file.usage as SelectorPipelineDiagnostics["actual"]["selectedFiles"][number]["usage"],
+          reason: typeof file.reason === "string" && file.reason.trim()
+            ? sanitizeSelectorDiagnosticMessage(file.reason).slice(0, 500)
+            : "Selected from grounded project evidence.",
+          evidenceStrength: selectorEvidenceStrengths.has(file.evidenceStrength as string)
+            ? file.evidenceStrength as SelectorPipelineDiagnostics["actual"]["selectedFiles"][number]["evidenceStrength"]
+            : file.usage === "inspect-and-edit" || file.usage === "create-and-edit"
+              ? "strong"
+              : file.usage === "config-reference" || file.usage === "asset-reference"
+                ? "reference"
+                : "supporting",
+        }];
       })
     : [];
+  const abstentionRecord = asRecord(record.abstention);
+  const abstention = abstentionRecord && selectorAbstentionCodes.has(abstentionRecord.code as SelectorAbstentionReasonCode)
+    ? {
+        code: abstentionRecord.code as SelectorAbstentionReasonCode,
+        message: sanitizeSelectorDiagnosticMessage(abstentionRecord.message),
+        nextActions: Array.isArray(abstentionRecord.nextActions)
+          ? abstentionRecord.nextActions
+              .filter((value): value is string => typeof value === "string" && Boolean(value.trim()))
+              .map((value) => sanitizeSelectorDiagnosticMessage(value).slice(0, 240))
+              .slice(0, 5)
+          : [],
+      }
+    : null;
+  const blocked = record.blocked === true;
+  const outcome = record.outcome === "blocked" || blocked
+    ? "blocked"
+    : record.outcome === "abstained" || (selectedFiles.length === 0 && !blocked)
+      ? "abstained"
+      : "selected";
   return {
     pipeline,
     selectedFiles,
@@ -325,10 +366,12 @@ function normalizeSummary(
     quality: typeof record.quality === "number" && Number.isFinite(record.quality)
       ? Math.round(finiteNumber(record.quality, 0, 0, 100))
       : null,
-    blocked: record.blocked === true,
+    blocked,
     manualReview: record.manualReview === true,
     missingTarget: record.missingTarget === true,
     candidateCount: Math.round(finiteNumber(record.candidateCount, 0, 0, 10_000)),
+    outcome,
+    abstention: outcome === "abstained" ? abstention : null,
   };
 }
 
@@ -370,11 +413,13 @@ function normalizeSelectorDiagnosticsRecord(value: unknown): SelectorPipelineDia
         : "ready";
   const status = executionStatus === "fallback"
     ? "fallback"
-    : qualityStatus === "blocked"
-      ? "blocked"
-      : actual.manualReview
-        ? "manual-review"
-        : "success";
+    : actual.outcome === "abstained"
+      ? "manual-review"
+      : qualityStatus === "blocked"
+        ? "blocked"
+        : actual.manualReview
+          ? "manual-review"
+          : "success";
   const timings = asRecord(record.timings);
 
   return {

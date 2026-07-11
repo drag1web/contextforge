@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 
 import type { TaskFileSelection } from "../ollama/taskFileSelector.js";
+import { buildTaskPackPrompt } from "../prompt/taskPackBuilder.js";
+import { buildExportSafeProjectMetadata } from "../taskPacks/taskPackPrivacy.js";
 import type { AppSettings } from "../settings/settingsService.js";
 import {
   normalizeSelectorDiagnosticsHistory,
@@ -215,8 +217,18 @@ async function main() {
     actual: {
       ...diagnostic.actual,
       selectedFiles: [
-        { path: "C:/Users/private/source.ts", usage: "inspect-and-edit" as const },
-        { path: "src/source.ts", usage: "inspect-only" as const },
+        {
+          path: "C:/Users/private/source.ts",
+          usage: "inspect-and-edit" as const,
+          reason: "Primary source content at C:/Users/private/source.ts token=super-secret",
+          evidenceStrength: "strong" as const,
+        },
+        {
+          path: "src/source.ts",
+          usage: "inspect-only" as const,
+          reason: "Supporting project source content.",
+          evidenceStrength: "supporting" as const,
+        },
       ],
       primaryTarget: "C:/Users/private/source.ts",
     },
@@ -228,7 +240,8 @@ async function main() {
   assert.equal(history.length, 50);
   assert.equal(history[0]?.actual.primaryTarget, null);
   assert.deepEqual(history[0]?.actual.selectedFiles.map((file) => file.path), ["src/source.ts"]);
-  assert.equal(JSON.stringify(history).includes("source content"), false);
+  assert.equal(history[0]?.actual.selectedFiles[0]?.reason, "Supporting project source content.");
+  assert.equal(JSON.stringify(history).includes("Primary source content at"), false);
   assert.equal(JSON.stringify(history).includes("C:/Users"), false);
   assert.equal(JSON.stringify(history).includes("super-secret"), false);
   assert.equal(history[0]?.fallback?.message.includes("[local-path]"), true);
@@ -279,10 +292,110 @@ async function main() {
   assert.equal(manualOverride.selectionOrigin, "manual_override");
   assert.equal(manualOverride.actual.primaryTarget, "src/components/Card.tsx");
 
+  let abstentionLegacyCalls = 0;
+  const abstentionInventory = getBenchmarkFixture("react-stack");
+  const abstentionResult = await runSelectorPipeline({
+    rawTask: "Improve Dashboard cards",
+    taskType: "ui",
+    targetTool: "codex",
+    inventory: abstentionInventory,
+    settings: { ...settings, selectorPipelineMode: "shadow_primary" },
+    projectRef: "abstention-fixture",
+  }, {
+    runLegacy: async () => {
+      abstentionLegacyCalls += 1;
+      return legacySelection();
+    },
+    runShadow: async () => {
+      const value = shadowFor("Improve Dashboard cards");
+      return {
+        ...value,
+        ranking: {
+          ...value.ranking,
+          selected: [],
+          manualReview: true,
+          reason: "No candidate passed the deterministic ranking threshold.",
+          valid: true,
+        },
+      };
+    },
+  });
+  assert.equal(abstentionLegacyCalls, 0);
+  assert.equal(abstentionResult.diagnostics.status, "manual-review");
+  assert.equal(abstentionResult.diagnostics.actual.outcome, "abstained");
+  assert.equal(abstentionResult.diagnostics.actual.blocked, false);
+  assert.equal(abstentionResult.diagnostics.actual.manualReview, true);
+  assert.equal(abstentionResult.diagnostics.actual.missingTarget, true);
+  assert.equal(abstentionResult.diagnostics.actual.abstention?.code, "no_ranked_candidates");
+
+  const finalizedAbstention = finalizeSelectorDiagnostics(abstentionResult.diagnostics, {
+    score: 10,
+    status: "blocked",
+    requiredManualReview: true,
+    signals: { confidence: 12 },
+  }, abstentionResult.selection);
+  assert.equal(finalizedAbstention.status, "manual-review");
+  assert.equal(finalizedAbstention.actual.outcome, "abstained");
+  assert.equal(finalizedAbstention.actual.blocked, false);
+  assert.equal(finalizedAbstention.actual.abstention?.nextActions.length, 2);
+
+  const settingsRetrieval = retrieveCandidates({
+    rawTask: "On SettingsPage change the heading copy only without redesigning the page",
+    requestedTaskType: "ui",
+    inventory: getBenchmarkFixture("react-stack"),
+  });
+  const settingsRanking = deterministicCandidateRanking(settingsRetrieval);
+  assert.equal(settingsRanking.selected[0]?.path, "src/pages/SettingsPage.tsx");
+  assert.ok(settingsRanking.selected.length <= 3, `Expected compact Settings context, got ${settingsRanking.selected.length}`);
+  assert.equal(settingsRanking.selected.some((file) => file.path === "src/pages/DashboardPage.tsx"), false);
+  assert.equal(settingsRanking.selected.filter((file) => file.usage === "inspect-and-edit").length, 1);
+  assert.equal(settingsRanking.selected.some((file) => /filename-token-match|lexical-path|graph-neighbor/i.test(file.reason)), false);
+
+  const projectWithPrivateRoot = {
+    name: "Privacy fixture",
+    localPath: "C:/Users/private/projects/privacy-fixture",
+    packageManager: "npm",
+    detectedStack: ["TypeScript"],
+    scripts: { build: "tsc" },
+    readinessScore: 91,
+  };
+  const safeMetadata = buildExportSafeProjectMetadata(projectWithPrivateRoot);
+  assert.equal("localPath" in safeMetadata, false);
+  assert.equal(safeMetadata.projectRoot, "<local-project>");
+  assert.equal(JSON.stringify(safeMetadata).includes("C:/Users/private"), false);
+
+  const safePrompt = buildTaskPackPrompt({
+    project: {
+      ...projectWithPrivateRoot,
+      readinessReport: { issues: [] },
+    },
+    rawTask: "Update the heading",
+    targetTool: "codex",
+    taskType: "ui",
+  });
+  assert.equal(safePrompt.includes("C:/Users/private"), false);
+  assert.equal(safePrompt.includes("<local-project>"), true);
+
+  const abstentionHistory = normalizeSelectorDiagnosticsHistory([{
+    ...finalizedAbstention,
+    actual: {
+      ...finalizedAbstention.actual,
+      abstention: {
+        ...finalizedAbstention.actual.abstention!,
+        message: "Inspect C:/Users/private/project and token=super-secret",
+        nextActions: ["Open C:/Users/private/project", "Use token=super-secret"],
+      },
+    },
+  }]);
+  assert.equal(abstentionHistory[0]?.actual.outcome, "abstained");
+  assert.equal(abstentionHistory[0]?.status, "manual-review");
+  assert.equal(JSON.stringify(abstentionHistory).includes("C:/Users/private"), false);
+  assert.equal(JSON.stringify(abstentionHistory).includes("super-secret"), false);
+
   const oldTaskPack = { id: 1, generationRecipe: null };
   assert.equal("selectorDiagnostics" in (oldTaskPack.generationRecipe ?? {}), false);
 
-  console.log("selector pipeline rollout smoke passed: 25 scenarios");
+  console.log("selector pipeline rollout smoke passed: 32 scenarios");
 }
 
 await main();

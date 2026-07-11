@@ -369,13 +369,27 @@ function chooseAnchors(
         graphPriority(a, new Set(backendDomain ? [normalize(backendDomain.path)] : [])) ||
         a.path.localeCompare(b.path),
       )[0];
+    const signals = taskSignals(retrieval.rawTask);
     const frontend = strong.filter(isFrontend);
-    const anchors = [entry ?? backendDomain ?? backendCandidates[0], frontend[0]]
+    const stronglyGroundedFrontend = frontend.filter((candidate) =>
+      candidate.explicit ||
+      candidate.filenameMatchCount >= 2 ||
+      candidate.identityMatchCount >= 2 ||
+      symbolTaskMentionPriority(candidate, retrieval.rawTask) > 0 ||
+      candidate.graphRelationships.length > 0,
+    );
+    const clientBoundary = frontend.find((candidate) =>
+      ["client-api", "hook"].includes(effectiveRole(candidate)) && candidate.roleIntentMatch,
+    );
+    const frontendAnchor = stronglyGroundedFrontend[0] ??
+      ((signals.endpoint || signals.dataFlow) ? clientBoundary : undefined) ??
+      frontend[0];
+    const anchors = [entry ?? backendDomain ?? backendCandidates[0], frontendAnchor]
       .filter((candidate): candidate is RetrievedCandidate => Boolean(candidate));
     const secondFrontend = frontend.find((candidate) =>
       !anchors.some((anchor) => anchor.candidateId === candidate.candidateId) &&
       candidate.proposedTechnicalRole === "primary" &&
-      (candidate.filenameMatchCount > 0 || candidate.identityMatchCount > 0 || candidate.explicit),
+      (candidate.explicit || candidate.filenameMatchCount >= 2 || candidate.identityMatchCount >= 2 || candidate.graphRelationships.length > 0),
     );
     if (secondFrontend) anchors.push(secondFrontend);
     return anchors;
@@ -436,14 +450,383 @@ function taskSignals(rawTask: string) {
     tests: /\btests?\b|(?:тест(?:ы)?|проверки)/iu.test(text),
     config: /\b(?:config|build|deploy|environment|env|sitemap|robots|vite|tsconfig)\b|(?:конфиг|сборк|деплой|окружен|карта сайта|робот)/iu.test(text),
     docs: /\b(?:readme|docs?|documentation)\b|(?:ридми|документац)/iu.test(text),
-    formula: /\b(?:formula|calculation|calculate|calculator|roi|payback)\b|(?:формул|расч[её]т|окупаем)/iu.test(text),
+    formula: /\b(?:formula|calculation|calculate|calculator)\b|(?:формул|расч[её]т)/iu.test(text),
     input: /\b(?:input|field|form|value|validation|invalid|zero|negative)\b|(?:пол[ея]|форм[аеуы]|значен|валидац|нулев|отриц)/iu.test(text),
     appearance: /\b(?:appearance|style|theme|visual|backdrop|density)\b|(?:внешн(?:ий|его) вид|оформлен|стил|тем[аеуы]|фон|плотност)/iu.test(text),
     responsive: /\b(?:responsive|breakpoint|mobile|adaptive)\b|(?:адаптив|брейкпоинт|мобил)/iu.test(text),
     navigation: /\b(?:navigation|navbar|header|menu|focus|active state)\b|(?:навигац|меню|фокус|активн)/iu.test(text),
     endpoint: /\b(?:endpoint|route|router|handler|api method)\b|(?:эндпоинт|роут|маршрут|обработчик)/iu.test(text),
     interaction: /\b(?:ux|interaction|control|button|dropdown|select|input|form|keyboard|focus)\b|(?:ux|взаимодейств|контрол|кноп|дропдаун|селект|поле|форм|клавиатур|фокус)/iu.test(text),
+    dataFlow: /\b(?:load|loading|fetch|request|response|retry|error state|empty state|async)\b|(?:загруз|получен|запрос|ответ|повтор|ошибк|пуст(?:ое|ого) состоян|асинхрон)/iu.test(text),
+    security: /\b(?:auth|authentication|authorization|token|session|credential|permission|expiry|expiration)\b|(?:авторизац|аутентификац|токен|сесси|уч[её]тн|разрешен|истечен|срок действия)/iu.test(text),
   };
+}
+
+function isSecurityConfigurationSupport(
+  candidate: RetrievedCandidate,
+  anchors: RetrievedCandidate[],
+  retrieval: CandidateRetrievalResult,
+) {
+  if (!taskSignals(retrieval.rawTask).security || !isConfig(candidate)) return false;
+  const candidateDirectory = parentDirectory(candidate.path);
+  const candidateWorkspace = workspaceRoot(candidate.path);
+  return anchors.some((anchor) =>
+    (candidateDirectory.length > 0 && candidateDirectory === parentDirectory(anchor.path)) ||
+    (candidateWorkspace.length > 0 && candidateWorkspace === workspaceRoot(anchor.path)),
+  );
+}
+
+const STRONG_SUPPORT_EDGE_KINDS = new Set([
+  "test-target",
+  "proposed-test",
+  "service-import",
+  "utility-import",
+  "storage-import",
+  "types-import",
+  "client-api-import",
+  "hook-import",
+  "component-import",
+  "style-import",
+  "route-local",
+  "import",
+]);
+
+function supportBudgetForTask(retrieval: CandidateRetrievalResult, anchorCount: number) {
+  const signals = taskSignals(retrieval.rawTask);
+  let supportBudget = 2;
+
+  if (retrieval.implementationArea === "fullstack") supportBudget = 4;
+  else if (retrieval.implementationArea === "backend") supportBudget = 4;
+  else if (retrieval.implementationArea === "tests") supportBudget = 4;
+  else if (retrieval.implementationArea === "docs") supportBudget = 4;
+  else if (retrieval.implementationArea === "build") supportBudget = 3;
+  else if (retrieval.implementationArea === "bugfix" || retrieval.implementationArea === "refactor") supportBudget = 3;
+
+  if (
+    retrieval.implementationArea === "ui" &&
+    (signals.navigation || signals.input || signals.appearance || signals.responsive || signals.dataFlow)
+  ) {
+    supportBudget = 3;
+  }
+
+  if (retrieval.reviewOnly) supportBudget = Math.min(supportBudget, 3);
+  return Math.max(anchorCount, anchorCount + supportBudget);
+}
+
+function supportEvidenceScore(
+  candidate: RetrievedCandidate,
+  anchors: RetrievedCandidate[],
+  retrieval: CandidateRetrievalResult,
+) {
+  const anchorPaths = new Set(anchors.map((anchor) => normalize(anchor.path)));
+  const relationships = candidate.graphRelationships.filter((relationship) =>
+    anchorPaths.has(normalize(relationship.relatedPath)),
+  );
+  const signals = taskSignals(retrieval.rawTask);
+  const role = effectiveRole(candidate);
+  let score = 0;
+
+  if (candidate.explicit) score += 100;
+  if (candidate.filenameMatchCount > 0) score += 32;
+  if (candidate.identityMatchCount > 0) score += Math.min(30, candidate.identityMatchCount * 12);
+  if (candidate.roleIntentMatch) score += 25;
+  if (taskMentionPriority(candidate, retrieval.rawTask) > 0) score += 45;
+  if (symbolTaskMentionPriority(candidate, retrieval.rawTask) > 0) score += 55;
+  if (taskDomainSupportPriority(candidate, retrieval.rawTask) > 0) score += 35;
+  if (semanticNameAffinity(candidate, anchors) > 0) score += 28;
+  if (relationships.some((relationship) => STRONG_SUPPORT_EDGE_KINDS.has(relationship.kind))) score += 100;
+  else if (relationships.length > 0) score += 12;
+
+  if (retrieval.implementationArea === "docs" && (isConfig(candidate) || isDocs(candidate))) score += 35;
+  if (retrieval.implementationArea === "build" && isConfig(candidate)) score += 35;
+  if (retrieval.implementationArea === "tests" && candidate.file.name.toLowerCase() === "package.json") score += 25;
+  if (signals.types && role === "types") score += 25;
+  if (signals.storage && PERSISTENCE_ROLES.has(role)) score += 25;
+  if (signals.endpoint && BACKEND_ENTRY_ROLES.has(role)) score += 25;
+  if ((retrieval.implementationArea === "backend" || retrieval.implementationArea === "fullstack") && role === "server-entry") score += 48;
+  if (retrieval.implementationArea === "fullstack" && role === "client-api") score += 90;
+  if ((retrieval.implementationArea === "backend" || retrieval.implementationArea === "fullstack") && PERSISTENCE_ROLES.has(role)) score += 48;
+  if (signals.dataFlow && (role === "hook" || role === "client-api" || role === "service" || role === "api-route")) score += 22;
+  if ((signals.appearance || signals.responsive) && role === "style") score += 30;
+  if (signals.input && (role === "component" || role === "ui-component")) score += 20;
+  if (signals.navigation && (role === "layout" || role === "component" || role === "ui-component")) score += 48;
+  if (isSecurityConfigurationSupport(candidate, anchors, retrieval)) score += 48;
+
+  const importedByOnly = relationships.length > 0 && relationships.every((relationship) => relationship.kind === "imported-by");
+  const importedBySupportsTask = signals.navigation && role === "layout";
+  if (importedByOnly && !importedBySupportsTask && semanticNameAffinity(candidate, anchors) === 0 && taskDomainSupportPriority(candidate, retrieval.rawTask) === 0) {
+    score -= 35;
+  }
+  if (role === "page" && relationships.length === 0 && !candidate.explicit) {
+    score -= candidate.filenameMatchCount > 0 || candidate.identityMatchCount > 0 ? 55 : 100;
+  }
+  if (
+    retrieval.implementationArea === "ui" &&
+    BACKEND_ROLES.has(role) &&
+    relationships.length === 0 &&
+    !candidate.explicit
+  ) {
+    score -= 100;
+  }
+  const migrationPattern = /\b(?:migrate|migration|migrations)\b|(?:миграц)/iu;
+  if (migrationPattern.test(normalize(candidate.path)) && !migrationPattern.test(normalize(retrieval.rawTask))) {
+    score -= 80;
+  }
+  return score;
+}
+
+function hasAnchorNeighborhoodRelationship(
+  candidate: RetrievedCandidate,
+  anchors: RetrievedCandidate[],
+) {
+  const candidatePath = normalize(candidate.path);
+  const anchorPaths = new Set(anchors.map((anchor) => normalize(anchor.path)));
+  const anchorRelatedPaths = new Set(
+    anchors.flatMap((anchor) => anchor.graphRelationships.map((relationship) =>
+      normalize(relationship.relatedPath),
+    )),
+  );
+
+  if (anchorRelatedPaths.has(candidatePath)) return true;
+  return candidate.graphRelationships.some((relationship) => {
+    const relatedPath = normalize(relationship.relatedPath);
+    return (
+      anchorPaths.has(relatedPath) ||
+      anchorRelatedPaths.has(relatedPath)
+    ) && STRONG_SUPPORT_EDGE_KINDS.has(relationship.kind);
+  });
+}
+
+function isRetentionAreaCompatible(
+  candidate: RetrievedCandidate,
+  anchors: RetrievedCandidate[],
+  retrieval: CandidateRetrievalResult,
+) {
+  const role = effectiveRole(candidate);
+  const signals = taskSignals(retrieval.rawTask);
+  if (retrieval.implementationArea === "ui") {
+    return isFrontend(candidate) || ["types", "store", "utility"].includes(role);
+  }
+  if (retrieval.implementationArea === "backend") {
+    return isBackend(candidate) ||
+      (signals.endpoint && role === "client-api") ||
+      isSecurityConfigurationSupport(candidate, anchors, retrieval);
+  }
+  if (retrieval.implementationArea === "fullstack") {
+    return isFrontend(candidate) || isBackend(candidate) || role === "types" ||
+      isSecurityConfigurationSupport(candidate, anchors, retrieval);
+  }
+  if (retrieval.implementationArea === "tests") return isTest(candidate) || isSourceLike(candidate);
+  if (retrieval.implementationArea === "docs") return isDocs(candidate) || isConfig(candidate) || isSourceLike(candidate);
+  if (retrieval.implementationArea === "build") {
+    return isConfig(candidate) || ["layout", "app-entry", "server-entry"].includes(role);
+  }
+  if (retrieval.implementationArea === "bugfix" || retrieval.implementationArea === "refactor") {
+    return candidate.file.kind === "source" || candidate.file.kind === "style";
+  }
+  return isSourceLike(candidate);
+}
+
+function taskRoleRetentionPriority(
+  candidate: RetrievedCandidate,
+  retrieval: CandidateRetrievalResult,
+  anchors: RetrievedCandidate[] = [],
+) {
+  const role = effectiveRole(candidate);
+  const signals = taskSignals(retrieval.rawTask);
+  let priority = 0;
+
+  if (
+    retrieval.implementationArea === "fullstack" &&
+    (role === "client-api" || PERSISTENCE_ROLES.has(role))
+  ) {
+    priority = Math.max(priority, 8_500);
+  }
+
+  if (
+    retrieval.implementationArea === "backend" &&
+    signals.endpoint &&
+    role === "client-api"
+  ) {
+    priority = Math.max(priority, 8_000);
+  }
+
+  if (retrieval.implementationArea === "ui") {
+    if (
+      (signals.interaction || signals.input) &&
+      ["component", "ui-component"].includes(role) &&
+      /(?:button|dropdown|select|input|field|slider|form|card|control)/i.test(candidate.file.name)
+    ) {
+      priority = Math.max(priority, 8_500);
+    }
+    if (
+      signals.dataFlow &&
+      ["hook", "client-api", "store", "types"].includes(role)
+    ) {
+      priority = Math.max(priority, 8_000);
+    }
+  }
+
+  if (retrieval.implementationArea === "bugfix" || retrieval.implementationArea === "refactor") {
+    if ((signals.appearance || signals.responsive) && role === "style") {
+      priority = Math.max(priority, 8_500);
+    }
+    if (
+      signals.input &&
+      ["component", "ui-component"].includes(role) &&
+      /(?:input|field|slider|select|form|card)/i.test(candidate.file.name)
+    ) {
+      priority = Math.max(priority, 8_500);
+    }
+  }
+
+  if (isSecurityConfigurationSupport(candidate, anchors, retrieval)) {
+    priority = Math.max(priority, 9_000);
+  }
+
+  return priority;
+}
+
+function supportRetentionPriority(
+  candidate: RetrievedCandidate,
+  anchors: RetrievedCandidate[],
+  retrieval: CandidateRetrievalResult,
+) {
+  const anchorPaths = new Set(anchors.map((anchor) => normalize(anchor.path)));
+  const directAnchorRelationship = candidate.graphRelationships.some((relationship) =>
+    anchorPaths.has(normalize(relationship.relatedPath)) &&
+    STRONG_SUPPORT_EDGE_KINDS.has(relationship.kind),
+  );
+  const directTaskPriority = Math.max(
+    taskMentionPriority(candidate, retrieval.rawTask),
+    symbolTaskMentionPriority(candidate, retrieval.rawTask),
+    taskDomainSupportPriority(candidate, retrieval.rawTask),
+  );
+  const rolePriority = taskRoleRetentionPriority(candidate, retrieval, anchors);
+
+  return (
+    Number(candidate.explicit) * 100_000 +
+    Number(directTaskPriority > 0) * 90_000 +
+    rolePriority * 8 +
+    Number(directAnchorRelationship) * 65_000 +
+    Number(hasAnchorNeighborhoodRelationship(candidate, anchors)) * 42_000 +
+    candidate.filenameMatchCount * 8_000 +
+    candidate.identityMatchCount * 3_000 +
+    Number(candidate.roleIntentMatch) * 4_000 +
+    candidate.score
+  );
+}
+
+function shouldRetainSupportCandidate(
+  candidate: RetrievedCandidate,
+  anchors: RetrievedCandidate[],
+  retrieval: CandidateRetrievalResult,
+  evidenceScore: number,
+) {
+  if (candidate.explicit) return true;
+  if (!isRetentionAreaCompatible(candidate, anchors, retrieval)) return false;
+
+  const role = effectiveRole(candidate);
+  const directTaskMention =
+    taskMentionPriority(candidate, retrieval.rawTask) > 0 ||
+    symbolTaskMentionPriority(candidate, retrieval.rawTask) > 0 ||
+    taskDomainSupportPriority(candidate, retrieval.rawTask) > 0;
+  const anchorPaths = new Set(anchors.map((anchor) => normalize(anchor.path)));
+  const directAnchorRelationship = candidate.graphRelationships.some((relationship) =>
+    anchorPaths.has(normalize(relationship.relatedPath)) &&
+    STRONG_SUPPORT_EDGE_KINDS.has(relationship.kind),
+  );
+
+  if (role === "page" && !directTaskMention && !directAnchorRelationship) {
+    return evidenceScore >= 52;
+  }
+  if (directTaskMention) return true;
+  if (taskRoleRetentionPriority(candidate, retrieval, anchors) > 0) return true;
+  if (
+    retrieval.implementationArea === "ui" &&
+    (role === "store" || role === "types") &&
+    (
+      hasAnchorNeighborhoodRelationship(candidate, anchors) ||
+      semanticNameAffinity(candidate, anchors) > 0
+    )
+  ) {
+    return true;
+  }
+  if (directAnchorRelationship || hasAnchorNeighborhoodRelationship(candidate, anchors)) return true;
+
+  const topAnchorScore = Math.max(1, ...anchors.map((anchor) => anchor.score));
+  const relativeCandidateFloor = Math.max(72, topAnchorScore * 0.42);
+  return evidenceScore >= 32 || candidate.score >= relativeCandidateFloor;
+}
+
+function pruneWeakSupportCandidates(
+  candidates: RetrievedCandidate[],
+  anchors: RetrievedCandidate[],
+  retrieval: CandidateRetrievalResult,
+  selectionLimit: number,
+) {
+  if (candidates.length <= anchors.length) return candidates;
+  const anchorIds = new Set(anchors.map((candidate) => candidate.candidateId));
+  const softLimit = Math.min(
+    selectionLimit,
+    supportBudgetForTask(retrieval, anchors.length),
+  );
+  const availableSupportSlots = Math.max(0, selectionLimit - anchors.length);
+  const softSupportSlots = Math.max(0, softLimit - anchors.length);
+  const protectedSupportLimit = Math.min(
+    availableSupportSlots,
+    softSupportSlots + 2,
+  );
+  const anchorPaths = new Set(anchors.map((anchor) => normalize(anchor.path)));
+  const rows = candidates
+    .filter((candidate) => !anchorIds.has(candidate.candidateId))
+    .map((candidate, originalIndex) => {
+      const evidenceScore = supportEvidenceScore(candidate, anchors, retrieval);
+      return {
+        candidate,
+        originalIndex,
+        evidenceScore,
+        retentionPriority: supportRetentionPriority(candidate, anchors, retrieval),
+        protected: shouldRetainSupportCandidate(candidate, anchors, retrieval, evidenceScore),
+      };
+    });
+
+  const protectedRows = rows
+    .filter((row) => row.protected)
+    .sort((left, right) =>
+      right.retentionPriority - left.retentionPriority ||
+      right.evidenceScore - left.evidenceScore ||
+      supportPriority(right.candidate, retrieval, anchorPaths) -
+        supportPriority(left.candidate, retrieval, anchorPaths) ||
+      left.originalIndex - right.originalIndex ||
+      left.candidate.path.localeCompare(right.candidate.path),
+    )
+    .slice(0, protectedSupportLimit);
+
+  const retainedIds = new Set(protectedRows.map((row) => row.candidate.candidateId));
+  const optionalSlots = Math.max(0, softSupportSlots - protectedRows.length);
+  const optionalRows = rows
+    .filter((row) => !retainedIds.has(row.candidate.candidateId))
+    .filter((row) => row.evidenceScore >= 32)
+    .sort((left, right) =>
+      right.evidenceScore - left.evidenceScore ||
+      supportPriority(right.candidate, retrieval, anchorPaths) -
+        supportPriority(left.candidate, retrieval, anchorPaths) ||
+      left.originalIndex - right.originalIndex ||
+      left.candidate.path.localeCompare(right.candidate.path),
+    )
+    .slice(0, optionalSlots);
+
+  const selectedIds = new Set([
+    ...protectedRows.map((row) => row.candidate.candidateId),
+    ...optionalRows.map((row) => row.candidate.candidateId),
+  ]);
+  const retainedSupports = rows
+    .filter((row) => selectedIds.has(row.candidate.candidateId))
+    .sort((left, right) => left.originalIndex - right.originalIndex)
+    .map((row) => row.candidate);
+
+  return [...anchors, ...retainedSupports];
 }
 
 function supportRoleBonus(candidate: RetrievedCandidate, retrieval: CandidateRetrievalResult) {
@@ -584,6 +967,12 @@ function addRoleCoverage(
         b.score - a.score ||
         a.path.localeCompare(b.path),
       )[0];
+  const sharesAnchorWorkspace = (candidate: RetrievedCandidate) => {
+    const candidateWorkspace = workspaceRoot(candidate.path);
+    return candidateWorkspace.length > 0 && [...anchorPaths].some((anchorPath) =>
+      candidateWorkspace === workspaceRoot(anchorPath),
+    );
+  };
 
   if (retrieval.implementationArea === "backend") {
     if (!result.some((candidate) => BACKEND_LOGIC_ROLES.has(role(candidate)))) {
@@ -597,6 +986,17 @@ function addRoleCoverage(
       !result.some((candidate) => BACKEND_ENTRY_ROLES.has(role(candidate)))
     ) {
       addCandidate(result, selectedIds, best((candidate) => BACKEND_ENTRY_ROLES.has(role(candidate))), limit);
+    }
+    if (
+      taskSignals(retrieval.rawTask).security &&
+      !result.some(isConfig)
+    ) {
+      addCandidate(
+        result,
+        selectedIds,
+        best((candidate) => isConfig(candidate) && sharesAnchorWorkspace(candidate)),
+        limit,
+      );
     }
   }
 
@@ -624,6 +1024,17 @@ function addRoleCoverage(
         a.path.localeCompare(b.path),
       )[0];
     addCandidate(result, selectedIds, persistenceCandidate, limit);
+    if (
+      taskSignals(retrieval.rawTask).security &&
+      !result.some(isConfig)
+    ) {
+      addCandidate(
+        result,
+        selectedIds,
+        best((candidate) => isConfig(candidate) && sharesAnchorWorkspace(candidate)),
+        limit,
+      );
+    }
   }
 
   if (retrieval.implementationArea === "ui") {
@@ -910,9 +1321,14 @@ export function assembleContextCandidates(
     addCandidate(result, selectedIds, candidate, softSupportLimit);
   }
 
-  diagnostics.push(`Assembled ${result.length} files around ${anchors.length} primary anchor(s).`);
+  const prunedResult = pruneWeakSupportCandidates(result, anchors, retrieval, selectionLimit);
+  const removedSupportCount = Math.max(0, result.length - prunedResult.length);
+  diagnostics.push(`Assembled ${prunedResult.length} files around ${anchors.length} primary anchor(s).`);
+  if (removedSupportCount > 0) {
+    diagnostics.push(`Pruned ${removedSupportCount} weak supporting candidate(s).`);
+  }
   return {
-    candidates: result,
+    candidates: prunedResult,
     anchorIds: new Set(anchors.map((candidate) => candidate.candidateId)),
     diagnostics,
   };

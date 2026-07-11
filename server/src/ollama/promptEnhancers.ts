@@ -1,4 +1,5 @@
 import type { TaskAwareProjectContext } from "../scanner/taskAwareContextScanner.js";
+import { buildExportSafeProjectMetadata } from "../taskPacks/taskPackPrivacy.js";
 
 interface ProjectLike {
     name: string;
@@ -183,14 +184,7 @@ Task type display name:
 ${taskTypeLabel}
 
 Project metadata:
-${formatJson({
-            name: project.name,
-            localPath: project.localPath,
-            packageManager: project.packageManager,
-            detectedStack: project.detectedStack,
-            scripts: project.scripts,
-            readinessScore: project.readinessScore
-        })}
+${formatJson(buildExportSafeProjectMetadata(project))}
 
 Task-aware project context:
 ${formatJson({

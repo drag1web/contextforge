@@ -1,3 +1,5 @@
+import { buildExportSafeProjectMetadata } from "../taskPacks/taskPackPrivacy.js";
+
 interface BuildTaskPackInput {
   project: {
     name: string;
@@ -101,11 +103,7 @@ ${rawTask}
 
 Project: **${project.name}**
 
-Local path:
-
-\`\`\`text
-${project.localPath}
-\`\`\`
+Project root: **${buildExportSafeProjectMetadata(project).projectRoot}**
 
 Detected stack:
 

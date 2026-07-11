@@ -439,15 +439,21 @@ export function ContextComposerPage({
     [preview.selectedFiles]
   );
 
+  const selectorAbstention = preview.selectorDiagnostics?.actual.outcome === "abstained"
+    ? preview.selectorDiagnostics.actual.abstention
+    : null;
+  const isAbstentionReview = Boolean(selectorAbstention);
   const isBlockedReview = preview.selectionQuality.status === "blocked";
   const initialSelectedPaths = useMemo(
     () => (isBlockedReview ? [] : recommendedPaths),
     [isBlockedReview, recommendedPaths]
   );
   const targetCopy = getComposerTargetCopy(preview.task.effectiveTaskArea);
-  const initialFileSearchMessage = isBlockedReview
-    ? `Automatic file selection was blocked. ${targetCopy.searchHint}`
-    : `Search project files to add more ${targetCopy.target} context.`;
+  const initialFileSearchMessage = isAbstentionReview
+    ? `No implementation target was confirmed. ${targetCopy.searchHint}`
+    : isBlockedReview
+      ? `Automatic file selection was blocked. ${targetCopy.searchHint}`
+      : `Search project files to add more ${targetCopy.target} context.`;
 
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [extraFiles, setExtraFiles] = useState<ContextComposerFileReference[]>([]);
@@ -578,11 +584,19 @@ export function ContextComposerPage({
     }
 
     if (isBlockedReview && selectedPaths.length > 0 && selectedManualFiles.length === 0) {
-      warnings.push("Blocked review mode is active. Include at least one manually added or manually reviewed file before generating.");
+      warnings.push(
+        isAbstentionReview
+          ? "Target confirmation is required. Include at least one file you have reviewed before generating."
+          : "Blocked review mode is active. Include at least one manually added or manually reviewed file before generating.",
+      );
     }
 
     if (isBlockedReview && selectedWeakAutoFiles.length > 0) {
-      warnings.push("Weak auto-selected files are still included without manual review. Clear them or click Include on files you explicitly want to confirm.");
+      warnings.push(
+        isAbstentionReview
+          ? "Candidate hints are still included without confirmation. Clear them or click Include on files you explicitly want to use."
+          : "Weak auto-selected files are still included without manual review. Clear them or click Include on files you explicitly want to confirm.",
+      );
     }
 
     if (selectedPaths.length > 0 && selectedSnippets.length === 0) {
@@ -615,6 +629,7 @@ export function ContextComposerPage({
     preview.selectionQuality.warnings,
     preview.task.effectiveTaskArea,
     preview.task.rawTask,
+    isAbstentionReview,
     isBlockedReview,
     selectedFiles,
     selectedManualFiles.length,
@@ -861,7 +876,7 @@ export function ContextComposerPage({
         <div
           className={[
             "rounded-[1.15rem] border p-4",
-            preview.selectionQuality.status === "blocked"
+            preview.selectionQuality.status === "blocked" && !isAbstentionReview
               ? "border-red-400/25 bg-red-400/10"
               : "border-amber-300/20 bg-amber-300/10"
           ].join(" ")}
@@ -872,14 +887,23 @@ export function ContextComposerPage({
             </div>
             <div className="min-w-0">
               <p className="text-sm font-semibold text-white">
-                Context review: {getSelectionStatusLabel(preview.selectionQuality.status)} · {preview.selectionQuality.score}/100
+                {selectorAbstention
+                  ? `Target not confirmed · ${preview.selectionQuality.score}/100`
+                  : `Context review: ${getSelectionStatusLabel(preview.selectionQuality.status)} · ${preview.selectionQuality.score}/100`}
               </p>
               <p className="mt-1 text-xs leading-5 text-neutral-400">
-                ContextForge is not fully confident in the automatic file selection. {targetCopy.reviewHint} Then generate from selected.
+                {selectorAbstention
+                  ? selectorAbstention.message
+                  : `ContextForge is not fully confident in the automatic file selection. ${targetCopy.reviewHint} Then generate from selected.`}
               </p>
               {isBlockedReview && (
-                <p className="mt-1 text-xs leading-5 text-red-100/80">
-                  Blocked mode: weak auto-selected files are shown for reference only and are not included until you explicitly include them. Manually added files are included automatically.
+                <p className={[
+                  "mt-1 text-xs leading-5",
+                  isAbstentionReview ? "text-amber-100/80" : "text-red-100/80"
+                ].join(" ")}>
+                  {isAbstentionReview
+                    ? "Target confirmation mode: candidate hints are not included until you explicitly review and include them. Manually added files are included automatically."
+                    : "Blocked mode: weak auto-selected files are shown for reference only and are not included until you explicitly include them. Manually added files are included automatically."}
                 </p>
               )}
               <div className="mt-3 space-y-1">
@@ -908,13 +932,19 @@ export function ContextComposerPage({
                 </div>
               )}
 
-              {(preview.selectionQuality.signals?.nextActions ?? []).length > 0 && (
+              {[
+                ...(selectorAbstention?.nextActions ?? []),
+                ...(preview.selectionQuality.signals?.nextActions ?? [])
+              ].filter((item, index, items) => items.indexOf(item) === index).length > 0 && (
                 <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
                     Next actions
                   </p>
                   <div className="mt-2 space-y-1">
-                    {(preview.selectionQuality.signals?.nextActions ?? []).map((item) => (
+                    {[
+                      ...(selectorAbstention?.nextActions ?? []),
+                      ...(preview.selectionQuality.signals?.nextActions ?? [])
+                    ].filter((item, index, items) => items.indexOf(item) === index).map((item) => (
                       <p key={item} className="text-xs leading-5 text-neutral-300">
                         - {item}
                       </p>
@@ -1000,21 +1030,21 @@ export function ContextComposerPage({
           <div className="mb-3 flex shrink-0 flex-wrap gap-2">
             <ComposerActionButton
               icon={<RotateCcw size={13} />}
-              label={isBlockedReview ? "Confirm auto" : "Recommended"}
-              danger={isBlockedReview}
+              label={isAbstentionReview ? "Review hints" : isBlockedReview ? "Confirm auto" : "Recommended"}
+              danger={isBlockedReview && !isAbstentionReview}
               onClick={selectRecommendedPaths}
             />
 
             <ComposerActionButton
               icon={<CheckCircle2 size={13} />}
-              label={isBlockedReview ? "Confirm all" : "Select all"}
-              danger={isBlockedReview}
+              label={isAbstentionReview ? "Review all" : isBlockedReview ? "Confirm all" : "Select all"}
+              danger={isBlockedReview && !isAbstentionReview}
               onClick={selectAllPaths}
             />
 
             <ComposerActionButton
               icon={<XCircle size={13} />}
-              label={isBlockedReview ? "Clear weak" : "Clear"}
+              label={isAbstentionReview ? "Clear hints" : isBlockedReview ? "Clear weak" : "Clear"}
               danger
               onClick={clearSelectedPaths}
             />
@@ -1028,8 +1058,15 @@ export function ContextComposerPage({
           </div>
 
           {isBlockedReview && (
-            <div className="mb-3 rounded-2xl border border-red-400/15 bg-red-400/5 px-3 py-2 text-xs leading-5 text-red-100/75">
-              Auto-selection is intentionally cleared. Add the real file through search, or explicitly include recommended files you have reviewed.
+            <div className={[
+              "mb-3 rounded-2xl border px-3 py-2 text-xs leading-5",
+              isAbstentionReview
+                ? "border-amber-300/15 bg-amber-300/5 text-amber-100/75"
+                : "border-red-400/15 bg-red-400/5 text-red-100/75"
+            ].join(" ")}>
+              {isAbstentionReview
+                ? "Shadow did not confirm a single implementation target. Add the real file through search, or explicitly include candidate hints you have reviewed."
+                : "Auto-selection is intentionally cleared. Add the real file through search, or explicitly include recommended files you have reviewed."}
             </div>
           )}
 
@@ -1103,17 +1140,21 @@ export function ContextComposerPage({
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
             <FileCandidateSection
-              title={isBlockedReview ? "Weak file suggestions" : "Suggested target files"}
+              title={isAbstentionReview ? "Candidate hints" : isBlockedReview ? "Weak file suggestions" : "Suggested target files"}
               caption={
-                isBlockedReview
-                  ? `Automatic selection was blocked. These are search hints only; include a file only after you confirm it is the real ${targetCopy.target}.`
-                  : targetCopy.candidateCaption
+                isAbstentionReview
+                  ? `Shadow understood the task area but did not confirm a target. Include a hint only after you verify it is the real ${targetCopy.target}.`
+                  : isBlockedReview
+                    ? `Automatic selection was blocked. These are search hints only; include a file only after you confirm it is the real ${targetCopy.target}.`
+                    : targetCopy.candidateCaption
               }
               count={suggestedCandidateFiles.length}
               emptyText={
-                isBlockedReview
-                  ? `No weak suggestions were produced. ${targetCopy.searchHint}`
-                  : `No ${targetCopy.targetPlural} were produced. ${targetCopy.searchHint}`
+                isAbstentionReview
+                  ? `No candidate hints were produced. ${targetCopy.searchHint}`
+                  : isBlockedReview
+                    ? `No weak suggestions were produced. ${targetCopy.searchHint}`
+                    : `No ${targetCopy.targetPlural} were produced. ${targetCopy.searchHint}`
               }
             >
               <AnimatePresence initial={false}>
@@ -1140,9 +1181,11 @@ export function ContextComposerPage({
             <FileCandidateSection
               title="Recommended context"
               caption={
-                isBlockedReview
-                  ? "Auto-selected files are reference-only until you explicitly include them."
-                  : "Selected by ContextForge from project inventory."
+                isAbstentionReview
+                  ? "Candidate files are reference-only until you explicitly review and include them."
+                  : isBlockedReview
+                    ? "Auto-selected files are reference-only until you explicitly include them."
+                    : "Selected by ContextForge from project inventory."
               }
               count={recommendedFiles.length}
               emptyText="No recommended files were selected."

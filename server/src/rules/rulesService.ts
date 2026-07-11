@@ -1,3 +1,4 @@
+import { buildExportSafeProjectMetadata } from "../taskPacks/taskPackPrivacy.js";
 import crypto from "node:crypto";
 
 import {
@@ -639,14 +640,7 @@ export async function buildTaskPackRulesTemplatePrompt(
     700
   );
 
-  const projectMetadata = {
-    name: input.project.name,
-    localPath: input.project.localPath,
-    packageManager: input.project.packageManager,
-    detectedStack: input.project.detectedStack,
-    scripts: input.project.scripts,
-    readinessScore: input.project.readinessScore
-  };
+  const projectMetadata = buildExportSafeProjectMetadata(input.project);
 
   const renderedTemplatePrompt = renderTemplate(template.content, {
     targetTool,

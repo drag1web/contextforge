@@ -385,10 +385,23 @@ export interface TaskPackGenerationRecipe {
 
 export type SelectorPipelineMode = "legacy" | "shadow_compare" | "shadow_primary";
 export type EffectiveSelectorPipeline = "legacy" | "shadow";
+export type SelectorDecisionOutcome = "selected" | "abstained" | "blocked";
+export type SelectorEvidenceStrength = "strong" | "supporting" | "reference";
+export type SelectorAbstentionReasonCode =
+  | "explicit_target_missing"
+  | "no_grounded_candidates"
+  | "no_ranked_candidates"
+  | "ambiguous_target"
+  | "legacy_empty_selection";
 
 export interface SelectorSelectionSummary {
   pipeline: EffectiveSelectorPipeline;
-  selectedFiles: Array<{ path: string; usage: string }>;
+  selectedFiles: Array<{
+    path: string;
+    usage: string;
+    reason: string;
+    evidenceStrength: SelectorEvidenceStrength;
+  }>;
   primaryTarget: string | null;
   implementationArea: string;
   confidence: number;
@@ -397,6 +410,12 @@ export interface SelectorSelectionSummary {
   manualReview: boolean;
   missingTarget: boolean;
   candidateCount: number;
+  outcome: SelectorDecisionOutcome;
+  abstention: {
+    code: SelectorAbstentionReasonCode;
+    message: string;
+    nextActions: string[];
+  } | null;
 }
 
 export interface SelectorPipelineDiagnostics {

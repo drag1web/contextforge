@@ -32,6 +32,7 @@ import {
   type ContextSelectionQuality,
 } from "../selection/contextQuality.js";
 import { isSecretLikePath } from "../selection/safetyPolicy.js";
+import { buildExportSafeProjectMetadata } from "../taskPacks/taskPackPrivacy.js";
 import type { ProjectMemoryRecord, ProjectRecord } from "../storage/types.js";
 import type {
   GitHubCreatedIssueLink,
@@ -1292,14 +1293,7 @@ Required document structure:
 
 Project metadata:
 ${JSON.stringify(
-  {
-    name: project.name,
-    localPath: project.localPath,
-    packageManager: project.packageManager,
-    detectedStack: project.detectedStack,
-    scripts: project.scripts,
-    readinessScore: project.readinessScore,
-  },
+  buildExportSafeProjectMetadata(project),
   null,
   2,
 )}
@@ -1656,11 +1650,15 @@ taskPacksRouter.post("/", async (req, res) => {
       !manualSelectionRequested;
 
     if (shouldBlockAutomaticGeneration) {
+      const selectionBlockedMessage =
+        selectorDiagnostics.actual.outcome === "abstained"
+          ? "ContextForge understood the task area but could not confirm a safe implementation target. Open Full Review, clarify the task, or choose files manually."
+          : "ContextForge could not select safe/relevant files automatically. Review files in Context Composer and generate from the confirmed selection.";
+
       res.status(422).json({
         ok: false,
         code: "CONTEXT_SELECTION_BLOCKED",
-        message:
-          "ContextForge could not select safe/relevant files automatically. Review files in Context Composer and generate from the confirmed selection.",
+        message: selectionBlockedMessage,
         selectionQuality,
         selectorDiagnostics,
       });
