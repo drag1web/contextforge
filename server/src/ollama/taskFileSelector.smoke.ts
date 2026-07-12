@@ -13,6 +13,10 @@ import { detectHardTaskSafetyIssue } from "../selection/safetyPolicy.js";
 import { buildProjectSemanticGraph } from "../selection/projectSemanticGraph.js";
 import type { AppSettings } from "../settings/settingsService.js";
 import type { TaskIntentAnalysis } from "./taskIntentAnalyzer.js";
+import {
+  applyTaskClarificationsToUnderstanding,
+  buildSelectionTaskText,
+} from "../taskPacks/taskClarifications.js";
 import { selectTaskFiles } from "./taskFileSelector.js";
 
 const testSettings: AppSettings = {
@@ -46,6 +50,7 @@ const testSettings: AppSettings = {
   },
   contextQualityMode: "balanced",
   selectorPipelineMode: "legacy",
+  taskUnderstandingInteractionMode: "balanced",
   sidebarShowDescriptions: false,
   onboardingEnabled: true,
   onboardingShowEveryLaunch: true,
@@ -113,6 +118,24 @@ function structuredIntent(
     riskLevel: "medium",
     confidence: 0.82,
     notes: ["Synthetic structured intent for selector smoke coverage."],
+    taskUnderstanding: {
+      schemaVersion: 1,
+      goal: "Synthetic task understanding.",
+      action: "update",
+      targetHints: [],
+      requestedChanges: [],
+      constraints: [],
+      interpretationRisk: "objective",
+      changeDefinition: "bounded",
+      explicitValues: [],
+      missingInformation: [],
+      readiness: "ready",
+      canProceed: true,
+      clarificationQuestion: null,
+      confidence: 0.82,
+      source: "fallback",
+      reasons: ["Synthetic task understanding for selector coverage."],
+    },
     structuredIntent: {
       schemaVersion: 1,
       primaryTargets: [],
@@ -2773,7 +2796,98 @@ async function testOllamaSelectorUsesStrictRetryJson() {
   );
 }
 
+
+async function testReplacementClarificationDoesNotContaminateSettingsTarget() {
+  const originalTask =
+    "На странице Settings измени пояснение под заголовком Experimental AI Core.";
+  const clarifications = [
+    {
+      question: "Какой точный новый текст или значение нужно использовать?",
+      answer: "Shadow сначала понимает задачу, затем выбирает реальные файлы проекта.",
+    },
+  ];
+  const selectionTask = buildSelectionTaskText(originalTask, clarifications);
+  const baseIntent = structuredIntent({
+    domainTerms: ["settings", "experimental", "core"],
+    recommendedSearchTerms: ["settings"],
+    structuredIntent: {
+      schemaVersion: 1,
+      primaryTargets: [
+        {
+          kind: "page",
+          value: "Settings",
+          name: "Settings",
+          confidence: 0.9,
+          evidence: "The original task names the Settings page.",
+        },
+      ],
+      positiveActions: ["Update the Experimental AI Core explanation"],
+      protectedScopes: [],
+      allowedEditScope: "target_with_supporting_context",
+      needsStyles: null,
+      needsBackend: false,
+      ambiguities: [],
+      modelNotes: [],
+    },
+    taskUnderstanding: {
+      ...structuredIntent().taskUnderstanding,
+      goal: originalTask,
+      targetHints: ["Settings", "Experimental AI Core"],
+      missingInformation: [
+        {
+          code: "replacement_value",
+          description: "The exact replacement value is missing.",
+          required: true,
+        },
+      ],
+      readiness: "needs_clarification",
+      canProceed: false,
+      clarificationQuestion:
+        "Какой точный новый текст или значение нужно использовать?",
+    },
+  });
+  const taskIntent = {
+    ...baseIntent,
+    taskUnderstanding: applyTaskClarificationsToUnderstanding(
+      baseIntent.taskUnderstanding,
+      clarifications,
+    ),
+  };
+
+  const result = await selectTaskFiles({
+    rawTask: selectionTask,
+    taskType: "ui",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("apps/desktop/renderer/src/pages/SettingsPage.tsx", {
+        role: "page",
+        symbols: ["SettingsPage"],
+        textHints: ["settings", "Experimental AI Core"],
+        contentPreview:
+          "export function SettingsPage() { return <h2>Experimental AI Core</h2>; }",
+      }),
+      sourceFile("apps/desktop/renderer/src/pages/TaskPackResultPage.tsx", {
+        role: "page",
+        symbols: ["TaskPackResultPage"],
+        textHints: ["user clarifications", "question", "user answer"],
+        contentPreview:
+          "export function TaskPackResultPage() { return <section>User Clarifications</section>; }",
+      }),
+    ]),
+    taskIntent,
+    settings: testSettings,
+  });
+
+  assert.equal(selectionTask, originalTask);
+  assert.equal(
+    result.selectedFiles[0]?.path,
+    "apps/desktop/renderer/src/pages/SettingsPage.tsx",
+  );
+  assert.equal(taskIntent.taskUnderstanding.readiness, "ready");
+}
+
 async function main() {
+  await testReplacementClarificationDoesNotContaminateSettingsTarget();
   await testSemanticPageTargetUnicode();
   await testHeaderTaskDoesNotBecomeRootPageTask();
   await testExplicitRussianHeaderFileDoesNotBlockReview();

@@ -74,6 +74,7 @@ const deterministicBenchmarkSettings: Awaited<ReturnType<typeof getAppSettings>>
   },
   contextQualityMode: "balanced",
   selectorPipelineMode: "legacy",
+  taskUnderstandingInteractionMode: "balanced",
   sidebarShowDescriptions: false,
   onboardingEnabled: true,
   onboardingShowEveryLaunch: false,

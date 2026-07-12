@@ -1,5 +1,25 @@
 # ContextForge Core Quality & Safety Backlog
 
+## v0.6.7-alpha — Task Understanding & Clarification
+
+Completed:
+
+- Added one grounded Task Understanding contract before selector and generation stages.
+- Added backend-controlled readiness, exact-value grounding, missing-information codes, and focused RU/EN clarification questions.
+- Added a preflight understanding API for the upcoming confirmation UX.
+- Removed missing explicit file paths as a standalone ambiguity.
+- Kept Ollama suggestions grounded and fallback analysis available offline.
+- Reused the same literal-grounding logic in early understanding and final generation.
+- Added the compact confirm/correct modal before file selection.
+- Preserved the original task and clarification answers separately in drafts, recipes, results and exports.
+- Re-ran understanding after each correction and resumed the same Task Pack draft.
+- Passed the same clarified task through Context Composer, Shadow, quality checks, template composition and final generation.
+
+Remaining live checks:
+
+- Exercise informal RU, EN, and mixed-language tasks with the maintainer's configured Ollama models.
+- Re-run the private 28-case regression and sealed 40-case validation before release commit.
+
 ## v0.6.6-alpha — Task Pack Generation Reliability
 
 Completed:

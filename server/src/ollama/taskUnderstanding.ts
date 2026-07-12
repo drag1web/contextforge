@@ -1,0 +1,671 @@
+import {
+  classifyTaskValue,
+  extractExplicitReplacementValue,
+  hasMissingReplacementValue,
+  type TaskValueKind,
+} from "./taskValueGrounding.js";
+
+export type TaskUnderstandingReadiness =
+  | "ready"
+  | "review"
+  | "needs_clarification";
+
+export type TaskUnderstandingInterpretationRisk =
+  | "objective"
+  | "subjective"
+  | "uncertain";
+
+export type TaskUnderstandingChangeDefinition =
+  | "exact"
+  | "bounded"
+  | "open_ended";
+
+export type TaskUnderstandingAction =
+  | "create"
+  | "update"
+  | "replace"
+  | "remove"
+  | "fix"
+  | "refactor"
+  | "review"
+  | "test"
+  | "document"
+  | "configure"
+  | "investigate"
+  | "unknown";
+
+export type TaskUnderstandingSource = "fallback" | "merged";
+
+export type TaskUnderstandingMissingCode =
+  | "replacement_value"
+  | "target_confirmation";
+
+export interface TaskUnderstandingExplicitValue {
+  kind: TaskValueKind;
+  value: string;
+  exact: true;
+  source: "user";
+}
+
+export interface TaskUnderstandingMissingInformation {
+  code: TaskUnderstandingMissingCode;
+  description: string;
+  required: boolean;
+}
+
+export interface TaskUnderstanding {
+  schemaVersion: 1;
+  goal: string;
+  action: TaskUnderstandingAction;
+  targetHints: string[];
+  requestedChanges: string[];
+  constraints: string[];
+  interpretationRisk: TaskUnderstandingInterpretationRisk;
+  changeDefinition: TaskUnderstandingChangeDefinition;
+  explicitValues: TaskUnderstandingExplicitValue[];
+  missingInformation: TaskUnderstandingMissingInformation[];
+  readiness: TaskUnderstandingReadiness;
+  canProceed: boolean;
+  clarificationQuestion: string | null;
+  confidence: number;
+  source: TaskUnderstandingSource;
+  reasons: string[];
+}
+
+interface StructuredIntentLike {
+  primaryTargets?: Array<{
+    kind?: string;
+    value?: string;
+    path?: string;
+    routePath?: string;
+    name?: string;
+  }>;
+  positiveActions?: string[];
+  protectedScopes?: string[];
+  allowedEditScope?: string;
+  ambiguities?: string[];
+}
+
+interface BuildTaskUnderstandingInput {
+  rawTask: string;
+  taskArea: string;
+  taskType: string;
+  confidence: number;
+  projectTree: string[];
+  structuredIntent: StructuredIntentLike;
+}
+
+interface NormalizeTaskUnderstandingInput extends BuildTaskUnderstandingInput {
+  modelValue: unknown;
+  fallback: TaskUnderstanding;
+}
+
+const ALLOWED_ACTIONS = new Set<TaskUnderstandingAction>([
+  "create",
+  "update",
+  "replace",
+  "remove",
+  "fix",
+  "refactor",
+  "review",
+  "test",
+  "document",
+  "configure",
+  "investigate",
+  "unknown",
+]);
+
+const ALLOWED_INTERPRETATION_RISKS =
+  new Set<TaskUnderstandingInterpretationRisk>([
+    "objective",
+    "subjective",
+    "uncertain",
+  ]);
+
+const ALLOWED_CHANGE_DEFINITIONS =
+  new Set<TaskUnderstandingChangeDefinition>([
+    "exact",
+    "bounded",
+    "open_ended",
+  ]);
+
+const OPEN_ENDED_QUALITATIVE_PATTERN =
+  /(?:\b(?:less|more)\s+(?:wooden|clunky|awkward|dated|generic|plain|stiff|boring|modern|beautiful|polished|premium|professional|pleasant|lively|smooth)\b|(?:^|[^\p{L}])(?:менее|более)\s+(?:деревянн\w*|топорн\w*|неуклюж\w*|устаревш\w*|шаблонн\w*|скучн\w*|современн\w*|красив\w*|аккуратн\w*|премиальн\w*|профессиональн\w*|приятн\w*|жив\w*|плавн\w*)|(?:\b(?:polish|beautify|modernize)\b[^.!?]{0,100}\b(?:ui|design|layout|card|section|screen|page)\b)|(?:(?:отполируй|осовремени|улучши)\b[^.!?]{0,100}\b(?:интерфейс|дизайн|визуал|внешн\w+\s+вид|блок|секци\w*|страниц\w*)))/iu;
+
+const VAGUE_REFERENCE_PATTERN =
+  /(?:\b(?:this|that|it|here|there|thing|stuff|something)\b|(?:^|[^\p{L}])(?:это|эта|эту|этот|тут|здесь|там|штук\w*|фигн\w*|вот\s+это)(?=$|[^\p{L}]))/iu;
+
+const NAMED_TARGET_PATTERNS = [
+  /(?:\b(?:page|screen|component|section|modal|form|route|service|file)\s+|(?:страниц\w*|экран\w*|компонент\w*|секци\w*|раздел\w*|модал\w*|форм\w*|маршрут\w*|сервис\w*|файл\w*)\s+)([A-ZА-ЯЁ][\p{L}\p{N}_.-]*(?:\s+[A-ZА-ЯЁ][\p{L}\p{N}_.-]*){0,4})/gu,
+  /(?:under\s+(?:the\s+)?heading|below\s+(?:the\s+)?heading|под\s+заголовк\w*|под\s+названи\w*)\s+[«"“']?([^\n.!?;»"”']{2,100})/giu,
+] as const;
+
+function normalizeWhitespace(value: unknown, maxLength = 320) {
+  return String(value ?? "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .slice(0, maxLength);
+}
+
+function normalizeForCompare(value: string) {
+  return value.replace(/\\/g, "/").trim().toLowerCase();
+}
+
+export function filterTaskUnderstandingAmbiguities(values: string[]) {
+  return values.filter((value) => {
+    const normalized = normalizeForCompare(value);
+    return !(
+      /(?:no|missing|without)\s+(?:an?\s+)?(?:explicit\s+)?(?:inventory\s+)?(?:file\s+)?path/u.test(normalized) ||
+      /(?:explicit|exact)\s+(?:file\s+)?path\s+(?:was\s+)?not\s+(?:provided|found|specified)/u.test(normalized) ||
+      /(?:не\s+указан|не\s+найден|отсутствует)[^.!?]{0,80}(?:путь|файл)/u.test(normalized)
+    );
+  });
+}
+
+function normalizeConfidence(value: unknown, fallback = 0.5) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed)
+    ? Math.min(1, Math.max(0, parsed))
+    : fallback;
+}
+
+function uniqueStrings(values: string[], limit = 12) {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  for (const value of values) {
+    const normalized = normalizeWhitespace(value, 240);
+    const key = normalizeForCompare(normalized);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(normalized);
+    if (result.length >= limit) break;
+  }
+  return result;
+}
+
+function getModelUnderstandingObject(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const data = value as Record<string, unknown>;
+  const nested = data.taskUnderstanding ?? data.understanding ?? data.taskSummary;
+  if (!nested || typeof nested !== "object" || Array.isArray(nested)) return null;
+  return nested as Record<string, unknown>;
+}
+
+function normalizeStringArray(value: unknown, max = 12) {
+  const values = Array.isArray(value)
+    ? value
+    : typeof value === "string"
+      ? [value]
+      : [];
+  return uniqueStrings(values.map((item) => String(item)), max);
+}
+
+function taskOrProjectContains(value: string, rawTask: string, projectTree: string[]) {
+  const normalized = normalizeForCompare(value);
+  if (!normalized) return false;
+  if (normalizeForCompare(rawTask).includes(normalized)) return true;
+  return projectTree.some((path) => normalizeForCompare(path).includes(normalized));
+}
+
+function hasMeaningfulTaskOverlap(value: string, rawTask: string) {
+  const taskTokens = new Set(
+    normalizeForCompare(rawTask).match(/[\p{L}\p{N}_-]{4,}/gu) ?? [],
+  );
+  const valueTokens = normalizeForCompare(value).match(/[\p{L}\p{N}_-]{4,}/gu) ?? [];
+  return valueTokens.some((token) => taskTokens.has(token));
+}
+
+function normalizeGroundedHints(
+  values: string[],
+  rawTask: string,
+  projectTree: string[],
+  limit = 10,
+) {
+  return uniqueStrings(
+    values.filter(
+      (value) =>
+        taskOrProjectContains(value, rawTask, projectTree) ||
+        hasMeaningfulTaskOverlap(value, rawTask),
+    ),
+    limit,
+  );
+}
+
+function normalizeInterpretationRisk(
+  value: unknown,
+  fallback: TaskUnderstandingInterpretationRisk,
+) {
+  const normalized = normalizeForCompare(
+    String(value ?? ""),
+  ) as TaskUnderstandingInterpretationRisk;
+  return ALLOWED_INTERPRETATION_RISKS.has(normalized)
+    ? normalized
+    : fallback;
+}
+
+function normalizeChangeDefinition(
+  value: unknown,
+  fallback: TaskUnderstandingChangeDefinition,
+) {
+  const normalized = normalizeForCompare(
+    String(value ?? ""),
+  ) as TaskUnderstandingChangeDefinition;
+  return ALLOWED_CHANGE_DEFINITIONS.has(normalized)
+    ? normalized
+    : fallback;
+}
+
+function deriveInterpretationSemantics({
+  rawTask,
+  action,
+  explicitValues,
+  modelInterpretationRisk,
+  modelChangeDefinition,
+}: {
+  rawTask: string;
+  action: TaskUnderstandingAction;
+  explicitValues: TaskUnderstandingExplicitValue[];
+  modelInterpretationRisk?: unknown;
+  modelChangeDefinition?: unknown;
+}) {
+  if (explicitValues.length > 0) {
+    return {
+      interpretationRisk: "objective" as const,
+      changeDefinition: "exact" as const,
+    };
+  }
+
+  const fallbackInterpretationRisk: TaskUnderstandingInterpretationRisk =
+    action === "unknown"
+      ? "uncertain"
+      : OPEN_ENDED_QUALITATIVE_PATTERN.test(rawTask)
+        ? "subjective"
+        : "objective";
+  const fallbackChangeDefinition: TaskUnderstandingChangeDefinition =
+    fallbackInterpretationRisk === "objective" ? "bounded" : "open_ended";
+  const normalizedModelRisk = normalizeInterpretationRisk(
+    modelInterpretationRisk,
+    fallbackInterpretationRisk,
+  );
+  const normalizedModelDefinition = normalizeChangeDefinition(
+    modelChangeDefinition,
+    fallbackChangeDefinition,
+  );
+
+  const interpretationRisk: TaskUnderstandingInterpretationRisk =
+    fallbackInterpretationRisk === "subjective" ||
+    normalizedModelRisk === "subjective"
+      ? "subjective"
+      : fallbackInterpretationRisk === "uncertain" ||
+          normalizedModelRisk === "uncertain"
+        ? "uncertain"
+        : "objective";
+  const changeDefinition: TaskUnderstandingChangeDefinition =
+    fallbackChangeDefinition === "open_ended" ||
+    normalizedModelDefinition === "open_ended" ||
+    interpretationRisk !== "objective"
+      ? "open_ended"
+      : "bounded";
+
+  return { interpretationRisk, changeDefinition };
+}
+
+function inferAction(rawTask: string): TaskUnderstandingAction {
+  const task = normalizeForCompare(rawTask);
+  if (/(?:\b(?:replace|rename|rewrite)\b|замени|заменить|переименуй|переименовать|перепиши|переписать)/iu.test(task)) return "replace";
+  if (/(?:\b(?:create|add|introduce|implement)\b|создай|создать|добавь|добавить|реализуй|реализовать)/iu.test(task)) return "create";
+  if (/(?:\b(?:remove|delete|drop)\b|удали|удалить|убери|убрать)/iu.test(task)) return "remove";
+  if (/(?:\b(?:fix|repair|resolve|bug)\b|исправь|исправить|почини|починить|баг\w*|ошибк\w*)/iu.test(task)) return "fix";
+  if (/(?:\b(?:refactor|restructure|cleanup)\b|рефактор\w*|переструктур\w*|почисти)/iu.test(task)) return "refactor";
+  if (/(?:\b(?:review|audit|inspect|check)\b|проверь|проверить|аудит\w*|изучи|посмотри)/iu.test(task)) return "review";
+  if (/(?:\b(?:test|cover|verify)\b|тест\w*|покры\w*)/iu.test(task)) return "test";
+  if (/(?:\b(?:document|docs|readme|guide)\b|документ\w*|ридми|инструкц\w*)/iu.test(task)) return "document";
+  if (/(?:\b(?:configure|config|setup|set)\b|настрой|настроить|конфиг\w*|установи|установить|задай|задать)/iu.test(task)) return "configure";
+  if (/(?:\b(?:investigate|diagnose|find out|trace)\b|разберись|диагност\w*|выясни|найди\s+причин)/iu.test(task)) return "investigate";
+  if (/(?:\b(?:change|update|edit|modify|adjust|improve|make)\b|измени|изменить|обнови|обновить|поменяй|поменять|доработай|улучши|сделай)/iu.test(task)) return "update";
+  return "unknown";
+}
+
+function normalizeAction(value: unknown, fallback: TaskUnderstandingAction) {
+  const normalized = normalizeForCompare(String(value ?? "")) as TaskUnderstandingAction;
+  return ALLOWED_ACTIONS.has(normalized) ? normalized : fallback;
+}
+
+function extractNamedTargetHints(rawTask: string) {
+  const hints: string[] = [];
+  for (const pattern of NAMED_TARGET_PATTERNS) {
+    pattern.lastIndex = 0;
+    for (const match of rawTask.matchAll(pattern)) {
+      const value = normalizeWhitespace(match[1], 120)
+        .replace(/^[«"“']|[»"”']$/gu, "")
+        .trim();
+      if (value) hints.push(value);
+    }
+  }
+  return uniqueStrings(hints, 8);
+}
+
+function getStructuredTargetHints(structuredIntent: StructuredIntentLike) {
+  return uniqueStrings(
+    (structuredIntent.primaryTargets ?? []).flatMap((target) => [
+      target.path ?? "",
+      target.routePath ?? "",
+      target.name ?? "",
+      target.value ?? "",
+    ]),
+    10,
+  );
+}
+
+function inferGoal(rawTask: string) {
+  const compact = normalizeWhitespace(rawTask, 260)
+    .replace(/^(?:please\s+|пожалуйста[,.]?\s*)/iu, "")
+    .trim();
+  return compact || "Understand and complete the requested project change.";
+}
+
+function isMostlyRussian(value: string) {
+  const cyrillic = (value.match(/[А-Яа-яЁё]/g) ?? []).length;
+  const latin = (value.match(/[A-Za-z]/g) ?? []).length;
+  return cyrillic >= latin;
+}
+
+function buildReplacementQuestion(rawTask: string) {
+  return isMostlyRussian(rawTask)
+    ? "Какой точный новый текст или значение нужно использовать?"
+    : "What exact new text or value should be used?";
+}
+
+function buildTargetQuestion(rawTask: string) {
+  return isMostlyRussian(rawTask)
+    ? "Какую конкретно страницу, компонент или функцию нужно изменить?"
+    : "Which exact page, component, or feature should be changed?";
+}
+
+function deriveExplicitValues(rawTask: string): TaskUnderstandingExplicitValue[] {
+  const replacement = extractExplicitReplacementValue(rawTask);
+  if (!replacement.provided || !replacement.exactValue) return [];
+  return [
+    {
+      kind: classifyTaskValue(replacement.exactValue),
+      value: replacement.exactValue,
+      exact: true,
+      source: "user",
+    },
+  ];
+}
+
+function deriveMissingInformation(rawTask: string) {
+  const missing: TaskUnderstandingMissingInformation[] = [];
+  if (hasMissingReplacementValue(rawTask)) {
+    missing.push({
+      code: "replacement_value",
+      description: "The task requests a replacement but does not provide the exact new value.",
+      required: true,
+    });
+  }
+  return missing;
+}
+
+function deriveReadiness({
+  rawTask,
+  action,
+  targetHints,
+  missingInformation,
+  interpretationRisk,
+  changeDefinition,
+}: {
+  rawTask: string;
+  action: TaskUnderstandingAction;
+  targetHints: string[];
+  missingInformation: TaskUnderstandingMissingInformation[];
+  interpretationRisk: TaskUnderstandingInterpretationRisk;
+  changeDefinition: TaskUnderstandingChangeDefinition;
+}): TaskUnderstandingReadiness {
+  if (missingInformation.some((item) => item.required)) {
+    return "needs_clarification";
+  }
+  if (
+    action === "unknown" ||
+    interpretationRisk !== "objective" ||
+    changeDefinition === "open_ended" ||
+    (VAGUE_REFERENCE_PATTERN.test(rawTask) && targetHints.length === 0)
+  ) {
+    return "review";
+  }
+  return "ready";
+}
+
+function buildReasons({
+  source,
+  action,
+  targetHints,
+  explicitValues,
+  missingInformation,
+  interpretationRisk,
+  changeDefinition,
+  readiness,
+}: {
+  source: TaskUnderstandingSource;
+  action: TaskUnderstandingAction;
+  targetHints: string[];
+  explicitValues: TaskUnderstandingExplicitValue[];
+  missingInformation: TaskUnderstandingMissingInformation[];
+  interpretationRisk: TaskUnderstandingInterpretationRisk;
+  changeDefinition: TaskUnderstandingChangeDefinition;
+  readiness: TaskUnderstandingReadiness;
+}) {
+  return uniqueStrings(
+    [
+      `Understanding source: ${source}.`,
+      `Detected action: ${action}.`,
+      targetHints.length > 0
+        ? `Detected ${targetHints.length} grounded target hint(s).`
+        : "No exact project path is required for the task to be understandable.",
+      explicitValues.length > 0
+        ? `Grounded ${explicitValues.length} exact user-provided value(s).`
+        : "No exact literal value was grounded from the task.",
+      missingInformation.length > 0
+        ? `Missing required information: ${missingInformation.map((item) => item.code).join(", ")}.`
+        : "No backend-confirmed required information is missing.",
+      `Interpretation risk: ${interpretationRisk}.`,
+      `Change definition: ${changeDefinition}.`,
+      `Readiness: ${readiness}.`,
+    ],
+    10,
+  );
+}
+
+function buildDerivedUnderstanding({
+  rawTask,
+  taskArea,
+  taskType,
+  confidence,
+  structuredIntent,
+  source,
+  goal,
+  action,
+  targetHints,
+  requestedChanges,
+  constraints,
+  modelInterpretationRisk,
+  modelChangeDefinition,
+}: BuildTaskUnderstandingInput & {
+  source: TaskUnderstandingSource;
+  goal?: string;
+  action?: TaskUnderstandingAction;
+  targetHints?: string[];
+  requestedChanges?: string[];
+  constraints?: string[];
+  modelInterpretationRisk?: unknown;
+  modelChangeDefinition?: unknown;
+}): TaskUnderstanding {
+  const fallbackAction = action ?? inferAction(rawTask);
+  const fallbackTargetHints = uniqueStrings([
+    ...(targetHints ?? []),
+    ...getStructuredTargetHints(structuredIntent),
+    ...extractNamedTargetHints(rawTask),
+  ]);
+  const explicitValues = deriveExplicitValues(rawTask);
+  const missingInformation = deriveMissingInformation(rawTask);
+  const { interpretationRisk, changeDefinition } = deriveInterpretationSemantics({
+    rawTask,
+    action: fallbackAction,
+    explicitValues,
+    modelInterpretationRisk,
+    modelChangeDefinition,
+  });
+  const readiness = deriveReadiness({
+    rawTask,
+    action: fallbackAction,
+    targetHints: fallbackTargetHints,
+    missingInformation,
+    interpretationRisk,
+    changeDefinition,
+  });
+  const clarificationQuestion =
+    readiness !== "needs_clarification"
+      ? null
+      : missingInformation.some((item) => item.code === "replacement_value")
+        ? buildReplacementQuestion(rawTask)
+        : buildTargetQuestion(rawTask);
+  const baseConfidence = normalizeConfidence(confidence, 0.5);
+  const finalConfidence =
+    readiness === "review"
+      ? Math.min(baseConfidence, 0.62)
+      : readiness === "needs_clarification"
+        ? Math.max(baseConfidence, 0.8)
+        : baseConfidence;
+
+  return {
+    schemaVersion: 1,
+    goal: normalizeWhitespace(goal ?? inferGoal(rawTask), 260),
+    action: fallbackAction,
+    targetHints: fallbackTargetHints,
+    requestedChanges: uniqueStrings([
+      ...(requestedChanges ?? []),
+      ...(structuredIntent.positiveActions ?? []),
+      inferGoal(rawTask),
+    ], 8),
+    constraints: uniqueStrings([
+      ...(constraints ?? []),
+      ...(structuredIntent.protectedScopes ?? []),
+      structuredIntent.allowedEditScope
+        ? `Allowed edit scope: ${structuredIntent.allowedEditScope}`
+        : "",
+    ], 10),
+    interpretationRisk,
+    changeDefinition,
+    explicitValues,
+    missingInformation,
+    readiness,
+    canProceed: readiness !== "needs_clarification",
+    clarificationQuestion,
+    confidence: finalConfidence,
+    source,
+    reasons: buildReasons({
+      source,
+      action: fallbackAction,
+      targetHints: fallbackTargetHints,
+      explicitValues,
+      missingInformation,
+      interpretationRisk,
+      changeDefinition,
+      readiness,
+    }),
+  };
+}
+
+export function buildFallbackTaskUnderstanding(
+  input: BuildTaskUnderstandingInput,
+): TaskUnderstanding {
+  return buildDerivedUnderstanding({
+    ...input,
+    source: "fallback",
+  });
+}
+
+export function normalizeTaskUnderstanding({
+  modelValue,
+  fallback,
+  rawTask,
+  taskArea,
+  taskType,
+  confidence,
+  projectTree,
+  structuredIntent,
+}: NormalizeTaskUnderstandingInput): TaskUnderstanding {
+  const model = getModelUnderstandingObject(modelValue);
+  if (!model) {
+    return buildDerivedUnderstanding({
+      rawTask,
+      taskArea,
+      taskType,
+      confidence,
+      projectTree,
+      structuredIntent,
+      source: fallback.source,
+      goal: fallback.goal,
+      action: fallback.action,
+      targetHints: fallback.targetHints,
+      requestedChanges: fallback.requestedChanges,
+      constraints: fallback.constraints,
+    });
+  }
+
+  const modelGoal = normalizeWhitespace(model.goal ?? model.summary, 260);
+  const groundedGoal =
+    modelGoal && hasMeaningfulTaskOverlap(modelGoal, rawTask)
+      ? modelGoal
+      : fallback.goal;
+  const modelAction = normalizeAction(model.action ?? model.intent, fallback.action);
+  const modelTargetHints = normalizeGroundedHints(
+    normalizeStringArray(model.targetHints ?? model.targets ?? model.target, 12),
+    rawTask,
+    projectTree,
+  );
+  const modelRequestedChanges = normalizeGroundedHints(
+    normalizeStringArray(
+      model.requestedChanges ?? model.changes ?? model.actions,
+      12,
+    ),
+    rawTask,
+    projectTree,
+  );
+  const modelConstraints = normalizeGroundedHints(
+    normalizeStringArray(model.constraints ?? model.protectedScopes, 12),
+    rawTask,
+    projectTree,
+  );
+
+  return buildDerivedUnderstanding({
+    rawTask,
+    taskArea,
+    taskType,
+    confidence: Math.max(
+      normalizeConfidence(confidence, fallback.confidence),
+      normalizeConfidence(model.confidence, fallback.confidence),
+    ),
+    projectTree,
+    structuredIntent,
+    source: "merged",
+    goal: groundedGoal,
+    action: modelAction,
+    targetHints: uniqueStrings([
+      ...modelTargetHints,
+      ...fallback.targetHints,
+    ]),
+    requestedChanges: uniqueStrings([
+      ...modelRequestedChanges,
+      ...fallback.requestedChanges,
+    ]),
+    constraints: uniqueStrings([
+      ...modelConstraints,
+      ...fallback.constraints,
+    ]),
+    modelInterpretationRisk:
+      model.interpretationRisk ?? model.interpretation_risk,
+    modelChangeDefinition:
+      model.changeDefinition ?? model.change_definition,
+  });
+}

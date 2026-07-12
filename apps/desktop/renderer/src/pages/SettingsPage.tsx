@@ -14,6 +14,7 @@ import {
   Languages,
   Layers3,
   Loader2,
+  MessageSquareText,
   PanelLeft,
   RefreshCw,
   Save,
@@ -347,6 +348,8 @@ function withSettingsDefaults(settings: AppSettings): AppSettings {
     onboardingShowEveryLaunch: settings.onboardingShowEveryLaunch ?? true,
     contextQualityMode: settings.contextQualityMode ?? "balanced",
     selectorPipelineMode: settings.selectorPipelineMode ?? "legacy",
+    taskUnderstandingInteractionMode:
+      settings.taskUnderstandingInteractionMode ?? "balanced",
     composerFileLimits: {
       ...DEFAULT_COMPOSER_FILE_LIMITS,
       ...(settings.composerFileLimits ?? {})
@@ -391,7 +394,8 @@ function SettingCard({
   title,
   description,
   children,
-  defaultOpen = true
+  defaultOpen = true,
+  className = ""
 }: {
   icon: ReactNode;
   label: string;
@@ -399,6 +403,7 @@ function SettingCard({
   description: string;
   children?: ReactNode;
   defaultOpen?: boolean;
+  className?: string;
 }) {
   const hasContent = Boolean(children);
   const storageKey = useMemo(
@@ -445,7 +450,12 @@ function SettingCard({
   }
 
   return (
-    <article className="cf-card settings-collapsible-card group/card self-start p-0 text-render-crisp">
+    <article
+      className={[
+        "cf-card settings-collapsible-card group/card self-start p-0 text-render-crisp",
+        className
+      ].join(" ")}
+    >
       <div className="flex w-full items-start justify-between gap-5 p-5 text-left transition duration-200">
         <div className="min-w-0">
           <div className="mb-3 flex size-10 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-200 transition duration-200 group-hover/card:border-white/15 group-hover/card:text-white">
@@ -2056,6 +2066,99 @@ export function SettingsPage() {
                           </div>
                         </div>
                       </div>
+                    </SettingCard>
+
+                    <SettingCard
+                      icon={<MessageSquareText size={18} />}
+                      label={t("settings.taskUnderstandingBehavior")}
+                      title={t("settings.clarificationModeTitle")}
+                      description={t("settings.clarificationModeDescription")}
+                      className="xl:col-span-2"
+                    >
+                      <div className="grid gap-3 md:grid-cols-3">
+                        {[
+                          {
+                            value: "automatic" as const,
+                            label: t("settings.clarificationModeAutomatic"),
+                            caption: t("settings.clarificationModeAutomaticDesc")
+                          },
+                          {
+                            value: "balanced" as const,
+                            label: t("settings.clarificationModeBalanced"),
+                            caption: t("settings.clarificationModeBalancedDesc")
+                          },
+                          {
+                            value: "confirm_all" as const,
+                            label: t("settings.clarificationModeConfirmAll"),
+                            caption: t("settings.clarificationModeConfirmAllDesc")
+                          }
+                        ].map((option) => {
+                          const isActive =
+                            (settingsDraft?.taskUnderstandingInteractionMode ??
+                              "balanced") === option.value;
+
+                          return (
+                            <button
+                              key={option.value}
+                              type="button"
+                              onClick={() =>
+                                updateSettingsDraft({
+                                  taskUnderstandingInteractionMode: option.value
+                                })
+                              }
+                              className={[
+                                "group rounded-2xl border p-4 text-left transition duration-200",
+                                isActive
+                                  ? "border-white bg-white text-black shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
+                                  : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white hover:bg-white hover:text-black hover:shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
+                              ].join(" ")}
+                            >
+                              <div className="mb-3 flex items-center justify-between gap-3">
+                                <span
+                                  className={[
+                                    "grid size-9 place-items-center rounded-xl border transition",
+                                    isActive
+                                      ? "border-black/10 bg-black/5 text-black"
+                                      : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black"
+                                  ].join(" ")}
+                                >
+                                  <MessageSquareText size={15} />
+                                </span>
+
+                                {isActive && (
+                                  <CheckCircle2 size={16} className="text-black" />
+                                )}
+                              </div>
+
+                              <p
+                                className={[
+                                  "text-sm font-semibold transition",
+                                  isActive
+                                    ? "text-black"
+                                    : "text-white group-hover:text-black"
+                                ].join(" ")}
+                              >
+                                {option.label}
+                              </p>
+
+                              <p
+                                className={[
+                                  "mt-1 text-xs leading-5 transition",
+                                  isActive
+                                    ? "text-black/55"
+                                    : "text-neutral-600 group-hover:text-black/55"
+                                ].join(" ")}
+                              >
+                                {option.caption}
+                              </p>
+                            </button>
+                          );
+                        })}
+                      </div>
+
+                      <p className="mt-4 text-xs leading-5 text-neutral-600">
+                        {t("settings.clarificationModeSafetyNote")}
+                      </p>
                     </SettingCard>
                   </div>
                 </>

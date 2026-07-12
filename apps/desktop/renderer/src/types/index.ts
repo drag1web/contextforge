@@ -450,6 +450,7 @@ export interface TaskPackGenerationRecipe {
   };
   githubIssue?: GitHubIssueTaskPackSource;
   githubCreatedIssue?: GitHubCreatedIssueLink;
+  taskClarifications?: TaskClarification[];
   selectorDiagnostics?: SelectorPipelineDiagnostics;
   generationDiagnostics?: TaskPackGenerationDiagnostics;
 }
@@ -597,6 +598,7 @@ export interface TaskPackDraft {
   customRulesText?: string;
   acceptanceCriteriaPresetId?: string;
   acceptanceCriteriaText?: string;
+  clarifications?: TaskClarification[];
 }
 
 export interface OllamaStatus {
@@ -803,6 +805,7 @@ export interface AppSettings {
   };
   contextQualityMode: "advisory" | "balanced" | "strict";
   selectorPipelineMode: SelectorPipelineMode;
+  taskUnderstandingInteractionMode: "automatic" | "balanced" | "confirm_all";
   sidebarShowDescriptions: boolean;
   onboardingEnabled: boolean;
   onboardingShowEveryLaunch: boolean;
@@ -883,6 +886,83 @@ export interface ContextComposerSnippet {
   truncated: boolean;
 }
 
+export interface TaskClarification {
+  question: string;
+  answer: string;
+}
+
+export type TaskUnderstandingReadiness =
+  | "ready"
+  | "review"
+  | "needs_clarification";
+
+export interface TaskUnderstandingPreview {
+  schemaVersion: 1;
+  goal: string;
+  action:
+    | "create"
+    | "update"
+    | "replace"
+    | "remove"
+    | "fix"
+    | "refactor"
+    | "review"
+    | "test"
+    | "document"
+    | "configure"
+    | "investigate"
+    | "unknown";
+  targetHints: string[];
+  requestedChanges: string[];
+  constraints: string[];
+  interpretationRisk: "objective" | "subjective" | "uncertain";
+  changeDefinition: "exact" | "bounded" | "open_ended";
+  explicitValues: Array<{
+    kind: string;
+    value: string;
+    exact: true;
+    source: "user";
+  }>;
+  missingInformation: Array<{
+    code: "replacement_value" | "target_confirmation";
+    description: string;
+    required: boolean;
+  }>;
+  readiness: TaskUnderstandingReadiness;
+  canProceed: boolean;
+  clarificationQuestion: string | null;
+  confidence: number;
+  source: "fallback" | "merged";
+  reasons: string[];
+}
+
+export interface TaskUnderstandingResponse {
+  taskUnderstanding: TaskUnderstandingPreview;
+  interaction: {
+    mode: "automatic" | "balanced" | "confirm_all";
+    action: "continue" | "review" | "clarify";
+    reason:
+      | "required_information_missing"
+      | "semantic_review_requested"
+      | "automatic_review_bypass"
+      | "confirm_all_tasks"
+      | "task_ready";
+  };
+  clarifications: TaskClarification[];
+  taskIntent: {
+    source: string;
+    taskArea: string;
+    riskLevel: string;
+    confidence: number;
+    structuredIntent: ContextComposerPreview["taskIntent"]["structuredIntent"];
+  };
+  inventorySummary: {
+    totalFiles: number;
+    scannedFiles: number;
+    truncated: boolean;
+  };
+}
+
 export interface ContextComposerPreview {
   project: {
     id: number;
@@ -894,6 +974,8 @@ export interface ContextComposerPreview {
   };
   task: {
     rawTask: string;
+    originalRawTask: string;
+    clarifications: TaskClarification[];
     requestedTaskType: string;
     effectiveTaskArea: string;
     targetTool: string;
@@ -906,6 +988,7 @@ export interface ContextComposerPreview {
     intentTags: string[];
     domainTerms: string[];
     fileRoleHints: string[];
+    taskUnderstanding: TaskUnderstandingPreview;
     structuredIntent?: {
       schemaVersion: 1;
       primaryTargets: Array<{

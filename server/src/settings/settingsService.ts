@@ -10,9 +10,29 @@ import {
 } from "../selection/selectorPipelineOrchestrator.js";
 
 export type SelectorPipelineMode = "legacy" | "shadow_compare" | "shadow_primary";
+export type TaskUnderstandingInteractionMode = "automatic" | "balanced" | "confirm_all";
 
 function normalizeSelectorPipelineMode(value: unknown): SelectorPipelineMode {
   return value === "shadow_compare" || value === "shadow_primary" ? value : "legacy";
+}
+
+function normalizeTaskUnderstandingInteractionMode(
+  value: unknown,
+): TaskUnderstandingInteractionMode {
+  return value === "automatic" || value === "confirm_all"
+    ? value
+    : "balanced";
+}
+
+export async function readTaskUnderstandingInteractionMode(
+  read: <T>(key: string, fallback: T) => Promise<T> = getSettingValue,
+) {
+  return normalizeTaskUnderstandingInteractionMode(
+    await read(
+      "task_understanding_interaction_mode",
+      "balanced" as TaskUnderstandingInteractionMode,
+    ),
+  );
 }
 
 export async function readSelectorPipelineMode(
@@ -53,6 +73,7 @@ export interface AppSettings {
   composerFileLimits: ComposerFileLimits;
   contextQualityMode: ContextQualityMode;
   selectorPipelineMode: SelectorPipelineMode;
+  taskUnderstandingInteractionMode: TaskUnderstandingInteractionMode;
   sidebarShowDescriptions: boolean;
   onboardingEnabled: boolean;
   onboardingShowEveryLaunch: boolean;
@@ -113,6 +134,7 @@ const defaultSettings: AppSettings = {
   },
   contextQualityMode: "balanced",
   selectorPipelineMode: "legacy",
+  taskUnderstandingInteractionMode: "balanced",
   sidebarShowDescriptions: false,
   onboardingEnabled: true,
   onboardingShowEveryLaunch: true,
@@ -140,6 +162,7 @@ const settingKeyMap = {
   composerFileLimits: "composer_file_limits",
   contextQualityMode: "context_quality_mode",
   selectorPipelineMode: "selector_pipeline_mode",
+  taskUnderstandingInteractionMode: "task_understanding_interaction_mode",
   sidebarShowDescriptions: "sidebar_show_descriptions",
   onboardingEnabled: "onboarding_enabled",
   onboardingShowEveryLaunch: "onboarding_show_every_launch",
@@ -236,6 +259,8 @@ export async function getAppSettings(): Promise<AppSettings> {
       defaultSettings.contextQualityMode,
     ),
     selectorPipelineMode: await readSelectorPipelineMode(),
+    taskUnderstandingInteractionMode:
+      await readTaskUnderstandingInteractionMode(),
     sidebarShowDescriptions: await getSettingValue(
       settingKeyMap.sidebarShowDescriptions,
       defaultSettings.sidebarShowDescriptions,

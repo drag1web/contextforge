@@ -194,11 +194,16 @@ Goal: reduce `Ollama returned unusable content` and make final Task Pack generat
 
 Goal: handle informal and ambiguous user tasks without confident guessing.
 
-- [ ] Show a compact interpretation of goal, target, actions and constraints.
-- [ ] Detect missing context and ask one focused clarification question.
-- [ ] Let the user confirm or correct the interpreted task before selection.
-- [ ] Preserve RU/EN/mixed-language intent without project-specific rules.
-- [ ] Keep fallback intent analysis available when Ollama is offline.
+Implementation status: the grounded contract, preflight API, compact confirm/correct UI, clean clarification grounding, subjective-review sensitivity, configurable interaction modes, and resume-after-clarification flow are implemented.
+
+- [x] Show a compact interpretation of goal, target, actions and constraints.
+- [x] Detect missing context and ask one focused clarification question.
+- [x] Let the user confirm or correct the interpreted task before selection.
+- [x] Preserve RU/EN/mixed-language intent without project-specific rules.
+- [x] Keep fallback intent analysis available when Ollama is offline.
+- [x] Add Automatic, Balanced, and Confirm every task interaction modes in Settings.
+- [x] Keep required missing information non-bypassable in every mode.
+- [x] Show a saved-answer checking state and enforce truthful manual-verification reporting.
 
 ## v0.6.8-alpha — Shadow Readiness & Default Evaluation
 

@@ -101,6 +101,7 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     },
     contextQualityMode: "balanced",
     selectorPipelineMode: "shadow_primary",
+    taskUnderstandingInteractionMode: "balanced",
     sidebarShowDescriptions: false,
     onboardingEnabled: true,
     onboardingShowEveryLaunch: false,
@@ -428,6 +429,33 @@ async function run() {
     assert.ok(
       policy.refinement.finalResponseRequirements.some((item) =>
         item.includes("what was actually verified"),
+      ),
+    );
+    assert.equal(policy.diagnostics.rewrittenItems, 1);
+    assert.ok(
+      policy.diagnostics.rejectionCodes.includes("forced_verification_claim"),
+    );
+    scenarios += 1;
+  }
+
+  {
+    const policy = enforceTaskPackRefinementPolicy(
+      {
+        ...VALID_REFINEMENT,
+        finalResponseRequirements: [
+          "Confirm that manual visual inspection confirms the desired aesthetic improvement.",
+        ],
+      },
+      promptInput(),
+    );
+    assert.ok(
+      policy.refinement.finalResponseRequirements.some((item) =>
+        item.includes("what was actually verified"),
+      ),
+    );
+    assert.ok(
+      !policy.refinement.finalResponseRequirements.some((item) =>
+        item.includes("desired aesthetic improvement"),
       ),
     );
     assert.equal(policy.diagnostics.rewrittenItems, 1);

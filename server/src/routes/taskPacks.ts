@@ -36,6 +36,17 @@ import {
 } from "../selection/contextQuality.js";
 import { isSecretLikePath } from "../selection/safetyPolicy.js";
 import { buildExportSafeProjectMetadata } from "../taskPacks/taskPackPrivacy.js";
+import {
+  resolveTaskUnderstandingInteraction,
+} from "../taskPacks/taskUnderstandingInteraction.js";
+import {
+  applyTaskClarificationsToUnderstanding,
+  buildClarifiedTaskText,
+  buildSelectionTaskText,
+  normalizeTaskClarifications,
+  taskClarificationsSchema,
+  type TaskClarification,
+} from "../taskPacks/taskClarifications.js";
 import type { ProjectMemoryRecord, ProjectRecord } from "../storage/types.js";
 import type {
   GitHubCreatedIssueLink,
@@ -75,6 +86,14 @@ const createGitHubIssueFromTaskPackSchema = z.object({
     .default([]),
 });
 
+const understandTaskPackSchema = z.object({
+  projectId: z.number().int().positive(),
+  rawTask: z.string().trim().min(3).max(6000),
+  taskType: z.string().trim().min(1).default("general"),
+  targetTool: z.string().trim().min(1).default("generic"),
+  clarifications: taskClarificationsSchema.optional(),
+});
+
 const createTaskPackSchema = z.object({
   projectId: z.number().int().positive(),
   rawTask: z.string().min(3),
@@ -84,6 +103,7 @@ const createTaskPackSchema = z.object({
     .array(z.string().trim().min(1).max(500))
     .max(48)
     .optional(),
+  clarifications: taskClarificationsSchema.optional(),
 
   templateId: z.string().trim().min(1).max(180).optional(),
   ruleProfileId: z.string().trim().min(1).max(180).optional(),
@@ -174,6 +194,7 @@ interface TaskPackGenerationRecipe {
   };
   githubIssue?: GitHubIssueTaskPackSource;
   githubCreatedIssue?: GitHubCreatedIssueLink;
+  taskClarifications?: TaskClarification[];
   selectorDiagnostics?: SelectorPipelineDiagnostics;
   generationDiagnostics?: TaskPackGenerationDiagnostics;
 }
@@ -690,6 +711,12 @@ function buildContextNotes({
         `Structured intent: ${taskIntent.structuredIntent.primaryTargets.length} primary target(s); edit scope ${taskIntent.structuredIntent.allowedEditScope}.`,
       );
     }
+
+    if (taskIntent.taskUnderstanding) {
+      notes.push(
+        `Task understanding: ${taskIntent.taskUnderstanding.readiness}; action ${taskIntent.taskUnderstanding.action}; can proceed ${taskIntent.taskUnderstanding.canProceed ? "yes" : "no"}.`,
+      );
+    }
   }
 
   if ("effectiveTaskArea" in fileSelection) {
@@ -995,6 +1022,18 @@ function buildContextForgeNotesSection(context: UniversalTaskPackContext) {
         context.taskIntent.structuredIntent
           ? `- Edit scope: ${context.taskIntent.structuredIntent.allowedEditScope}`
           : null,
+        context.taskIntent.taskUnderstanding
+          ? `- Understanding readiness: ${context.taskIntent.taskUnderstanding.readiness}`
+          : null,
+        context.taskIntent.taskUnderstanding
+          ? `- Understanding action: ${context.taskIntent.taskUnderstanding.action}`
+          : null,
+        context.taskIntent.taskUnderstanding
+          ? `- Understanding goal: ${context.taskIntent.taskUnderstanding.goal}`
+          : null,
+        context.taskIntent.taskUnderstanding?.missingInformation.length
+          ? `- Missing information: ${context.taskIntent.taskUnderstanding.missingInformation.map((item) => item.code).join(", ")}`
+          : null,
       ]
         .filter(Boolean)
         .join("\n")
@@ -1175,6 +1214,7 @@ function buildGenerationRecipeMetadata(
     ReturnType<typeof buildTaskPackRulesTemplatePrompt>
   >["recipe"],
   githubIssue?: GitHubIssueTaskPackSource,
+  taskClarifications?: TaskClarification[],
 ): TaskPackGenerationRecipe {
   return {
     template: recipe.template
@@ -1215,6 +1255,10 @@ function buildGenerationRecipeMetadata(
       acceptanceCriteria: recipe.acceptanceCriteria.length,
     },
     githubIssue,
+    taskClarifications:
+      taskClarifications && taskClarifications.length > 0
+        ? taskClarifications
+        : undefined,
   };
 }
 
@@ -1341,6 +1385,81 @@ taskPacksRouter.post("/:id/github/issue", async (req, res) => {
   }
 });
 
+taskPacksRouter.post("/understand", async (req, res) => {
+  const parsed = understandTaskPackSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid task understanding payload",
+      issues: parsed.error.issues,
+    });
+    return;
+  }
+
+  try {
+    const project = await getProjectById(parsed.data.projectId);
+    if (!project) {
+      res.status(404).json({ ok: false, message: "Project not found" });
+      return;
+    }
+
+    const inventory = await scanProjectInventory(project.localPath);
+    const clarifications = normalizeTaskClarifications(parsed.data.clarifications);
+    const selectionTask = buildSelectionTaskText(
+      parsed.data.rawTask,
+      clarifications,
+    );
+    const analyzedTaskIntent = await analyzeTaskIntent({
+      rawTask: selectionTask,
+      taskType: parsed.data.taskType,
+      targetTool: parsed.data.targetTool,
+      project,
+      projectTree: inventory.files.map((file) => file.path),
+    });
+    const taskIntent = {
+      ...analyzedTaskIntent,
+      taskUnderstanding: applyTaskClarificationsToUnderstanding(
+        analyzedTaskIntent.taskUnderstanding,
+        clarifications,
+      ),
+    };
+    const settings = await getAppSettings();
+    const interaction = resolveTaskUnderstandingInteraction(
+      taskIntent.taskUnderstanding,
+      settings.taskUnderstandingInteractionMode,
+    );
+
+    res.json({
+      ok: true,
+      taskUnderstanding: taskIntent.taskUnderstanding,
+      interaction,
+      taskIntent: {
+        source: taskIntent.source,
+        taskArea: taskIntent.taskArea,
+        riskLevel: taskIntent.riskLevel,
+        confidence: taskIntent.confidence,
+        structuredIntent: taskIntent.structuredIntent,
+      },
+      clarifications,
+      inventorySummary: {
+        totalFiles: inventory.totalFiles,
+        scannedFiles: inventory.scannedFiles,
+        truncated: inventory.truncated,
+      },
+    });
+  } catch (error) {
+    console.error("Task understanding preflight failed:", error);
+    const message =
+      error instanceof Error ? error.message : "Task understanding preflight failed";
+    res.status(500).json({
+      ok: false,
+      message,
+      error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
 taskPacksRouter.post("/", async (req, res) => {
   const parsed = createTaskPackSchema.safeParse(req.body);
 
@@ -1367,17 +1486,33 @@ taskPacksRouter.post("/", async (req, res) => {
     const inventory = await scanProjectInventory(project.localPath);
     const settings = await getAppSettings();
     const projectMemories = await storage.listProjectMemories(project.id);
+    const clarifications = normalizeTaskClarifications(parsed.data.clarifications);
+    const selectionTask = buildSelectionTaskText(
+      parsed.data.rawTask,
+      clarifications,
+    );
+    const effectiveTask = buildClarifiedTaskText(
+      parsed.data.rawTask,
+      clarifications,
+    );
 
-    const taskIntent = await analyzeTaskIntent({
-      rawTask: parsed.data.rawTask,
+    const analyzedTaskIntent = await analyzeTaskIntent({
+      rawTask: selectionTask,
       taskType: parsed.data.taskType,
       targetTool: parsed.data.targetTool,
       project,
       projectTree: inventory.files.map((file) => file.path),
     });
+    const taskIntent = {
+      ...analyzedTaskIntent,
+      taskUnderstanding: applyTaskClarificationsToUnderstanding(
+        analyzedTaskIntent.taskUnderstanding,
+        clarifications,
+      ),
+    };
 
     const selectorPipeline = await runSelectorPipeline({
-      rawTask: parsed.data.rawTask,
+      rawTask: selectionTask,
       taskType: parsed.data.taskType,
       targetTool: parsed.data.targetTool,
       inventory,
@@ -1401,7 +1536,7 @@ taskPacksRouter.post("/", async (req, res) => {
           inventory,
           baseSelection: automaticFileSelection,
           selectedFilePaths: parsed.data.selectedFilePaths ?? [],
-          rawTask: parsed.data.rawTask,
+          rawTask: selectionTask,
           effectiveTaskArea: effectiveSelectionArea,
         })
       : automaticFileSelection;
@@ -1412,7 +1547,7 @@ taskPacksRouter.post("/", async (req, res) => {
     });
 
     const selectionQuality = evaluateContextSelectionQuality({
-      rawTask: parsed.data.rawTask,
+      rawTask: selectionTask,
       requestedTaskType: parsed.data.taskType,
       effectiveTaskArea: effectiveSelectionArea,
       inventory,
@@ -1474,7 +1609,7 @@ taskPacksRouter.post("/", async (req, res) => {
 
     const taskPackTemplate = await buildTaskPackRulesTemplatePrompt({
       project: projectForPrompt,
-      rawTask: parsed.data.rawTask,
+      rawTask: effectiveTask,
       taskType: parsed.data.taskType,
       targetTool: parsed.data.targetTool,
       templateId: parsed.data.templateId,
@@ -1501,7 +1636,7 @@ taskPacksRouter.post("/", async (req, res) => {
         readinessScore: project.readinessScore,
         scripts: project.scripts,
       },
-      rawTask: parsed.data.rawTask,
+      rawTask: effectiveTask,
       taskType: parsed.data.taskType,
       targetTool: parsed.data.targetTool,
       effectiveTaskArea: universalContext.effectiveTaskArea,
@@ -1519,6 +1654,7 @@ taskPacksRouter.post("/", async (req, res) => {
       ...buildGenerationRecipeMetadata(
         taskPackTemplate.recipe,
         parsed.data.githubIssueSource,
+        clarifications,
       ),
       selectorDiagnostics,
       generationDiagnostics: generation.diagnostics,

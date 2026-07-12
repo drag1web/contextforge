@@ -4,10 +4,10 @@
 
 It scans local repositories, detects stack and scripts, builds project context, generates `AGENTS.md`, and creates structured Task Packs for tools like **Codex**, **Cursor**, **Claude Code**, and other AI coding assistants.
 
-Current version: **v0.6.6-alpha**
-Current app phase: **Phase 0.6.6 — Task Pack Generation Reliability**
+Current version: **v0.6.7-alpha**
+Current app phase: **Phase 0.6.7 — Task Understanding & Clarification**
 
-This release hardens final Task Pack generation: AI providers now return bounded structured refinements, ContextForge validates and safely composes them into the protected template, retries malformed responses once, filters unsafe or contradictory instructions, distinguishes missing values from explicit literals, and switches only genuinely incomplete tasks into a consistent clarification flow.
+This release adds a grounded preflight layer before file selection. ContextForge now distinguishes ready tasks, subjective or broad tasks that should be reviewed, and genuinely incomplete tasks that require one focused answer. Users can choose Automatic, Balanced, or Confirm every task behavior in Settings.
 
 ---
 
@@ -27,7 +27,10 @@ This release hardens final Task Pack generation: AI providers now return bounded
 - Scores Task Pack quality with checks for clarity, scope, rules, acceptance criteria, verification and safety.
 - Shows Context Review Lite with selected files, reasons, snippets, warnings and review signals.
 - Shows context load/budget hints with compact, standard and detailed target modes.
-- Provides recipe-guided task understanding and conservative dynamic intent warnings.
+- Provides grounded Task Understanding before file selection, including goal, action, target hints, constraints, exact values, missing information, interpretation risk, and readiness.
+- Shows compact clarification or interpretation-review UI before Shadow when the task needs user input or confirmation.
+- Stores the original task and user clarifications separately, then sends Shadow a clean grounded task representation.
+- Supports Automatic, Balanced, and Confirm every task interaction modes in local Settings; required information is never invented or bypassed.
 - Shows local working-tree status with branch, latest commit, staged, unstaged and untracked counts.
 - Adds current local changes into Task Pack drafts as awareness-only context without turning them into edit targets.
 - Provides Diff Review Lite with metadata-only diff summaries, review signals, suggested verification and Task Pack alignment.
@@ -127,7 +130,7 @@ STORAGE_DRIVER=sqlite
 SQLITE_DB_PATH=./data/contextforge.sqlite
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.6.6-alpha
+APP_VERSION=0.6.7-alpha
 
 # Optional GitHub integration. ContextForge works without this.
 GITHUB_OAUTH_CLIENT_ID=
@@ -143,7 +146,7 @@ STORAGE_DRIVER=postgres
 DATABASE_URL=postgresql://contextforge:contextforge@127.0.0.1:5433/contextforge
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.6.6-alpha
+APP_VERSION=0.6.7-alpha
 ```
 
 ---

@@ -1,5 +1,40 @@
 # Changelog
 
+## 0.6.7-alpha — Task Understanding & Clarification
+
+### Added
+
+- Added a grounded Task Understanding contract for goal, action, target hints, constraints, exact user values, missing information, confidence, and readiness.
+- Added a preflight API that evaluates tasks before Shadow file selection and Task Pack generation.
+- Added compact clarification and interpretation-review UI with separate clarification history and automatic resume after the task is resolved.
+- Added user-selectable clarification behavior in Settings: Automatic, Balanced, and Confirm every task.
+- Added universal subjective/open-ended interpretation detection without project-specific rules.
+
+### Changed
+
+- Clarification answers now remain separate from the original task and are grounded into selector input without leaking UI labels such as `Question` or `User answer` into ranking.
+- Missing required values always ask the user, while review-level ambiguity can follow the selected interaction mode.
+- The default Balanced mode confirms subjective or broad interpretations, Automatic continues review-level tasks, and Confirm every task shows the interpretation before every Analyze or Generate action.
+- The clarification modal now replaces the repeated empty input with a saved-answer checking state while re-analysis is running.
+- Manual-verification success claims are rewritten into truthful actual-result reporting, including subjective visual-inspection wording.
+
+### Safety and privacy
+
+- Automatic mode cannot bypass genuinely missing required information and never authorizes ContextForge to invent user values.
+- Shadow still receives a clean task representation built from the original task plus grounded clarification values.
+- Preflight and generation diagnostics remain local and do not store raw model responses, secrets, source content, or absolute paths.
+
+### Validation
+
+- Task Understanding smoke: 26 scenarios.
+- Clarification smoke: 9 scenarios.
+- Task Pack generation reliability smoke: 36 scenarios.
+- Selector rollout smoke: 32 scenarios.
+- Legacy replay: 108/108.
+- Synthetic selector benchmark: 54/54 across 24 families.
+- Renderer and server builds passed.
+- Private real-project regression and sealed validation remain maintainer-only release checks.
+
 ## 0.6.6-alpha — Task Pack Generation Reliability
 
 ### Added

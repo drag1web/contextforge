@@ -64,6 +64,9 @@ const updateSettingsSchema = z.object({
   composerFileLimits: composerFileLimitsSchema.optional(),
   contextQualityMode: z.enum(["advisory", "balanced", "strict"]).optional(),
   selectorPipelineMode: z.enum(["legacy", "shadow_compare", "shadow_primary"]).optional(),
+  taskUnderstandingInteractionMode: z
+    .enum(["automatic", "balanced", "confirm_all"])
+    .optional(),
   sidebarShowDescriptions: z.boolean().optional(),
   onboardingEnabled: z.boolean().optional(),
   onboardingShowEveryLaunch: z.boolean().optional(),

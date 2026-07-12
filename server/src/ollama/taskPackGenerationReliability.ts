@@ -8,6 +8,15 @@ import {
   getCachedGeneration,
   setCachedGeneration,
 } from "./generationCache.js";
+import {
+  extractExplicitReplacementValue,
+  hasMissingReplacementValue,
+} from "./taskValueGrounding.js";
+
+export {
+  extractExplicitReplacementValue,
+  type ExplicitReplacementValue,
+} from "./taskValueGrounding.js";
 
 const MAX_PROMPT_CHARS = 24_000;
 const MAX_REPAIR_RESPONSE_CHARS = 8_000;
@@ -200,6 +209,20 @@ export interface TaskPackGenerationPromptInput {
       }>;
       allowedEditScope?: string;
     } | null;
+    taskUnderstanding?: {
+      goal?: string;
+      action?: string;
+      targetHints?: string[];
+      requestedChanges?: string[];
+      constraints?: string[];
+      explicitValues?: Array<{ kind?: string; value?: string; exact?: boolean }>;
+      missingInformation?: Array<{ code?: string; description?: string; required?: boolean }>;
+      readiness?: string;
+      canProceed?: boolean;
+      clarificationQuestion?: string | null;
+      confidence?: number;
+      source?: string;
+    } | null;
   };
   selectionQuality: {
     status: string;
@@ -363,7 +386,9 @@ const GIT_ACTION_POLICIES: Array<{
 
 const FORCED_VERIFICATION_CLAIM_PATTERNS = [
   /\b(?:confirm|state|report|claim|declare)\b[\s\S]{0,120}\b(?:successful(?:ly)?|passed|succeeded|works|verified|completed)\b/iu,
+  /\bconfirm\b[\s\S]{0,180}\bmanual(?:ly)?\b[\s\S]{0,180}\b(?:confirms?|shows?|meets?|satisf(?:y|ies|ied|actory)|desired|improv(?:e|ed|ement))\b/iu,
   /(?:подтверд(?:и|ить|ите)|заяв(?:и|ить|ите)|укаж(?:и|ите)|сообщ(?:и|ите))[\s\S]{0,120}(?:успешн|пройден|выполнен|работает|проверен|завершен)\w*/iu,
+  /подтверд(?:и|ить|ите)[\s\S]{0,180}ручн\w*[\s\S]{0,180}(?:подтвержд\w*|показыва\w*|соответству\w*|желаем\w*|улучшен\w*|удовлетвор\w*)/iu,
 ];
 
 const PATH_REFERENCE_PATTERN = /(?:^|[\s("'`])((?:[A-Za-z0-9_@.-]+[\\/])+[A-Za-z0-9_@().-]+\.[A-Za-z0-9]{1,10})/g;
@@ -502,137 +527,12 @@ function hasUnknownFileReference(
   });
 }
 
-const REPLACEMENT_VERB_PATTERN =
-  /(?:\b(?:change|replace|update|rename|set|edit|modify|rewrite)\b|измени|изменить|замени|заменить|обнови|обновить|переименуй|переименовать|поменяй|поменять|перепиши|переписать|установи|установить|задай|задать)/iu;
-const REPLACEABLE_VALUE_PATTERN =
-  /(?:\b(?:text|copy|label|title|heading|description|message|placeholder|value|name|color|icon|wording|url|endpoint|timeout|limit|version|email|path|port|size)\b|текст|пояснен\w*|надпис\w*|заголов\w*|описан\w*|сообщен\w*|плейсхолдер\w*|значен\w*|назван\w*|цвет\w*|икон\w*|формулиров\w*|url|адрес\w*|эндпоинт\w*|таймаут\w*|лимит\w*|верси\w*|почт\w*|путь|порт\w*|размер\w*)/iu;
-const TRANSFORMATION_GOAL_PATTERN =
-  /(?:\b(?:shorter|clearer|more\s+concise|more\s+helpful|friendlier|accessible)\b|короче|понятнее|яснее|информативнее|дружелюбнее|лаконичнее)/iu;
-const LOCATION_VALUE_PREFIX_PATTERN =
-  /^(?:(?:the\s+)?(?:page|screen|component|file|section|field|button|card|modal|form|table|panel|route|module)\b|(?:страниц[\p{L}\p{N}_-]*|экран[\p{L}\p{N}_-]*|компонент[\p{L}\p{N}_-]*|файл[\p{L}\p{N}_-]*|секци[\p{L}\p{N}_-]*|раздел[\p{L}\p{N}_-]*|пол(?:е|я|ю|ем)|кнопк[\p{L}\p{N}_-]*|карточк[\p{L}\p{N}_-]*|модал[\p{L}\p{N}_-]*|форм[\p{L}\p{N}_-]*|таблиц[\p{L}\p{N}_-]*|панел[\p{L}\p{N}_-]*|маршрут[\p{L}\p{N}_-]*|модул[\p{L}\p{N}_-]*)(?=$|[^\p{L}\p{N}_-]))/iu;
-const REPLACEMENT_CONNECTORS = new Set(["to", "with", "as", "на"]);
-const QUOTE_PAIRS = [
-  ['"', '"'],
-  ["'", "'"],
-  ['`', '`'],
-  ['«', '»'],
-  ['“', '”'],
-  ['‘', '’'],
-] as const;
-
-export interface ExplicitReplacementValue {
-  provided: boolean;
-  exactValue: string | null;
-}
-
-function stripTrailingTaskPunctuation(value: string) {
-  return value.trim().replace(/[\s,;.!?]+$/u, "").trim();
-}
-
-function extractLeadingQuotedValue(value: string) {
-  const trimmed = value.trimStart();
-  for (const [open, close] of QUOTE_PAIRS) {
-    if (!trimmed.startsWith(open)) {
-      continue;
-    }
-    const end = trimmed.indexOf(close, open.length);
-    if (end < 0) {
-      return null;
-    }
-    const content = trimmed.slice(open.length, end).trim();
-    return content.length > 0 ? content : null;
-  }
-  return null;
-}
-
-function isExactUnquotedLiteral(value: string) {
-  return (
-    /^(?:https?:\/\/\S+|mailto:\S+|#[0-9a-f]{3,8}|(?:rgb|rgba|hsl|hsla)\([^\n]+\)|[+-]?(?:\d+(?:[.,]\d+)?)(?:ms|s|sec|seconds?|px|rem|em|%|mb|gb|kb)?|v?\d+(?:\.\d+){1,3}|[\w.+-]+@[\w.-]+\.[a-z]{2,}|true|false|null)$/iu.test(
-      value,
-    ) ||
-    /^[\p{L}_][\p{L}\p{N}_.-]{0,79}$/u.test(value)
-  );
-}
-
-function parseReplacementCandidate(rawCandidate: string): ExplicitReplacementValue {
-  const candidate = rawCandidate.trimStart();
-  if (!candidate || LOCATION_VALUE_PREFIX_PATTERN.test(candidate)) {
-    return { provided: false, exactValue: null };
-  }
-
-  const startsWithQuote = QUOTE_PAIRS.some(([open]) =>
-    candidate.startsWith(open),
-  );
-  const quoted = extractLeadingQuotedValue(candidate);
-  if (startsWithQuote) {
-    return quoted !== null
-      ? { provided: true, exactValue: quoted }
-      : { provided: false, exactValue: null };
-  }
-
-  const firstLine = stripTrailingTaskPunctuation(
-    candidate.split(/(?:\r?\n|;)/u, 1)[0] ?? "",
-  );
-  if (!firstLine) {
-    return { provided: false, exactValue: null };
-  }
-
-  return {
-    provided: true,
-    exactValue: isExactUnquotedLiteral(firstLine) ? firstLine : null,
-  };
-}
-
-export function extractExplicitReplacementValue(
-  rawTask: string,
-): ExplicitReplacementValue {
-  const value = rawTask.trim();
-  const verbMatch = REPLACEMENT_VERB_PATTERN.exec(value);
-  if (!verbMatch || verbMatch.index === undefined) {
-    return { provided: false, exactValue: null };
-  }
-
-  const tail = value.slice(verbMatch.index + verbMatch[0].length);
-  for (const token of tail.matchAll(/[\p{L}\p{N}_]+/gu)) {
-    const connector = token[0].toLowerCase();
-    if (!REPLACEMENT_CONNECTORS.has(connector) || token.index === undefined) {
-      continue;
-    }
-    const parsed = parseReplacementCandidate(
-      tail.slice(token.index + token[0].length),
-    );
-    if (parsed.provided) {
-      return parsed;
-    }
-  }
-
-  const assignment = /(?:=|:)\s*([\s\S]+)$/u.exec(tail);
-  if (assignment) {
-    const parsed = parseReplacementCandidate(assignment[1]);
-    if (parsed.provided) {
-      return parsed;
-    }
-  }
-
-  return { provided: false, exactValue: null };
-}
-
 export function detectTaskPackAmbiguities(
   rawTask: string,
 ): TaskPackGenerationAmbiguityCode[] {
-  const value = rawTask.trim();
-  const explicitReplacement = extractExplicitReplacementValue(value);
-
-  if (
-    REPLACEMENT_VERB_PATTERN.test(value) &&
-    REPLACEABLE_VALUE_PATTERN.test(value) &&
-    !explicitReplacement.provided &&
-    !TRANSFORMATION_GOAL_PATTERN.test(value)
-  ) {
-    return ["missing_replacement_value"];
-  }
-
-  return [];
+  return hasMissingReplacementValue(rawTask)
+    ? ["missing_replacement_value"]
+    : [];
 }
 
 type PushRefinementItemResult =
@@ -1311,6 +1211,23 @@ function buildPromptPayload(
         })) ?? [],
       allowedEditScope:
         input.taskIntent?.structuredIntent?.allowedEditScope ?? null,
+      understanding: input.taskIntent?.taskUnderstanding
+        ? {
+            goal: truncate(input.taskIntent.taskUnderstanding.goal ?? "", 260),
+            action: input.taskIntent.taskUnderstanding.action ?? null,
+            readiness: input.taskIntent.taskUnderstanding.readiness ?? null,
+            canProceed: input.taskIntent.taskUnderstanding.canProceed ?? null,
+            targetHints: input.taskIntent.taskUnderstanding.targetHints?.slice(0, 8) ?? [],
+            requestedChanges: input.taskIntent.taskUnderstanding.requestedChanges?.slice(0, 8) ?? [],
+            constraints: input.taskIntent.taskUnderstanding.constraints?.slice(0, 8) ?? [],
+            explicitValues: input.taskIntent.taskUnderstanding.explicitValues
+              ?.slice(0, 6)
+              .map((item) => ({ kind: item.kind, value: truncate(item.value ?? "", 320), exact: item.exact })) ?? [],
+            missingInformation: input.taskIntent.taskUnderstanding.missingInformation
+              ?.slice(0, 6)
+              .map((item) => ({ code: item.code, required: item.required })) ?? [],
+          }
+        : null,
     },
     selectionQuality: {
       status: input.selectionQuality.status,
@@ -1477,6 +1394,27 @@ export function buildTaskPackRefinementPrompt(
             })) ?? [],
         allowedEditScope: input.taskIntent?.structuredIntent?.allowedEditScope
           ? truncate(input.taskIntent.structuredIntent.allowedEditScope, 240)
+          : null,
+        understanding: input.taskIntent?.taskUnderstanding
+          ? {
+              goal: truncate(input.taskIntent.taskUnderstanding.goal ?? "", 180),
+              action: input.taskIntent.taskUnderstanding.action
+                ? truncate(input.taskIntent.taskUnderstanding.action, 60)
+                : null,
+              readiness: input.taskIntent.taskUnderstanding.readiness
+                ? truncate(input.taskIntent.taskUnderstanding.readiness, 60)
+                : null,
+              canProceed: input.taskIntent.taskUnderstanding.canProceed ?? null,
+              targetHints: input.taskIntent.taskUnderstanding.targetHints
+                ?.slice(0, 3)
+                .map((item) => truncate(item, 120)) ?? [],
+              missingInformation: input.taskIntent.taskUnderstanding.missingInformation
+                ?.slice(0, 3)
+                .map((item) => ({
+                  code: item.code ? truncate(item.code, 80) : null,
+                  required: item.required ?? null,
+                })) ?? [],
+            }
           : null,
       },
       selectionQuality: {

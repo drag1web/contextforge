@@ -40,7 +40,8 @@ import {
 import {
   getProjectGitStatus,
   getRuleProfilesCatalog,
-  getTemplates
+  getTemplates,
+  understandTaskPack
 } from "../api/client";
 import type {
   AcceptanceCriteriaPreset,
@@ -50,12 +51,15 @@ import type {
   PromptTemplate,
   RuleItem,
   RuleProfile,
+  TaskClarification,
   TaskPackDraft,
+  TaskUnderstandingResponse,
   TemplateTaskType
 } from "../types";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { CustomSelect } from "../components/ui/CustomSelect";
+import { TaskUnderstandingModal } from "../components/modals/TaskUnderstandingModal";
 import { SegmentedFilter, type SegmentedFilterOption } from "../components/ui/SegmentedFilter";
 import { TARGET_TOOL_OPTIONS } from "../components/ai/aiToolOptions";
 import {
@@ -80,9 +84,11 @@ interface TaskPackBuilderPageProps {
   onChange: (draft: TaskPackDraft) => void;
   onClose: () => void;
   contextPreview?: ContextComposerPreview | null;
-  onAnalyzeContext: () => void | Promise<ContextComposerPreview | void>;
+  onAnalyzeContext: (
+    draftOverride?: TaskPackDraft
+  ) => void | Promise<ContextComposerPreview | void>;
   onOpenContextComposer?: () => void | Promise<void>;
-  onGenerate: () => void;
+  onGenerate: (draftOverride?: TaskPackDraft) => void | Promise<void>;
 }
 
 const TASK_EXAMPLES = [
@@ -125,6 +131,7 @@ const TASK_TYPE_OPTIONS: Array<{
   ];
 
 type BuilderSection = "task" | "recipe" | "rules" | "acceptance" | "context";
+type TaskUnderstandingPendingAction = "analyze" | "generate" | null;
 
 const BUILDER_SECTION_OPTIONS: SegmentedFilterOption<BuilderSection>[] = [
   {
@@ -1701,6 +1708,120 @@ function TaskIntentCard({
   );
 }
 
+function BackendTaskUnderstandingCard({
+  response,
+  onOpen
+}: {
+  response: TaskUnderstandingResponse;
+  onOpen: () => void;
+}) {
+  const { t } = useTranslation();
+  const understanding = response.taskUnderstanding;
+  const confidence = Math.round(understanding.confidence * 100);
+  const isReady = understanding.readiness === "ready";
+  const needsClarification = understanding.readiness === "needs_clarification";
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      className={[
+        "rounded-2xl border bg-black/35 p-3 text-left transition hover:bg-white/[0.035]",
+        isReady
+          ? "border-emerald-400/15 hover:border-emerald-300/25"
+          : needsClarification
+            ? "border-amber-300/20 hover:border-amber-200/30"
+            : "border-white/10 hover:border-white/20"
+      ].join(" ")}
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span
+            className={[
+              "grid size-9 shrink-0 place-items-center rounded-xl border",
+              isReady
+                ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+                : needsClarification
+                  ? "border-amber-300/20 bg-amber-300/10 text-amber-300"
+                  : "border-white/15 bg-white/10 text-white"
+            ].join(" ")}
+          >
+            {isReady ? (
+              <CheckCircle2 size={15} />
+            ) : needsClarification ? (
+              <AlertTriangle size={15} />
+            ) : (
+              <Lightbulb size={15} />
+            )}
+          </span>
+
+          <div className="min-w-0">
+            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+              {t("taskUnderstanding.eyebrow")}
+            </p>
+
+            <h3 className="mt-1 truncate text-sm font-semibold text-white">
+              {needsClarification
+                ? t("taskUnderstanding.statusClarification")
+                : understanding.readiness === "review"
+                  ? t("taskUnderstanding.statusReview")
+                  : t("taskUnderstanding.statusReady")}
+            </h3>
+
+            <p className="mt-1 line-clamp-2 text-xs leading-5 text-neutral-500">
+              {understanding.goal}
+            </p>
+          </div>
+        </div>
+
+        <span className="shrink-0 rounded-full border border-neutral-800 bg-black/45 px-2 py-1 text-[10px] font-semibold text-neutral-300">
+          {confidence}%
+        </span>
+      </div>
+
+      <div className="mt-3 grid grid-cols-3 gap-2">
+        <div className="rounded-xl border border-neutral-900 bg-black/35 p-2">
+          <p className="cf-tech-label text-[8px] uppercase text-neutral-700">
+            Action
+          </p>
+          <p className="mt-1 truncate text-xs font-semibold text-white">
+            {understanding.action}
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-neutral-900 bg-black/35 p-2">
+          <p className="cf-tech-label text-[8px] uppercase text-neutral-700">
+            Targets
+          </p>
+          <p className="mt-1 truncate text-xs font-semibold text-white">
+            {understanding.targetHints.length}
+          </p>
+        </div>
+
+        <div className="rounded-xl border border-neutral-900 bg-black/35 p-2">
+          <p className="cf-tech-label text-[8px] uppercase text-neutral-700">
+            Values
+          </p>
+          <p className="mt-1 truncate text-xs font-semibold text-white">
+            {understanding.explicitValues.length}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-neutral-500">
+        <span>
+          {t("taskUnderstanding.clarificationCount", {
+            count: response.clarifications.length
+          })}
+        </span>
+        <span className="font-medium text-neutral-300">
+          {t("taskUnderstanding.openDetails")}
+        </span>
+      </div>
+    </button>
+  );
+}
+
 function QualityDetailsModal({
   quality,
   onClose
@@ -2701,6 +2822,16 @@ export function TaskPackBuilderPage({
   const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
   const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false);
   const [isQualityModalOpen, setIsQualityModalOpen] = useState(false);
+  const [isUnderstandingModalOpen, setIsUnderstandingModalOpen] = useState(false);
+  const [isUnderstanding, setIsUnderstanding] = useState(false);
+  const [understandingResponse, setUnderstandingResponse] =
+    useState<TaskUnderstandingResponse | null>(null);
+  const [understandingDraft, setUnderstandingDraft] =
+    useState<TaskPackDraft | null>(null);
+  const [understandingAnswer, setUnderstandingAnswer] = useState("");
+  const [understandingError, setUnderstandingError] = useState<string | null>(null);
+  const [pendingUnderstandingAction, setPendingUnderstandingAction] =
+    useState<TaskUnderstandingPendingAction>(null);
   const [activeBuilderSection, setActiveBuilderSection] = useState<BuilderSection>("task");
   const [contextFileFilter, setContextFileFilter] = useState<ContextFileFilter>("all");
   const [contextBudgetMode, setContextBudgetMode] = useState<ContextBudgetMode>("standard");
@@ -2714,7 +2845,7 @@ export function TaskPackBuilderPage({
 
   const taskLength = draft.rawTask.trim().length;
   const taskQuality = useMemo(() => getTaskQuality(draft.rawTask, t), [draft.rawTask, t]);
-  const canGenerate = taskLength >= 3 && !isLoading;
+  const canGenerate = taskLength >= 3 && !isLoading && !isUnderstanding;
 
   const selectedTemplate = templates.find((template) => template.id === draft.templateId);
   const selectedProfile = ruleProfiles.find((profile) => profile.id === draft.ruleProfileId);
@@ -2900,10 +3031,138 @@ export function TaskPackBuilderPage({
     }
   }, [contextSummary.isAnalyzed]);
 
+  const clearUnderstandingState = useCallback(() => {
+    setUnderstandingResponse(null);
+    setUnderstandingDraft(null);
+    setUnderstandingAnswer("");
+    setUnderstandingError(null);
+    setPendingUnderstandingAction(null);
+    setIsUnderstandingModalOpen(false);
+  }, []);
+
+  const executeUnderstandingAction = useCallback(
+    async (
+      action: Exclude<TaskUnderstandingPendingAction, null>,
+      draftOverride: TaskPackDraft
+    ) => {
+      if (action === "analyze") {
+        await onAnalyzeContext(draftOverride);
+        setActiveBuilderSection("context");
+        return;
+      }
+
+      await onGenerate(draftOverride);
+    },
+    [onAnalyzeContext, onGenerate]
+  );
+
+  const runUnderstandingPreflight = useCallback(
+    async (
+      action: Exclude<TaskUnderstandingPendingAction, null>,
+      draftOverride: TaskPackDraft = draft
+    ) => {
+      setIsUnderstanding(true);
+      setUnderstandingError(null);
+      setPendingUnderstandingAction(action);
+      setUnderstandingDraft(draftOverride);
+
+      try {
+        const response = await understandTaskPack({
+          projectId: draftOverride.projectId,
+          rawTask: draftOverride.rawTask,
+          taskType: draftOverride.taskType,
+          targetTool: draftOverride.targetTool,
+          clarifications: draftOverride.clarifications
+        });
+
+        setUnderstandingResponse(response);
+        setUnderstandingDraft({
+          ...draftOverride,
+          clarifications: response.clarifications
+        });
+
+        if (response.interaction.action === "continue") {
+          setIsUnderstandingModalOpen(false);
+          await executeUnderstandingAction(action, {
+            ...draftOverride,
+            clarifications: response.clarifications
+          });
+          return;
+        }
+
+        setIsUnderstandingModalOpen(true);
+      } catch (error) {
+        setUnderstandingError(
+          error instanceof Error
+            ? error.message
+            : t("taskUnderstanding.preflightFailed")
+        );
+        setActiveBuilderSection("task");
+      } finally {
+        setIsUnderstanding(false);
+      }
+    },
+    [draft, executeUnderstandingAction, t]
+  );
+
   const handleAnalyzeContext = useCallback(async () => {
-    await onAnalyzeContext();
-    setActiveBuilderSection("context");
-  }, [onAnalyzeContext]);
+    await runUnderstandingPreflight("analyze");
+  }, [runUnderstandingPreflight]);
+
+  const handleGenerateTaskPack = useCallback(async () => {
+    await runUnderstandingPreflight("generate");
+  }, [runUnderstandingPreflight]);
+
+  const handleSubmitClarification = useCallback(async () => {
+    if (!understandingResponse || !pendingUnderstandingAction) {
+      return;
+    }
+
+    const answer = understandingAnswer.trim();
+    if (!answer) {
+      return;
+    }
+
+    const question =
+      understandingResponse.taskUnderstanding.clarificationQuestion ??
+      t("taskUnderstanding.fallbackQuestion");
+    const baseDraft = understandingDraft ?? draft;
+    const clarification: TaskClarification = { question, answer };
+    const nextDraft: TaskPackDraft = {
+      ...baseDraft,
+      clarifications: [...(baseDraft.clarifications ?? []), clarification]
+    };
+
+    onChange(nextDraft);
+    setUnderstandingAnswer("");
+    await runUnderstandingPreflight(pendingUnderstandingAction, nextDraft);
+  }, [
+    draft,
+    onChange,
+    pendingUnderstandingAction,
+    runUnderstandingPreflight,
+    t,
+    understandingAnswer,
+    understandingDraft,
+    understandingResponse
+  ]);
+
+  const handleContinueUnderstanding = useCallback(async () => {
+    const action = pendingUnderstandingAction;
+    const activeDraft = understandingDraft ?? draft;
+
+    setIsUnderstandingModalOpen(false);
+
+    if (action) {
+      await executeUnderstandingAction(action, activeDraft);
+    }
+  }, [draft, executeUnderstandingAction, pendingUnderstandingAction, understandingDraft]);
+
+  const handleEditTaskFromUnderstanding = useCallback(() => {
+    setIsUnderstandingModalOpen(false);
+    setPendingUnderstandingAction(null);
+    setActiveBuilderSection("task");
+  }, []);
 
   const handleOpenFullContextComposer = useCallback(async () => {
     if (onOpenContextComposer) {
@@ -2980,9 +3239,25 @@ export function TaskPackBuilderPage({
   );
 
   function updateDraft(patch: Partial<TaskPackDraft>) {
+    const rawTaskChanged =
+      typeof patch.rawTask === "string" && patch.rawTask !== draft.rawTask;
+    const understandingInputChanged =
+      rawTaskChanged ||
+      (typeof patch.taskType === "string" && patch.taskType !== draft.taskType) ||
+      (typeof patch.targetTool === "string" &&
+        patch.targetTool !== draft.targetTool);
+
+    if (understandingInputChanged) {
+      clearUnderstandingState();
+    }
+
     onChange({
       ...draft,
-      ...patch
+      ...patch,
+      clarifications:
+        rawTaskChanged && patch.clarifications === undefined
+          ? []
+          : patch.clarifications ?? draft.clarifications
     });
   }
 
@@ -3003,6 +3278,8 @@ export function TaskPackBuilderPage({
   }
 
   function applyGenerationDefaults(nextDraft: TaskPackDraft) {
+    clearUnderstandingState();
+
     const template = findDefaultTemplate(
       templates,
       nextDraft.targetTool,
@@ -3021,6 +3298,7 @@ export function TaskPackBuilderPage({
   }
 
   function applyTaskPreset(preset: BuilderTaskPreset) {
+    clearUnderstandingState();
     setActiveTaskPresetId(preset.id);
 
     const template = findDefaultTemplate(
@@ -3038,6 +3316,7 @@ export function TaskPackBuilderPage({
       taskType: preset.taskType,
       targetTool: preset.targetTool,
       rawTask: shouldSeedTask ? preset.starterTask : draft.rawTask,
+      clarifications: shouldSeedTask ? [] : draft.clarifications,
       templateId: template?.id,
       ruleProfileId: profile?.id,
       enabledRuleIds: profile?.enabledRuleIds ?? [],
@@ -3049,6 +3328,7 @@ export function TaskPackBuilderPage({
   }
 
   function resetRecipeDefaults() {
+    clearUnderstandingState();
     const defaultTaskType = "general";
     const defaultTargetTool = "codex";
     const template = findDefaultTemplate(
@@ -3238,15 +3518,19 @@ export function TaskPackBuilderPage({
 
               <Button
                 variant="primary"
-                onClick={onGenerate}
+                onClick={handleGenerateTaskPack}
                 disabled={!canGenerate}
               >
-                {isLoading ? (
+                {isLoading || isUnderstanding ? (
                   <Loader2 size={15} className="animate-spin" />
                 ) : (
                   <WandSparkles size={15} />
                 )}
-                {isLoading ? t("taskPackBuilder.generating") : t("taskPackBuilder.generateTaskPack")}
+                {isUnderstanding
+                  ? t("taskUnderstanding.analyzing")
+                  : isLoading
+                    ? t("taskPackBuilder.generating")
+                    : t("taskPackBuilder.generateTaskPack")}
               </Button>
             </div>
           </div>
@@ -3392,12 +3676,29 @@ export function TaskPackBuilderPage({
                       </p>
                     </button>
 
-                    <TaskIntentCard
-                      intent={intentResult}
-                      onOpenRecipe={() => setActiveBuilderSection("recipe")}
-                      onOpenContext={() => setActiveBuilderSection("context")}
-                    />
+                    {understandingResponse ? (
+                      <BackendTaskUnderstandingCard
+                        response={understandingResponse}
+                        onOpen={() => {
+                          setPendingUnderstandingAction(null);
+                          setUnderstandingDraft(draft);
+                          setIsUnderstandingModalOpen(true);
+                        }}
+                      />
+                    ) : (
+                      <TaskIntentCard
+                        intent={intentResult}
+                        onOpenRecipe={() => setActiveBuilderSection("recipe")}
+                        onOpenContext={() => setActiveBuilderSection("context")}
+                      />
+                    )}
                   </div>
+
+                  {understandingError && (
+                    <div className="mt-3 rounded-2xl border border-red-400/20 bg-red-400/[0.055] p-3 text-xs leading-5 text-red-100">
+                      {understandingError}
+                    </div>
+                  )}
                 </section>
               )}
 
@@ -3958,6 +4259,21 @@ export function TaskPackBuilderPage({
           </aside>
         </div>
       </div>
+
+      {isUnderstandingModalOpen && understandingResponse && (
+        <TaskUnderstandingModal
+          draft={understandingDraft ?? draft}
+          response={understandingResponse}
+          answer={understandingAnswer}
+          error={understandingError}
+          isSubmitting={isUnderstanding}
+          onAnswerChange={setUnderstandingAnswer}
+          onSubmitClarification={() => void handleSubmitClarification()}
+          onContinue={() => void handleContinueUnderstanding()}
+          onEditTask={handleEditTaskFromUnderstanding}
+          onClose={() => setIsUnderstandingModalOpen(false)}
+        />
+      )}
 
       {isQualityModalOpen && (
         <QualityDetailsModal

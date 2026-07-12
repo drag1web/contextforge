@@ -32,6 +32,7 @@ import type {
   ContextComposerPreview,
   ContextComposerFileSearchResponse,
   ContextComposerFileSnippetResponse,
+  TaskUnderstandingResponse,
   UpdateAppSettingsInput,
 } from "../types";
 
@@ -465,12 +466,37 @@ export async function clearSelectorDiagnosticsHistory() {
   await request<{ ok: true }>("/settings/selector-diagnostics", { method: "DELETE" });
 }
 
+export async function understandTaskPack(input: {
+  projectId: number;
+  rawTask: string;
+  taskType: string;
+  targetTool: string;
+  clarifications?: import("../types").TaskClarification[];
+}): Promise<TaskUnderstandingResponse> {
+  const data = await request<{ ok: true } & TaskUnderstandingResponse>(
+    "/task-packs/understand",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+
+  return {
+    taskUnderstanding: data.taskUnderstanding,
+    interaction: data.interaction,
+    clarifications: data.clarifications ?? [],
+    taskIntent: data.taskIntent,
+    inventorySummary: data.inventorySummary,
+  };
+}
+
 export async function createTaskPack(input: {
   projectId: number;
   rawTask: string;
   taskType: string;
   targetTool: string;
   selectedFilePaths?: string[];
+  clarifications?: import("../types").TaskClarification[];
 
   templateId?: string;
   ruleProfileId?: string;
@@ -586,6 +612,7 @@ export async function createContextComposerPreview(input: {
   rawTask: string;
   taskType: string;
   targetTool: string;
+  clarifications?: import("../types").TaskClarification[];
 }): Promise<ContextComposerPreview> {
   const data = await request<{
     ok: true;

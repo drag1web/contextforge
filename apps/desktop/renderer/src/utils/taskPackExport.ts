@@ -35,6 +35,17 @@ function getExportedAt() {
   return new Date().toISOString();
 }
 
+function getClarificationLines(taskPack: TaskPack) {
+  return (taskPack.generationRecipe?.taskClarifications ?? []).flatMap(
+    (item, index) => [
+      `Clarification ${index + 1}:`,
+      `Question: ${item.question}`,
+      `Answer: ${item.answer}`,
+      ""
+    ]
+  );
+}
+
 export function getTaskPackExportFileName(
   taskPack: TaskPack,
   format: TaskPackExportFormat
@@ -72,6 +83,13 @@ export function createTaskPackExportContent(
       "--------",
       taskPack.rawTask?.trim() || "—",
       "",
+      ...(getClarificationLines(taskPack).length > 0
+        ? [
+            "USER CLARIFICATIONS",
+            "-------------------",
+            ...getClarificationLines(taskPack)
+          ]
+        : []),
       "RECIPE",
       "------",
       `Template: ${formatMetaValue(recipe?.template?.name)}`,
@@ -105,6 +123,17 @@ export function createTaskPackExportContent(
     `- **Acceptance criteria:** ${formatMetaValue(recipe?.counts.acceptanceCriteria)}`
   ];
 
+  const clarificationLines = (recipe?.taskClarifications ?? []).flatMap(
+    (item, index) => [
+      `### Clarification ${index + 1}`,
+      "",
+      `**Question:** ${item.question}`,
+      "",
+      `**Answer:** ${item.answer}`,
+      ""
+    ]
+  );
+
   return [
     `# ${taskPack.title || "ContextForge Task Pack"}`,
     "",
@@ -118,6 +147,9 @@ export function createTaskPackExportContent(
     "",
     taskPack.rawTask?.trim() || "—",
     "",
+    ...(clarificationLines.length > 0
+      ? ["## User clarifications", "", ...clarificationLines]
+      : []),
     "## Recipe",
     "",
     ...recipeLines,

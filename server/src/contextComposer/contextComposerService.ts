@@ -27,6 +27,12 @@ import {
   runSelectorPipeline,
   type SelectorPipelineDiagnostics,
 } from "../selection/selectorPipelineOrchestrator.js";
+import {
+  applyTaskClarificationsToUnderstanding,
+  buildSelectionTaskText,
+  normalizeTaskClarifications,
+  type TaskClarification,
+} from "../taskPacks/taskClarifications.js";
 
 interface ProjectReadinessReport {
   issues: string[];
@@ -71,6 +77,8 @@ export interface ContextComposerPreview {
   };
   task: {
     rawTask: string;
+    originalRawTask: string;
+    clarifications: TaskClarification[];
     requestedTaskType: string;
     effectiveTaskArea: string;
     targetTool: string;
@@ -403,6 +411,7 @@ export async function buildContextComposerPreview(input: {
   rawTask: string;
   taskType: string;
   targetTool: string;
+  clarifications?: TaskClarification[];
 }): Promise<ContextComposerPreview> {
   const project = await getProjectById(input.projectId);
 
@@ -412,17 +421,26 @@ export async function buildContextComposerPreview(input: {
 
   const inventory = await scanProjectInventory(project.localPath);
   const settings = await getAppSettings();
+  const clarifications = normalizeTaskClarifications(input.clarifications);
+  const selectionTask = buildSelectionTaskText(input.rawTask, clarifications);
 
-  const taskIntent = await analyzeTaskIntent({
-    rawTask: input.rawTask,
+  const analyzedTaskIntent = await analyzeTaskIntent({
+    rawTask: selectionTask,
     taskType: input.taskType,
     targetTool: input.targetTool,
     project,
     projectTree: inventory.files.map((file) => file.path)
   });
+  const taskIntent = {
+    ...analyzedTaskIntent,
+    taskUnderstanding: applyTaskClarificationsToUnderstanding(
+      analyzedTaskIntent.taskUnderstanding,
+      clarifications,
+    ),
+  };
 
   const pipeline = await runSelectorPipeline({
-    rawTask: input.rawTask,
+    rawTask: selectionTask,
     taskType: input.taskType,
     targetTool: input.targetTool,
     inventory,
@@ -444,7 +462,7 @@ export async function buildContextComposerPreview(input: {
   });
 
   const selectionQuality = evaluateContextSelectionQuality({
-    rawTask: input.rawTask,
+    rawTask: selectionTask,
     requestedTaskType: input.taskType,
     effectiveTaskArea,
     inventory,
@@ -473,7 +491,7 @@ export async function buildContextComposerPreview(input: {
 
   const suggestedFileGroups = buildSuggestedFileGroups({
     inventory,
-    rawTask: input.rawTask,
+    rawTask: selectionTask,
     taskIntent,
     effectiveTaskArea,
     selectedFiles,
@@ -481,8 +499,9 @@ export async function buildContextComposerPreview(input: {
   });
 
   const clarifyingQuestions = buildClarifyingQuestions({
-    rawTask: input.rawTask,
+    rawTask: selectionTask,
     effectiveTaskArea,
+    taskIntent,
     selectionQuality,
     suggestedFileGroups
   });
@@ -503,7 +522,9 @@ export async function buildContextComposerPreview(input: {
       readinessScore: project.readinessScore
     },
     task: {
-      rawTask: input.rawTask,
+      rawTask: selectionTask,
+      originalRawTask: input.rawTask,
+      clarifications,
       requestedTaskType: input.taskType,
       effectiveTaskArea,
       targetTool: input.targetTool
@@ -928,14 +949,22 @@ function getContextTargetCopy(effectiveTaskArea: string) {
 
 function buildClarifyingQuestions({
   effectiveTaskArea,
+  taskIntent,
   selectionQuality,
   suggestedFileGroups
 }: {
   rawTask: string;
   effectiveTaskArea: string;
+  taskIntent: TaskIntentAnalysis;
   selectionQuality: ContextSelectionQuality;
   suggestedFileGroups: ContextComposerSuggestedFileGroup[];
 }) {
+  const understandingQuestion =
+    taskIntent.taskUnderstanding?.readiness === "needs_clarification"
+      ? taskIntent.taskUnderstanding.clarificationQuestion
+      : null;
+
+  if (understandingQuestion) return [understandingQuestion];
   if (selectionQuality.status === "ready") return [];
 
   const questions: string[] = [];

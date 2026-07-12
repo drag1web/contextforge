@@ -1,29 +1,36 @@
-# ContextForge v0.6.6-alpha — Task Pack Generation Reliability
+# ContextForge v0.6.7-alpha — Task Understanding & Clarification
 
 ## Summary
 
-This patch hardens final Task Pack generation without changing selector behavior or turning task understanding into project-specific static rules. AI providers return bounded structured refinements; ContextForge validates, filters, compacts, and composes them into the protected Task Pack template.
+This release adds a grounded preflight layer before file selection. ContextForge can now distinguish a ready task, a broad interpretation that should be reviewed, and a genuinely incomplete task that requires one focused answer.
 
 ## Completed
 
-- Replaced full-document AI rewriting with a strict refinement JSON schema.
-- Added direct, fenced, balanced, and local-repair parsing plus one controlled retry.
-- Added prompt budgeting and response-size limits.
-- Added precise provider, parsing, schema, truncation, retry, composition, and semantic-policy fallback reasons.
-- Added semantic filtering for unauthorized commit/push/merge/PR/tag/release instructions.
-- Rewrites forced verification-success claims into actual-result reporting.
-- Rejects references to files outside the selected context.
-- Detects generic missing replacement values without rules for specific projects or pages.
-- Recognizes explicit replacement values across guillemets, smart/ASCII quotes, assignment syntax, URLs, colors, numbers, versions, and other literal forms.
-- Grounds exact user-provided replacement values in the Task Pack without paraphrasing and avoids false clarification when the value is already present.
-- Switches blocking ambiguities into a consistent clarification flow across implementation guidance, acceptance criteria, verification, and final response.
-- Removes near-duplicate refinement items and applies bounded section limits.
-- Adds privacy-safe generation diagnostics with semantic-policy and consistency counters/codes.
-- Advances the generation cache contract so older refinement-policy results are not reused.
+- Added a universal Task Understanding contract for goal, action, targets, constraints, exact values, missing information, interpretation risk, change definition, confidence, and readiness.
+- Added `/api/task-packs/understand` preflight analysis before Analyze Context and Generate Task Pack.
+- Added compact clarification and review UI with separate original task and clarification history.
+- Added clean clarification grounding so service labels do not contaminate Shadow ranking.
+- Added subjective/open-ended review detection for broad visual or qualitative requests.
+- Added three locally stored interaction modes in Settings → Generation:
+  - **Automatic** — continues review-level tasks and asks only when required information is missing.
+  - **Balanced** — recommended; asks for required information and confirms broad/subjective interpretations.
+  - **Confirm every task** — displays the interpreted task before every Analyze or Generate action.
+- Added a saved-answer checking state so the clarification modal no longer appears to ask the same question twice.
+- Hardened manual-verification wording so visual checks report only what was actually performed and observed.
+
+## Safety behavior
+
+- Required values cannot be bypassed in any interaction mode.
+- Automatic mode never invents replacement text, colors, URLs, targets, or other user-owned values.
+- Original tasks and clarification answers remain separate in stored/exported Task Packs.
+- Shadow receives a clean selection task rather than UI-formatted clarification Markdown.
 
 ## Verification completed in the source environment
 
-- Task Pack generation reliability smoke: 35 scenarios.
+- Task Understanding smoke: 26 scenarios.
+- Clarification smoke: 9 scenarios.
+- Task Pack generation reliability smoke: 36 scenarios.
+- Selector smoke: passed.
 - Selector rollout smoke: 32 scenarios.
 - Selector presentation smoke: 6 states.
 - Legacy replay: 108/108.

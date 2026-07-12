@@ -6,6 +6,7 @@ import {
   readContextComposerFileSnippet,
   searchContextComposerFiles
 } from "../contextComposer/contextComposerService.js";
+import { taskClarificationsSchema } from "../taskPacks/taskClarifications.js";
 
 export const contextComposerRouter = Router();
 
@@ -13,7 +14,8 @@ const previewSchema = z.object({
   projectId: z.number().int().positive(),
   rawTask: z.string().trim().min(3).max(6000),
   taskType: z.string().trim().min(1).default("general"),
-  targetTool: z.string().trim().min(1).default("generic")
+  targetTool: z.string().trim().min(1).default("generic"),
+  clarifications: taskClarificationsSchema.optional()
 });
 
 const fileSearchSchema = z.object({

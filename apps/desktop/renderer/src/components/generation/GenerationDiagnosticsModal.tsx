@@ -327,7 +327,11 @@ export function GenerationDiagnosticsModal({
             <div className="mt-4 space-y-3">
               {diagnostics.attempts.length === 0 ? (
                 <p className="text-sm text-neutral-600">
-                  {t("generationDiagnostics.noAttempts")}
+                  {t(
+                    diagnostics.cached
+                      ? "generationDiagnostics.noAttemptsCached"
+                      : "generationDiagnostics.noAttemptsTemplate",
+                  )}
                 </p>
               ) : (
                 diagnostics.attempts.map((attempt) => (

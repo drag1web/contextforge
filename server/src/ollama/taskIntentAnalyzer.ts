@@ -1,4 +1,10 @@
 import { getAppSettings } from "../settings/settingsService.js";
+import {
+    buildFallbackTaskUnderstanding,
+    filterTaskUnderstandingAmbiguities,
+    normalizeTaskUnderstanding,
+    type TaskUnderstanding
+} from "./taskUnderstanding.js";
 
 export type TaskArea =
     | "ui"
@@ -64,6 +70,7 @@ export interface TaskIntentAnalysis {
     confidence: number;
     notes: string[];
     structuredIntent: StructuredTaskIntent;
+    taskUnderstanding: TaskUnderstanding;
     source: "ollama" | "fallback";
     durationMs: number;
 }
@@ -459,7 +466,7 @@ function getDefaultStructuredIntent({
                 : "unknown",
         needsStyles: taskArea === "ui" ? null : false,
         needsBackend: taskArea === "backend" || taskArea === "fullstack" ? true : hasNoBackendChangeConstraint(rawTask) ? false : null,
-        ambiguities: primaryTargets.length === 0 ? ["No explicit inventory path was found in the task text."] : [],
+        ambiguities: [],
         modelNotes: ["Fallback structured intent was inferred from task text and project paths."]
     };
 }
@@ -792,9 +799,11 @@ function normalizeStructuredIntent(
         allowedEditScope,
         needsStyles: normalizeNullableBoolean(structured.needsStyles, fallback.needsStyles),
         needsBackend: normalizeNullableBoolean(structured.needsBackend, fallback.needsBackend),
-        ambiguities: mergeUniqueStrings(
-            fallback.ambiguities,
-            normalizeStringArray(structured.ambiguities ?? structured.questions)
+        ambiguities: filterTaskUnderstandingAmbiguities(
+            mergeUniqueStrings(
+                fallback.ambiguities,
+                normalizeStringArray(structured.ambiguities ?? structured.questions)
+            )
         ).slice(0, 12),
         modelNotes: mergeUniqueStrings(
             normalizeStringArray(structured.modelNotes ?? structured.notes),
@@ -877,6 +886,19 @@ function buildFallbackIntent({ rawTask, taskType, projectTree = [] }: Pick<Analy
         taskArea: best.area,
         projectTree
     });
+    const confidence = getFallbackConfidence(best.area, best.score);
+    const taskUnderstanding = buildFallbackTaskUnderstanding({
+        rawTask,
+        taskArea: best.area,
+        taskType,
+        confidence,
+        projectTree,
+        structuredIntent
+    });
+    const understandingSearchTerms = groundRecommendedSearchTerms(
+        taskUnderstanding.targetHints,
+        projectTree
+    );
 
     return {
         taskArea: best.area,
@@ -884,11 +906,15 @@ function buildFallbackIntent({ rawTask, taskType, projectTree = [] }: Pick<Analy
         domainTerms: extractTaskDomainTerms(rawTask),
         mentionedEntities: [],
         fileRoleHints: Array.from(fileRoleHints),
-        recommendedSearchTerms: Array.from(recommendedSearchTerms),
+        recommendedSearchTerms: mergeUniqueStrings(
+            Array.from(recommendedSearchTerms),
+            understandingSearchTerms
+        ),
         riskLevel: getFallbackRiskLevel(best.area, rawTask),
-        confidence: getFallbackConfidence(best.area, best.score),
+        confidence,
         notes,
         structuredIntent,
+        taskUnderstanding,
         source: "fallback",
         durationMs: getDurationMs(startedAt)
     };
@@ -989,7 +1015,7 @@ function extractJsonObject(value: string) {
     return null;
 }
 
-function normalizeIntentResult(value: unknown, fallback: TaskIntentAnalysis, rawTask: string, projectTree: string[]): TaskIntentAnalysis {
+function normalizeIntentResult(value: unknown, fallback: TaskIntentAnalysis, rawTask: string, taskType: string, projectTree: string[]): TaskIntentAnalysis {
     if (!value || typeof value !== "object") return fallback;
 
     const data = value as Record<string, unknown>;
@@ -1012,6 +1038,20 @@ function normalizeIntentResult(value: unknown, fallback: TaskIntentAnalysis, raw
     const mergedRecommendedSearchTerms = mergeUniqueStrings(fallback.recommendedSearchTerms, normalizeStringArray(data.recommendedSearchTerms));
     const groundedRecommendedSearchTerms = groundRecommendedSearchTerms(mergedRecommendedSearchTerms, projectTree);
     const structuredIntent = normalizeStructuredIntent(data, fallback.structuredIntent, rawTask, projectTree);
+    const taskUnderstanding = normalizeTaskUnderstanding({
+        modelValue: data,
+        fallback: fallback.taskUnderstanding,
+        rawTask,
+        taskArea: finalTaskArea,
+        taskType,
+        confidence: Math.max(fallback.confidence, modelConfidence),
+        projectTree,
+        structuredIntent
+    });
+    const understandingSearchTerms = groundRecommendedSearchTerms(
+        taskUnderstanding.targetHints,
+        projectTree
+    );
 
     return {
         taskArea: finalTaskArea,
@@ -1019,10 +1059,16 @@ function normalizeIntentResult(value: unknown, fallback: TaskIntentAnalysis, raw
         domainTerms: groundTermsToTaskOrProject(mergedDomainTerms, rawTask, projectTree),
         mentionedEntities: groundTermsToTaskOrProject(mergedMentionedEntities, rawTask, projectTree),
         fileRoleHints: mergeUniqueStrings(fallback.fileRoleHints, normalizeStringArray(data.fileRoleHints)),
-        recommendedSearchTerms: groundedRecommendedSearchTerms.length > 0 ? groundedRecommendedSearchTerms : fallback.recommendedSearchTerms,
+        recommendedSearchTerms: mergeUniqueStrings(
+            groundedRecommendedSearchTerms.length > 0
+                ? groundedRecommendedSearchTerms
+                : fallback.recommendedSearchTerms,
+            understandingSearchTerms
+        ),
         riskLevel: normalizeRiskLevel(data.riskLevel, fallback.riskLevel),
         confidence: Math.max(fallback.confidence, modelConfidence),
         structuredIntent,
+        taskUnderstanding,
         notes: mergeUniqueStrings(
             normalizeStringArray(data.notes),
             fallback.notes,
@@ -1030,6 +1076,7 @@ function normalizeIntentResult(value: unknown, fallback: TaskIntentAnalysis, raw
                 structuredIntent.primaryTargets.length > 0
                     ? `Structured intent contains ${structuredIntent.primaryTargets.length} validated primary target(s).`
                     : "Structured intent did not contain validated primary targets.",
+                `Task understanding readiness: ${taskUnderstanding.readiness}; action: ${taskUnderstanding.action}.`,
                 trustFallbackArea && modelTaskArea !== fallback.taskArea
                 ? `Model taskArea "${modelTaskArea}" was overridden by stronger task-text inference "${fallback.taskArea}".`
                 : "Ollama intent was merged with grounded fallback analysis."
@@ -1062,6 +1109,12 @@ Rules:
 - fileRoleHints should use generic roles: page, component, layout, style, api, route, service, state, store, model, schema, test, docs, config, asset, entry.
 - recommendedSearchTerms must be short fragments grounded in the project tree.
 - structuredIntent is the important part: extract what the user wants changed, what must not be changed, and the primary target(s).
+- taskUnderstanding summarizes the user-visible goal, action, grounded target hints, requested changes, constraints, interpretation risk, and how tightly the requested change is defined.
+- interpretationRisk must be "objective" when success can be checked from concrete task evidence, "subjective" when the request mainly expresses taste, feel, polish, or aesthetics without a concrete outcome, and "uncertain" when the wording is too unclear to classify safely.
+- changeDefinition must be "exact" only when the user supplied a literal target value, "bounded" when the transformation or behavior is specific enough to implement without choosing among materially different outcomes, and "open_ended" when several substantially different implementations could all satisfy the wording.
+- Examples: replacing a label with an exact string is objective/exact; making copy shorter and clearer is objective/bounded; making a block "less wooden" or "more modern" without design criteria is subjective/open_ended.
+- Do not decide canProceed, readiness, missingInformation, or clarificationQuestion; the backend derives those fields from grounded task evidence.
+- Do not invent explicit values. Exact literal values are grounded by the backend from the original user task.
 - primaryTargets must be grounded in user text or the project tree. Prefer explicit_file targets when the user names a file path.
 - For vague page/feature requests, use kind "page", "route", "component", "symbol", or "entity" with a short target value that appears in the task or project tree.
 - Do not copy placeholder values from this schema. Use only real paths, routes, symbols, and evidence from the user task or project tree.
@@ -1086,6 +1139,17 @@ Return JSON shape:
   "recommendedSearchTerms": [],
   "riskLevel": "medium",
   "confidence": 0.8,
+  "taskUnderstanding": {
+    "schemaVersion": 1,
+    "goal": "<compact goal grounded in the user task>",
+    "action": "create|update|replace|remove|fix|refactor|review|test|document|configure|investigate|unknown",
+    "targetHints": [],
+    "requestedChanges": [],
+    "constraints": [],
+    "interpretationRisk": "objective|subjective|uncertain",
+    "changeDefinition": "exact|bounded|open_ended",
+    "confidence": 0.8
+  },
   "structuredIntent": {
     "schemaVersion": 1,
     "primaryTargets": [
@@ -1148,6 +1212,17 @@ Keep only fields that match this schema:
   "recommendedSearchTerms": [],
   "riskLevel": "low|medium|high",
   "confidence": 0.8,
+  "taskUnderstanding": {
+    "schemaVersion": 1,
+    "goal": "",
+    "action": "create|update|replace|remove|fix|refactor|review|test|document|configure|investigate|unknown",
+    "targetHints": [],
+    "requestedChanges": [],
+    "constraints": [],
+    "interpretationRisk": "objective|subjective|uncertain",
+    "changeDefinition": "exact|bounded|open_ended",
+    "confidence": 0.8
+  },
   "structuredIntent": {
     "schemaVersion": 1,
     "primaryTargets": [],
@@ -1226,7 +1301,7 @@ export async function analyzeTaskIntent(input: AnalyzeTaskIntentInput): Promise<
             ollamaUrl: settings.ollamaUrl,
             model: settings.defaultOllamaModel,
             prompt: buildIntentPrompt(input),
-            numPredict: 1000
+            numPredict: 1300
         });
 
         if (!firstAttempt.ok) {
@@ -1244,7 +1319,7 @@ export async function analyzeTaskIntent(input: AnalyzeTaskIntentInput): Promise<
                 ollamaUrl: settings.ollamaUrl,
                 model: settings.defaultOllamaModel,
                 prompt: buildIntentRepairPrompt(firstAttempt.raw),
-                numPredict: 900
+                numPredict: 1100
             });
 
             if (repairAttempt.ok && repairAttempt.json) {
@@ -1255,7 +1330,7 @@ export async function analyzeTaskIntent(input: AnalyzeTaskIntentInput): Promise<
             }
         }
 
-        const normalized = normalizeIntentResult(json, fallback, input.rawTask, input.projectTree ?? []);
+        const normalized = normalizeIntentResult(json, fallback, input.rawTask, input.taskType, input.projectTree ?? []);
 
         return {
             ...normalized,

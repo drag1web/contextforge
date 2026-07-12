@@ -40,6 +40,7 @@ const settings: AppSettings = {
   composerFileLimits: { default: 8, ui: 7, backend: 8, fullstack: 10, build: 7, bugfix: 7, refactor: 8, docs: 6, tests: 7 },
   contextQualityMode: "balanced",
   selectorPipelineMode: "legacy",
+  taskUnderstandingInteractionMode: "balanced",
   sidebarShowDescriptions: false,
   onboardingEnabled: true,
   onboardingShowEveryLaunch: true,

@@ -36,6 +36,15 @@ function parseMultilineRules(value?: string) {
   );
 }
 
+function getClarificationSignature(draft: Pick<TaskPackDraft, "clarifications">) {
+  return JSON.stringify(
+    (draft.clarifications ?? []).map((item) => ({
+      question: item.question.trim(),
+      answer: item.answer.trim(),
+    })),
+  );
+}
+
 function getBlockedContextMessage(error: ApiRequestError) {
   const data = error.data;
 
@@ -111,7 +120,9 @@ export function useDashboardController() {
 
         const sameDraftContext =
           previousPreview.project.id === next.projectId &&
-          previousPreview.task.rawTask === next.rawTask &&
+          previousPreview.task.originalRawTask === next.rawTask &&
+          JSON.stringify(previousPreview.task.clarifications ?? []) ===
+            getClarificationSignature(next) &&
           previousPreview.task.requestedTaskType === next.taskType &&
           previousPreview.task.targetTool === next.targetTool;
 
@@ -349,8 +360,13 @@ export function useDashboardController() {
     }
   }
 
-  async function generateTaskPackFromDraft(selectedFilePaths?: string[]) {
-    if (!taskPackDraft) {
+  async function generateTaskPackFromDraft(
+    selectedFilePaths?: string[],
+    draftOverride?: TaskPackDraft,
+  ) {
+    const activeDraft = draftOverride ?? taskPackDraft;
+
+    if (!activeDraft) {
       return;
     }
 
@@ -373,28 +389,29 @@ export function useDashboardController() {
           : selectedCount > 0
             ? i18n.t("common.statusGeneratingTaskPackFiles", {
                 count: selectedCount,
-                name: taskPackDraft.projectName,
+                name: activeDraft.projectName,
               })
             : i18n.t("common.statusGeneratingTaskPack", {
-                name: taskPackDraft.projectName,
+                name: activeDraft.projectName,
               }),
       );
 
       const taskPack = await createTaskPack({
-        projectId: taskPackDraft.projectId,
-        rawTask: taskPackDraft.rawTask,
-        taskType: taskPackDraft.taskType,
-        targetTool: taskPackDraft.targetTool,
+        projectId: activeDraft.projectId,
+        rawTask: activeDraft.rawTask,
+        taskType: activeDraft.taskType,
+        targetTool: activeDraft.targetTool,
         selectedFilePaths,
+        clarifications: activeDraft.clarifications,
 
-        templateId: taskPackDraft.templateId || undefined,
-        ruleProfileId: taskPackDraft.ruleProfileId || undefined,
-        enabledRuleIds: taskPackDraft.enabledRuleIds,
-        customRules: parseMultilineRules(taskPackDraft.customRulesText),
+        templateId: activeDraft.templateId || undefined,
+        ruleProfileId: activeDraft.ruleProfileId || undefined,
+        enabledRuleIds: activeDraft.enabledRuleIds,
+        customRules: parseMultilineRules(activeDraft.customRulesText),
         acceptanceCriteriaPresetId:
-          taskPackDraft.acceptanceCriteriaPresetId || undefined,
+          activeDraft.acceptanceCriteriaPresetId || undefined,
         acceptanceCriteria: parseMultilineRules(
-          taskPackDraft.acceptanceCriteriaText,
+          activeDraft.acceptanceCriteriaText,
         ),
       });
 
@@ -411,10 +428,11 @@ export function useDashboardController() {
       ) {
         try {
           const preview = await createContextComposerPreview({
-            projectId: taskPackDraft.projectId,
-            rawTask: taskPackDraft.rawTask,
-            taskType: taskPackDraft.taskType,
-            targetTool: taskPackDraft.targetTool,
+            projectId: activeDraft.projectId,
+            rawTask: activeDraft.rawTask,
+            taskType: activeDraft.taskType,
+            targetTool: activeDraft.targetTool,
+            clarifications: activeDraft.clarifications,
           });
 
           setContextComposerPreview(preview);
@@ -533,24 +551,29 @@ export function useDashboardController() {
     }
   }
 
-  async function createTaskContextPreview() {
-    if (!taskPackDraft) {
+  async function createTaskContextPreview(draftOverride?: TaskPackDraft) {
+    const activeDraft = draftOverride ?? taskPackDraft;
+
+    if (!activeDraft) {
       return null;
     }
 
     const preview = await createContextComposerPreview({
-      projectId: taskPackDraft.projectId,
-      rawTask: taskPackDraft.rawTask,
-      taskType: taskPackDraft.taskType,
-      targetTool: taskPackDraft.targetTool,
+      projectId: activeDraft.projectId,
+      rawTask: activeDraft.rawTask,
+      taskType: activeDraft.taskType,
+      targetTool: activeDraft.targetTool,
+      clarifications: activeDraft.clarifications,
     });
 
     setTaskPackContextPreview(preview);
     return preview;
   }
 
-  async function handleAnalyzeTaskContext() {
-    if (!taskPackDraft) {
+  async function handleAnalyzeTaskContext(draftOverride?: TaskPackDraft) {
+    const activeDraft = draftOverride ?? taskPackDraft;
+
+    if (!activeDraft) {
       return null;
     }
 
@@ -558,15 +581,15 @@ export function useDashboardController() {
       setIsLoading(true);
       setStatusMessage(
         i18n.t("common.statusAnalyzingContext", {
-          name: taskPackDraft.projectName,
+          name: activeDraft.projectName,
         }),
       );
 
-      const preview = await createTaskContextPreview();
+      const preview = await createTaskContextPreview(activeDraft);
 
       setStatusMessage(
         i18n.t("common.statusContextReady", {
-          name: taskPackDraft.projectName,
+          name: activeDraft.projectName,
         }),
       );
       return preview;
@@ -613,8 +636,8 @@ export function useDashboardController() {
     }
   }
 
-  async function handleCreateTaskPack() {
-    await generateTaskPackFromDraft();
+  async function handleCreateTaskPack(draftOverride?: TaskPackDraft) {
+    await generateTaskPackFromDraft(undefined, draftOverride);
   }
 
   async function handleCreateTaskPackFromComposer(selectedFilePaths: string[]) {

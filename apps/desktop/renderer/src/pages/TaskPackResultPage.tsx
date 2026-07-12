@@ -236,6 +236,27 @@ function getSuggestedGitHubLabels(taskPack: TaskPack) {
   ).slice(0, 8);
 }
 
+function buildClarificationsMarkdown(taskPack: TaskPack) {
+  const clarifications = taskPack.generationRecipe?.taskClarifications ?? [];
+
+  if (clarifications.length === 0) {
+    return null;
+  }
+
+  return [
+    "## User Clarifications",
+    "",
+    ...clarifications.flatMap((item, index) => [
+      `### Clarification ${index + 1}`,
+      "",
+      `Question: ${item.question}`,
+      "",
+      `Answer: ${item.answer}`,
+      "",
+    ]),
+  ].join("\n");
+}
+
 function buildDefaultGitHubIssueBody(taskPack: TaskPack) {
   const sourceIssue = taskPack.generationRecipe?.githubIssue;
   const createdAt = new Date().toISOString();
@@ -258,6 +279,8 @@ function buildDefaultGitHubIssueBody(taskPack: TaskPack) {
     "## Original Task",
     "",
     taskPack.rawTask,
+    "",
+    buildClarificationsMarkdown(taskPack),
     "",
     "## Generated Task Pack",
     "",
@@ -643,6 +666,31 @@ function RecipeCard({ taskPack }: { taskPack: TaskPack }) {
       </div>
 
       <div className="space-y-3">
+        {recipe.taskClarifications && recipe.taskClarifications.length > 0 && (
+          <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
+            <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-white">
+              <Sparkles size={14} />
+              User clarifications
+            </div>
+
+            <div className="space-y-2">
+              {recipe.taskClarifications.map((item, index) => (
+                <div
+                  key={`${item.question}-${index}`}
+                  className="rounded-xl border border-neutral-900 bg-black/35 p-3"
+                >
+                  <p className="text-[11px] leading-5 text-neutral-500">
+                    {item.question}
+                  </p>
+                  <p className="mt-1 text-xs leading-5 text-neutral-200">
+                    {item.answer}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {recipe.githubIssue && (
           <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.055] p-3">
             <div className="mb-2 flex items-center gap-2 text-xs font-semibold text-emerald-100">
