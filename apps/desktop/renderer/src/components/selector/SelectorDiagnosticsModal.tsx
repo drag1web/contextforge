@@ -1,22 +1,34 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
-import { Check, CircleHelp, Copy, GitCompareArrows, ShieldCheck, Timer, Workflow } from "lucide-react";
+import {
+  Check,
+  CircleHelp,
+  Copy,
+  GitCompareArrows,
+  ShieldCheck,
+  Timer,
+  Workflow,
+} from "lucide-react";
 
 import type { SelectorPipelineDiagnostics } from "../../types";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 export { getSelectorPipelineLabel } from "./selectorPipelinePresentation";
-import { getSelectorModeCopy, getSelectorPipelineLabel } from "./selectorPipelinePresentation";
+import {
+  getSelectorModeCopy,
+  getSelectorPipelineLabel,
+} from "./selectorPipelinePresentation";
 
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
-      <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{label}</p>
+      <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+        {label}
+      </p>
       <p className="mt-1 text-sm font-semibold text-white">{value}</p>
     </div>
   );
 }
-
 
 const ABSTENTION_ACTION_COUNTS: Record<string, number> = {
   explicit_target_missing: 3,
@@ -37,23 +49,41 @@ export function SelectorDiagnosticsModal({
   const [copied, setCopied] = useState(false);
   const comparison = diagnostics.comparison;
   const requestedMode = getSelectorModeCopy(diagnostics.requestedMode, t).label;
-  const effectivePipeline = diagnostics.effectivePipeline === "shadow"
-    ? t("selectorDiagnostics.badges.shadow")
-    : t("selectorDiagnostics.badges.legacy");
-  const stateKey = diagnostics.status === "manual-review" ? "manualReview" : diagnostics.status;
+  const effectivePipeline =
+    diagnostics.selectionOrigin === "explicit_target_fast_path"
+      ? t("selectorDiagnostics.badges.targetFastPath")
+      : diagnostics.effectivePipeline === "shadow"
+        ? t("selectorDiagnostics.badges.shadow")
+        : t("selectorDiagnostics.badges.legacy");
+  const stateKey =
+    diagnostics.status === "manual-review"
+      ? "manualReview"
+      : diagnostics.status;
 
-  function abstentionMessage(abstention: NonNullable<SelectorPipelineDiagnostics["actual"]["abstention"]>) {
+  function abstentionMessage(
+    abstention: NonNullable<
+      SelectorPipelineDiagnostics["actual"]["abstention"]
+    >,
+  ) {
     return t(`selectorDiagnostics.abstention.messages.${abstention.code}`, {
       defaultValue: abstention.message,
     });
   }
 
-  function abstentionActions(abstention: NonNullable<SelectorPipelineDiagnostics["actual"]["abstention"]>) {
-    const count = ABSTENTION_ACTION_COUNTS[abstention.code] ?? abstention.nextActions.length;
-    return Array.from({ length: count }, (_, index) => t(
-      `selectorDiagnostics.abstention.actions.${abstention.code}.${index + 1}`,
-      { defaultValue: abstention.nextActions[index] ?? "" },
-    )).filter(Boolean);
+  function abstentionActions(
+    abstention: NonNullable<
+      SelectorPipelineDiagnostics["actual"]["abstention"]
+    >,
+  ) {
+    const count =
+      ABSTENTION_ACTION_COUNTS[abstention.code] ??
+      abstention.nextActions.length;
+    return Array.from({ length: count }, (_, index) =>
+      t(
+        `selectorDiagnostics.abstention.actions.${abstention.code}.${index + 1}`,
+        { defaultValue: abstention.nextActions[index] ?? "" },
+      ),
+    ).filter(Boolean);
   }
 
   async function copyDiagnostics() {
@@ -71,7 +101,9 @@ export function SelectorDiagnosticsModal({
       footer={
         <Button variant="secondary" onClick={copyDiagnostics}>
           {copied ? <Check size={15} /> : <Copy size={15} />}
-          {copied ? t("selectorDiagnostics.copied") : t("selectorDiagnostics.copyJson")}
+          {copied
+            ? t("selectorDiagnostics.copied")
+            : t("selectorDiagnostics.copyJson")}
         </Button>
       }
     >
@@ -100,91 +132,170 @@ export function SelectorDiagnosticsModal({
                 </p>
               )}
             </div>
-            <span className="cf-badge">{t(`selectorDiagnostics.states.${stateKey}`)}</span>
+            <span className="cf-badge">
+              {t(`selectorDiagnostics.states.${stateKey}`)}
+            </span>
           </div>
 
           {diagnostics.fallback && (
             <div className="mt-4 rounded-2xl border border-amber-500/25 bg-amber-500/5 p-4 text-sm text-amber-100">
-              <strong>{t("selectorDiagnostics.fallbackTitle")} · {diagnostics.fallback.code}</strong>
-              <p className="mt-1 text-amber-100/65">{diagnostics.fallback.message}</p>
+              <strong>
+                {t("selectorDiagnostics.fallbackTitle")} ·{" "}
+                {diagnostics.fallback.code}
+              </strong>
+              <p className="mt-1 text-amber-100/65">
+                {diagnostics.fallback.message}
+              </p>
             </div>
           )}
 
           {diagnostics.shadowFailure && (
             <div className="mt-4 rounded-2xl border border-sky-500/25 bg-sky-500/5 p-4 text-sm text-sky-100">
-              <strong>{t("selectorDiagnostics.compareFailureTitle")} · {diagnostics.shadowFailure.code}</strong>
-              <p className="mt-1 text-sky-100/65">{diagnostics.shadowFailure.message}</p>
+              <strong>
+                {t("selectorDiagnostics.compareFailureTitle")} ·{" "}
+                {diagnostics.shadowFailure.code}
+              </strong>
+              <p className="mt-1 text-sky-100/65">
+                {diagnostics.shadowFailure.message}
+              </p>
             </div>
           )}
 
-
-          {diagnostics.actual.outcome === "abstained" && diagnostics.actual.abstention && (
-            <div className="mt-4 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-4 text-sm text-amber-50">
-              <div className="flex items-start gap-3">
-                <CircleHelp className="mt-0.5 shrink-0 text-amber-300" size={17} />
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <strong>{t("selectorDiagnostics.abstention.title")}</strong>
-                    <span className="cf-badge">{t(`selectorDiagnostics.abstention.codes.${diagnostics.actual.abstention.code}`)}</span>
-                  </div>
-                  <p className="mt-2 leading-6 text-amber-100/70">{abstentionMessage(diagnostics.actual.abstention)}</p>
-                  {abstentionActions(diagnostics.actual.abstention).length > 0 && (
-                    <div className="mt-3">
-                      <p className="cf-tech-label text-[10px] uppercase text-amber-200/45">
-                        {t("selectorDiagnostics.abstention.nextActions")}
-                      </p>
-                      <ul className="mt-2 space-y-1.5 text-xs leading-5 text-amber-100/65">
-                        {abstentionActions(diagnostics.actual.abstention).map((action) => (
-                          <li key={action}>• {action}</li>
-                        ))}
-                      </ul>
+          {diagnostics.actual.outcome === "abstained" &&
+            diagnostics.actual.abstention && (
+              <div className="mt-4 rounded-2xl border border-amber-400/25 bg-amber-400/[0.06] p-4 text-sm text-amber-50">
+                <div className="flex items-start gap-3">
+                  <CircleHelp
+                    className="mt-0.5 shrink-0 text-amber-300"
+                    size={17}
+                  />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong>
+                        {t("selectorDiagnostics.abstention.title")}
+                      </strong>
+                      <span className="cf-badge">
+                        {t(
+                          `selectorDiagnostics.abstention.codes.${diagnostics.actual.abstention.code}`,
+                        )}
+                      </span>
                     </div>
-                  )}
-                </div>
-              </div>
-            </div>
-          )}
-
-
-          {diagnostics.requestedMode === "shadow_compare" && diagnostics.shadow?.outcome === "abstained" && diagnostics.shadow.abstention && (
-            <div className="mt-4 rounded-2xl border border-sky-400/25 bg-sky-400/[0.05] p-4 text-sm text-sky-50">
-              <div className="flex items-start gap-3">
-                <CircleHelp className="mt-0.5 shrink-0 text-sky-300" size={17} />
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <strong>{t("selectorDiagnostics.abstention.shadowTitle")}</strong>
-                    <span className="cf-badge">{t(`selectorDiagnostics.abstention.codes.${diagnostics.shadow.abstention.code}`)}</span>
+                    <p className="mt-2 leading-6 text-amber-100/70">
+                      {abstentionMessage(diagnostics.actual.abstention)}
+                    </p>
+                    {abstentionActions(diagnostics.actual.abstention).length >
+                      0 && (
+                      <div className="mt-3">
+                        <p className="cf-tech-label text-[10px] uppercase text-amber-200/45">
+                          {t("selectorDiagnostics.abstention.nextActions")}
+                        </p>
+                        <ul className="mt-2 space-y-1.5 text-xs leading-5 text-amber-100/65">
+                          {abstentionActions(diagnostics.actual.abstention).map(
+                            (action) => (
+                              <li key={action}>• {action}</li>
+                            ),
+                          )}
+                        </ul>
+                      </div>
+                    )}
                   </div>
-                  <p className="mt-2 leading-6 text-sky-100/70">{abstentionMessage(diagnostics.shadow.abstention)}</p>
-                  <p className="mt-2 text-xs leading-5 text-sky-100/50">
-                    {t("selectorDiagnostics.abstention.compareNotice")}
-                  </p>
                 </div>
               </div>
-            </div>
-          )}
+            )}
+
+          {diagnostics.requestedMode === "shadow_compare" &&
+            diagnostics.shadow?.outcome === "abstained" &&
+            diagnostics.shadow.abstention && (
+              <div className="mt-4 rounded-2xl border border-sky-400/25 bg-sky-400/[0.05] p-4 text-sm text-sky-50">
+                <div className="flex items-start gap-3">
+                  <CircleHelp
+                    className="mt-0.5 shrink-0 text-sky-300"
+                    size={17}
+                  />
+                  <div className="min-w-0">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <strong>
+                        {t("selectorDiagnostics.abstention.shadowTitle")}
+                      </strong>
+                      <span className="cf-badge">
+                        {t(
+                          `selectorDiagnostics.abstention.codes.${diagnostics.shadow.abstention.code}`,
+                        )}
+                      </span>
+                    </div>
+                    <p className="mt-2 leading-6 text-sky-100/70">
+                      {abstentionMessage(diagnostics.shadow.abstention)}
+                    </p>
+                    <p className="mt-2 text-xs leading-5 text-sky-100/50">
+                      {t("selectorDiagnostics.abstention.compareNotice")}
+                    </p>
+                  </div>
+                </div>
+              </div>
+            )}
         </section>
 
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Metric label={t("selectorDiagnostics.metrics.area")} value={diagnostics.actual.implementationArea} />
-          <Metric label={t("selectorDiagnostics.metrics.confidence")} value={`${diagnostics.actual.confidence}/100`} />
+          <Metric
+            label={t("selectorDiagnostics.metrics.area")}
+            value={diagnostics.actual.implementationArea}
+          />
+          <Metric
+            label={t("selectorDiagnostics.metrics.confidence")}
+            value={`${diagnostics.actual.confidence}/100`}
+          />
           <Metric
             label={t("selectorDiagnostics.metrics.quality")}
-            value={diagnostics.actual.quality == null ? t("selectorDiagnostics.notScored") : `${diagnostics.actual.quality}/100`}
+            value={
+              diagnostics.actual.quality == null
+                ? t("selectorDiagnostics.notScored")
+                : `${diagnostics.actual.quality}/100`
+            }
           />
-          <Metric label={t("selectorDiagnostics.metrics.elapsed")} value={`${diagnostics.timings.totalMs} ms`} />
+          <Metric
+            label={t("selectorDiagnostics.metrics.elapsed")}
+            value={`${diagnostics.timings.totalMs} ms`}
+          />
         </div>
 
         <section className="grid gap-4 lg:grid-cols-2">
           <div className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
             <h4 className="flex items-center gap-2 text-sm font-semibold text-white">
-              <ShieldCheck size={15} /> {t("selectorDiagnostics.selectionState")}
+              <ShieldCheck size={15} />{" "}
+              {t("selectorDiagnostics.selectionState")}
             </h4>
             <div className="mt-4 space-y-2 text-sm text-neutral-500">
-              <p>{t("selectorDiagnostics.primary")}: <span className="text-neutral-200">{diagnostics.actual.primaryTarget ?? t("selectorDiagnostics.none")}</span></p>
-              <p>{t("selectorDiagnostics.safetyBlocked")}: <span className="text-neutral-200">{diagnostics.actual.blocked ? t("selectorDiagnostics.yes") : t("selectorDiagnostics.no")}</span></p>
-              <p>{t("selectorDiagnostics.manualReview")}: <span className="text-neutral-200">{diagnostics.actual.manualReview ? t("selectorDiagnostics.yes") : t("selectorDiagnostics.no")}</span></p>
-              <p>{t("selectorDiagnostics.missingTarget")}: <span className="text-neutral-200">{diagnostics.actual.missingTarget ? t("selectorDiagnostics.yes") : t("selectorDiagnostics.no")}</span></p>
+              <p>
+                {t("selectorDiagnostics.primary")}:{" "}
+                <span className="text-neutral-200">
+                  {diagnostics.actual.primaryTarget ??
+                    t("selectorDiagnostics.none")}
+                </span>
+              </p>
+              <p>
+                {t("selectorDiagnostics.safetyBlocked")}:{" "}
+                <span className="text-neutral-200">
+                  {diagnostics.actual.blocked
+                    ? t("selectorDiagnostics.yes")
+                    : t("selectorDiagnostics.no")}
+                </span>
+              </p>
+              <p>
+                {t("selectorDiagnostics.manualReview")}:{" "}
+                <span className="text-neutral-200">
+                  {diagnostics.actual.manualReview
+                    ? t("selectorDiagnostics.yes")
+                    : t("selectorDiagnostics.no")}
+                </span>
+              </p>
+              <p>
+                {t("selectorDiagnostics.missingTarget")}:{" "}
+                <span className="text-neutral-200">
+                  {diagnostics.actual.missingTarget
+                    ? t("selectorDiagnostics.yes")
+                    : t("selectorDiagnostics.no")}
+                </span>
+              </p>
             </div>
           </div>
 
@@ -193,9 +304,28 @@ export function SelectorDiagnosticsModal({
               <Timer size={15} /> {t("selectorDiagnostics.timings")}
             </h4>
             <div className="mt-4 space-y-2 text-sm text-neutral-500">
-              <p>Legacy: <span className="text-neutral-200">{diagnostics.timings.legacyMs == null ? t("selectorDiagnostics.notRun") : `${diagnostics.timings.legacyMs} ms`}</span></p>
-              <p>Shadow: <span className="text-neutral-200">{diagnostics.timings.shadowMs == null ? t("selectorDiagnostics.notRun") : `${diagnostics.timings.shadowMs} ms`}</span></p>
-              <p>{t("selectorDiagnostics.candidates")}: <span className="text-neutral-200">{diagnostics.actual.candidateCount}</span></p>
+              <p>
+                Legacy:{" "}
+                <span className="text-neutral-200">
+                  {diagnostics.timings.legacyMs == null
+                    ? t("selectorDiagnostics.notRun")
+                    : `${diagnostics.timings.legacyMs} ms`}
+                </span>
+              </p>
+              <p>
+                Shadow:{" "}
+                <span className="text-neutral-200">
+                  {diagnostics.timings.shadowMs == null
+                    ? t("selectorDiagnostics.notRun")
+                    : `${diagnostics.timings.shadowMs} ms`}
+                </span>
+              </p>
+              <p>
+                {t("selectorDiagnostics.candidates")}:{" "}
+                <span className="text-neutral-200">
+                  {diagnostics.actual.candidateCount}
+                </span>
+              </p>
             </div>
           </div>
         </section>
@@ -203,26 +333,54 @@ export function SelectorDiagnosticsModal({
         {comparison && (
           <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
             <h4 className="flex items-center gap-2 text-sm font-semibold text-white">
-              <GitCompareArrows size={15} /> {t("selectorDiagnostics.legacyVsShadow")}
+              <GitCompareArrows size={15} />{" "}
+              {t("selectorDiagnostics.legacyVsShadow")}
             </h4>
             <div className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <Metric label={t("selectorDiagnostics.metrics.pathOverlap")} value={`${Math.round(comparison.selectedPathOverlap * 100)}%`} />
-              <Metric label={t("selectorDiagnostics.metrics.editOverlap")} value={`${Math.round(comparison.editTargetOverlap * 100)}%`} />
-              <Metric label={t("selectorDiagnostics.metrics.primary")} value={comparison.primaryTargetAgreement ? t("selectorDiagnostics.agrees") : t("selectorDiagnostics.differs")} />
-              <Metric label={t("selectorDiagnostics.metrics.safety")} value={comparison.safetyDecisionAgreement ? t("selectorDiagnostics.agrees") : t("selectorDiagnostics.differs")} />
+              <Metric
+                label={t("selectorDiagnostics.metrics.pathOverlap")}
+                value={`${Math.round(comparison.selectedPathOverlap * 100)}%`}
+              />
+              <Metric
+                label={t("selectorDiagnostics.metrics.editOverlap")}
+                value={`${Math.round(comparison.editTargetOverlap * 100)}%`}
+              />
+              <Metric
+                label={t("selectorDiagnostics.metrics.primary")}
+                value={
+                  comparison.primaryTargetAgreement
+                    ? t("selectorDiagnostics.agrees")
+                    : t("selectorDiagnostics.differs")
+                }
+              />
+              <Metric
+                label={t("selectorDiagnostics.metrics.safety")}
+                value={
+                  comparison.safetyDecisionAgreement
+                    ? t("selectorDiagnostics.agrees")
+                    : t("selectorDiagnostics.differs")
+                }
+              />
             </div>
-            {(comparison.legacyOnlyPaths.length > 0 || comparison.shadowOnlyPaths.length > 0) && (
+            {(comparison.legacyOnlyPaths.length > 0 ||
+              comparison.shadowOnlyPaths.length > 0) && (
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <div className="rounded-2xl border border-neutral-900 p-4">
-                  <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{t("selectorDiagnostics.legacyOnly")}</p>
+                  <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                    {t("selectorDiagnostics.legacyOnly")}
+                  </p>
                   <p className="mt-2 break-words text-xs leading-5 text-neutral-400">
-                    {comparison.legacyOnlyPaths.join(", ") || t("selectorDiagnostics.none")}
+                    {comparison.legacyOnlyPaths.join(", ") ||
+                      t("selectorDiagnostics.none")}
                   </p>
                 </div>
                 <div className="rounded-2xl border border-neutral-900 p-4">
-                  <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{t("selectorDiagnostics.shadowOnly")}</p>
+                  <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                    {t("selectorDiagnostics.shadowOnly")}
+                  </p>
                   <p className="mt-2 break-words text-xs leading-5 text-neutral-400">
-                    {comparison.shadowOnlyPaths.join(", ") || t("selectorDiagnostics.none")}
+                    {comparison.shadowOnlyPaths.join(", ") ||
+                      t("selectorDiagnostics.none")}
                   </p>
                 </div>
               </div>
@@ -231,22 +389,39 @@ export function SelectorDiagnosticsModal({
         )}
 
         <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-          <h4 className="text-sm font-semibold text-white">{t("selectorDiagnostics.selectedPaths")}</h4>
+          <h4 className="text-sm font-semibold text-white">
+            {t("selectorDiagnostics.selectedPaths")}
+          </h4>
           <div className="mt-4 space-y-2">
             {diagnostics.actual.selectedFiles.length === 0 ? (
-              <p className="text-sm text-neutral-600">{t("selectorDiagnostics.noFiles")}</p>
-            ) : diagnostics.actual.selectedFiles.map((file) => (
-              <div key={`${file.path}:${file.usage}`} className="rounded-xl border border-neutral-900 px-3 py-3">
-                <div className="flex items-start justify-between gap-4">
-                  <code className="min-w-0 break-all text-xs text-neutral-200">{file.path}</code>
-                  <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
-                    <span className="cf-badge">{file.usage}</span>
-                    <span className="cf-badge">{t(`selectorDiagnostics.evidence.${file.evidenceStrength}`)}</span>
+              <p className="text-sm text-neutral-600">
+                {t("selectorDiagnostics.noFiles")}
+              </p>
+            ) : (
+              diagnostics.actual.selectedFiles.map((file) => (
+                <div
+                  key={`${file.path}:${file.usage}`}
+                  className="rounded-xl border border-neutral-900 px-3 py-3"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <code className="min-w-0 break-all text-xs text-neutral-200">
+                      {file.path}
+                    </code>
+                    <div className="flex shrink-0 flex-wrap justify-end gap-1.5">
+                      <span className="cf-badge">{file.usage}</span>
+                      <span className="cf-badge">
+                        {t(
+                          `selectorDiagnostics.evidence.${file.evidenceStrength}`,
+                        )}
+                      </span>
+                    </div>
                   </div>
+                  <p className="mt-2 text-xs leading-5 text-neutral-500">
+                    {file.reason}
+                  </p>
                 </div>
-                <p className="mt-2 text-xs leading-5 text-neutral-500">{file.reason}</p>
-              </div>
-            ))}
+              ))
+            )}
           </div>
         </section>
       </div>

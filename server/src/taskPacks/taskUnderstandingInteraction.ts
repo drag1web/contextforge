@@ -18,7 +18,10 @@ export interface TaskUnderstandingInteractionDecision {
 }
 
 export function resolveTaskUnderstandingInteraction(
-  understanding: Pick<TaskUnderstanding, "readiness" | "canProceed">,
+  understanding: Pick<
+    TaskUnderstanding,
+    "readiness" | "canProceed" | "interpretationRisk" | "changeDefinition"
+  >,
   mode: TaskUnderstandingInteractionMode,
 ): TaskUnderstandingInteractionDecision {
   if (
@@ -40,7 +43,12 @@ export function resolveTaskUnderstandingInteraction(
     };
   }
 
-  if (understanding.readiness === "review") {
+  const semanticReviewRequired =
+    understanding.readiness === "review" ||
+    understanding.interpretationRisk !== "objective" ||
+    understanding.changeDefinition === "open_ended";
+
+  if (semanticReviewRequired) {
     return mode === "automatic"
       ? {
           mode,

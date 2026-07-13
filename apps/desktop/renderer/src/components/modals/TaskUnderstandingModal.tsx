@@ -51,6 +51,87 @@ function DetailPill({ children }: { children: string }) {
   );
 }
 
+type GroundedTargetPreview = {
+  key: string;
+  kind: string;
+  label: string;
+  path: string | null;
+  provenance:
+    | "user_confirmed"
+    | "inventory_exact"
+    | "graph_supported"
+    | "model_proposed"
+    | "ranked_candidate";
+};
+
+function getGroundedTargetPreviews(
+  response: TaskUnderstandingResponse,
+): GroundedTargetPreview[] {
+  const structuredTargets =
+    response.taskIntent.structuredIntent?.primaryTargets ?? [];
+  const previews: GroundedTargetPreview[] = [];
+  const seen = new Set<string>();
+
+  for (const target of structuredTargets) {
+    const path = target.path?.trim() || target.routePath?.trim() || null;
+    const label = target.value?.trim() || target.name?.trim() || path;
+    if (!label) continue;
+
+    const key = `${target.kind}:${path ?? label}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+
+    previews.push({
+      key,
+      kind: target.kind || "target",
+      label,
+      path,
+      provenance: target.provenance ?? "model_proposed",
+    });
+  }
+
+  if (previews.length > 0) {
+    return previews;
+  }
+
+  for (const hint of response.taskUnderstanding.targetHints) {
+    const label = hint.trim();
+    if (!label) continue;
+    const key = `hint:${label}`.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    previews.push({
+      key,
+      kind: "target hint",
+      label,
+      path: null,
+      provenance: "model_proposed",
+    });
+  }
+
+  return previews;
+}
+
+function getTargetProvenanceLabel(
+  provenance: GroundedTargetPreview["provenance"],
+  t: (key: string) => string,
+) {
+  return t(`taskUnderstanding.targetProvenance.${provenance}`);
+}
+
+function getUnderstandingSourceLabel(response: TaskUnderstandingResponse) {
+  const analyzerSource = response.taskIntent.source || "unknown";
+  const interpretationSource = response.taskUnderstanding.source;
+
+  if (analyzerSource === "fallback") {
+    return "deterministic fallback";
+  }
+
+  return interpretationSource === "merged"
+    ? `${analyzerSource} + grounded merge`
+    : `${analyzerSource} + deterministic grounding`;
+}
+
 function ClarificationHistory({ items }: { items: TaskClarification[] }) {
   const { t } = useTranslation();
 
@@ -108,6 +189,14 @@ export function TaskUnderstandingModal({
     clarificationItems.length > 0
       ? clarificationItems[clarificationItems.length - 1]
       : null;
+  const groundedTargets = getGroundedTargetPreviews(response);
+  const ambiguities = Array.from(
+    new Set([
+      ...(understanding.ambiguities ?? []),
+      ...(response.taskIntent.structuredIntent?.ambiguities ?? []),
+    ].map((item) => item.trim()).filter(Boolean)),
+  );
+  const sourceLabel = getUnderstandingSourceLabel(response);
 
   return (
     <Modal
@@ -125,7 +214,7 @@ export function TaskUnderstandingModal({
         <div className="flex w-full flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-neutral-600">
             {t("taskUnderstanding.sourceSummary", {
-              source: understanding.source,
+              source: sourceLabel,
               confidence,
             })}
           </p>
@@ -202,10 +291,30 @@ export function TaskUnderstandingModal({
               {t("taskUnderstanding.targetHints")}
             </div>
 
-            <div className="flex flex-wrap gap-2">
-              {understanding.targetHints.length > 0 ? (
-                understanding.targetHints.map((hint) => (
-                  <DetailPill key={hint}>{hint}</DetailPill>
+            <div className="space-y-2">
+              {groundedTargets.length > 0 ? (
+                groundedTargets.map((target) => (
+                  <div
+                    key={target.key}
+                    className="rounded-xl border border-neutral-900 bg-black/40 px-3 py-2.5"
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <p className="text-[10px] uppercase tracking-wide text-neutral-600">
+                        {target.kind}
+                      </p>
+                      <span className="rounded-full border border-neutral-800 px-2 py-0.5 text-[9px] uppercase tracking-wide text-neutral-500">
+                        {getTargetProvenanceLabel(target.provenance, t)}
+                      </span>
+                    </div>
+                    <p className="mt-1 break-words text-xs leading-5 text-neutral-200">
+                      {target.path ?? target.label}
+                    </p>
+                    {target.path && target.label !== target.path && (
+                      <p className="mt-0.5 break-words text-[11px] leading-5 text-neutral-500">
+                        {target.label}
+                      </p>
+                    )}
+                  </div>
                 ))
               ) : (
                 <p className="text-xs leading-5 text-neutral-600">
@@ -244,6 +353,26 @@ export function TaskUnderstandingModal({
             </div>
           </section>
         </div>
+
+        {ambiguities.length > 0 && (
+          <section className="rounded-2xl border border-amber-300/20 bg-amber-300/[0.035] p-4">
+            <div className="mb-3 flex items-center gap-2 text-xs font-semibold text-white">
+              <HelpCircle size={14} className="text-amber-300" />
+              {t("taskUnderstanding.unresolvedDecisions")}
+            </div>
+            <ul className="space-y-2 text-xs leading-5 text-neutral-300">
+              {ambiguities.map((item) => (
+                <li key={item} className="flex gap-2">
+                  <span className="mt-2 size-1.5 shrink-0 rounded-full bg-amber-300/70" />
+                  <span>{item}</span>
+                </li>
+              ))}
+            </ul>
+            <p className="mt-3 text-[11px] leading-5 text-neutral-500">
+              {t("taskUnderstanding.unresolvedDecisionsDescription")}
+            </p>
+          </section>
+        )}
 
         <section className="rounded-2xl border border-neutral-900 bg-black/30 p-4">
           <p className="cf-tech-label text-[10px] uppercase text-neutral-600">

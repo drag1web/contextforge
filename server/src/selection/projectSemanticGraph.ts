@@ -234,7 +234,11 @@ function makeNode(file: ProjectInventoryFile): SemanticGraphNode {
     };
 }
 
+const semanticGraphCache = new WeakMap<ProjectInventory, ProjectSemanticGraph>();
+
 export function buildProjectSemanticGraph(inventory: ProjectInventory): ProjectSemanticGraph {
+    const cached = semanticGraphCache.get(inventory);
+    if (cached) return cached;
     const filesByPath = new Map(
         inventory.files.map((file) => [normalizeForCompare(file.path), file])
     );
@@ -285,7 +289,7 @@ export function buildProjectSemanticGraph(inventory: ProjectInventory): ProjectS
         }
     }
 
-    return {
+    const graph: ProjectSemanticGraph = {
         nodes,
         getNode(pathValue: string) {
             return nodes.get(normalizeForCompare(pathValue));
@@ -329,4 +333,7 @@ export function buildProjectSemanticGraph(inventory: ProjectInventory): ProjectS
             return support;
         }
     };
+
+    semanticGraphCache.set(inventory, graph);
+    return graph;
 }

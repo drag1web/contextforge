@@ -38,7 +38,8 @@ export type TaskUnderstandingSource = "fallback" | "merged";
 
 export type TaskUnderstandingMissingCode =
   | "replacement_value"
-  | "target_confirmation";
+  | "target_confirmation"
+  | "architecture_decision";
 
 export interface TaskUnderstandingExplicitValue {
   kind: TaskValueKind;
@@ -60,6 +61,7 @@ export interface TaskUnderstanding {
   targetHints: string[];
   requestedChanges: string[];
   constraints: string[];
+  ambiguities?: string[];
   interpretationRisk: TaskUnderstandingInterpretationRisk;
   changeDefinition: TaskUnderstandingChangeDefinition;
   explicitValues: TaskUnderstandingExplicitValue[];
@@ -129,8 +131,24 @@ const ALLOWED_CHANGE_DEFINITIONS =
     "open_ended",
   ]);
 
-const OPEN_ENDED_QUALITATIVE_PATTERN =
-  /(?:\b(?:less|more)\s+(?:wooden|clunky|awkward|dated|generic|plain|stiff|boring|modern|beautiful|polished|premium|professional|pleasant|lively|smooth)\b|(?:^|[^\p{L}])(?:менее|более)\s+(?:деревянн\w*|топорн\w*|неуклюж\w*|устаревш\w*|шаблонн\w*|скучн\w*|современн\w*|красив\w*|аккуратн\w*|премиальн\w*|профессиональн\w*|приятн\w*|жив\w*|плавн\w*)|(?:\b(?:polish|beautify|modernize)\b[^.!?]{0,100}\b(?:ui|design|layout|card|section|screen|page)\b)|(?:(?:отполируй|осовремени|улучши)\b[^.!?]{0,100}\b(?:интерфейс|дизайн|визуал|внешн\w+\s+вид|блок|секци\w*|страниц\w*)))/iu;
+const OPEN_ENDED_QUALITATIVE_PATTERNS = [
+  /(?:\b(?:less|more)\s+(?:wooden|clunky|awkward|dated|generic|plain|stiff|boring|modern|beautiful|polished|premium|professional|pleasant|lively|smooth|compact|minimal|airy|clean|clear)\b|(?:^|[^\p{L}])(?:менее|более)\s+(?:деревянн\w*|топорн\w*|неуклюж\w*|устаревш\w*|шаблонн\w*|скучн\w*|современн\w*|красив\w*|аккуратн\w*|компактн\w*|легк\w*|чист\w*|понятн\w*|воздушн\w*|минималистичн\w*|премиальн\w*|профессиональн\w*|приятн\w*|жив\w*|плавн\w*))/iu,
+  /(?:\b(?:visually\s+)?(?:lighter|cleaner|simpler|clearer|neater|airier|smoother|more\s+compact|more\s+modern|more\s+polished|more\s+minimal|more\s+premium|more\s+professional)\b|(?:^|[^\p{L}])(?:визуальн\w*\s+)?(?:легче|чище|проще|понятнее|аккуратнее|компактнее|современнее|красивее|приятнее|плавнее|воздушнее|минималистичнее|гармоничнее|профессиональнее|премиальнее|выразительнее|свежее)(?=$|[^\p{L}]))/iu,
+  /(?:\b(?:polish|beautify|modernize)\b[^.!?]{0,100}\b(?:ui|design|layout|card|section|screen|page|header|sidebar|navigation)\b|(?:(?:отполируй|осовремени|улучши)\b[^.!?]{0,100}\b(?:интерфейс|дизайн|визуал|внешн\w+\s+вид|блок|секци\w*|страниц\w*|панел\w*|навигац\w*)))/iu,
+] as const;
+
+function hasOpenEndedQualitativeLanguage(rawTask: string) {
+  return OPEN_ENDED_QUALITATIVE_PATTERNS.some((pattern) =>
+    pattern.test(rawTask),
+  );
+}
+
+const OPEN_ENDED_ARCHITECTURE_CHOICE_PATTERN =
+  /(?:\b(?:new|another|additional)\s+(?:way|method|flow|strategy|provider|integration|mechanism)\b|(?:^|[^\p{L}])(?:нов(?:ый|ую|ое)|друг(?:ой|ую|ое)|дополнительн(?:ый|ую|ое))\s+(?:способ|метод|flow|поток|стратеги\w*|провайдер|интеграц\w*|механизм)(?=$|[^\p{L}]))/iu;
+
+function hasOpenEndedArchitectureChoice(rawTask: string) {
+  return OPEN_ENDED_ARCHITECTURE_CHOICE_PATTERN.test(rawTask);
+}
 
 const VAGUE_REFERENCE_PATTERN =
   /(?:\b(?:this|that|it|here|there|thing|stuff|something)\b|(?:^|[^\p{L}])(?:это|эта|эту|этот|тут|здесь|там|штук\w*|фигн\w*|вот\s+это)(?=$|[^\p{L}]))/iu;
@@ -278,9 +296,11 @@ function deriveInterpretationSemantics({
   const fallbackInterpretationRisk: TaskUnderstandingInterpretationRisk =
     action === "unknown"
       ? "uncertain"
-      : OPEN_ENDED_QUALITATIVE_PATTERN.test(rawTask)
+      : hasOpenEndedQualitativeLanguage(rawTask)
         ? "subjective"
-        : "objective";
+        : hasOpenEndedArchitectureChoice(rawTask)
+          ? "uncertain"
+          : "objective";
   const fallbackChangeDefinition: TaskUnderstandingChangeDefinition =
     fallbackInterpretationRisk === "objective" ? "bounded" : "open_ended";
   const normalizedModelRisk = normalizeInterpretationRisk(
@@ -328,7 +348,9 @@ function inferAction(rawTask: string): TaskUnderstandingAction {
 
 function normalizeAction(value: unknown, fallback: TaskUnderstandingAction) {
   const normalized = normalizeForCompare(String(value ?? "")) as TaskUnderstandingAction;
-  return ALLOWED_ACTIONS.has(normalized) ? normalized : fallback;
+  if (!ALLOWED_ACTIONS.has(normalized)) return fallback;
+  if (normalized === "unknown" && fallback !== "unknown") return fallback;
+  return normalized;
 }
 
 function extractNamedTargetHints(rawTask: string) {
@@ -382,6 +404,21 @@ function buildTargetQuestion(rawTask: string) {
     : "Which exact page, component, or feature should be changed?";
 }
 
+function buildArchitectureDecisionQuestion(rawTask: string, ambiguities: string[]) {
+  const detail = uniqueStrings(ambiguities, 3).join("; ");
+  const russianTask = isMostlyRussian(rawTask);
+  const localizedDetail =
+    detail && isMostlyRussian(detail) === russianTask ? detail : "";
+  if (russianTask) {
+    return localizedDetail
+      ? `Уточните ключевое решение перед реализацией: ${localizedDetail}`
+      : "Уточните, какой именно вариант поведения или пользовательского flow нужно реализовать и какие части системы должны участвовать.";
+  }
+  return localizedDetail
+    ? `Clarify the key implementation decision before proceeding: ${localizedDetail}`
+    : "Clarify the exact behavior or user flow to implement and which parts of the system must participate.";
+}
+
 function deriveExplicitValues(rawTask: string): TaskUnderstandingExplicitValue[] {
   const replacement = extractExplicitReplacementValue(rawTask);
   if (!replacement.provided || !replacement.exactValue) return [];
@@ -395,7 +432,45 @@ function deriveExplicitValues(rawTask: string): TaskUnderstandingExplicitValue[]
   ];
 }
 
-function deriveMissingInformation(rawTask: string) {
+function hasGroundedTargetHint(
+  targetHints: string[],
+  projectTree: string[],
+) {
+  const normalizedPaths = projectTree.map((filePath) => {
+    const normalized = normalizeForCompare(filePath.replace(/\\/g, "/"));
+    const basename = normalized.split("/").pop() ?? normalized;
+    const stem = basename.replace(/\.[a-z0-9]+$/iu, "");
+    return { normalized, basename, stem };
+  });
+
+  return targetHints.some((hint) => {
+    const normalizedHint = normalizeForCompare(hint.replace(/\\/g, "/"));
+    if (!normalizedHint) return false;
+    return normalizedPaths.some(
+      (candidate) =>
+        candidate.normalized === normalizedHint ||
+        candidate.normalized.endsWith(`/${normalizedHint}`) ||
+        candidate.basename === normalizedHint ||
+        candidate.stem === normalizedHint,
+    );
+  });
+}
+
+function deriveMissingInformation({
+  rawTask,
+  action,
+  targetHints,
+  ambiguities,
+  changeDefinition,
+  projectTree,
+}: {
+  rawTask: string;
+  action: TaskUnderstandingAction;
+  targetHints: string[];
+  ambiguities: string[];
+  changeDefinition: TaskUnderstandingChangeDefinition;
+  projectTree: string[];
+}) {
   const missing: TaskUnderstandingMissingInformation[] = [];
   if (hasMissingReplacementValue(rawTask)) {
     missing.push({
@@ -404,6 +479,30 @@ function deriveMissingInformation(rawTask: string) {
       required: true,
     });
   }
+
+  const architectureShapingAction =
+    action === "create" || action === "configure";
+  const groundedTargetAvailable = hasGroundedTargetHint(
+    targetHints,
+    projectTree,
+  );
+  const architectureDecisionMissing =
+    changeDefinition === "open_ended" &&
+    ((architectureShapingAction &&
+      (ambiguities.length > 0 || !groundedTargetAvailable)) ||
+      (!architectureShapingAction &&
+        ambiguities.length > 0 &&
+        !groundedTargetAvailable));
+  if (architectureDecisionMissing) {
+    missing.push({
+      code: "architecture_decision",
+      description:
+        ambiguities[0] ??
+        "The task leaves an implementation-shaping behavior, flow, or system boundary unspecified.",
+      required: true,
+    });
+  }
+
   return missing;
 }
 
@@ -481,6 +580,7 @@ function buildDerivedUnderstanding({
   taskArea,
   taskType,
   confidence,
+  projectTree,
   structuredIntent,
   source,
   goal,
@@ -507,14 +607,29 @@ function buildDerivedUnderstanding({
     ...extractNamedTargetHints(rawTask),
   ]);
   const explicitValues = deriveExplicitValues(rawTask);
-  const missingInformation = deriveMissingInformation(rawTask);
-  const { interpretationRisk, changeDefinition } = deriveInterpretationSemantics({
+  const ambiguities = uniqueStrings(
+    filterTaskUnderstandingAmbiguities(structuredIntent.ambiguities ?? []),
+    8,
+  );
+  let { interpretationRisk, changeDefinition } = deriveInterpretationSemantics({
     rawTask,
     action: fallbackAction,
     explicitValues,
     modelInterpretationRisk,
     modelChangeDefinition,
   });
+  const missingInformation = deriveMissingInformation({
+    rawTask,
+    action: fallbackAction,
+    targetHints: fallbackTargetHints,
+    ambiguities,
+    changeDefinition,
+    projectTree,
+  });
+  if (missingInformation.some((item) => item.code === "architecture_decision")) {
+    interpretationRisk = "uncertain";
+    changeDefinition = "open_ended";
+  }
   const readiness = deriveReadiness({
     rawTask,
     action: fallbackAction,
@@ -528,7 +643,9 @@ function buildDerivedUnderstanding({
       ? null
       : missingInformation.some((item) => item.code === "replacement_value")
         ? buildReplacementQuestion(rawTask)
-        : buildTargetQuestion(rawTask);
+        : missingInformation.some((item) => item.code === "architecture_decision")
+          ? buildArchitectureDecisionQuestion(rawTask, ambiguities)
+          : buildTargetQuestion(rawTask);
   const baseConfidence = normalizeConfidence(confidence, 0.5);
   const finalConfidence =
     readiness === "review"
@@ -554,6 +671,7 @@ function buildDerivedUnderstanding({
         ? `Allowed edit scope: ${structuredIntent.allowedEditScope}`
         : "",
     ], 10),
+    ambiguities,
     interpretationRisk,
     changeDefinition,
     explicitValues,

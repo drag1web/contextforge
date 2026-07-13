@@ -78,6 +78,14 @@ import {
   mergeLocalChangesNote
 } from "../utils/localChangesNote";
 
+function createPerformanceSessionId() {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+
+  return `perf-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 interface TaskPackBuilderPageProps {
   draft: TaskPackDraft;
   isLoading: boolean;
@@ -3061,32 +3069,46 @@ export function TaskPackBuilderPage({
       action: Exclude<TaskUnderstandingPendingAction, null>,
       draftOverride: TaskPackDraft = draft
     ) => {
+      const performanceSessionId =
+        draftOverride.performanceSessionId ?? createPerformanceSessionId();
+      const sessionDraft: TaskPackDraft = {
+        ...draftOverride,
+        performanceSessionId
+      };
+
+      if (!draftOverride.performanceSessionId) {
+        onChange(sessionDraft);
+      }
+
       setIsUnderstanding(true);
       setUnderstandingError(null);
       setPendingUnderstandingAction(action);
-      setUnderstandingDraft(draftOverride);
+      setUnderstandingDraft(sessionDraft);
 
       try {
         const response = await understandTaskPack({
-          projectId: draftOverride.projectId,
-          rawTask: draftOverride.rawTask,
-          taskType: draftOverride.taskType,
-          targetTool: draftOverride.targetTool,
-          clarifications: draftOverride.clarifications
+          projectId: sessionDraft.projectId,
+          rawTask: sessionDraft.rawTask,
+          taskType: sessionDraft.taskType,
+          targetTool: sessionDraft.targetTool,
+          clarifications: sessionDraft.clarifications,
+          performanceSessionId,
+          understandingSnapshotId: sessionDraft.understandingSnapshotId
         });
 
+        const resolvedDraft: TaskPackDraft = {
+          ...sessionDraft,
+          clarifications: response.clarifications,
+          understandingSnapshotId: response.understandingSnapshotId
+        };
+
         setUnderstandingResponse(response);
-        setUnderstandingDraft({
-          ...draftOverride,
-          clarifications: response.clarifications
-        });
+        setUnderstandingDraft(resolvedDraft);
+        onChange(resolvedDraft);
 
         if (response.interaction.action === "continue") {
           setIsUnderstandingModalOpen(false);
-          await executeUnderstandingAction(action, {
-            ...draftOverride,
-            clarifications: response.clarifications
-          });
+          await executeUnderstandingAction(action, resolvedDraft);
           return;
         }
 
@@ -3102,7 +3124,7 @@ export function TaskPackBuilderPage({
         setIsUnderstanding(false);
       }
     },
-    [draft, executeUnderstandingAction, t]
+    [draft, executeUnderstandingAction, onChange, t]
   );
 
   const handleAnalyzeContext = useCallback(async () => {

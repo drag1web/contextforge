@@ -2,13 +2,11 @@ import type {
   ProjectInventory,
   ProjectInventoryFile,
 } from "../scanner/projectInventoryScanner.js";
-import type { TaskArea } from "../ollama/taskIntentAnalyzer.js";
+import type { TaskArea, TaskIntentAnalysis } from "../ollama/taskIntentAnalyzer.js";
+import { buildTaskExecutionContractFromIntent } from "../taskPacks/taskExecutionContract.js";
 import type { TaskFileSelection } from "../ollama/taskFileSelector.js";
 import { resolveExplicitFileMentions } from "./explicitFileMentions.js";
-import {
-  detectHardTaskSafetyIssue,
-  isSecretLikePath,
-} from "./safetyPolicy.js";
+import { detectHardTaskSafetyIssue, isSecretLikePath } from "./safetyPolicy.js";
 
 export type ContextSelectionQualityStatus = "ready" | "warning" | "blocked";
 export type ContextQualityMode = "advisory" | "balanced" | "strict";
@@ -45,6 +43,7 @@ interface EvaluateContextSelectionQualityInput {
   fileSelection: TaskFileSelection;
   manualSelectionConfirmed?: boolean;
   contextQualityMode?: ContextQualityMode;
+  taskIntent?: TaskIntentAnalysis;
 }
 
 const TASK_STOP_WORDS = new Set([
@@ -143,40 +142,53 @@ function getMissingTargetWording(area: string) {
 
   if (normalized === "ui") {
     return {
-      warning: "No clear UI page/component/style file was selected, but editable files are present.",
-      blocking: "No UI page/component/style target was selected for this UI task.",
-      specific: "Consider adding the exact page, component, layout, or style file if available."
+      warning:
+        "No clear UI page/component/style file was selected, but editable files are present.",
+      blocking:
+        "No UI page/component/style target was selected for this UI task.",
+      specific:
+        "Consider adding the exact page, component, layout, or style file if available.",
     };
   }
 
   if (normalized === "backend") {
     return {
-      warning: "No clear backend endpoint/service/module was selected. If this is frontend-only, document the expected API contract instead of inventing server files.",
-      blocking: "No backend-capable source file was selected for this backend task.",
-      specific: "Consider adding the exact endpoint, route, service, validation, database, or API module if available."
+      warning:
+        "No clear backend endpoint/service/module was selected. If this is frontend-only, document the expected API contract instead of inventing server files.",
+      blocking:
+        "No backend-capable source file was selected for this backend task.",
+      specific:
+        "Consider adding the exact endpoint, route, service, validation, database, or API module if available.",
     };
   }
 
   if (normalized === "tests") {
     return {
-      warning: "No clear test/spec/source-under-test file was selected, but editable files are present.",
-      blocking: "No test target or source-under-test file was selected for this testing task.",
-      specific: "Consider adding the exact spec, test file, fixture, or source file under test if available."
+      warning:
+        "No clear test/spec/source-under-test file was selected, but editable files are present.",
+      blocking:
+        "No test target or source-under-test file was selected for this testing task.",
+      specific:
+        "Consider adding the exact spec, test file, fixture, or source file under test if available.",
     };
   }
 
   if (normalized === "docs") {
     return {
-      warning: "No clear documentation/source-of-truth file was selected, but project files are present.",
-      blocking: "No documentation target or source-of-truth file was selected for this docs task.",
-      specific: "Consider adding the exact README, docs page, changelog, config, or source file used as evidence."
+      warning:
+        "No clear documentation/source-of-truth file was selected, but project files are present.",
+      blocking:
+        "No documentation target or source-of-truth file was selected for this docs task.",
+      specific:
+        "Consider adding the exact README, docs page, changelog, config, or source file used as evidence.",
     };
   }
 
   return {
-    warning: "No clear task-specific target file was selected, but editable files are present.",
+    warning:
+      "No clear task-specific target file was selected, but editable files are present.",
     blocking: "No task-specific source file was selected for this task.",
-    specific: "Consider adding a more specific task target file if available."
+    specific: "Consider adding a more specific task target file if available.",
   };
 }
 
@@ -582,11 +594,13 @@ function buildQualitySignals({
   let confidenceCap =
     selectionSource === "blocked"
       ? 0
-      : selectionSource === "fallback" && !explicitPathSelected && createTargetCount === 0
-      ? 72
-      : selectionSource === "manual-review"
-        ? 48
-        : 100;
+      : selectionSource === "fallback" &&
+          !explicitPathSelected &&
+          createTargetCount === 0
+        ? 72
+        : selectionSource === "manual-review"
+          ? 48
+          : 100;
   if (totalContextCount === 0) confidenceCap = Math.min(confidenceCap, 24);
   if (areaConflict) confidenceCap = Math.min(confidenceCap, 70);
   if (
@@ -846,6 +860,15 @@ export function evaluateContextSelectionQuality(
   const warnings: string[] = [];
   const blockingReasons: string[] = [];
   const mode = input.contextQualityMode ?? "balanced";
+  const executionContract = input.taskIntent
+    ? buildTaskExecutionContractFromIntent({
+        rawTask: input.rawTask,
+        projectTree: input.inventory.files.map((file) => file.path),
+        taskIntent: input.taskIntent,
+      })
+    : null;
+  const missingRequiredLayers =
+    input.fileSelection.diagnostics?.missingRequiredLayers ?? [];
   const selectionSource =
     input.fileSelection.diagnostics?.selectionSource ??
     (input.fileSelection.usedFallback
@@ -856,6 +879,18 @@ export function evaluateContextSelectionQuality(
   const semanticGraphEvidenceCount =
     input.fileSelection.diagnostics?.semanticGraphEvidence?.length ?? 0;
   const areaConflict = Boolean(input.fileSelection.diagnostics?.areaConflict);
+  const selectorRepairAttempted = Boolean(
+    input.fileSelection.diagnostics?.repairAttempted,
+  );
+  const selectorRetryAttempted = Boolean(
+    input.fileSelection.diagnostics?.retryAttempted,
+  );
+  const rejectedSelectorPathCount = input.fileSelection.rejectedModelPaths.length;
+  const explicitGuardRecoveredSelection =
+    selectionSource === "explicit-target-guard" &&
+    (selectorRepairAttempted ||
+      selectorRetryAttempted ||
+      rejectedSelectorPathCount > 0);
 
   const codeTaskAreas = new Set([
     "ui",
@@ -917,7 +952,17 @@ export function evaluateContextSelectionQuality(
     explicitResolution.missingPaths.length;
   const explicitMissingPathTokens =
     explicitResolution.missingPaths.map(normalizeForCompare);
+  const guardedExplicitTargetPath = normalizeForCompare(
+    input.fileSelection.diagnostics?.explicitTargetPath ?? "",
+  );
+  const guardedExplicitTargetSelected =
+    input.fileSelection.diagnostics?.explicitTargetStatus === "matched" &&
+    guardedExplicitTargetPath.length > 0 &&
+    selectedFiles.some(
+      (file) => normalizeForCompare(file.path) === guardedExplicitTargetPath,
+    );
   const explicitPathSelected =
+    guardedExplicitTargetSelected ||
     (explicitExistingPathTokens.length > 0 &&
       selectedFiles.some((file) =>
         explicitExistingPathTokens.includes(normalizeForCompare(file.path)),
@@ -965,6 +1010,38 @@ export function evaluateContextSelectionQuality(
     score -= 70;
   }
 
+  if (executionContract?.mode === "clarification_required") {
+    blockingReasons.push(
+      "Task Understanding still contains a required unresolved decision. Clarify the task before implementation context is generated.",
+    );
+    score = Math.min(score, 20);
+  } else if (executionContract?.mode === "investigation") {
+    warnings.push(
+      "Execution contract is investigation-first. Selected files are candidates for tracing ownership and data flow, not confirmed edit targets.",
+    );
+    score = Math.min(score, 68);
+  }
+
+  if (missingRequiredLayers.length > 0) {
+    warnings.push(
+      `Selection does not cover required technical layer(s): ${missingRequiredLayers.join(", ")}.`,
+    );
+    score = Math.min(score, 64);
+  }
+
+  const confirmationCandidateCount = input.fileSelection.selectedFiles.filter(
+    (file) =>
+      /needs confirmation|fallback-ranked candidate|investigation candidate|unconfirmed implementation candidate/i.test(
+        `${file.reason}`,
+      ),
+  ).length;
+  if (confirmationCandidateCount > 0) {
+    warnings.push(
+      `${confirmationCandidateCount} selected file candidate(s) are rank-based and still need confirmation before editing.`,
+    );
+    score = Math.min(score, executionContract?.mode === "implementation" ? 76 : 68);
+  }
+
   if (selectedFiles.length === 0 && !hasCreateTarget) {
     blockingReasons.push("No real project files were selected for this task.");
     score -= 52;
@@ -981,19 +1058,21 @@ export function evaluateContextSelectionQuality(
 
   if (explicitPathSelected) {
     score += 34;
-    if (
-      hasCreateTarget &&
-      createTargets.some((file) =>
-        explicitMissingPathTokens.includes(normalizeForCompare(file.path)),
-      )
-    ) {
-      warnings.push(
-        "User-mentioned file path was accepted as a planned create target. ContextForge treated it as the strongest signal.",
-      );
-    } else {
-      warnings.push(
-        "User-mentioned file path was found and selected. ContextForge treated it as the strongest signal.",
-      );
+    if (!guardedExplicitTargetSelected) {
+      if (
+        hasCreateTarget &&
+        createTargets.some((file) =>
+          explicitMissingPathTokens.includes(normalizeForCompare(file.path)),
+        )
+      ) {
+        warnings.push(
+          "User-mentioned file path was accepted as a planned create target. ContextForge treated it as the strongest signal.",
+        );
+      } else {
+        warnings.push(
+          "User-mentioned file path was found and selected. ContextForge treated it as the strongest signal.",
+        );
+      }
     }
   }
 
@@ -1051,14 +1130,10 @@ export function evaluateContextSelectionQuality(
     !hasCreateTarget
   ) {
     if (hasEditableCode) {
-      warnings.push(
-        getMissingTargetWording("ui").warning,
-      );
+      warnings.push(getMissingTargetWording("ui").warning);
       score -= 12;
     } else {
-      blockingReasons.push(
-        getMissingTargetWording("ui").blocking,
-      );
+      blockingReasons.push(getMissingTargetWording("ui").blocking);
       score -= 30;
     }
   }
@@ -1070,13 +1145,13 @@ export function evaluateContextSelectionQuality(
     !docsPrimaryIntent
   ) {
     if (hasEditableCode) {
-      warnings.push(
-        getMissingTargetWording("backend").warning,
-      );
+      warnings.push(getMissingTargetWording("backend").warning);
       score -= 10;
     } else {
       blockingReasons.push(
-        area === "fullstack" ? "No source file that could support full-stack work was selected." : getMissingTargetWording("backend").blocking,
+        area === "fullstack"
+          ? "No source file that could support full-stack work was selected."
+          : getMissingTargetWording("backend").blocking,
       );
       score -= 28;
     }
@@ -1102,6 +1177,34 @@ export function evaluateContextSelectionQuality(
       "File selection used fallback logic. The selection is allowed when the ranked files look plausible, but review it if the task is high-risk.",
     );
     score -= mode === "strict" ? 22 : 12;
+  }
+
+  if (selectorRepairAttempted) {
+    warnings.push(
+      "AI file selection required JSON repair before validation.",
+    );
+    score -= 3;
+  }
+
+  if (selectorRetryAttempted) {
+    warnings.push(
+      "AI file selection required a strict retry before a valid response was available.",
+    );
+    score -= 6;
+  }
+
+  if (rejectedSelectorPathCount > 0) {
+    warnings.push(
+      `Rejected ${rejectedSelectorPathCount} AI-selected path(s) during semantic or safety validation.`,
+    );
+    score -= Math.min(9, rejectedSelectorPathCount * 2);
+  }
+
+  if (explicitGuardRecoveredSelection) {
+    warnings.push(
+      "The explicit target guard recovered the final grounded target after the AI selector produced invalid or semantically weak candidates.",
+    );
+    score = Math.min(score, 92);
   }
 
   if (
@@ -1242,7 +1345,28 @@ export function evaluateContextSelectionQuality(
     selectionNotes.includes("invalid or empty json") ||
     selectionNotes.includes("ollama file selector failed")
   ) {
-    score = Math.min(score, mode === "advisory" ? 78 : mode === "strict" ? 62 : 70);
+    score = Math.min(
+      score,
+      mode === "advisory" ? 78 : mode === "strict" ? 62 : 70,
+    );
+  }
+
+  // Execution-contract caps are final semantic ceilings. Later lexical or
+  // structural bonuses must never turn unresolved/investigative context into
+  // high-confidence implementation context.
+  if (executionContract?.mode === "clarification_required") {
+    score = Math.min(score, 20);
+  } else if (executionContract?.mode === "investigation") {
+    score = Math.min(score, 68);
+  }
+  if (missingRequiredLayers.length > 0) {
+    score = Math.min(score, 64);
+  }
+  if (confirmationCandidateCount > 0) {
+    score = Math.min(
+      score,
+      executionContract?.mode === "implementation" ? 76 : 68,
+    );
   }
 
   const result = applyModeToResult({

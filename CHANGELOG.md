@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased — Performance Diagnostics & AI Call Audit
+
+### Added
+
+- Added reusable in-memory Task Understanding snapshots shared by preflight, Context Composer, and final Task Pack generation.
+- Added safe local application of exact replacement-value clarifications without a second full Understanding request.
+- Added complete Ollama selector call instrumentation for initial selection, JSON repair, and strict retry attempts.
+- Added a generic explicit-target guard that grounds user-named pages/components/routes against real inventory and promotes the strongest real target before context quality is finalized.
+- Added a privacy-safe end-to-end performance session for Task Understanding and Task Pack generation.
+- Added per-stage timings for inventory scanning, understanding, selector execution, context assembly, prompt construction, refinement, and storage.
+- Added real AI call counters with purpose, provider/model, prompt/response sizes, duration, success state, and Ollama-reported load/evaluation metrics.
+- Added cold/warm model estimation for Ollama from provider-reported model load duration.
+- Added cache hit/miss/bypass events for validated Task Pack refinement.
+- Added a Performance diagnostics modal on generated Task Packs with copyable local JSON.
+- Added a bounded in-memory session bridge so preflight and generation requests appear in one timeline.
+
+### Changed
+
+- Confirmed Understanding results are now reused instead of re-running the same Ollama analysis during generation.
+- Exact clarification answers can advance a compatible `needs_clarification` snapshot to `ready` locally; target-changing or otherwise semantic answers still force a fresh analysis.
+- A model-produced `unknown` action can no longer erase a stronger action grounded by the backend from the original task.
+- Selector diagnostics now expose the real selection origin and explicit-target guard status separately from the broad provider source/fallback flag.
+
+### Privacy
+
+- Performance diagnostics do not store raw prompts, model responses, source code, secrets, or absolute paths.
+- Only counters, sizes, safe labels, timings, and bounded metadata are persisted with the Task Pack recipe.
+
+### Validation
+
+- Performance trace smoke: 6 scenarios.
+- Understanding snapshot smoke: 4 scenarios.
+- Explicit target guard smoke: 2 scenarios.
+- Task Understanding: 27 scenarios.
+- Clarification: 9 scenarios.
+- Generation reliability: 36 scenarios.
+- Selector rollout: 32 scenarios.
+- Replay: 108/108.
+- Synthetic selector benchmark: 54/54 across 24 families.
+- Renderer and server builds passed.
+
+
 ## 0.6.7-alpha — Task Understanding & Clarification
 
 ### Added

@@ -1,8 +1,13 @@
 import { z } from "zod";
 
+import type { TaskExecutionContract } from "../taskPacks/taskExecutionContract.js";
 import type { AiProviderId } from "../ai/providerService.js";
+import { recordPerformanceCacheEvent } from "../performance/performanceTrace.js";
 import { generateWithConfiguredAi } from "../ai/providerService.js";
-import { getAppSettings, type AppSettings } from "../settings/settingsService.js";
+import {
+  getAppSettings,
+  type AppSettings,
+} from "../settings/settingsService.js";
 import {
   buildGenerationCacheKey,
   getCachedGeneration,
@@ -99,13 +104,15 @@ export type TaskPackGenerationPolicyIssueCode =
   | "unauthorized_git_tag"
   | "unauthorized_release_publish"
   | "forced_verification_claim"
-  | "unselected_file_reference";
+  | "unselected_file_reference"
+  | "ungrounded_ui_element";
 
-export type TaskPackGenerationAmbiguityCode =
-  | "missing_replacement_value";
+export type TaskPackGenerationAmbiguityCode = "missing_replacement_value";
 
 export type TaskPackGenerationConsistencyCode =
   | "clarification_mode_enabled"
+  | "execution_contract_clarification_applied"
+  | "execution_contract_investigation_applied"
   | "completion_requirements_deferred"
   | "verification_deferred"
   | "final_response_rewritten"
@@ -127,11 +134,7 @@ export interface TaskPackRefinementPolicyDiagnostics {
 }
 
 export type TaskPackGenerationStatus =
-  | "template"
-  | "generated"
-  | "repaired"
-  | "retried"
-  | "fallback";
+  "template" | "generated" | "repaired" | "retried" | "fallback";
 
 export interface TaskPackGenerationAttemptDiagnostics {
   attempt: 1 | 2;
@@ -194,6 +197,7 @@ export interface TaskPackGenerationPromptInput {
     path: string;
     usage: string;
     reason: string;
+    evidenceLevel?: string;
   }>;
   taskIntent?: {
     source?: string;
@@ -206,6 +210,7 @@ export interface TaskPackGenerationPromptInput {
         path?: string;
         routePath?: string;
         value?: string;
+        provenance?: string;
       }>;
       allowedEditScope?: string;
     } | null;
@@ -215,8 +220,16 @@ export interface TaskPackGenerationPromptInput {
       targetHints?: string[];
       requestedChanges?: string[];
       constraints?: string[];
-      explicitValues?: Array<{ kind?: string; value?: string; exact?: boolean }>;
-      missingInformation?: Array<{ code?: string; description?: string; required?: boolean }>;
+      explicitValues?: Array<{
+        kind?: string;
+        value?: string;
+        exact?: boolean;
+      }>;
+      missingInformation?: Array<{
+        code?: string;
+        description?: string;
+        required?: boolean;
+      }>;
       readiness?: string;
       canProceed?: boolean;
       clarificationQuestion?: string | null;
@@ -231,6 +244,7 @@ export interface TaskPackGenerationPromptInput {
     warnings: string[];
     blockingReasons: string[];
   };
+  executionContract: TaskExecutionContract;
   templatePrompt: string;
 }
 
@@ -241,6 +255,7 @@ export interface TaskPackPromptBuildResult {
 
 interface GenerateReliableTaskPackInput extends TaskPackGenerationPromptInput {
   fallbackContent: string;
+  cacheIdentity?: string;
   bypassCache?: boolean;
   dependencies?: {
     getSettings?: () => Promise<AppSettings>;
@@ -253,6 +268,24 @@ interface ParsedRefinement {
   parseStage: TaskPackGenerationParseStage;
   issueCodes: string[];
 }
+
+const EXECUTION_POLICY_SEED_REFINEMENT: TaskPackRefinement = {
+  implementationGuidance: [
+    "Inspect the selected project context before deciding where implementation belongs.",
+  ],
+  constraints: [
+    "Use only grounded project facts and keep changes focused on the requested task.",
+  ],
+  acceptanceCriteria: [
+    "The resulting plan remains consistent with the backend execution contract.",
+  ],
+  verificationSteps: [
+    "Run only relevant available checks and report their actual results.",
+  ],
+  finalResponseRequirements: [
+    "Report the files actually changed and the checks actually performed.",
+  ],
+};
 
 const SECTION_REFINEMENTS: Array<{
   section: string;
@@ -391,8 +424,29 @@ const FORCED_VERIFICATION_CLAIM_PATTERNS = [
   /подтверд(?:и|ить|ите)[\s\S]{0,180}ручн\w*[\s\S]{0,180}(?:подтвержд\w*|показыва\w*|соответству\w*|желаем\w*|улучшен\w*|удовлетвор\w*)/iu,
 ];
 
-const PATH_REFERENCE_PATTERN = /(?:^|[\s("'`])((?:[A-Za-z0-9_@.-]+[\\/])+[A-Za-z0-9_@().-]+\.[A-Za-z0-9]{1,10})/g;
-const FILE_REFERENCE_PATTERN = /\b([A-Za-z0-9_@().-]+\.(?:tsx?|jsx?|mjs|cjs|css|scss|sass|less|json|ya?ml|md|sql|py|java|cs|cpp|c|h|hpp))\b/g;
+const PATH_REFERENCE_PATTERN =
+  /(?:^|[\s("'`])((?:[A-Za-z0-9_@.-]+[\\/])+[A-Za-z0-9_@().-]+\.[A-Za-z0-9]{1,10})/g;
+const FILE_REFERENCE_PATTERN =
+  /\b([A-Za-z0-9_@().-]+\.(?:tsx?|jsx?|mjs|cjs|css|scss|sass|less|json|ya?ml|md|sql|py|java|cs|cpp|c|h|hpp))\b/g;
+
+const UI_ELEMENT_GROUNDING_PATTERNS = [
+  /\b(?:logo|brand mark)\b|логотип\p{L}*/iu,
+  /\b(?:navigation links?|nav links?|menu links?)\b|навигационн\p{L}*\s+ссылк\p{L}*/iu,
+  /\b(?:user profile|profile menu|account menu|avatar)\b|профил\p{L}*\s+пользовател\p{L}*|аватар\p{L}*/iu,
+  /\b(?:breadcrumbs?|breadcrumb trail)\b|хлебн\p{L}*\s+крошк\p{L}*/iu,
+  /\b(?:search bar|search field)\b|строк\p{L}*\s+поиск\p{L}*/iu,
+] as const;
+
+function hasUngroundedUiElement(
+  item: string,
+  rawTask: string,
+  templatePrompt: string | undefined,
+) {
+  const groundingText = `${rawTask}\n${templatePrompt ?? ""}`;
+  return UI_ELEMENT_GROUNDING_PATTERNS.some(
+    (pattern) => pattern.test(item) && !pattern.test(groundingText),
+  );
+}
 
 function emptyPolicyDiagnostics(): TaskPackRefinementPolicyDiagnostics {
   return {
@@ -417,7 +471,9 @@ function addUniqueCode<T extends string>(target: T[], code: T) {
 
 function isNegatedAction(value: string, index: number) {
   const prefix = value.slice(Math.max(0, index - 64), index).toLowerCase();
-  return /(?:do\s+not|don't|never|must\s+not|without|не\s+надо|не\s+нужно|не|нельзя|запрещено|без)\s*(?:[\p{L}\p{N}_-]+\s*){0,4}$/iu.test(prefix);
+  return /(?:do\s+not|don't|never|must\s+not|without|не\s+надо|не\s+нужно|не|нельзя|запрещено|без)\s*(?:[\p{L}\p{N}_-]+\s*){0,4}$/iu.test(
+    prefix,
+  );
 }
 
 function findPositiveAction(value: string, pattern: RegExp) {
@@ -458,20 +514,30 @@ function findUnauthorizedGitAction(
 }
 
 function hasForcedVerificationClaim(item: string) {
-  return FORCED_VERIFICATION_CLAIM_PATTERNS.some((pattern) => pattern.test(item));
+  return FORCED_VERIFICATION_CLAIM_PATTERNS.some((pattern) =>
+    pattern.test(item),
+  );
 }
 
 function rewriteVerificationClaim(item: string) {
   const normalized = item.toLowerCase();
   const replacements: string[] = [];
 
-  if (/\b(?:build|test|lint|typecheck|compile|script|command|сборк|тест|линт|тип|команд)\w*/iu.test(normalized)) {
+  if (
+    /\b(?:build|test|lint|typecheck|compile|script|command|сборк|тест|линт|тип|команд)\w*/iu.test(
+      normalized,
+    )
+  ) {
     replacements.push(
       "Run the relevant available verification command and report the actual result; if it is not run or fails, state that clearly.",
     );
   }
 
-  if (/\b(?:manual|manually|visual|visually|ui|page|screen|ручн|визуальн|страниц|экран)\w*/iu.test(normalized)) {
+  if (
+    /\b(?:manual|manually|visual|visually|ui|page|screen|ручн|визуальн|страниц|экран)\w*/iu.test(
+      normalized,
+    )
+  ) {
     replacements.push(
       "Perform the relevant manual check when possible and report what was actually verified; if it was not performed, state that clearly.",
     );
@@ -535,11 +601,7 @@ export function detectTaskPackAmbiguities(
     : [];
 }
 
-type PushRefinementItemResult =
-  | "added"
-  | "duplicate"
-  | "limit"
-  | "invalid";
+type PushRefinementItemResult = "added" | "duplicate" | "limit" | "invalid";
 
 const SEMANTIC_DEDUPE_STOP_WORDS = new Set([
   "a",
@@ -675,7 +737,10 @@ function isSafePreparatoryGuidance(item: string) {
 }
 
 function totalRefinementItems(refinement: TaskPackRefinement) {
-  return Object.values(refinement).reduce((sum, items) => sum + items.length, 0);
+  return Object.values(refinement).reduce(
+    (sum, items) => sum + items.length,
+    0,
+  );
 }
 
 function refinementContainsExactValue(
@@ -766,14 +831,218 @@ function applyMissingReplacementConsistency(
   const after = totalRefinementItems(refinement);
   diagnostics.consistencyAdjustedItems += Math.max(before, after);
   addUniqueCode(diagnostics.consistencyCodes, "clarification_mode_enabled");
-  addUniqueCode(diagnostics.consistencyCodes, "completion_requirements_deferred");
+  addUniqueCode(
+    diagnostics.consistencyCodes,
+    "completion_requirements_deferred",
+  );
   addUniqueCode(diagnostics.consistencyCodes, "verification_deferred");
   addUniqueCode(diagnostics.consistencyCodes, "final_response_rewritten");
 }
 
+
+function resetRefinement(refinement: TaskPackRefinement) {
+  refinement.implementationGuidance = [];
+  refinement.constraints = [];
+  refinement.acceptanceCriteria = [];
+  refinement.verificationSteps = [];
+  refinement.finalResponseRequirements = [];
+}
+
+function firstUnresolvedDecision(contract: TaskExecutionContract) {
+  return (
+    contract.unresolvedDecisions.find((item) => item.trim()) ??
+    "the unresolved implementation decision that changes the technical scope"
+  );
+}
+
+function applyExecutionContractClarificationConsistency(
+  refinement: TaskPackRefinement,
+  diagnostics: TaskPackRefinementPolicyDiagnostics,
+  contract: TaskExecutionContract,
+) {
+  const before = totalRefinementItems(refinement);
+  resetRefinement(refinement);
+  const unresolved = firstUnresolvedDecision(contract);
+
+  pushRefinementItem(
+    refinement,
+    "implementationGuidance",
+    `Ask the user to clarify ${unresolved}. Do not choose an architecture, provider, endpoint, data flow, storage mechanism, or edit target on the user's behalf.`,
+  );
+  pushRefinementItem(
+    refinement,
+    "constraints",
+    "No project files may be changed until the required decision is supplied and grounded against the real project inventory.",
+  );
+  for (const assumption of contract.forbiddenAssumptions.slice(0, 3)) {
+    pushRefinementItem(refinement, "constraints", assumption);
+  }
+  pushRefinementItem(
+    refinement,
+    "acceptanceCriteria",
+    "Current-run gate: obtain the missing decision from the user; do not claim the implementation is complete before clarification.",
+  );
+  pushRefinementItem(
+    refinement,
+    "verificationSteps",
+    "Defer build, test, and manual implementation checks until the clarification is supplied and a real code change is made.",
+  );
+  pushRefinementItem(
+    refinement,
+    "finalResponseRequirements",
+    "State that no files were changed and ask one concrete question that resolves the missing decision.",
+  );
+
+  const after = totalRefinementItems(refinement);
+  diagnostics.consistencyAdjustedItems += Math.max(before, after);
+  diagnostics.injectedItems += after;
+  addUniqueCode(
+    diagnostics.consistencyCodes,
+    "execution_contract_clarification_applied",
+  );
+  addUniqueCode(diagnostics.consistencyCodes, "clarification_mode_enabled");
+  addUniqueCode(diagnostics.consistencyCodes, "verification_deferred");
+  addUniqueCode(diagnostics.consistencyCodes, "final_response_rewritten");
+}
+
+function applyExecutionContractInvestigationConsistency(
+  refinement: TaskPackRefinement,
+  diagnostics: TaskPackRefinementPolicyDiagnostics,
+  contract: TaskExecutionContract,
+) {
+  const before = totalRefinementItems(refinement);
+  resetRefinement(refinement);
+  const layerText =
+    contract.requiredLayers.length > 0
+      ? contract.requiredLayers.join(", ")
+      : "the relevant technical layers";
+
+  pushRefinementItem(
+    refinement,
+    "implementationGuidance",
+    "Treat the selected files as investigation candidates, not confirmed edit targets. Inspect their full contents and follow imports, callers, API contracts, state ownership, and data flow to locate the real owner before editing.",
+  );
+  pushRefinementItem(
+    refinement,
+    "implementationGuidance",
+    `Trace the task across ${layerText}; identify the first layer where the observed behavior or value becomes incorrect, stale, missing, or duplicated.`,
+  );
+  pushRefinementItem(
+    refinement,
+    "implementationGuidance",
+    "Confirm the root cause with concrete code evidence, then make the smallest focused change in the actual owner and only the directly affected contracts or consumers.",
+  );
+  pushRefinementItem(
+    refinement,
+    "implementationGuidance",
+    "Before adding new behavior, verify whether the requested capability or metric already exists and determine whether the task requires reuse, aggregation, exposure, or correction instead of duplication.",
+  );
+  for (const assumption of contract.forbiddenAssumptions.slice(0, 4)) {
+    pushRefinementItem(refinement, "constraints", assumption);
+  }
+  pushRefinementItem(
+    refinement,
+    "constraints",
+    "Do not add a guessed local state, refresh hook, endpoint, provider flow, token exchange, persistence rule, or single-file edit restriction without evidence in the inspected code.",
+  );
+  pushRefinementItem(
+    refinement,
+    "acceptanceCriteria",
+    "The root cause or implementation owner is supported by the inspected code and the final edit follows the real data or control-flow chain.",
+  );
+  pushRefinementItem(
+    refinement,
+    "acceptanceCriteria",
+    `The final implementation covers every directly affected required layer (${layerText}) or explicitly explains why a layer needs no code change.`,
+  );
+  pushRefinementItem(
+    refinement,
+    "acceptanceCriteria",
+    "No unrelated files, architecture, dependencies, or behavior are introduced solely from candidate ranking or model assumptions.",
+  );
+  pushRefinementItem(
+    refinement,
+    "verificationSteps",
+    "Reproduce or inspect the original behavior before editing, then repeat the same check after the focused change and report the actual result.",
+  );
+  pushRefinementItem(
+    refinement,
+    "verificationSteps",
+    "Run only relevant existing verification scripts after the owner is confirmed; report failures and checks not run without claiming success.",
+  );
+  pushRefinementItem(
+    refinement,
+    "finalResponseRequirements",
+    "Report the confirmed owner and data-flow evidence, the files actually changed, and the verification actually performed.",
+  );
+  pushRefinementItem(
+    refinement,
+    "finalResponseRequirements",
+    "Call out any unresolved layer, assumption, or manual check instead of presenting candidate ranking as certainty.",
+  );
+
+  const after = totalRefinementItems(refinement);
+  diagnostics.consistencyAdjustedItems += Math.max(before, after);
+  diagnostics.injectedItems += after;
+  addUniqueCode(
+    diagnostics.consistencyCodes,
+    "execution_contract_investigation_applied",
+  );
+  addUniqueCode(diagnostics.consistencyCodes, "final_response_rewritten");
+}
+
+function applyExecutionContractConsistency(
+  refinement: TaskPackRefinement,
+  diagnostics: TaskPackRefinementPolicyDiagnostics,
+  contract: TaskExecutionContract,
+) {
+  if (contract.mode === "clarification_required") {
+    applyExecutionContractClarificationConsistency(
+      refinement,
+      diagnostics,
+      contract,
+    );
+    return;
+  }
+
+  if (contract.mode === "investigation" || !contract.allowImplementationGuidance) {
+    applyExecutionContractInvestigationConsistency(
+      refinement,
+      diagnostics,
+      contract,
+    );
+    return;
+  }
+
+  if (contract.confirmedTargets.length === 0) {
+    const result = pushRefinementItem(
+      refinement,
+      "constraints",
+      "Selected files without a confirmed target are candidates only. Confirm the real implementation owner from full file contents and code relationships before editing or narrowing the edit scope.",
+    );
+    if (result === "added") {
+      diagnostics.injectedItems += 1;
+    }
+  }
+
+  if (contract.requiresLayerCoverage && contract.requiredLayers.length > 1) {
+    const result = pushRefinementItem(
+      refinement,
+      "acceptanceCriteria",
+      `Preserve required technical-layer coverage (${contract.requiredLayers.join(", ")}); do not silently reduce the task to the strongest lexical match.`,
+    );
+    if (result === "added") {
+      diagnostics.injectedItems += 1;
+    }
+  }
+}
+
 export function enforceTaskPackRefinementPolicy(
   refinement: TaskPackRefinement,
-  input: Pick<TaskPackGenerationPromptInput, "rawTask" | "relevantFiles">,
+  input: Pick<
+    TaskPackGenerationPromptInput,
+    "rawTask" | "relevantFiles" | "templatePrompt" | "executionContract"
+  >,
 ): TaskPackRefinementPolicyResult {
   const diagnostics = emptyPolicyDiagnostics();
   const safeRefinement: TaskPackRefinement = {
@@ -816,6 +1085,14 @@ export function enforceTaskPackRefinementPolicy(
         continue;
       }
 
+      if (
+        hasUngroundedUiElement(item, input.rawTask, input.templatePrompt)
+      ) {
+        diagnostics.rejectedItems += 1;
+        addUniqueCode(diagnostics.rejectionCodes, "ungrounded_ui_element");
+        continue;
+      }
+
       if (hasForcedVerificationClaim(item)) {
         diagnostics.rejectedItems += 1;
         diagnostics.rewrittenItems += 1;
@@ -853,12 +1130,15 @@ export function enforceTaskPackRefinementPolicy(
     );
     if (result === "added") {
       diagnostics.injectedItems += 1;
-      addUniqueCode(
-        diagnostics.consistencyCodes,
-        "explicit_value_grounded",
-      );
+      addUniqueCode(diagnostics.consistencyCodes, "explicit_value_grounded");
     }
   }
+
+  applyExecutionContractConsistency(
+    safeRefinement,
+    diagnostics,
+    input.executionContract,
+  );
 
   diagnostics.acceptedItems = totalRefinementItems(safeRefinement);
 
@@ -906,12 +1186,7 @@ function normalizeRefinementObject(value: unknown) {
       ),
     ),
     verificationSteps: normalizeStringArray(
-      pick(
-        "verificationSteps",
-        "verification_steps",
-        "verification",
-        "checks",
-      ),
+      pick("verificationSteps", "verification_steps", "verification", "checks"),
     ),
     finalResponseRequirements: normalizeStringArray(
       pick(
@@ -1063,7 +1338,9 @@ export function parseTaskPackRefinement(value: string): ParsedRefinement {
     return {
       refinement: null,
       parseStage: "failed",
-      issueCodes: [looksTruncated(trimmed) ? "truncated_response" : "invalid_json"],
+      issueCodes: [
+        looksTruncated(trimmed) ? "truncated_response" : "invalid_json",
+      ],
     };
   }
 
@@ -1194,21 +1471,25 @@ function buildPromptPayload(
     taskType: input.taskType,
     targetTool: input.targetTool,
     effectiveTaskArea: input.effectiveTaskArea,
-    selectedFiles: input.relevantFiles.slice(0, options.fileLimit).map((file) => ({
-      path: file.path,
-      usage: file.usage,
-      reason: truncate(file.reason, options.reasonChars),
-    })),
+    selectedFiles: input.relevantFiles
+      .slice(0, options.fileLimit)
+      .map((file) => ({
+        path: file.path,
+        usage: file.usage,
+        reason: truncate(file.reason, options.reasonChars),
+      })),
     intent: {
       source: input.taskIntent?.source ?? null,
       taskArea: input.taskIntent?.taskArea ?? null,
       riskLevel: input.taskIntent?.riskLevel ?? null,
       confidence: input.taskIntent?.confidence ?? null,
       targets:
-        input.taskIntent?.structuredIntent?.primaryTargets?.slice(0, 8).map((target) => ({
-          kind: target.kind,
-          value: target.path ?? target.routePath ?? target.value,
-        })) ?? [],
+        input.taskIntent?.structuredIntent?.primaryTargets
+          ?.slice(0, 8)
+          .map((target) => ({
+            kind: target.kind,
+            value: target.path ?? target.routePath ?? target.value,
+          })) ?? [],
       allowedEditScope:
         input.taskIntent?.structuredIntent?.allowedEditScope ?? null,
       understanding: input.taskIntent?.taskUnderstanding
@@ -1217,17 +1498,45 @@ function buildPromptPayload(
             action: input.taskIntent.taskUnderstanding.action ?? null,
             readiness: input.taskIntent.taskUnderstanding.readiness ?? null,
             canProceed: input.taskIntent.taskUnderstanding.canProceed ?? null,
-            targetHints: input.taskIntent.taskUnderstanding.targetHints?.slice(0, 8) ?? [],
-            requestedChanges: input.taskIntent.taskUnderstanding.requestedChanges?.slice(0, 8) ?? [],
-            constraints: input.taskIntent.taskUnderstanding.constraints?.slice(0, 8) ?? [],
-            explicitValues: input.taskIntent.taskUnderstanding.explicitValues
-              ?.slice(0, 6)
-              .map((item) => ({ kind: item.kind, value: truncate(item.value ?? "", 320), exact: item.exact })) ?? [],
-            missingInformation: input.taskIntent.taskUnderstanding.missingInformation
-              ?.slice(0, 6)
-              .map((item) => ({ code: item.code, required: item.required })) ?? [],
+            targetHints:
+              input.taskIntent.taskUnderstanding.targetHints?.slice(0, 8) ?? [],
+            requestedChanges:
+              input.taskIntent.taskUnderstanding.requestedChanges?.slice(
+                0,
+                8,
+              ) ?? [],
+            constraints:
+              input.taskIntent.taskUnderstanding.constraints?.slice(0, 8) ?? [],
+            explicitValues:
+              input.taskIntent.taskUnderstanding.explicitValues
+                ?.slice(0, 6)
+                .map((item) => ({
+                  kind: item.kind,
+                  value: truncate(item.value ?? "", 320),
+                  exact: item.exact,
+                })) ?? [],
+            missingInformation:
+              input.taskIntent.taskUnderstanding.missingInformation
+                ?.slice(0, 6)
+                .map((item) => ({
+                  code: item.code,
+                  required: item.required,
+                })) ?? [],
           }
         : null,
+    },
+    executionContract: {
+      schemaVersion: input.executionContract.schemaVersion,
+      mode: input.executionContract.mode,
+      requiredLayers: input.executionContract.requiredLayers,
+      confirmedTargets: input.executionContract.confirmedTargets.slice(0, 8),
+      proposedTargets: input.executionContract.proposedTargets.slice(0, 8),
+      targetEvidence: input.executionContract.targetEvidence.slice(0, 12),
+      unresolvedDecisions: input.executionContract.unresolvedDecisions.slice(0, 8),
+      forbiddenAssumptions: input.executionContract.forbiddenAssumptions.slice(0, 8),
+      implementationGateReasons: input.executionContract.implementationGateReasons.slice(0, 10),
+      allowImplementationGuidance: input.executionContract.allowImplementationGuidance,
+      requiresLayerCoverage: input.executionContract.requiresLayerCoverage,
     },
     selectionQuality: {
       status: input.selectionQuality.status,
@@ -1278,12 +1587,18 @@ Your output must match this exact schema:
 Rules:
 - Preserve the user's actual task and scope.
 - Use only real selected file paths and project facts from the payload.
-- Do not invent files, APIs, scripts, dependencies, environment variables, or architecture.
+- Do not invent files, APIs, scripts, dependencies, environment variables, architecture, or common UI elements that are not present in the task or selected context.
 - Respect inspect-only files: do not instruct the agent to edit them unless the task explicitly requires it.
 - Do not repeat generic filler already present in existing sections.
 - Do not include source code, snippets, secrets, absolute local paths, or raw project content.
 - Do not instruct the coding agent to commit, push, merge, create a pull request, tag, or publish a release unless the user task explicitly requests that action.
 - Never require the coding agent to claim that a build, test, or manual check succeeded. Require reporting the actual result, including failures or checks that were not run.
+- Treat executionContract as authoritative backend policy, not as optional advice.
+- If executionContract.mode is clarification_required, do not propose implementation. Ask for the unresolved decision, keep files unchanged, and defer verification.
+- If executionContract.mode is investigation, produce an investigation-first plan: trace the real owner and data flow before editing, do not assume selected candidates are confirmed edit targets, and do not invent state, endpoints, providers, token flows, or storage behavior.
+- Cover every executionContract.requiredLayers entry with selected context or explicitly state that the missing layer must be located before implementation.
+- Never convert a candidate rank, model proposal, or inventory-exact path into certainty. Only user-confirmed or code-graph-supported evidence may justify a file-specific implementation owner.
+- If executionContract.implementationGateReasons is non-empty, keep the response investigation-first and do not create file-specific safeguards or acceptance checks that assume ownership.
 - If taskAmbiguities lists a missing value, switch to clarification mode: do not instruct implementation, do not require completion checks, and do not require build/test/manual verification before the value is supplied.
 - In clarification mode, require a response stating that no files were changed and asking for the missing value.
 - Avoid near-duplicate guidance across each array and keep only the most useful task-specific items.
@@ -1358,7 +1673,10 @@ export function buildTaskPackRefinementPrompt(
         verificationScripts: Object.fromEntries(
           Object.entries(getVerificationScripts(input.project.scripts))
             .slice(0, 3)
-            .map(([key, command]) => [truncate(key, 60), truncate(command, 240)]),
+            .map(([key, command]) => [
+              truncate(key, 60),
+              truncate(command, 240),
+            ]),
         ),
       },
       task: truncate(input.rawTask, 2_000),
@@ -1397,7 +1715,10 @@ export function buildTaskPackRefinementPrompt(
           : null,
         understanding: input.taskIntent?.taskUnderstanding
           ? {
-              goal: truncate(input.taskIntent.taskUnderstanding.goal ?? "", 180),
+              goal: truncate(
+                input.taskIntent.taskUnderstanding.goal ?? "",
+                180,
+              ),
               action: input.taskIntent.taskUnderstanding.action
                 ? truncate(input.taskIntent.taskUnderstanding.action, 60)
                 : null,
@@ -1405,15 +1726,17 @@ export function buildTaskPackRefinementPrompt(
                 ? truncate(input.taskIntent.taskUnderstanding.readiness, 60)
                 : null,
               canProceed: input.taskIntent.taskUnderstanding.canProceed ?? null,
-              targetHints: input.taskIntent.taskUnderstanding.targetHints
-                ?.slice(0, 3)
-                .map((item) => truncate(item, 120)) ?? [],
-              missingInformation: input.taskIntent.taskUnderstanding.missingInformation
-                ?.slice(0, 3)
-                .map((item) => ({
-                  code: item.code ? truncate(item.code, 80) : null,
-                  required: item.required ?? null,
-                })) ?? [],
+              targetHints:
+                input.taskIntent.taskUnderstanding.targetHints
+                  ?.slice(0, 3)
+                  .map((item) => truncate(item, 120)) ?? [],
+              missingInformation:
+                input.taskIntent.taskUnderstanding.missingInformation
+                  ?.slice(0, 3)
+                  .map((item) => ({
+                    code: item.code ? truncate(item.code, 80) : null,
+                    required: item.required ?? null,
+                  })) ?? [],
             }
           : null,
       },
@@ -1469,7 +1792,10 @@ Return a corrected JSON object only. Include every required field and no comment
     800,
     Math.min(
       MAX_REPAIR_RESPONSE_CHARS,
-      MAX_RETRY_PROMPT_CHARS - originalPrompt.length - fixedText.length - closing.length,
+      MAX_RETRY_PROMPT_CHARS -
+        originalPrompt.length -
+        fixedText.length -
+        closing.length,
     ),
   );
 
@@ -1509,7 +1835,10 @@ function appendRefinementSection(
     return { markdown, added: 0 };
   }
 
-  const existing = bounds.lines.slice(bounds.start, bounds.end).join("\n").toLowerCase();
+  const existing = bounds.lines
+    .slice(bounds.start, bounds.end)
+    .join("\n")
+    .toLowerCase();
   const additions = normalizedItems.filter(
     (item) => !existing.includes(item.toLowerCase()),
   );
@@ -1533,7 +1862,10 @@ function appendRefinementSection(
   ];
 
   return {
-    markdown: nextLines.join("\n").replace(/\n{4,}/g, "\n\n\n").trim(),
+    markdown: nextLines
+      .join("\n")
+      .replace(/\n{4,}/g, "\n\n\n")
+      .trim(),
     added: additions.length,
   };
 }
@@ -1685,7 +2017,9 @@ function createBaseDiagnostics(
   };
 }
 
-function classifyFailure(parsed: ParsedRefinement): TaskPackGenerationFailureCode {
+function classifyFailure(
+  parsed: ParsedRefinement,
+): TaskPackGenerationFailureCode {
   if (parsed.issueCodes.includes("empty_response")) {
     return "empty_response";
   }
@@ -1717,10 +2051,30 @@ export async function generateReliableTaskPack(
   ): ReliableTaskPackGenerationResult => {
     diagnostics.status = reason === "template_mode" ? "template" : "fallback";
     diagnostics.fallbackReason = reason === "template_mode" ? null : reason;
-    diagnostics.output.finalChars = input.fallbackContent.length;
+
+    let fallbackContent = input.fallbackContent;
+    if (
+      input.executionContract.mode !== "implementation" ||
+      !input.executionContract.allowImplementationGuidance
+    ) {
+      const policyResult = enforceTaskPackRefinementPolicy(
+        EXECUTION_POLICY_SEED_REFINEMENT,
+        input,
+      );
+      const composed = applyTaskPackRefinement(
+        input.fallbackContent,
+        policyResult.refinement,
+      );
+      if (composed.refinementItems > 0) {
+        fallbackContent = composed.content;
+        diagnostics.output.policy = policyResult.diagnostics;
+        diagnostics.output.refinementItems = composed.refinementItems;
+      }
+    }
+    diagnostics.output.finalChars = fallbackContent.length;
 
     return {
-      content: input.fallbackContent,
+      content: fallbackContent,
       mode: "template",
       model: configuredModel,
       usedFallback: reason !== "template_mode",
@@ -1743,19 +2097,33 @@ export async function generateReliableTaskPack(
   }
 
   const cacheKey = buildGenerationCacheKey({
-    model: `${settings.aiProvider}:${configuredModel}:task-pack-refinement-v3`,
-    prompt: promptBuild.prompt,
-    expectedHeading: "task-pack-refinement-json-v3",
+    model: `${settings.aiProvider}:${configuredModel}:task-pack-refinement-v5`,
+    prompt: input.cacheIdentity ?? promptBuild.prompt,
+    expectedHeading: "task-pack-refinement-json-v5",
     numPredict: 1200,
     temperature: 0,
   });
 
+  if (input.bypassCache) {
+    recordPerformanceCacheEvent({
+      layer: "task_pack_refinement",
+      outcome: "bypass",
+    });
+  }
+
   if (!input.bypassCache) {
     const cached = getCachedGeneration(cacheKey);
+    recordPerformanceCacheEvent({
+      layer: "task_pack_refinement",
+      outcome: cached ? "hit" : "miss",
+    });
     if (cached) {
       const parsed = parseTaskPackRefinement(cached.content);
       if (parsed.refinement) {
-        const policyResult = enforceTaskPackRefinementPolicy(parsed.refinement, input);
+        const policyResult = enforceTaskPackRefinementPolicy(
+          parsed.refinement,
+          input,
+        );
         diagnostics.output.policy = policyResult.diagnostics;
         const composed = applyTaskPackRefinement(
           input.fallbackContent,
@@ -1795,7 +2163,6 @@ export async function generateReliableTaskPack(
 
         // Ignore stale/invalid cache entries and continue with a live generation.
         diagnostics.cached = false;
-
       }
     }
   }
@@ -1823,6 +2190,10 @@ export async function generateReliableTaskPack(
         numPredict: attempt === 1 ? 1200 : 1000,
         responseFormat,
         timeoutMs: 120_000,
+        purpose:
+          phase === "initial"
+            ? "task_pack_refinement_initial"
+            : "task_pack_refinement_retry",
       });
       actualModel = result.model;
       const parsed = parseTaskPackRefinement(result.content);
@@ -1895,7 +2266,9 @@ export async function generateReliableTaskPack(
             ? "empty_response"
             : successful.parsed.issueCodes.includes("invalid_json")
               ? "invalid_json"
-              : successful.parsed.issueCodes.some((code) => code.startsWith("schema:"))
+              : successful.parsed.issueCodes.some((code) =>
+                    code.startsWith("schema:"),
+                  )
                 ? "schema_invalid"
                 : diagnostics.attempts.length > 1
                   ? "retry_failed"

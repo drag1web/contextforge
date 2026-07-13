@@ -110,7 +110,9 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
   };
 }
 
-function promptInput(overrides: Partial<TaskPackGenerationPromptInput> = {}): TaskPackGenerationPromptInput {
+function promptInput(
+  overrides: Partial<TaskPackGenerationPromptInput> = {},
+): TaskPackGenerationPromptInput {
   return {
     project: {
       name: "contextforge",
@@ -137,7 +139,10 @@ function promptInput(overrides: Partial<TaskPackGenerationPromptInput> = {}): Ta
       confidence: 0.88,
       structuredIntent: {
         primaryTargets: [
-          { kind: "page", path: "apps/desktop/renderer/src/pages/SettingsPage.tsx" },
+          {
+            kind: "page",
+            path: "apps/desktop/renderer/src/pages/SettingsPage.tsx",
+          },
         ],
         allowedEditScope: "ui-only",
       },
@@ -149,6 +154,22 @@ function promptInput(overrides: Partial<TaskPackGenerationPromptInput> = {}): Ta
       warnings: [],
       blockingReasons: [],
     },
+    executionContract: {
+      schemaVersion: 1,
+      mode: "implementation",
+      requiredLayers: ["ui"],
+      confirmedTargets: [
+        "apps/desktop/renderer/src/pages/SettingsPage.tsx",
+      ],
+      targetEvidence: [],
+      proposedTargets: [],
+      unresolvedDecisions: [],
+      implementationGateReasons: [],
+      forbiddenAssumptions: [],
+      allowImplementationGuidance: true,
+      requiresLayerCoverage: false,
+      reasons: ["Exact UI target is confirmed."],
+    },
     templatePrompt: TEMPLATE,
     ...overrides,
   };
@@ -159,7 +180,9 @@ const VALID_REFINEMENT = {
     "Inspect SettingsPage.tsx and keep the loading change local to the existing settings flow.",
   ],
   constraints: ["Do not edit inspect-only files."],
-  acceptanceCriteria: ["Loading and error states are visible without changing unrelated settings behavior."],
+  acceptanceCriteria: [
+    "Loading and error states are visible without changing unrelated settings behavior.",
+  ],
   verificationSteps: ["Run npm run build."],
   finalResponseRequirements: ["List changed files and verification performed."],
 };
@@ -183,27 +206,34 @@ async function run() {
   }
 
   {
-    const parsed = parseTaskPackRefinement(`Sure:\n\n\`\`\`json\n${JSON.stringify(VALID_REFINEMENT)}\n\`\`\``);
+    const parsed = parseTaskPackRefinement(
+      `Sure:\n\n\`\`\`json\n${JSON.stringify(VALID_REFINEMENT)}\n\`\`\``,
+    );
     assert.ok(parsed.refinement);
     assert.equal(parsed.parseStage, "fenced-json");
     scenarios += 1;
   }
 
   {
-    const parsed = parseTaskPackRefinement(JSON.stringify({
-      implementation_plan: "Inspect the real settings page; keep the edit focused.",
-      safeguards: "Do not invent files.",
-      acceptance_criteria: "The loading state is visible.",
-      verification: "Run npm run build.",
-      final_response: "Report changed files.",
-    }));
+    const parsed = parseTaskPackRefinement(
+      JSON.stringify({
+        implementation_plan:
+          "Inspect the real settings page; keep the edit focused.",
+        safeguards: "Do not invent files.",
+        acceptance_criteria: "The loading state is visible.",
+        verification: "Run npm run build.",
+        final_response: "Report changed files.",
+      }),
+    );
     assert.ok(parsed.refinement);
     assert.equal(parsed.parseStage, "local-repair");
     scenarios += 1;
   }
 
   {
-    const parsed = parseTaskPackRefinement('{"implementationGuidance":["unfinished]');
+    const parsed = parseTaskPackRefinement(
+      '{"implementationGuidance":["unfinished]',
+    );
     assert.equal(parsed.refinement, null);
     assert.ok(parsed.issueCodes.includes("truncated_response"));
     scenarios += 1;
@@ -211,7 +241,9 @@ async function run() {
 
   {
     const merged = applyTaskPackRefinement(TEMPLATE, VALID_REFINEMENT);
-    assert.ok(merged.content.includes("### AI-refined implementation guidance"));
+    assert.ok(
+      merged.content.includes("### AI-refined implementation guidance"),
+    );
     assert.ok(merged.content.includes("### Task-specific acceptance checks"));
     assert.ok(merged.content.includes("Preserve validated rules."));
     assert.ok(merged.refinementItems >= 4);
@@ -250,18 +282,18 @@ async function run() {
   }
 
   {
-    const hugeTemplate = TEMPLATE
-      .replace(
-        "Use focused edits.",
-        "Use focused edits.\n" + "Long existing instruction. ".repeat(4_000),
-      )
+    const hugeTemplate = TEMPLATE.replace(
+      "Use focused edits.",
+      "Use focused edits.\n" + "Long existing instruction. ".repeat(4_000),
+    )
       .replace(
         "- Do not invent files.",
         "- Do not invent files.\n" + "Long constraint. ".repeat(4_000),
       )
       .replace(
         "- The requested behavior works.",
-        "- The requested behavior works.\n" + "Long acceptance check. ".repeat(4_000),
+        "- The requested behavior works.\n" +
+          "Long acceptance check. ".repeat(4_000),
       )
       .replace(
         "- Run npm run build.",
@@ -269,7 +301,8 @@ async function run() {
       )
       .replace(
         "- Summarize changed files.",
-        "- Summarize changed files.\n" + "Long response requirement. ".repeat(4_000),
+        "- Summarize changed files.\n" +
+          "Long response requirement. ".repeat(4_000),
       );
     const largeFiles = Array.from({ length: 16 }, (_, index) => ({
       path: `src/feature-${index}/implementation.ts`,
@@ -389,7 +422,9 @@ async function run() {
         ...VALID_REFINEMENT,
         implementationGuidance: ["Commit the change with a clear message."],
       },
-      promptInput({ rawTask: "Update SettingsPage.tsx and commit the change." }),
+      promptInput({
+        rawTask: "Update SettingsPage.tsx and commit the change.",
+      }),
     );
     assert.equal(policy.refinement.implementationGuidance.length, 1);
     assert.equal(policy.diagnostics.rejectedItems, 0);
@@ -483,6 +518,58 @@ async function run() {
   }
 
   {
+    const appHeaderTemplate = `${TEMPLATE}
+
+### apps/desktop/renderer/src/components/layout/AppHeader.tsx
+
+export function AppHeader() { return <header><h2>{title}</h2><Button>Add project</Button></header>; }`;
+    const policy = enforceTaskPackRefinementPolicy(
+      {
+        ...VALID_REFINEMENT,
+        implementationGuidance: [
+          "Adjust padding and border classes in AppHeader.tsx while keeping the existing title and button structure.",
+          "Keep the logo, navigation links, and user profile in their current positions.",
+        ],
+        acceptanceCriteria: [
+          "The AppHeader remains structurally unchanged.",
+          "The profile menu and avatar remain clickable.",
+        ],
+      },
+      promptInput({
+        rawTask:
+          "В компоненте AppHeader сделай верхнюю панель визуально легче и современнее, не меняя её структуру.",
+        relevantFiles: [
+          {
+            path: "apps/desktop/renderer/src/components/layout/AppHeader.tsx",
+            usage: "inspect-and-edit",
+            reason: "Explicit target.",
+          },
+        ],
+        templatePrompt: appHeaderTemplate,
+      }),
+    );
+    assert.ok(
+      policy.refinement.implementationGuidance.some((item) =>
+        item.includes("Adjust padding and border classes"),
+      ),
+    );
+    assert.ok(
+      !policy.refinement.implementationGuidance.some((item) =>
+        /logo|navigation links|user profile/i.test(item),
+      ),
+    );
+    assert.ok(
+      !policy.refinement.acceptanceCriteria.some((item) =>
+        /profile menu|avatar/i.test(item),
+      ),
+    );
+    assert.ok(
+      policy.diagnostics.rejectionCodes.includes("ungrounded_ui_element"),
+    );
+    scenarios += 1;
+  }
+
+  {
     const ambiguities = detectTaskPackAmbiguities(
       "На странице Settings измени пояснение под заголовком Experimental AI Core.",
     );
@@ -506,11 +593,15 @@ async function run() {
 
   {
     assert.deepEqual(
-      detectTaskPackAmbiguities('Replace the Settings description with "Use Shadow for deterministic selection".'),
+      detectTaskPackAmbiguities(
+        'Replace the Settings description with "Use Shadow for deterministic selection".',
+      ),
       [],
     );
     assert.deepEqual(
-      detectTaskPackAmbiguities("Сделай пояснение под заголовком короче и понятнее."),
+      detectTaskPackAmbiguities(
+        "Сделай пояснение под заголовком короче и понятнее.",
+      ),
       [],
     );
     scenarios += 1;
@@ -540,7 +631,10 @@ async function run() {
     const literalTasks = [
       ["Поменяй цвет на #1a2b3c.", "#1a2b3c"],
       ["Set timeout to 5000.", "5000"],
-      ["Update endpoint to https://api.example.com/v2.", "https://api.example.com/v2"],
+      [
+        "Update endpoint to https://api.example.com/v2.",
+        "https://api.example.com/v2",
+      ],
       ["Измени лимит = 25.", "25"],
       ["Обнови версию: 2.4.1.", "2.4.1"],
     ] as const;
@@ -562,10 +656,9 @@ async function run() {
       ),
       ["missing_replacement_value"],
     );
-    assert.deepEqual(
-      detectTaskPackAmbiguities("Замени пояснение на «»."),
-      ["missing_replacement_value"],
-    );
+    assert.deepEqual(detectTaskPackAmbiguities("Замени пояснение на «»."), [
+      "missing_replacement_value",
+    ]);
     scenarios += 1;
   }
 
@@ -587,9 +680,7 @@ async function run() {
       ),
     );
     assert.ok(
-      policy.diagnostics.consistencyCodes.includes(
-        "explicit_value_grounded",
-      ),
+      policy.diagnostics.consistencyCodes.includes("explicit_value_grounded"),
     );
     assert.ok(
       !policy.diagnostics.consistencyCodes.includes(
@@ -627,7 +718,9 @@ async function run() {
     assert.ok(!result.content.includes("Commit the change"));
     assert.ok(!result.content.includes("Confirm successful execution"));
     assert.ok(
-      result.content.includes("The exact replacement text or value was not provided"),
+      result.content.includes(
+        "The exact replacement text or value was not provided",
+      ),
     );
     assert.equal(result.diagnostics.output.policy.rejectedItems, 2);
     assert.equal(result.diagnostics.output.policy.rewrittenItems, 1);
@@ -654,10 +747,7 @@ async function run() {
     });
     assert.equal(result.mode, "template");
     assert.equal(result.usedFallback, true);
-    assert.equal(
-      result.diagnostics.fallbackReason,
-      "semantic_policy_rejected",
-    );
+    assert.equal(result.diagnostics.fallbackReason, "semantic_policy_rejected");
     assert.ok(
       result.diagnostics.output.policy.rejectionCodes.includes(
         "unauthorized_git_commit",
@@ -957,7 +1047,186 @@ async function run() {
     scenarios += 1;
   }
 
-  console.log(`task pack generation reliability smoke passed: ${scenarios} scenarios`);
+  {
+    let generateCalls = 0;
+    const result = await generateReliableTaskPack({
+      ...promptInput({
+        rawTask: "Fix stale state after repeated generation.",
+        executionContract: {
+          schemaVersion: 1,
+          mode: "investigation",
+          requiredLayers: ["state", "client-api", "ui"],
+          confirmedTargets: [],
+          targetEvidence: [],
+          proposedTargets: [],
+          unresolvedDecisions: [],
+          implementationGateReasons: [],
+          forbiddenAssumptions: [
+            "Do not assume a display component owns the stale state.",
+          ],
+          allowImplementationGuidance: false,
+          requiresLayerCoverage: true,
+          reasons: ["Bugfix requires investigation."],
+        },
+      }),
+      fallbackContent: TEMPLATE,
+      bypassCache: true,
+      dependencies: {
+        getSettings: async () => settings({ generationMode: "template" }),
+        generate: async () => {
+          generateCalls += 1;
+          return aiResult(JSON.stringify(VALID_REFINEMENT));
+        },
+      },
+    });
+
+    assert.equal(result.mode, "template");
+    assert.equal(generateCalls, 0);
+    assert.match(result.content, /investigation candidates/u);
+    assert.match(result.content, /root cause/u);
+    assert.ok(
+      result.diagnostics.output.policy.consistencyCodes.includes(
+        "execution_contract_investigation_applied",
+      ),
+    );
+    scenarios += 1;
+  }
+
+  {
+    let generateCalls = 0;
+    const dependencies = {
+      getSettings: async () => settings(),
+      generate: async () => {
+        generateCalls += 1;
+        return aiResult(JSON.stringify(VALID_REFINEMENT));
+      },
+    };
+    const first = await generateReliableTaskPack({
+      ...promptInput({ templatePrompt: "volatile selector note A" }),
+      fallbackContent: TEMPLATE,
+      cacheIdentity: "stable-semantic-cache-smoke-v4",
+      dependencies,
+    });
+    const second = await generateReliableTaskPack({
+      ...promptInput({ templatePrompt: "volatile selector note B" }),
+      fallbackContent: TEMPLATE,
+      cacheIdentity: "stable-semantic-cache-smoke-v4",
+      dependencies,
+    });
+    assert.equal(first.cached, false);
+    assert.equal(second.cached, true);
+    assert.equal(generateCalls, 1);
+    scenarios += 1;
+  }
+
+  {
+    const input = promptInput({
+      rawTask: "Add a new connection method.",
+      executionContract: {
+        schemaVersion: 1,
+        mode: "clarification_required",
+        requiredLayers: ["backend"],
+        confirmedTargets: [],
+        targetEvidence: [],
+        proposedTargets: [],
+        unresolvedDecisions: [
+          "Which provider and user flow should be supported?",
+        ],
+        implementationGateReasons: [],
+        forbiddenAssumptions: [
+          "Do not invent providers, endpoints, or token flows.",
+        ],
+        allowImplementationGuidance: false,
+        requiresLayerCoverage: false,
+        reasons: ["Architecture decision is missing."],
+      },
+    });
+    const result = enforceTaskPackRefinementPolicy(
+      {
+        implementationGuidance: [
+          "Add a token exchange endpoint in SettingsPage.tsx.",
+        ],
+        constraints: ["Only modify SettingsPage.tsx."],
+        acceptanceCriteria: ["The provider login works."],
+        verificationSteps: ["Run npm run build."],
+        finalResponseRequirements: ["Confirm the flow works."],
+      },
+      input,
+    );
+
+    assert.ok(
+      result.refinement.implementationGuidance.some((item) =>
+        item.includes("Ask the user to clarify"),
+      ),
+    );
+    assert.ok(
+      result.refinement.finalResponseRequirements.some((item) =>
+        item.includes("no files were changed"),
+      ),
+    );
+    assert.ok(
+      result.diagnostics.consistencyCodes.includes(
+        "execution_contract_clarification_applied",
+      ),
+    );
+    scenarios += 1;
+  }
+
+  {
+    const input = promptInput({
+      rawTask: "Fix stale status after regeneration.",
+      relevantFiles: [
+        {
+          path: "apps/desktop/renderer/src/components/generation/GenerationDiagnosticsModal.tsx",
+          usage: "inspect-only",
+          reason: "Investigation candidate; needs confirmation.",
+        },
+      ],
+      executionContract: {
+        schemaVersion: 1,
+        mode: "investigation",
+        requiredLayers: ["state", "client-api", "ui"],
+        confirmedTargets: [],
+        targetEvidence: [],
+        proposedTargets: [],
+        unresolvedDecisions: [],
+        implementationGateReasons: [],
+        forbiddenAssumptions: [
+          "Do not assume the display component owns the stale state.",
+        ],
+        allowImplementationGuidance: false,
+        requiresLayerCoverage: true,
+        reasons: ["Bugfix requires ownership tracing."],
+      },
+    });
+    const result = enforceTaskPackRefinementPolicy(
+      {
+        implementationGuidance: [
+          "Add useEffect in GenerationDiagnosticsModal.tsx to refresh cache state.",
+        ],
+        constraints: ["Only modify GenerationDiagnosticsModal.tsx."],
+        acceptanceCriteria: ["The modal refreshes its local state."],
+        verificationSteps: ["Run npm run build."],
+        finalResponseRequirements: ["List the modified modal."],
+      },
+      input,
+    );
+
+    const combined = JSON.stringify(result.refinement);
+    assert.doesNotMatch(combined, /useEffect|Only modify/u);
+    assert.match(combined, /investigation candidates/u);
+    assert.match(combined, /root cause/u);
+    assert.ok(
+      result.diagnostics.consistencyCodes.includes(
+        "execution_contract_investigation_applied",
+      ),
+    );
+    scenarios += 1;
+  }
+
+  console.log(
+    `task pack generation reliability smoke passed: ${scenarios} scenarios`,
+  );
 }
 
 run().catch((error) => {

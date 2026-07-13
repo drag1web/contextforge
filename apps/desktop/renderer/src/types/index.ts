@@ -330,7 +330,6 @@ export interface GitHubIssueTaskPackSource {
   linkedAt: string;
 }
 
-
 export interface GitHubCreatedIssueLink {
   type: "github-created-issue";
   owner: string;
@@ -346,6 +345,95 @@ export interface GitHubCreatedIssueLink {
   createdFromTaskPackId: number;
 }
 
+export type PerformanceModelState = "cold" | "warm" | "unknown";
+
+export interface PerformanceStageDiagnostics {
+  id: string;
+  name: string;
+  label: string;
+  startOffsetMs: number;
+  durationMs: number;
+  status: "success" | "error";
+  metadata: Record<string, string | number | boolean | null>;
+}
+
+export interface PerformanceAiCallDiagnostics {
+  id: string;
+  purpose: string;
+  provider: string;
+  model: string | null;
+  startOffsetMs: number;
+  durationMs: number;
+  promptChars: number;
+  responseChars: number;
+  responseFormat: "text" | "json";
+  numPredict: number | null;
+  success: boolean;
+  httpStatus: number | null;
+  modelState: PerformanceModelState;
+  modelLoadMs: number | null;
+  promptEvalMs: number | null;
+  generationMs: number | null;
+  promptTokens: number | null;
+  responseTokens: number | null;
+  errorCode: string | null;
+}
+
+export interface PerformanceCacheEventDiagnostics {
+  id: string;
+  layer: string;
+  outcome: "hit" | "miss" | "bypass" | "unavailable";
+  offsetMs: number;
+  durationMs: number | null;
+}
+
+export interface PerformanceRequestDiagnostics {
+  id: string;
+  operation: "task_understanding_preflight" | "task_pack_generation";
+  startedAt: string;
+  totalDurationMs: number;
+  stages: PerformanceStageDiagnostics[];
+  aiCalls: PerformanceAiCallDiagnostics[];
+  cacheEvents: PerformanceCacheEventDiagnostics[];
+  metadata: Record<string, string | number | boolean | null>;
+  summary: {
+    stageCount: number;
+    aiCallCount: number;
+    aiDurationMs: number;
+    cacheHits: number;
+    cacheMisses: number;
+    coldAiCalls: number;
+    warmAiCalls: number;
+  };
+}
+
+export interface PerformanceSessionDiagnostics {
+  version: 1;
+  sessionId: string;
+  startedAt: string;
+  totalObservedDurationMs: number;
+  requestCount: number;
+  requests: PerformanceRequestDiagnostics[];
+  summary: {
+    stageCount: number;
+    aiCallCount: number;
+    aiDurationMs: number;
+    inventoryScans: number;
+    inventoryDurationMs: number;
+    cacheHits: number;
+    cacheMisses: number;
+    coldAiCalls: number;
+    warmAiCalls: number;
+    totalPromptChars: number;
+    totalResponseChars: number;
+  };
+  privacy: {
+    rawPromptsStored: false;
+    rawResponsesStored: false;
+    sourceCodeStored: false;
+    absolutePathsStored: false;
+  };
+}
 
 export type TaskPackGenerationFailureCode =
   | "template_mode"
@@ -360,11 +448,7 @@ export type TaskPackGenerationFailureCode =
   | "semantic_policy_rejected";
 
 export type TaskPackGenerationStatus =
-  | "template"
-  | "generated"
-  | "repaired"
-  | "retried"
-  | "fallback";
+  "template" | "generated" | "repaired" | "retried" | "fallback";
 
 export interface TaskPackGenerationAttemptDiagnostics {
   attempt: 1 | 2;
@@ -453,9 +537,11 @@ export interface TaskPackGenerationRecipe {
   taskClarifications?: TaskClarification[];
   selectorDiagnostics?: SelectorPipelineDiagnostics;
   generationDiagnostics?: TaskPackGenerationDiagnostics;
+  performanceDiagnostics?: PerformanceSessionDiagnostics;
 }
 
-export type SelectorPipelineMode = "legacy" | "shadow_compare" | "shadow_primary";
+export type SelectorPipelineMode =
+  "legacy" | "shadow_compare" | "shadow_primary";
 export type EffectiveSelectorPipeline = "legacy" | "shadow";
 export type SelectorDecisionOutcome = "selected" | "abstained" | "blocked";
 export type SelectorEvidenceStrength = "strong" | "supporting" | "reference";
@@ -500,10 +586,15 @@ export interface SelectorPipelineDiagnostics {
   status: "success" | "fallback" | "blocked" | "manual-review";
   executionStatus?: "success" | "fallback";
   qualityStatus?: "ready" | "warning" | "blocked";
-  selectionOrigin?: "pipeline" | "manual_override";
+  selectionOrigin?:
+    "pipeline" | "manual_override" | "explicit_target_fast_path";
   fallback: { code: string; message: string } | null;
   shadowFailure?: { code: string; message: string } | null;
-  timings: { totalMs: number; legacyMs: number | null; shadowMs: number | null };
+  timings: {
+    totalMs: number;
+    legacyMs: number | null;
+    shadowMs: number | null;
+  };
   actual: SelectorSelectionSummary;
   legacy: SelectorSelectionSummary | null;
   shadow: SelectorSelectionSummary | null;
@@ -599,6 +690,8 @@ export interface TaskPackDraft {
   acceptanceCriteriaPresetId?: string;
   acceptanceCriteriaText?: string;
   clarifications?: TaskClarification[];
+  performanceSessionId?: string;
+  understandingSnapshotId?: string;
 }
 
 export interface OllamaStatus {
@@ -892,9 +985,7 @@ export interface TaskClarification {
 }
 
 export type TaskUnderstandingReadiness =
-  | "ready"
-  | "review"
-  | "needs_clarification";
+  "ready" | "review" | "needs_clarification";
 
 export interface TaskUnderstandingPreview {
   schemaVersion: 1;
@@ -923,8 +1014,9 @@ export interface TaskUnderstandingPreview {
     exact: true;
     source: "user";
   }>;
+  ambiguities?: string[];
   missingInformation: Array<{
-    code: "replacement_value" | "target_confirmation";
+    code: "replacement_value" | "target_confirmation" | "architecture_decision";
     description: string;
     required: boolean;
   }>;
@@ -937,6 +1029,8 @@ export interface TaskUnderstandingPreview {
 }
 
 export interface TaskUnderstandingResponse {
+  understandingSnapshotId: string;
+  understandingSnapshotReused: boolean;
   taskUnderstanding: TaskUnderstandingPreview;
   interaction: {
     mode: "automatic" | "balanced" | "confirm_all";
@@ -961,6 +1055,7 @@ export interface TaskUnderstandingResponse {
     scannedFiles: number;
     truncated: boolean;
   };
+  performanceDiagnostics?: PerformanceSessionDiagnostics;
 }
 
 export interface ContextComposerPreview {
@@ -999,6 +1094,12 @@ export interface ContextComposerPreview {
         name?: string;
         confidence: number;
         evidence: string;
+        provenance?:
+          | "user_confirmed"
+          | "inventory_exact"
+          | "graph_supported"
+          | "model_proposed"
+          | "ranked_candidate";
       }>;
       positiveActions: string[];
       protectedScopes: string[];

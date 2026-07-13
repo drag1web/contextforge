@@ -13,6 +13,13 @@ import {
 import {
   resolveTaskUnderstandingInteraction,
 } from "../taskPacks/taskUnderstandingInteraction.js";
+import {
+  buildCompactIntentProjectTreeSnapshot,
+  buildIntentPrompt,
+  TASK_UNDERSTANDING_INITIAL_NUM_PREDICT,
+  TASK_UNDERSTANDING_PROJECT_PATH_LIMIT,
+  TASK_UNDERSTANDING_REPAIR_NUM_PREDICT,
+} from "./taskIntentAnalyzer.js";
 
 const projectTree = [
   "apps/desktop/renderer/src/pages/SettingsPage.tsx",
@@ -104,8 +111,31 @@ function testLiteralKinds() {
 
 function testTransformationGoalDoesNotRequireLiteral() {
   const result = fallback("Сделай пояснение под заголовком короче и понятнее.");
-  assertReady(result);
+  assert.equal(result.readiness, "review");
+  assert.equal(result.canProceed, true);
   assert.equal(result.missingInformation.length, 0);
+  assert.equal(result.interpretationRisk, "subjective");
+  assert.equal(result.changeDefinition, "open_ended");
+}
+
+function testRussianComparativeUiTaskUsesReview() {
+  const result = fallback(
+    "В компоненте Sidebar сделай навигационные элементы визуально компактнее и аккуратнее, сохранив текущую структуру и поведение.",
+  );
+  assert.equal(result.readiness, "review");
+  assert.equal(result.canProceed, true);
+  assert.equal(result.interpretationRisk, "subjective");
+  assert.equal(result.changeDefinition, "open_ended");
+}
+
+function testEnglishComparativeUiTaskUsesReview() {
+  const result = fallback(
+    "Make the AppHeader visually lighter and more modern without changing its structure.",
+  );
+  assert.equal(result.readiness, "review");
+  assert.equal(result.canProceed, true);
+  assert.equal(result.interpretationRisk, "subjective");
+  assert.equal(result.changeDefinition, "open_ended");
 }
 
 function testNoFilePathIsNotMissingContext() {
@@ -115,6 +145,59 @@ function testNoFilePathIsNotMissingContext() {
   assert.ok(
     result.reasons.some((reason) =>
       reason.includes("No exact project path is required"),
+    ),
+  );
+}
+
+function testOpenEndedArchitectureTaskRequiresClarification() {
+  const result = fallback("Добавь новый способ подключения в приложение.", {
+    taskArea: "backend",
+  });
+
+  assert.equal(result.action, "create");
+  assert.equal(result.changeDefinition, "open_ended");
+  assert.equal(result.interpretationRisk, "uncertain");
+  assert.equal(result.readiness, "needs_clarification");
+  assert.equal(result.canProceed, false);
+  assert.ok(
+    result.missingInformation.some(
+      (item) => item.code === "architecture_decision" && item.required,
+    ),
+  );
+  assert.match(result.clarificationQuestion ?? "", /Уточните/u);
+}
+
+function testUngroundedModelHintDoesNotBypassArchitectureClarification() {
+  const rawTask = "Добавь новый способ авторизации в приложение.";
+  const base = fallback(rawTask, { taskArea: "backend" });
+  const result = normalizeTaskUnderstanding({
+    modelValue: {
+      taskUnderstanding: {
+        goal: "Добавить новый способ авторизации",
+        action: "create",
+        targetHints: ["authorization"],
+        interpretationRisk: "objective",
+        changeDefinition: "open_ended",
+        confidence: 0.94,
+      },
+    },
+    fallback: base,
+    rawTask,
+    taskArea: "backend",
+    taskType: "backend",
+    confidence: 0.94,
+    projectTree,
+    structuredIntent: {
+      ...emptyStructuredIntent,
+      ambiguities: ["Какой provider и пользовательский flow нужны?"],
+    },
+  });
+
+  assert.equal(result.readiness, "needs_clarification");
+  assert.equal(result.interpretationRisk, "uncertain");
+  assert.ok(
+    result.missingInformation.some(
+      (item) => item.code === "architecture_decision",
     ),
   );
 }
@@ -349,6 +432,21 @@ function testBalancedModeReviewsSubjectiveTasks() {
   assert.equal(decision.reason, "semantic_review_requested");
 }
 
+function testBalancedModeDefensivelyReviewsOpenEndedSemantics() {
+  const readyButOpenEnded = {
+    ...fallback('Replace the Settings description with "Exact text".'),
+    readiness: "ready" as const,
+    interpretationRisk: "subjective" as const,
+    changeDefinition: "open_ended" as const,
+  };
+  const decision = resolveTaskUnderstandingInteraction(
+    readyButOpenEnded,
+    "balanced",
+  );
+  assert.equal(decision.action, "review");
+  assert.equal(decision.reason, "semantic_review_requested");
+}
+
 function testAutomaticModeContinuesReviewTasks() {
   const result = fallback(
     "На странице Settings сделай блок Experimental AI Core менее деревянным.",
@@ -382,6 +480,37 @@ function testRequiredClarificationCannotBeBypassed() {
   }
 }
 
+
+function testModelUnknownCannotEraseGroundedAction() {
+  const rawTask =
+    'На странице Settings замени пояснение на «Новый точный текст».'.trim();
+  const fallbackUnderstanding = fallback(rawTask);
+  const result = normalizeTaskUnderstanding({
+    modelValue: {
+      taskUnderstanding: {
+        goal: rawTask,
+        action: "unknown",
+        targetHints: [],
+        requestedChanges: [],
+        constraints: [],
+        interpretationRisk: "objective",
+        changeDefinition: "exact",
+        confidence: 0.8,
+      },
+    },
+    fallback: fallbackUnderstanding,
+    rawTask,
+    taskArea: "general",
+    taskType: "general",
+    confidence: 0.8,
+    projectTree,
+    structuredIntent: emptyStructuredIntent,
+  });
+
+  assert.equal(result.action, "replace");
+  assert.equal(result.readiness, "ready");
+}
+
 function testFallbackSource() {
   const result = fallback("Обнови README и добавь команды запуска.", {
     taskArea: "docs",
@@ -392,13 +521,131 @@ function testFallbackSource() {
   assertReady(result);
 }
 
+
+function testCompactIntentTreeKeepsNamedTarget() {
+  const largeTree = Array.from({ length: 180 }, (_, index) =>
+    `server/src/generated/Placeholder${index}.ts`,
+  );
+  largeTree.push("apps/desktop/renderer/src/components/layout/AppHeader.tsx");
+  largeTree.push("apps/desktop/renderer/src/components/layout/Sidebar.tsx");
+
+  const snapshot = buildCompactIntentProjectTreeSnapshot(
+    "В компоненте AppHeader сделай верхнюю панель легче.",
+    largeTree,
+  );
+
+  assert.ok(
+    snapshot.includes(
+      "apps/desktop/renderer/src/components/layout/AppHeader.tsx",
+    ),
+  );
+  assert.ok(snapshot.length <= TASK_UNDERSTANDING_PROJECT_PATH_LIMIT);
+  assert.equal(snapshot[0]?.endsWith("AppHeader.tsx"), true);
+}
+
+function testCompactIntentPromptDropsHeavyProjectMetadata() {
+  const largeTree = Array.from({ length: 240 }, (_, index) =>
+    `apps/desktop/renderer/src/pages/Page${index}.tsx`,
+  );
+  largeTree.push("apps/desktop/renderer/src/components/layout/Sidebar.tsx");
+
+  const prompt = buildIntentPrompt({
+    rawTask:
+      "В компоненте Sidebar сделай группы навигации визуально легче, не меняя поведение.",
+    taskType: "general",
+    targetTool: "codex",
+    project: {
+      name: "contextforge",
+      localPath: "C:/private/contextforge",
+      packageManager: "npm",
+      detectedStack: ["React", "TypeScript", "Vite", "Electron"],
+      scripts: {
+        huge: "x".repeat(12000),
+      },
+      readinessScore: 86,
+    },
+    projectTree: largeTree,
+  });
+
+  assert.ok(prompt.includes("Sidebar.tsx"));
+  assert.ok(prompt.includes("Keep the complete response under 360 tokens"));
+  assert.equal(prompt.includes("C:/private/contextforge"), false);
+  assert.equal(prompt.includes('"huge"'), false);
+  assert.equal(prompt.includes("readinessScore"), false);
+  assert.equal(prompt.includes('"intentTags"'), false);
+  assert.ok(prompt.length < 9000, `compact prompt too large: ${prompt.length}`);
+}
+
+function testCompactIntentGenerationLimits() {
+  assert.equal(TASK_UNDERSTANDING_INITIAL_NUM_PREDICT, 520);
+  assert.equal(TASK_UNDERSTANDING_REPAIR_NUM_PREDICT, 360);
+  assert.ok(
+    TASK_UNDERSTANDING_INITIAL_NUM_PREDICT < 1300,
+    "initial Understanding budget must stay below the legacy 1300 tokens",
+  );
+}
+
+
+function testCompactIntentTreePreservesBackendAndFullstackCoverage() {
+  const largeTree = [
+    ...Array.from({ length: 120 }, (_, index) =>
+      `apps/desktop/renderer/src/components/ui/Widget${index}.tsx`,
+    ),
+    "apps/desktop/renderer/src/pages/SettingsPage.tsx",
+    "apps/desktop/renderer/src/api/settingsApi.ts",
+    "server/src/routes/settings.ts",
+    "server/src/settings/settingsService.ts",
+  ];
+
+  const backendSnapshot = buildCompactIntentProjectTreeSnapshot(
+    "В backend API настроек добавь поле keepModelReady, UI не меняй.",
+    largeTree,
+    TASK_UNDERSTANDING_PROJECT_PATH_LIMIT,
+    "backend",
+  );
+  assert.ok(backendSnapshot.some((path) => path.startsWith("server/")));
+
+  const fullstackSnapshot = buildCompactIntentProjectTreeSnapshot(
+    "Добавь в Settings переключатель keepModelReady и backend API для сохранения настройки.",
+    largeTree,
+    TASK_UNDERSTANDING_PROJECT_PATH_LIMIT,
+    "fullstack",
+  );
+  assert.ok(
+    fullstackSnapshot.some((path) => path.includes("SettingsPage.tsx")),
+  );
+  assert.ok(fullstackSnapshot.some((path) => path.startsWith("server/")));
+}
+
+function testCompactIntentTreeOmitsUnrelatedSecretAndRuntimePaths() {
+  const snapshot = buildCompactIntentProjectTreeSnapshot(
+    "Обнови документацию по запуску проекта.",
+    [
+      ".env",
+      "server/data/contextforge.sqlite",
+      "dist/server.js",
+      "README.md",
+      "docs/SETUP.md",
+    ],
+  );
+
+  assert.equal(snapshot.includes(".env"), false);
+  assert.equal(snapshot.includes("server/data/contextforge.sqlite"), false);
+  assert.equal(snapshot.includes("dist/server.js"), false);
+  assert.ok(snapshot.includes("README.md") || snapshot.includes("docs/SETUP.md"));
+}
+
 const tests = [
   testMissingRussianReplacement,
   testRussianQuotedReplacement,
   testEnglishQuotedReplacement,
   testLiteralKinds,
   testTransformationGoalDoesNotRequireLiteral,
+  testRussianComparativeUiTaskUsesReview,
+  testEnglishComparativeUiTaskUsesReview,
   testNoFilePathIsNotMissingContext,
+  testOpenEndedArchitectureTaskRequiresClarification,
+  testUngroundedModelHintDoesNotBypassArchitectureClarification,
   testVagueTaskUsesReviewWithoutBlocking,
   testSubjectivePolishUsesReview,
   testModelSubjectiveOpenEndedUsesReview,
@@ -410,14 +657,21 @@ const tests = [
   testClarificationUnblocksMissingReplacementWithoutChangingTargetSemantics,
   testPathOnlyAmbiguityIsNotBlocking,
   testBalancedModeReviewsSubjectiveTasks,
+  testBalancedModeDefensivelyReviewsOpenEndedSemantics,
   testAutomaticModeContinuesReviewTasks,
   testConfirmAllModeReviewsReadyTasks,
   testRequiredClarificationCannotBeBypassed,
   testFallbackSource,
+  testModelUnknownCannotEraseGroundedAction,
+  testCompactIntentTreeKeepsNamedTarget,
+  testCompactIntentPromptDropsHeavyProjectMetadata,
+  testCompactIntentGenerationLimits,
+  testCompactIntentTreePreservesBackendAndFullstackCoverage,
+  testCompactIntentTreeOmitsUnrelatedSecretAndRuntimePaths,
 ];
 
 for (const test of tests) {
   test();
 }
 
-console.log("task understanding smoke passed: 26 scenarios");
+console.log(`task understanding smoke passed: ${tests.length} scenarios`);

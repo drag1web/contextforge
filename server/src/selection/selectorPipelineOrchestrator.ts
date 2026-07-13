@@ -10,18 +10,23 @@ import {
 import type { TaskIntentAnalysis } from "../ollama/taskIntentAnalyzer.js";
 import type { ProjectInventory } from "../scanner/projectInventoryScanner.js";
 import type { AppSettings } from "../settings/settingsService.js";
-import { retrieveCandidates, type CandidateRetrievalResult } from "./candidateRetrieval.js";
+import {
+  retrieveCandidates,
+  type CandidateRetrievalResult,
+} from "./candidateRetrieval.js";
 import {
   deterministicCandidateRanking,
   type ValidatedCandidateRanking,
 } from "./constrainedCandidateRanking.js";
 import { isSecretLikePath } from "./safetyPolicy.js";
 
-export type SelectorPipelineMode = "legacy" | "shadow_compare" | "shadow_primary";
+export type SelectorPipelineMode =
+  "legacy" | "shadow_compare" | "shadow_primary";
 export type EffectiveSelectorPipeline = "legacy" | "shadow";
 export type SelectorExecutionStatus = "success" | "fallback";
 export type SelectorQualityStatus = "ready" | "warning" | "blocked";
-export type SelectorSelectionOrigin = "pipeline" | "manual_override";
+export type SelectorSelectionOrigin =
+  "pipeline" | "manual_override" | "explicit_target_fast_path";
 export type SelectorDecisionOutcome = "selected" | "abstained" | "blocked";
 export type SelectorEvidenceStrength = "strong" | "supporting" | "reference";
 
@@ -161,7 +166,12 @@ function normalizeRelativePath(value: string) {
 function isSafeRelativePath(value: string) {
   const normalized = normalizeRelativePath(value);
   if (!normalized) return false;
-  if (/^[a-z]:/i.test(normalized) || path.posix.isAbsolute(normalized) || path.win32.isAbsolute(normalized)) return false;
+  if (
+    /^[a-z]:/i.test(normalized) ||
+    path.posix.isAbsolute(normalized) ||
+    path.win32.isAbsolute(normalized)
+  )
+    return false;
   return !normalized.split("/").some((segment) => segment === "..");
 }
 
@@ -180,23 +190,35 @@ function getSelectionFlags(selection: TaskFileSelection) {
   const source = selection.diagnostics?.selectionSource;
   return {
     blocked: source === "blocked",
-    manualReview: source === "manual-review" || (selection.selectedFiles.length === 0 && source !== "blocked"),
+    manualReview:
+      source === "manual-review" ||
+      (selection.selectedFiles.length === 0 && source !== "blocked"),
   };
 }
 
 function getPrimaryTarget(files: SelectedTaskFile[]) {
-  return files.find((file) => isEditableUsage(file.usage))?.path ?? files[0]?.path ?? null;
+  return (
+    files.find((file) => isEditableUsage(file.usage))?.path ??
+    files[0]?.path ??
+    null
+  );
 }
 
-function evidenceStrengthForUsage(usage: SelectedTaskFileUsage): SelectorEvidenceStrength {
-  if (usage === "inspect-and-edit" || usage === "create-and-edit") return "strong";
-  if (usage === "config-reference" || usage === "asset-reference") return "reference";
+function evidenceStrengthForUsage(
+  usage: SelectedTaskFileUsage,
+): SelectorEvidenceStrength {
+  if (usage === "inspect-and-edit" || usage === "create-and-edit")
+    return "strong";
+  if (usage === "config-reference" || usage === "asset-reference")
+    return "reference";
   return "supporting";
 }
 
 function normalizeSelectionReason(value: unknown) {
   const reason = typeof value === "string" ? value.trim() : "";
-  return reason ? reason.slice(0, 500) : "Selected from grounded project evidence.";
+  return reason
+    ? reason.slice(0, 500)
+    : "Selected from grounded project evidence.";
 }
 
 function shadowAbstentionFor(
@@ -209,7 +231,8 @@ function shadowAbstentionFor(
   if (retrieval.explicitMissingPaths.length > 0) {
     return {
       code: "explicit_target_missing",
-      message: "The task named a target that does not exist in the current project inventory.",
+      message:
+        "The task named a target that does not exist in the current project inventory.",
       nextActions: [
         "Check the target name or path.",
         "Rescan the project if files changed recently.",
@@ -221,7 +244,8 @@ function shadowAbstentionFor(
   if (retrieval.candidates.length === 0) {
     return {
       code: "no_grounded_candidates",
-      message: "No project file had enough grounded evidence to become a safe task target.",
+      message:
+        "No project file had enough grounded evidence to become a safe task target.",
       nextActions: [
         "Mention the page, feature, symbol, route, or file more specifically.",
         "Open Full Review and choose the intended file manually.",
@@ -232,7 +256,8 @@ function shadowAbstentionFor(
   if (ranking.selected.length === 0) {
     return {
       code: "no_ranked_candidates",
-      message: "Candidates were found, but none passed the deterministic selection threshold.",
+      message:
+        "Candidates were found, but none passed the deterministic selection threshold.",
       nextActions: [
         "Clarify the expected change or the affected feature.",
         "Review the retrieved candidates and confirm files manually.",
@@ -242,7 +267,8 @@ function shadowAbstentionFor(
 
   return {
     code: "ambiguous_target",
-    message: "The task area was understood, but the implementation target could not be confirmed safely.",
+    message:
+      "The task area was understood, but the implementation target could not be confirmed safely.",
     nextActions: [
       "Add the affected page, component, route, service, or behavior to the task.",
       "Choose the intended file manually in Full Review.",
@@ -250,7 +276,9 @@ function shadowAbstentionFor(
   };
 }
 
-function legacyAbstentionFor(selection: TaskFileSelection): SelectorAbstention | null {
+function legacyAbstentionFor(
+  selection: TaskFileSelection,
+): SelectorAbstention | null {
   const flags = getSelectionFlags(selection);
   if (flags.blocked || selection.selectedFiles.length > 0) return null;
   return {
@@ -266,10 +294,15 @@ function legacyAbstentionFor(selection: TaskFileSelection): SelectorAbstention |
 function selectionConfidence(selection: TaskFileSelection) {
   const explicit = selection.diagnostics?.finalConfidence;
   if (typeof explicit === "number" && Number.isFinite(explicit)) {
-    return Math.max(0, Math.min(100, Math.round(explicit <= 1 ? explicit * 100 : explicit)));
+    return Math.max(
+      0,
+      Math.min(100, Math.round(explicit <= 1 ? explicit * 100 : explicit)),
+    );
   }
   if (selection.selectedFiles.length === 0) return 0;
-  const average = selection.selectedFiles.reduce((sum, file) => sum + file.confidence, 0) / selection.selectedFiles.length;
+  const average =
+    selection.selectedFiles.reduce((sum, file) => sum + file.confidence, 0) /
+    selection.selectedFiles.length;
   return Math.max(0, Math.min(100, Math.round(average * 100)));
 }
 
@@ -320,13 +353,18 @@ function compareSummaries(
 ): SelectorComparisonDiagnostics {
   const legacyPaths = legacy.selectedFiles.map((file) => file.path);
   const shadowPaths = shadow.selectedFiles.map((file) => file.path);
-  const legacyEdits = legacy.selectedFiles.filter((file) => isEditableUsage(file.usage)).map((file) => file.path);
-  const shadowEdits = shadow.selectedFiles.filter((file) => isEditableUsage(file.usage)).map((file) => file.path);
+  const legacyEdits = legacy.selectedFiles
+    .filter((file) => isEditableUsage(file.usage))
+    .map((file) => file.path);
+  const shadowEdits = shadow.selectedFiles
+    .filter((file) => isEditableUsage(file.usage))
+    .map((file) => file.path);
   const shadowPathSet = new Set(shadowPaths);
   const legacyPathSet = new Set(legacyPaths);
   return {
     primaryTargetAgreement: legacy.primaryTarget === shadow.primaryTarget,
-    implementationAreaAgreement: legacy.implementationArea === shadow.implementationArea,
+    implementationAreaAgreement:
+      legacy.implementationArea === shadow.implementationArea,
     selectedPathOverlap: jaccard(legacyPaths, shadowPaths),
     editTargetOverlap: jaccard(legacyEdits, shadowEdits),
     legacyOnlyPaths: legacyPaths.filter((value) => !shadowPathSet.has(value)),
@@ -336,7 +374,9 @@ function compareSummaries(
   };
 }
 
-async function defaultShadowPipeline(input: SelectorPipelineInput): Promise<ShadowPipelineResult> {
+async function defaultShadowPipeline(
+  input: SelectorPipelineInput,
+): Promise<ShadowPipelineResult> {
   const retrieval = retrieveCandidates({
     rawTask: input.rawTask,
     requestedTaskType: input.taskType,
@@ -359,14 +399,27 @@ function shadowSelectionFromResult(
 ): TaskFileSelection {
   const { retrieval, ranking } = result;
   if (ranking.unknownCandidateIds.length > 0) {
-    throw new ShadowTechnicalError("shadow_unknown_candidate", "Shadow returned unknown candidate IDs.");
+    throw new ShadowTechnicalError(
+      "shadow_unknown_candidate",
+      "Shadow returned unknown candidate IDs.",
+    );
   }
   if (!ranking.valid) {
-    throw new ShadowTechnicalError("shadow_invalid_result", "Shadow ranking did not satisfy the candidate contract.");
+    throw new ShadowTechnicalError(
+      "shadow_invalid_result",
+      "Shadow ranking did not satisfy the candidate contract.",
+    );
   }
 
-  const inventoryMap = new Map(inventory.files.map((file) => [normalizeRelativePath(file.path).toLowerCase(), file]));
-  const candidateMap = new Map(retrieval.candidates.map((candidate) => [candidate.candidateId, candidate]));
+  const inventoryMap = new Map(
+    inventory.files.map((file) => [
+      normalizeRelativePath(file.path).toLowerCase(),
+      file,
+    ]),
+  );
+  const candidateMap = new Map(
+    retrieval.candidates.map((candidate) => [candidate.candidateId, candidate]),
+  );
   const seen = new Set<string>();
   const selectedFiles: SelectedTaskFile[] = [];
   const roleAdjustments: string[] = [];
@@ -374,7 +427,10 @@ function shadowSelectionFromResult(
   for (const selected of ranking.selected) {
     const candidate = candidateMap.get(selected.candidateId);
     if (!candidate) {
-      throw new ShadowTechnicalError("shadow_unknown_candidate", `Unknown Shadow candidate ID: ${selected.candidateId}`);
+      throw new ShadowTechnicalError(
+        "shadow_unknown_candidate",
+        `Unknown Shadow candidate ID: ${selected.candidateId}`,
+      );
     }
     const normalized = normalizeRelativePath(candidate.path);
     const submittedPath = normalizeRelativePath(selected.path);
@@ -387,24 +443,40 @@ function shadowSelectionFromResult(
     const key = normalized.toLowerCase();
     if (seen.has(key)) continue;
     if (!isSafeRelativePath(normalized)) {
-      throw new ShadowTechnicalError("shadow_contract_violation", "Shadow returned a path outside the project scope.");
+      throw new ShadowTechnicalError(
+        "shadow_contract_violation",
+        "Shadow returned a path outside the project scope.",
+      );
     }
     const file = inventoryMap.get(key);
     if (!file) {
-      throw new ShadowTechnicalError("shadow_unknown_path", `Shadow returned a path missing from inventory: ${normalized}`);
+      throw new ShadowTechnicalError(
+        "shadow_unknown_path",
+        `Shadow returned a path missing from inventory: ${normalized}`,
+      );
     }
     if (!VALID_USAGES.has(selected.usage)) {
-      throw new ShadowTechnicalError("shadow_contract_violation", `Shadow returned an unsupported usage role for ${normalized}.`);
+      throw new ShadowTechnicalError(
+        "shadow_contract_violation",
+        `Shadow returned an unsupported usage role for ${normalized}.`,
+      );
     }
 
     let usage = selected.usage;
-    if (isEditableUsage(usage) && (file.isLikelyGenerated || isSecretLikePath(file.path))) {
+    if (
+      isEditableUsage(usage) &&
+      (file.isLikelyGenerated || isSecretLikePath(file.path))
+    ) {
       usage = file.kind === "config" ? "config-reference" : "inspect-only";
-      roleAdjustments.push(`${file.path}: protected/generated path was reduced to ${usage}.`);
+      roleAdjustments.push(
+        `${file.path}: protected/generated path was reduced to ${usage}.`,
+      );
     }
     if (retrieval.reviewOnly && isEditableUsage(usage)) {
       usage = "inspect-only";
-      roleAdjustments.push(`${file.path}: review-only task was reduced to inspect-only.`);
+      roleAdjustments.push(
+        `${file.path}: review-only task was reduced to inspect-only.`,
+      );
     }
 
     seen.add(key);
@@ -418,8 +490,12 @@ function shadowSelectionFromResult(
   }
 
   if (retrieval.blocked || retrieval.manualReview) selectedFiles.length = 0;
-  const selectionLimit = getSelectionLimit(settings, retrieval.implementationArea);
-  if (selectedFiles.length > selectionLimit) selectedFiles.length = selectionLimit;
+  const selectionLimit = getSelectionLimit(
+    settings,
+    retrieval.implementationArea,
+  );
+  if (selectedFiles.length > selectionLimit)
+    selectedFiles.length = selectionLimit;
 
   const selectionSource = retrieval.blocked
     ? "blocked"
@@ -430,7 +506,14 @@ function shadowSelectionFromResult(
     ? 0
     : retrieval.manualReview || selectedFiles.length === 0
       ? 25
-      : Math.min(92, Math.round(selectedFiles.reduce((sum, file) => sum + file.confidence, 0) / selectedFiles.length * 100));
+      : Math.min(
+          92,
+          Math.round(
+            (selectedFiles.reduce((sum, file) => sum + file.confidence, 0) /
+              selectedFiles.length) *
+              100,
+          ),
+        );
 
   return {
     selectedFiles,
@@ -440,7 +523,9 @@ function shadowSelectionFromResult(
     durationMs: 0,
     notes: [...retrieval.warnings, ranking.reason],
     effectiveTaskArea: retrieval.implementationArea,
-    assetMode: selectedFiles.some((file) => file.usage === "asset-reference") ? "mixed" : "none",
+    assetMode: selectedFiles.some((file) => file.usage === "asset-reference")
+      ? "mixed"
+      : "none",
     diagnostics: {
       selectorVersion: "v0.6.5-shadow-precision",
       safetyProfile: "shadow-validated",
@@ -451,7 +536,9 @@ function shadowSelectionFromResult(
       usedFallback: false,
       selectionSource,
       inferredImplementationArea: retrieval.implementationArea,
-      areaConflict: retrieval.implementationArea !== retrieval.requestedTaskType && retrieval.requestedTaskType !== "general",
+      areaConflict:
+        retrieval.implementationArea !== retrieval.requestedTaskType &&
+        retrieval.requestedTaskType !== "general",
       roleAdjustments,
       finalConfidence,
     },
@@ -463,7 +550,16 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
   return Promise.race([
     promise,
     new Promise<T>((_resolve, reject) => {
-      timer = setTimeout(() => reject(new ShadowTechnicalError("shadow_timeout", `Shadow exceeded ${timeoutMs} ms.`)), timeoutMs);
+      timer = setTimeout(
+        () =>
+          reject(
+            new ShadowTechnicalError(
+              "shadow_timeout",
+              `Shadow exceeded ${timeoutMs} ms.`,
+            ),
+          ),
+        timeoutMs,
+      );
     }),
   ]).finally(() => {
     if (timer) clearTimeout(timer);
@@ -471,31 +567,40 @@ function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
 }
 
 export function sanitizeSelectorDiagnosticMessage(value: unknown) {
-  const rawMessage = typeof value === "string"
-    ? value
-    : value instanceof Error
-      ? value.message
-      : "Unknown Shadow pipeline error.";
+  const rawMessage =
+    typeof value === "string"
+      ? value
+      : value instanceof Error
+        ? value.message
+        : "Unknown Shadow pipeline error.";
   return rawMessage
     .replace(/[a-z]:[\\/][^\r\n]*/gi, "[local-path]")
     .replace(/\\\\[^\r\n]*/g, "[local-path]")
     .replace(/\/(?:Users|home|var|tmp)\/[^\r\n]*/g, "[local-path]")
-    .replace(/(?:api[-_ ]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi, "$1=[redacted]")
+    .replace(
+      /(?:api[-_ ]?key|token|secret|password)\s*[:=]\s*[^\s,;]+/gi,
+      "$1=[redacted]",
+    )
     .slice(0, 300);
 }
 
 function technicalError(error: unknown) {
-  const code = error instanceof ShadowTechnicalError ? error.code : "shadow_exception";
+  const code =
+    error instanceof ShadowTechnicalError ? error.code : "shadow_exception";
   const safeMessage = sanitizeSelectorDiagnosticMessage(error);
-  return new ShadowTechnicalError(
-    code,
-    safeMessage,
-  );
+  return new ShadowTechnicalError(code, safeMessage);
 }
 
-function createDiagnosticBase(input: SelectorPipelineInput, requestedMode: SelectorPipelineMode, now: Date) {
+function createDiagnosticBase(
+  input: SelectorPipelineInput,
+  requestedMode: SelectorPipelineMode,
+  now: Date,
+) {
   const taskHash = createHash("sha256").update(input.rawTask).digest("hex");
-  const projectRef = createHash("sha256").update(input.projectRef).digest("hex").slice(0, 16);
+  const projectRef = createHash("sha256")
+    .update(input.projectRef)
+    .digest("hex")
+    .slice(0, 16);
   return {
     id: `${now.getTime()}-${taskHash.slice(0, 10)}`,
     timestamp: now.toISOString(),
@@ -506,51 +611,75 @@ function createDiagnosticBase(input: SelectorPipelineInput, requestedMode: Selec
 }
 
 function normalizeMode(value: unknown): SelectorPipelineMode {
-  return value === "shadow_compare" || value === "shadow_primary" ? value : "legacy";
+  return value === "shadow_compare" || value === "shadow_primary"
+    ? value
+    : "legacy";
 }
 
-export function normalizeSelectorPipelineMode(value: unknown): SelectorPipelineMode {
+export function normalizeSelectorPipelineMode(
+  value: unknown,
+): SelectorPipelineMode {
   return normalizeMode(value);
 }
 
 export function finalizeSelectorDiagnostics(
   diagnostics: SelectorPipelineDiagnostics,
-  quality: { score: number; status: "ready" | "warning" | "blocked"; requiredManualReview: boolean; signals?: { confidence?: number } },
+  quality: {
+    score: number;
+    status: "ready" | "warning" | "blocked";
+    requiredManualReview: boolean;
+    signals?: { confidence?: number };
+  },
   selection?: TaskFileSelection,
   options: { manualSelectionApplied?: boolean } = {},
 ) {
-  const selectionHasFiles = (selection?.selectedFiles.length ?? diagnostics.actual.selectedFiles.length) > 0;
+  const selectionHasFiles =
+    (selection?.selectedFiles.length ??
+      diagnostics.actual.selectedFiles.length) > 0;
   const selectorRequestedManualReview = diagnostics.actual.manualReview;
-  const finalManualReview = options.manualSelectionApplied && selectionHasFiles
-    ? quality.requiredManualReview
-    : selectorRequestedManualReview || quality.requiredManualReview;
-  const finalMissingTarget = options.manualSelectionApplied && selectionHasFiles
-    ? false
-    : diagnostics.actual.missingTarget || !selectionHasFiles;
-  const confidence = quality.status === "blocked"
-    ? 0
-    : finalManualReview
-      ? Math.min(45, quality.signals?.confidence ?? diagnostics.actual.confidence)
-      : quality.signals?.confidence ?? diagnostics.actual.confidence;
-  const executionStatus: SelectorExecutionStatus = diagnostics.fallback ? "fallback" : diagnostics.executionStatus;
+  const finalManualReview =
+    options.manualSelectionApplied && selectionHasFiles
+      ? quality.requiredManualReview
+      : selectorRequestedManualReview || quality.requiredManualReview;
+  const finalMissingTarget =
+    options.manualSelectionApplied && selectionHasFiles
+      ? false
+      : diagnostics.actual.missingTarget || !selectionHasFiles;
+  const confidence =
+    quality.status === "blocked"
+      ? 0
+      : finalManualReview
+        ? Math.min(
+            45,
+            quality.signals?.confidence ?? diagnostics.actual.confidence,
+          )
+        : (quality.signals?.confidence ?? diagnostics.actual.confidence);
+  const executionStatus: SelectorExecutionStatus = diagnostics.fallback
+    ? "fallback"
+    : diagnostics.executionStatus;
   const selectorSafetyBlocked = diagnostics.actual.blocked;
   const abstained = !selectionHasFiles && !selectorSafetyBlocked;
-  const qualityBlockedWithSelection = quality.status === "blocked" && selectionHasFiles;
+  const qualityBlockedWithSelection =
+    quality.status === "blocked" && selectionHasFiles;
   const finalBlocked = selectorSafetyBlocked || qualityBlockedWithSelection;
-  const status = executionStatus === "fallback"
-    ? "fallback" as const
-    : finalBlocked
-      ? "blocked" as const
-      : abstained || finalManualReview
-        ? "manual-review" as const
-        : "success" as const;
-  const manualOverrideResolvedAbstention = options.manualSelectionApplied && selectionHasFiles;
+  const status =
+    executionStatus === "fallback"
+      ? ("fallback" as const)
+      : finalBlocked
+        ? ("blocked" as const)
+        : abstained || finalManualReview
+          ? ("manual-review" as const)
+          : ("success" as const);
+  const manualOverrideResolvedAbstention =
+    options.manualSelectionApplied && selectionHasFiles;
   return {
     ...diagnostics,
     status,
     executionStatus,
     qualityStatus: quality.status,
-    selectionOrigin: options.manualSelectionApplied ? "manual_override" as const : diagnostics.selectionOrigin,
+    selectionOrigin: options.manualSelectionApplied
+      ? ("manual_override" as const)
+      : diagnostics.selectionOrigin,
     actual: {
       ...diagnostics.actual,
       ...(selection
@@ -571,11 +700,59 @@ export function finalizeSelectorDiagnostics(
       manualReview: abstained || finalManualReview,
       missingTarget: finalMissingTarget,
       outcome: finalBlocked
-        ? "blocked" as const
+        ? ("blocked" as const)
         : selectionHasFiles
-          ? "selected" as const
-          : "abstained" as const,
-      abstention: manualOverrideResolvedAbstention ? null : diagnostics.actual.abstention,
+          ? ("selected" as const)
+          : ("abstained" as const),
+      abstention: manualOverrideResolvedAbstention
+        ? null
+        : diagnostics.actual.abstention,
+    },
+  };
+}
+
+export function createExplicitTargetFastPathPipelineResult(
+  input: SelectorPipelineInput,
+  selection: TaskFileSelection,
+): SelectorPipelineResult {
+  const requestedMode = normalizeMode(
+    input.mode ?? input.settings.selectorPipelineMode,
+  );
+  const effectivePipeline: EffectiveSelectorPipeline =
+    requestedMode === "shadow_primary" ? "shadow" : "legacy";
+  const now = new Date();
+  const summary = buildSummary(
+    effectivePipeline,
+    selection,
+    selection.selectedFiles.length,
+    selection.selectedFiles.length === 0,
+    null,
+  );
+
+  return {
+    selection,
+    diagnostics: {
+      ...createDiagnosticBase(input, requestedMode, now),
+      effectivePipeline,
+      status: summary.blocked
+        ? "blocked"
+        : summary.manualReview
+          ? "manual-review"
+          : "success",
+      executionStatus: "success",
+      qualityStatus: summary.blocked
+        ? "blocked"
+        : summary.manualReview
+          ? "warning"
+          : "ready",
+      selectionOrigin: "explicit_target_fast_path",
+      fallback: null,
+      shadowFailure: null,
+      timings: { totalMs: 0, legacyMs: null, shadowMs: null },
+      actual: summary,
+      legacy: null,
+      shadow: null,
+      comparison: null,
     },
   };
 }
@@ -590,7 +767,9 @@ export async function runSelectorPipeline(
     now: overrides.now ?? (() => new Date()),
     shadowTimeoutMs: overrides.shadowTimeoutMs ?? DEFAULT_SHADOW_TIMEOUT_MS,
   };
-  const requestedMode = normalizeMode(input.mode ?? input.settings.selectorPipelineMode);
+  const requestedMode = normalizeMode(
+    input.mode ?? input.settings.selectorPipelineMode,
+  );
   const startedAt = performance.now();
   const base = createDiagnosticBase(input, requestedMode, dependencies.now());
   let legacyMs: number | null = null;
@@ -612,8 +791,15 @@ export async function runSelectorPipeline(
 
   const runShadow = async () => {
     const start = performance.now();
-    const raw = await withTimeout(dependencies.runShadow(input), dependencies.shadowTimeoutMs);
-    const selection = shadowSelectionFromResult(raw, input.inventory, input.settings);
+    const raw = await withTimeout(
+      dependencies.runShadow(input),
+      dependencies.shadowTimeoutMs,
+    );
+    const selection = shadowSelectionFromResult(
+      raw,
+      input.inventory,
+      input.settings,
+    );
     shadowMs = Math.round(performance.now() - start);
     selection.durationMs = shadowMs;
     return { selection, raw };
@@ -633,13 +819,25 @@ export async function runSelectorPipeline(
       diagnostics: {
         ...base,
         effectivePipeline: "legacy",
-        status: summary.blocked ? "blocked" : summary.manualReview ? "manual-review" : "success",
+        status: summary.blocked
+          ? "blocked"
+          : summary.manualReview
+            ? "manual-review"
+            : "success",
         executionStatus: "success",
-        qualityStatus: summary.blocked ? "blocked" : summary.manualReview ? "warning" : "ready",
+        qualityStatus: summary.blocked
+          ? "blocked"
+          : summary.manualReview
+            ? "warning"
+            : "ready",
         selectionOrigin: "pipeline",
         fallback: null,
         shadowFailure: null,
-        timings: { totalMs: Math.round(performance.now() - startedAt), legacyMs, shadowMs },
+        timings: {
+          totalMs: Math.round(performance.now() - startedAt),
+          legacyMs,
+          shadowMs,
+        },
         actual: summary,
         legacy: summary,
         shadow: null,
@@ -649,7 +847,10 @@ export async function runSelectorPipeline(
   }
 
   if (requestedMode === "shadow_compare") {
-    const [legacySettled, shadowSettled] = await Promise.allSettled([runLegacy(), runShadow()]);
+    const [legacySettled, shadowSettled] = await Promise.allSettled([
+      runLegacy(),
+      runShadow(),
+    ]);
     if (legacySettled.status === "rejected") throw legacySettled.reason;
     const legacySelection = legacySettled.value;
     const legacySummary = buildSummary(
@@ -685,13 +886,25 @@ export async function runSelectorPipeline(
       diagnostics: {
         ...base,
         effectivePipeline: "legacy",
-        status: legacySummary.blocked ? "blocked" : legacySummary.manualReview ? "manual-review" : "success",
+        status: legacySummary.blocked
+          ? "blocked"
+          : legacySummary.manualReview
+            ? "manual-review"
+            : "success",
         executionStatus: "success",
-        qualityStatus: legacySummary.blocked ? "blocked" : legacySummary.manualReview ? "warning" : "ready",
+        qualityStatus: legacySummary.blocked
+          ? "blocked"
+          : legacySummary.manualReview
+            ? "warning"
+            : "ready",
         selectionOrigin: "pipeline",
         fallback: null,
         shadowFailure,
-        timings: { totalMs: Math.round(performance.now() - startedAt), legacyMs, shadowMs },
+        timings: {
+          totalMs: Math.round(performance.now() - startedAt),
+          legacyMs,
+          shadowMs,
+        },
         actual: legacySummary,
         legacy: legacySummary,
         shadow: shadowSummary,
@@ -708,20 +921,36 @@ export async function runSelectorPipeline(
       shadow.raw.retrieval.candidates.length,
       shadow.raw.retrieval.explicitMissingPaths.length > 0 ||
         shadow.selection.selectedFiles.length === 0,
-      shadowAbstentionFor(shadow.raw.retrieval, shadow.raw.ranking, shadow.selection),
+      shadowAbstentionFor(
+        shadow.raw.retrieval,
+        shadow.raw.ranking,
+        shadow.selection,
+      ),
     );
     return {
       selection: shadow.selection,
       diagnostics: {
         ...base,
         effectivePipeline: "shadow",
-        status: shadowSummary.blocked ? "blocked" : shadowSummary.manualReview ? "manual-review" : "success",
+        status: shadowSummary.blocked
+          ? "blocked"
+          : shadowSummary.manualReview
+            ? "manual-review"
+            : "success",
         executionStatus: "success",
-        qualityStatus: shadowSummary.blocked ? "blocked" : shadowSummary.manualReview ? "warning" : "ready",
+        qualityStatus: shadowSummary.blocked
+          ? "blocked"
+          : shadowSummary.manualReview
+            ? "warning"
+            : "ready",
         selectionOrigin: "pipeline",
         fallback: null,
         shadowFailure: null,
-        timings: { totalMs: Math.round(performance.now() - startedAt), legacyMs, shadowMs },
+        timings: {
+          totalMs: Math.round(performance.now() - startedAt),
+          legacyMs,
+          shadowMs,
+        },
         actual: shadowSummary,
         legacy: null,
         shadow: shadowSummary,
@@ -745,11 +974,19 @@ export async function runSelectorPipeline(
         effectivePipeline: "legacy",
         status: "fallback",
         executionStatus: "fallback",
-        qualityStatus: legacySummary.blocked ? "blocked" : legacySummary.manualReview ? "warning" : "ready",
+        qualityStatus: legacySummary.blocked
+          ? "blocked"
+          : legacySummary.manualReview
+            ? "warning"
+            : "ready",
         selectionOrigin: "pipeline",
         fallback: { code: error.code, message: error.message },
         shadowFailure: null,
-        timings: { totalMs: Math.round(performance.now() - startedAt), legacyMs, shadowMs },
+        timings: {
+          totalMs: Math.round(performance.now() - startedAt),
+          legacyMs,
+          shadowMs,
+        },
         actual: legacySummary,
         legacy: legacySummary,
         shadow: null,

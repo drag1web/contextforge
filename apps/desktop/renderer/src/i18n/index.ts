@@ -33,36 +33,44 @@ const resources = {
         unknownError: "Unknown error",
         statusReady: "Ready to scan your first project.",
         statusScanningProject: "Scanning project...",
-        statusProjectAdded: "Project \"{{name}}\" added successfully.",
-        statusRescanningProject: "Rescanning \"{{name}}\"...",
-        statusProjectRescanned: "Project \"{{name}}\" rescanned successfully.",
-        statusGeneratingAgentsOllama: "Generating AGENTS.md with Ollama ({{model}}). This may take 1-2 minutes on CPU...",
-        statusGeneratingAgents: "Generating AGENTS.md for \"{{name}}\"...",
-        statusAgentsGenerated: "AGENTS.md preview generated for \"{{name}}\".",
-        statusRegeneratingAgentsOllama: "Regenerating AGENTS.md with Ollama ({{model}}). Cache will be ignored...",
-        statusRegeneratingAgents: "Regenerating AGENTS.md for \"{{name}}\"...",
-        statusAgentsRegenerated: "AGENTS.md regenerated for \"{{name}}\".",
-        statusSavingAgents: "Saving AGENTS.md for \"{{name}}\"...",
-        statusAgentsSaved: "AGENTS.md saved to project \"{{name}}\".",
-        statusGeneratingTaskPackOllamaFiles: "Generating task pack with {{count}} Composer-selected file(s) and Ollama ({{model}}). This may take 1-2 minutes on CPU...",
-        statusGeneratingTaskPackOllama: "Generating task pack with Ollama ({{model}}). This may take 1-2 minutes on CPU...",
-        statusGeneratingTaskPackFiles: "Generating task pack with {{count}} Composer-selected file(s) for \"{{name}}\"...",
-        statusGeneratingTaskPack: "Generating task pack for \"{{name}}\"...",
+        statusProjectAdded: 'Project "{{name}}" added successfully.',
+        statusRescanningProject: 'Rescanning "{{name}}"...',
+        statusProjectRescanned: 'Project "{{name}}" rescanned successfully.',
+        statusGeneratingAgentsOllama:
+          "Generating AGENTS.md with Ollama ({{model}}). This may take 1-2 minutes on CPU...",
+        statusGeneratingAgents: 'Generating AGENTS.md for "{{name}}"...',
+        statusAgentsGenerated: 'AGENTS.md preview generated for "{{name}}".',
+        statusRegeneratingAgentsOllama:
+          "Regenerating AGENTS.md with Ollama ({{model}}). Cache will be ignored...",
+        statusRegeneratingAgents: 'Regenerating AGENTS.md for "{{name}}"...',
+        statusAgentsRegenerated: 'AGENTS.md regenerated for "{{name}}".',
+        statusSavingAgents: 'Saving AGENTS.md for "{{name}}"...',
+        statusAgentsSaved: 'AGENTS.md saved to project "{{name}}".',
+        statusGeneratingTaskPackOllamaFiles:
+          "Generating task pack with {{count}} Composer-selected file(s) and Ollama ({{model}}). This may take 1-2 minutes on CPU...",
+        statusGeneratingTaskPackOllama:
+          "Generating task pack with Ollama ({{model}}). This may take 1-2 minutes on CPU...",
+        statusGeneratingTaskPackFiles:
+          'Generating task pack with {{count}} Composer-selected file(s) for "{{name}}"...',
+        statusGeneratingTaskPack: 'Generating task pack for "{{name}}"...',
         statusTaskPackGenerated: "Task pack generated successfully.",
-        statusLoadingTaskDefaults: "Loading task pack defaults for \"{{name}}\"...",
-        statusTaskDraftOpened: "Task pack draft opened for \"{{name}}\".",
-        statusSettingsUnavailable: "Settings unavailable. Using default task pack values.",
-        statusAnalyzingContext: "Analyzing context for \"{{name}}\"...",
-        statusContextReady: "Context preview ready for \"{{name}}\".",
-        statusSelectComposerFile: "Select at least one Composer file before generating a Task Pack.",
-        statusInitialLoadFailed: "Failed to load initial data."
+        statusLoadingTaskDefaults:
+          'Loading task pack defaults for "{{name}}"...',
+        statusTaskDraftOpened: 'Task pack draft opened for "{{name}}".',
+        statusSettingsUnavailable:
+          "Settings unavailable. Using default task pack values.",
+        statusAnalyzingContext: 'Analyzing context for "{{name}}"...',
+        statusContextReady: 'Context preview ready for "{{name}}".',
+        statusSelectComposerFile:
+          "Select at least one Composer file before generating a Task Pack.",
+        statusInitialLoadFailed: "Failed to load initial data.",
       },
       time: {
         never: "never",
         justNow: "just now",
         minutesAgo: "{{count}}m ago",
         hoursAgo: "{{count}}h ago",
-        daysAgo: "{{count}}d ago"
+        daysAgo: "{{count}}d ago",
       },
       nav: {
         navigation: "Navigation",
@@ -82,31 +90,41 @@ const resources = {
         github: "GitHub",
         reports: "Reports",
         settings: "Settings",
-        dashboardDesc: "Welcome screen, product workflow and quick start actions.",
-        projectsDesc: "Scanned local repositories, stack signals, readiness reports.",
-        scannersDesc: "Detailed scanner evidence, commands, docs, tests, CI and project structure.",
-        contextDesc: "Generate AGENTS.md-style project context and AI instructions.",
-        taskPacksDesc: "Searchable archive of generated prompts for coding agents.",
-        agentsDesc: "Agent profiles for Codex, Cursor, Claude Code, Gemini and Generic Task Packs.",
+        dashboardDesc:
+          "Welcome screen, product workflow and quick start actions.",
+        projectsDesc:
+          "Scanned local repositories, stack signals, readiness reports.",
+        scannersDesc:
+          "Detailed scanner evidence, commands, docs, tests, CI and project structure.",
+        contextDesc:
+          "Generate AGENTS.md-style project context and AI instructions.",
+        taskPacksDesc:
+          "Searchable archive of generated prompts for coding agents.",
+        agentsDesc:
+          "Agent profiles for Codex, Cursor, Claude Code, Gemini and Generic Task Packs.",
         templatesDesc: "Reusable task, prompt and project-context templates.",
-        integrationsDesc: "Future MCP, CLI, export and external agent connections.",
+        integrationsDesc:
+          "Future MCP, CLI, export and external agent connections.",
         githubDesc: "Browser pairing, repository linking and issue workflows.",
-        reportsDesc: "Quality analytics for readiness, Task Packs and project history.",
-        settingsDesc: "Ollama URL, generation mode, defaults and application preferences.",
+        reportsDesc:
+          "Quality analytics for readiness, Task Packs and project history.",
+        settingsDesc:
+          "Ollama URL, generation mode, defaults and application preferences.",
         expandSidebar: "Expand sidebar",
-        collapseSidebar: "Collapse sidebar"
+        collapseSidebar: "Collapse sidebar",
       },
       titlebar: {
         openNavigationAssistant: "Open navigation assistant",
         aiWorkflowReady: "AI workflow ready",
         minimizeWindow: "Minimize window",
         maximizeWindow: "Maximize window",
-        closeWindow: "Close window"
+        closeWindow: "Close window",
       },
       splash: {
         composerReady: "Composer ready",
         welcome: "Welcome to ContextForge",
-        description: "Preparing your local AI workflow, project context, and Task Pack workspace.",
+        description:
+          "Preparing your local AI workflow, project context, and Task Pack workspace.",
         starting: "Starting ContextForge",
         loadingPrefs: "Loading interface preferences",
         defaultPrefs: "Using default interface preferences",
@@ -114,14 +132,16 @@ const resources = {
         openingWorkspace: "Opening workspace",
         loadingWorkspace: "Loading workspace data",
         preparingWorkspace: "Preparing workspace",
-        workspaceReady: "Workspace ready"
+        workspaceReady: "Workspace ready",
       },
       dashboard: {
         emptyTitle: "Start with your first local repository.",
-        emptyDescription: "Add a project folder. ContextForge will scan it, calculate readiness, then help generate AGENTS.md and Task Packs for coding agents.",
+        emptyDescription:
+          "Add a project folder. ContextForge will scan it, calculate readiness, then help generate AGENTS.md and Task Packs for coding agents.",
         workspaceOverview: "Workspace overview",
         lastScan: "Last scan {{time}}",
-        summary: "{{count}} project{{plural}} need context · average readiness {{readiness}} · {{taskPacks}} Task Packs generated",
+        summary:
+          "{{count}} project{{plural}} need context · average readiness {{readiness}} · {{taskPacks}} Task Packs generated",
         projects: "Projects",
         localWorkspaces: "local workspaces",
         needAttention: "Need attention",
@@ -134,14 +154,17 @@ const resources = {
         priorityCaption: "Only the highest-priority projects are shown here.",
         viewAllProjects: "View all projects",
         noUrgentIssues: "No urgent project issues",
-        noUrgentIssuesDesc: "Your scanned projects do not have urgent readiness problems.",
+        noUrgentIssuesDesc:
+          "Your scanned projects do not have urgent readiness problems.",
         recentTaskPacks: "Recent Task Packs",
         recentTaskPacksCaption: "Latest prompts prepared for coding agents.",
         openArchive: "Open archive",
         noTaskPacks: "No Task Packs yet",
-        noTaskPacksDesc: "Create a Task Pack from a project to see recent work here.",
+        noTaskPacksDesc:
+          "Create a Task Pack from a project to see recent work here.",
         readinessBreakdown: "Readiness breakdown",
-        readinessBreakdownCaption: "Why the average readiness score is low or high.",
+        readinessBreakdownCaption:
+          "Why the average readiness score is low or high.",
         quickActions: "Quick actions",
         quickActionsCaption: "Jump directly into the next useful workflow.",
         openContextBuilder: "Open Context Builder",
@@ -165,7 +188,8 @@ const resources = {
         localAi: "Local AI",
         optionalAssistantMode: "Optional assistant mode.",
         aiWorkflowReady: "AI workflow ready",
-        templateModeWorks: "Template mode works locally. Configure Ollama if you want AI-assisted prompt refinement.",
+        templateModeWorks:
+          "Template mode works locally. Configure Ollama if you want AI-assisted prompt refinement.",
         lastScanPrefix: "Last scan: {{time}}",
         copyPrompt: "Copy prompt",
         openTaskPack: "Open task pack",
@@ -174,18 +198,22 @@ const resources = {
         readyForAiWorkflow: "Ready for AI workflow",
         buildContext: "Build context",
         scan: "Scan",
-        createPack: "Create pack"
+        createPack: "Create pack",
       },
       contextBuilder: {
         noProjects: "No projects available",
-        noProjectsDescription: "Add a local project first. ContextForge will scan it, detect the stack, and prepare AI-ready context files.",
+        noProjectsDescription:
+          "Add a local project first. ContextForge will scan it, detect the stack, and prepare AI-ready context files.",
         badge: "Context Builder",
         taskPackSource: "Task Pack source",
-        title: "Build project context before sending tasks to AI coding agents.",
-        description: "Select a scanned repository, review its AI-readiness signals, generate AGENTS.md, or start a task-specific prompt pack.",
+        title:
+          "Build project context before sending tasks to AI coding agents.",
+        description:
+          "Select a scanned repository, review its AI-readiness signals, generate AGENTS.md, or start a task-specific prompt pack.",
         projects: "Projects",
         selectContextSource: "Select context source",
-        selectContextSourceDescription: "Choose which local repository should become the source for AI context.",
+        selectContextSourceDescription:
+          "Choose which local repository should become the source for AI context.",
         searchProjects: "Search projects...",
         noMatchingProjects: "No matching projects",
         tryAnotherProject: "Try another project name or stack.",
@@ -200,20 +228,24 @@ const resources = {
         createTaskPack: "Create Task Pack",
         readinessChecks: "Readiness checks",
         whatFound: "What ContextForge found",
-        signalsDescription: "These signals define how safe and useful the generated context will be.",
+        signalsDescription:
+          "These signals define how safe and useful the generated context will be.",
         passed: "{{count}} passed",
         missing: "Missing or not detected.",
         mainRecommendation: "Main recommendation",
         nextBestAction: "Next best action",
         noMajorIssues: "No major AI-readiness issues detected.",
-        readyAction: "Generate AGENTS.md first, then create a task-specific Task Pack.",
-        improveAction: "Improve project context files first, then rescan the project.",
+        readyAction:
+          "Generate AGENTS.md first, then create a task-specific Task Pack.",
+        improveAction:
+          "Improve project context files first, then rescan the project.",
         contextHistoryKicker: "Project Context History",
         contextHistoryTitle: "Saved AGENTS.md files",
-        contextHistoryDescription: "Compact history of saved context files in this project root.",
+        contextHistoryDescription:
+          "Compact history of saved context files in this project root.",
         contextHistoryNotGenerated: "Not generated yet",
         contextHistoryPreview: "Preview",
-        contextHistoryGenerate: "Generate fresh AGENTS.md"
+        contextHistoryGenerate: "Generate fresh AGENTS.md",
       },
       labels: {
         projectFallback: "Project #{{id}}",
@@ -236,17 +268,19 @@ const resources = {
         targetCodex: "Codex",
         targetCursor: "Cursor",
         targetClaude: "Claude Code",
-        targetGeneric: "Generic AI Agent"
+        targetGeneric: "Generic AI Agent",
       },
       projectsPage: {
         noProjects: "No projects yet",
-        noProjectsDescription: "Add your first local project to scan its structure, detect stack, and prepare it for AI agents.",
+        noProjectsDescription:
+          "Add your first local project to scan its structure, detect stack, and prepare it for AI agents.",
         selectFolder: "Select folder",
         operations: "Project Operations",
         localRepositories: "Local repositories",
         aiReadiness: "AI readiness",
         title: "Manage scanned projects and prepare them for AI coding agents.",
-        description: "Search repositories, review readiness, rescan project structure, generate AGENTS.md, and create Task Packs from one place.",
+        description:
+          "Search repositories, review readiness, rescan project structure, generate AGENTS.md, and create Task Packs from one place.",
         projects: "Projects",
         scannedRepositories: "scanned repositories",
         avgReadiness: "Avg readiness",
@@ -258,7 +292,8 @@ const resources = {
         filters: "Project filters",
         results: "{{count}} results",
         clearFilters: "Clear filters",
-        searchPlaceholder: "Search by project name, path, stack, package manager...",
+        searchPlaceholder:
+          "Search by project name, path, stack, package manager...",
         all: "All",
         everyProject: "Every project",
         low: "Low",
@@ -282,7 +317,8 @@ const resources = {
         name: "Name",
         nameDesc: "Alphabetical project order",
         noMatching: "No matching projects",
-        noMatchingDescription: "Try changing the search query or clearing one of the filters.",
+        noMatchingDescription:
+          "Try changing the search query or clearing one of the filters.",
         ready: "Ready",
         needsPolish: "Needs polish",
         needsAttentionStatus: "Needs attention",
@@ -304,8 +340,10 @@ const resources = {
         missing: "Missing or not detected.",
         recommendedImprovements: "Recommended improvements",
         detectedSignals: "Detected project signals",
-        detectedSignalsDescription: "Scanner evidence collected during the latest rescan. Use it to understand why readiness checks passed or failed.",
-        rescanForSignals: "Rescan this project to collect package, command, docs, tests, environment and CI signals.",
+        detectedSignalsDescription:
+          "Scanner evidence collected during the latest rescan. Use it to understand why readiness checks passed or failed.",
+        rescanForSignals:
+          "Rescan this project to collect package, command, docs, tests, environment and CI signals.",
         scanComplete: "Scan complete",
         scanLimited: "Scan limited",
         inventorySummary: "{{files}} files · {{directories}} folders",
@@ -327,7 +365,8 @@ const resources = {
         signalTestsDesc: "{{configs}} config(s) · {{files}} file(s).",
         noTestsDetected: "No test files or configs detected.",
         signalEnvironment: "Environment",
-        signalEnvironmentDesc: "Safe environment examples only; secrets are not read.",
+        signalEnvironmentDesc:
+          "Safe environment examples only; secrets are not read.",
         noEnvDetected: "No safe env example detected.",
         signalCi: "CI",
         signalCiDesc: "Workflow files that can validate changes automatically.",
@@ -337,14 +376,17 @@ const resources = {
         signalStructure: "Project structure",
         noStructureDetected: "No key structure folders detected.",
         scanLimitedTitle: "Scanner hit its safety limit",
-        scanLimitedDescription: "The bounded scan stopped at depth {{depth}} or {{entries}} entries. Some signals may be incomplete."
+        scanLimitedDescription:
+          "The bounded scan stopped at depth {{depth}} or {{entries}} entries. Some signals may be incomplete.",
       },
       taskPacksPage: {
         noTaskPacks: "No Task Packs yet",
-        noTaskPacksDescription: "Create a Task Pack from any project card. ContextForge will generate a structured prompt for Codex, Cursor, Claude Code, or another AI agent.",
+        noTaskPacksDescription:
+          "Create a Task Pack from any project card. ContextForge will generate a structured prompt for Codex, Cursor, Claude Code, or another AI agent.",
         archiveMetrics: "Archive metrics",
         storage: "Task Pack storage",
-        storageDescription: "Saved prompts, body modes, visible results, and most used agent.",
+        storageDescription:
+          "Saved prompts, body modes, visible results, and most used agent.",
         visible: "Visible",
         ofGenerated: "of {{count}} generated",
         total: "Total",
@@ -359,7 +401,8 @@ const resources = {
         searchablePrompts: "Searchable prompts",
         agentReadyHistory: "Agent-ready history",
         title: "Manage generated prompts across projects and coding agents.",
-        description: "Search, filter, copy, and reopen saved Task Packs generated from your local projects. Use this page as an archive of AI-ready development tasks.",
+        description:
+          "Search, filter, copy, and reopen saved Task Packs generated from your local projects. Use this page as an archive of AI-ready development tasks.",
         filterConsole: "Filter console",
         results: "{{count}} results",
         clearFilters: "Clear filters",
@@ -372,7 +415,8 @@ const resources = {
         targetAgent: "Target coding agent",
         allBodyModes: "All body modes",
         allBodyModesDesc: "Show every generated body type",
-        ollamaRefinedDesc: "Final body refined through the configured AI provider",
+        ollamaRefinedDesc:
+          "Final body refined through the configured AI provider",
         safeTemplateDesc: "Stable ContextForge template body",
         cachedDesc: "Generated from cached result",
         fallbackDesc: "AI fallback to template",
@@ -385,27 +429,32 @@ const resources = {
         projectSort: "Project",
         projectSortDesc: "Group by project name",
         noMatching: "No matching Task Packs",
-        noMatchingDescription: "Try changing the search query or clearing one of the filters.",
+        noMatchingDescription:
+          "Try changing the search query or clearing one of the filters.",
         readyForCopy: "Ready for copy/paste into coding agent",
         copied: "Copied",
         copy: "Copy",
-        open: "Open"
+        open: "Open",
       },
       taskPackBuilder: {
         badge: "Task Pack Builder",
         title: "New Task Pack",
-        description: "Describe the task, choose generation settings, then analyze context or generate a validated prompt.",
+        description:
+          "Describe the task, choose generation settings, then analyze context or generate a validated prompt.",
         back: "Back",
         analyzeContext: "Analyze Context",
         generating: "Generating...",
         generateTaskPack: "Generate Task Pack",
         describeTitle: "Describe what the AI agent should do.",
-        describeDescription: "Include the expected result, constraints, files or areas to focus on, and anything the agent must not change.",
-        placeholder: "Example: Redesign the login page with smoother language switch animation. Keep auth API unchanged, preserve current localization logic, remove old visual clutter, and make the UI match the new ContextForge design style.",
+        describeDescription:
+          "Include the expected result, constraints, files or areas to focus on, and anything the agent must not change.",
+        placeholder:
+          "Example: Redesign the login page with smoother language switch animation. Keep auth API unchanged, preserve current localization logic, remove old visual clutter, and make the UI match the new ContextForge design style.",
         goodTask: "Good task",
         goodTaskDesc: "Enough detail for file selection and prompt generation.",
         needsMoreDetail: "Needs more detail",
-        needsMoreDetailDesc: "Add constraints, expected behavior, and what not to change.",
+        needsMoreDetailDesc:
+          "Add constraints, expected behavior, and what not to change.",
         tooShort: "Too short",
         tooShortDesc: "Describe the task before generating a Task Pack.",
         chars: "{{count}} chars",
@@ -420,49 +469,72 @@ const resources = {
         acceptanceCriteria: "acceptance criteria.",
         pipeline: "Pipeline",
         analyzeIntent: "Analyze task intent",
-        analyzeIntentDesc: "Detect task area, risk level, constraints and useful file hints.",
+        analyzeIntentDesc:
+          "Detect task area, risk level, constraints and useful file hints.",
         selectFiles: "Select relevant files",
-        selectFilesDesc: "Use real project inventory and safe snippets instead of guessed paths.",
+        selectFilesDesc:
+          "Use real project inventory and safe snippets instead of guessed paths.",
         generateValidated: "Generate validated Task Pack",
-        generateValidatedDesc: "Render a structured prompt for Codex, Cursor, Claude or generic agents.",
+        generateValidatedDesc:
+          "Render a structured prompt for Codex, Cursor, Claude or generic agents.",
         exampleUi: "UI polish",
         exampleBugfix: "Bugfix",
         exampleRefactor: "Refactor",
-        exampleBackend: "Backend"
+        exampleBackend: "Backend",
       },
       taskUnderstanding: {
         eyebrow: "Task understanding",
         clarificationTitle: "One detail is missing",
         reviewTitle: "Review the interpretation",
         detailsTitle: "Task interpretation",
-        clarificationDescription: "ContextForge needs one concrete answer before file selection can begin.",
-        reviewDescription: "The task is understandable, but the target or wording is broad. Confirm the interpretation before continuing.",
-        confirmAllReviewDescription: "Your settings require confirmation before every task. Review the grounded interpretation, then continue or edit the task.",
-        readyDescription: "The task has enough grounded information to continue safely.",
-        sourceSummary: "Source: {{source}} · confidence: {{confidence}}%",
+        clarificationDescription:
+          "ContextForge needs one concrete answer before file selection can begin.",
+        reviewDescription:
+          "The task is understandable, but the target or wording is broad. Confirm the interpretation before continuing.",
+        confirmAllReviewDescription:
+          "Your settings require confirmation before every task. Review the grounded interpretation, then continue or edit the task.",
+        readyDescription:
+          "The task has enough grounded information to continue safely.",
+        sourceSummary: "Source: {{source}} · interpretation confidence: {{confidence}}%",
         editTask: "Edit task",
         checking: "Checking...",
-        checkingClarificationTitle: "Answer saved. Checking the updated task...",
-        checkingClarificationDescription: "ContextForge is grounding your answer and deciding whether the task can continue. You do not need to enter it again.",
+        checkingClarificationTitle:
+          "Answer saved. Checking the updated task...",
+        checkingClarificationDescription:
+          "ContextForge is grounding your answer and deciding whether the task can continue. You do not need to enter it again.",
         applyClarification: "Apply answer",
         continueReviewed: "Continue with this interpretation",
         closeDetails: "Looks good",
-        targetHints: "Grounded targets",
-        noTargetHints: "No exact path is required yet. Shadow will resolve targets from the real inventory.",
+        targetHints: "Targets and evidence",
+        noTargetHints:
+          "No implementation target is confirmed yet. ContextForge will investigate candidates from the real inventory without treating rank as certainty.",
+        targetProvenance: {
+          user_confirmed: "User confirmed",
+          inventory_exact: "Real path · owner unconfirmed",
+          graph_supported: "Code graph supported",
+          model_proposed: "Model proposal",
+          ranked_candidate: "Ranked candidate",
+        },
+        unresolvedDecisions: "Unresolved decisions",
+        unresolvedDecisionsDescription:
+          "These decisions can change the architecture or implementation scope. Resolve them before ContextForge creates a confident edit plan.",
         groundedValues: "Exact user values",
         noGroundedValues: "No exact literal value was required or detected.",
         originalTask: "Original task",
         clarificationHistory: "User clarifications",
         fallbackQuestion: "What additional detail should ContextForge use?",
-        answerDescription: "Your answer is stored separately from the original task and included in the next analysis.",
-        answerPlaceholder: "Enter the exact text, value, target, or constraint...",
-        preflightFailed: "Task understanding failed. Try again or edit the task.",
+        answerDescription:
+          "Your answer is stored separately from the original task and included in the next analysis.",
+        answerPlaceholder:
+          "Enter the exact text, value, target, or constraint...",
+        preflightFailed:
+          "Task understanding failed. Try again or edit the task.",
         statusReady: "Ready",
         statusReview: "Review",
         statusClarification: "Needs clarification",
         openDetails: "Review understanding",
         clarificationCount: "{{count}} clarification(s)",
-        analyzing: "Understanding task..."
+        analyzing: "Understanding task...",
       },
       taskPackResult: {
         generated: "Generated Task Pack",
@@ -470,6 +542,7 @@ const resources = {
         openArchive: "Open archive",
         selectorDiagnostics: "Selector diagnostics",
         generationDiagnostics: "Generation diagnostics",
+        performanceDiagnostics: "Performance diagnostics",
         copyPrompt: "Copy prompt",
         copied: "Copied",
         target: "Target",
@@ -482,9 +555,12 @@ const resources = {
         noDuration: "-",
         milliseconds: "{{value}} ms",
         seconds: "{{value}} sec",
-        ollamaDescription: "The final Task Pack received a structured AI refinement and was validated by ContextForge.",
-        fallbackDescriptionWithMessage: "{{message}} Intent analysis and file selection may still use the configured AI provider; the final markdown body was kept stable by ContextForge.",
-        fallbackDescription: "The final markdown body was rendered with ContextForge's safe template. Intent analysis and file selection may still use the configured AI provider."
+        ollamaDescription:
+          "The final Task Pack received a structured AI refinement and was validated by ContextForge.",
+        fallbackDescriptionWithMessage:
+          "{{message}} Intent analysis and file selection may still use the configured AI provider; the final markdown body was kept stable by ContextForge.",
+        fallbackDescription:
+          "The final markdown body was rendered with ContextForge's safe template. Intent analysis and file selection may still use the configured AI provider.",
       },
       generationDiagnostics: {
         title: "Task Pack generation diagnostics",
@@ -496,7 +572,8 @@ const resources = {
         live: "Live",
         notAvailable: "Not available",
         fallbackTitle: "Validated template fallback",
-        fallbackDescription: "The final Task Pack remained on the backend-generated validated template. Raw model output is not stored in diagnostics.",
+        fallbackDescription:
+          "The final Task Pack remained on the backend-generated validated template. Raw model output is not stored in diagnostics.",
         finalValidationIssues: "Final contract issues",
         promptBudget: "Prompt budget",
         originalPrompt: "Original prompt",
@@ -505,8 +582,10 @@ const resources = {
         compacted: "Compacted",
         truncatedFields: "Compacted fields",
         attemptTimeline: "Attempt timeline",
-        noAttemptsTemplate: "No AI request was needed because validated template mode was used.",
-        noAttemptsCached: "No AI request was needed because a validated cached refinement was reused.",
+        noAttemptsTemplate:
+          "No AI request was needed because validated template mode was used.",
+        noAttemptsCached:
+          "No AI request was needed because a validated cached refinement was reused.",
         attempt: "Attempt {{number}}",
         phase: "Phase",
         duration: "Duration",
@@ -516,19 +595,20 @@ const resources = {
         invalid: "Invalid",
         yes: "Yes",
         no: "No",
-        privacyNotice: "Diagnostics store only status, sizes, timings, parse stages and issue codes. They do not store prompts, model responses, source snippets, secrets or absolute paths.",
+        privacyNotice:
+          "Diagnostics store only status, sizes, timings, parse stages and issue codes. They do not store prompts, model responses, source snippets, secrets or absolute paths.",
         statuses: {
           template: "Validated template mode",
           generated: "Validated AI refinement",
           repaired: "AI refinement repaired locally",
           retried: "AI refinement recovered after retry",
-          fallback: "Validated template fallback"
+          fallback: "Validated template fallback",
         },
         metrics: {
           attempts: "Attempts",
           prompt: "Prompt size",
           output: "Final Task Pack",
-          refinements: "Refinement items"
+          refinements: "Refinement items",
         },
         failureCodes: {
           template_mode: "Template mode",
@@ -540,7 +620,8 @@ const resources = {
           truncated_response: "Truncated response",
           retry_failed: "Retry failed",
           composition_failed: "Safe composition failed",
-          semantic_policy_rejected: "Semantic safety policy rejected the refinement"
+          semantic_policy_rejected:
+            "Semantic safety policy rejected the refinement",
         },
         policy: {
           title: "Semantic refinement policy",
@@ -554,39 +635,100 @@ const resources = {
           rejectionReasons: "Policy actions",
           ambiguitiesTitle: "Task ambiguities",
           consistencyTitle: "Cross-section consistency",
-          description: "ContextForge filters AI refinement items locally. Diagnostics store only counters and issue codes, never the rejected text or raw model response.",
+          description:
+            "ContextForge filters AI refinement items locally. Diagnostics store only counters and issue codes, never the rejected text or raw model response.",
           rejections: {
             unauthorized_git_commit: "Unauthorized commit instruction removed",
             unauthorized_git_push: "Unauthorized push instruction removed",
             unauthorized_git_merge: "Unauthorized merge instruction removed",
-            unauthorized_pull_request: "Unauthorized pull request instruction removed",
+            unauthorized_pull_request:
+              "Unauthorized pull request instruction removed",
             unauthorized_git_tag: "Unauthorized Git tag instruction removed",
-            unauthorized_release_publish: "Unauthorized release publishing instruction removed",
-            forced_verification_claim: "Forced success claim replaced with actual-result reporting",
-            unselected_file_reference: "Reference to a file outside the selected context removed"
+            unauthorized_release_publish:
+              "Unauthorized release publishing instruction removed",
+            forced_verification_claim:
+              "Forced success claim replaced with actual-result reporting",
+            unselected_file_reference:
+              "Reference to a file outside the selected context removed",
           },
           ambiguities: {
-            missing_replacement_value: "The task requests a replacement but does not provide the exact new value"
+            missing_replacement_value:
+              "The task requests a replacement but does not provide the exact new value",
           },
           consistency: {
             clarification_mode_enabled: "Clarification mode enabled",
-            completion_requirements_deferred: "Completion-dependent requirements deferred",
-            verification_deferred: "Implementation verification deferred until clarification",
-            final_response_rewritten: "Final response switched to clarification reporting",
-            semantic_duplicates_removed: "Near-duplicate refinement items removed",
-            section_limits_applied: "Section-specific refinement limits applied",
-            explicit_value_grounded: "Exact user-provided replacement value grounded"
-          }
-        }
+            completion_requirements_deferred:
+              "Completion-dependent requirements deferred",
+            verification_deferred:
+              "Implementation verification deferred until clarification",
+            final_response_rewritten:
+              "Final response switched to clarification reporting",
+            semantic_duplicates_removed:
+              "Near-duplicate refinement items removed",
+            section_limits_applied:
+              "Section-specific refinement limits applied",
+            explicit_value_grounded:
+              "Exact user-provided replacement value grounded",
+          },
+        },
+      },
+      performanceDiagnostics: {
+        title: "Performance diagnostics",
+        description:
+          "Privacy-safe timings and AI call counters for this Task Pack flow.",
+        eyebrow: "Local performance audit",
+        sessionSummary: "{{requests}} request(s) · {{calls}} real AI call(s)",
+        copied: "Copied",
+        copyJson: "Copy diagnostics JSON",
+        notAvailable: "Not available",
+        success: "Success",
+        failed: "Failed",
+        prompt: "Prompt",
+        response: "Response",
+        modelLoad: "Model load",
+        tokens: "Prompt / output tokens",
+        promptEval: "Prompt evaluation",
+        tokenGeneration: "Token generation",
+        requestTimeline: "Request and stage timeline",
+        aiTimeline: "Real AI call timeline",
+        cacheEvents: "Cache events",
+        noAiCalls:
+          "No real AI provider request was made during the recorded flow.",
+        request: "Request {{number}}",
+        aiCall: "AI call {{number}}",
+        modelStateSummary: "Cold calls: {{cold}} · Warm calls: {{warm}}",
+        modelStateDescription:
+          "For Ollama, model state is estimated from the provider-reported model load duration. Other providers remain unknown.",
+        operations: {
+          preflight: "Task understanding preflight",
+          generation: "Task Pack generation",
+        },
+        modelStates: {
+          cold: "Cold model",
+          warm: "Warm model",
+          unknown: "Unknown state",
+        },
+        metrics: {
+          total: "Observed total",
+          aiCalls: "AI calls",
+          aiTime: "AI time",
+          inventory: "Inventory scans",
+          cache: "Cache hit / miss",
+        },
+        privacyNotice:
+          "Only counters, timings, sizes, provider/model labels and safe stage metadata are stored. Raw prompts, model responses, source code, secrets and absolute paths are not stored.",
       },
       selectorDiagnostics: {
         title: "Selector diagnostics",
         eyebrow: "Local rollout data",
         copied: "Copied",
         copyJson: "Copy diagnostics JSON",
-        requestedActual: "Requested {{requested}}; the actual Task Pack used {{actual}}.",
-        requestedSuggested: "Requested {{requested}}; {{suggested}} produced the initial suggestion before manual confirmation.",
-        manualOverrideNotice: "The final file list was confirmed manually; the pipeline badge describes the original suggestion.",
+        requestedActual:
+          "Requested {{requested}}; the actual Task Pack used {{actual}}.",
+        requestedSuggested:
+          "Requested {{requested}}; {{suggested}} produced the initial suggestion before manual confirmation.",
+        manualOverrideNotice:
+          "The final file list was confirmed manually; the pipeline badge describes the original suggestion.",
         fallbackTitle: "Legacy fallback",
         compareFailureTitle: "Shadow comparison failed",
         notScored: "Not scored",
@@ -606,50 +748,56 @@ const resources = {
         abstention: {
           title: "Target not confirmed",
           shadowTitle: "Shadow did not confirm a target",
-          compareNotice: "Compare still used Legacy for the actual Task Pack. Shadow's abstention is shown only as rollout evidence.",
+          compareNotice:
+            "Compare still used Legacy for the actual Task Pack. Shadow's abstention is shown only as rollout evidence.",
           nextActions: "Next safe actions",
           codes: {
             explicit_target_missing: "Named target is missing",
             no_grounded_candidates: "No grounded candidates",
             no_ranked_candidates: "No candidate passed",
             ambiguous_target: "Target is ambiguous",
-            legacy_empty_selection: "Legacy selected nothing"
+            legacy_empty_selection: "Legacy selected nothing",
           },
           messages: {
-            explicit_target_missing: "The task named a target that does not exist in the current project inventory.",
-            no_grounded_candidates: "No project file had enough grounded evidence to become a safe task target.",
-            no_ranked_candidates: "Candidates were found, but none passed the deterministic selection threshold.",
-            ambiguous_target: "The task area was understood, but the implementation target could not be confirmed safely.",
-            legacy_empty_selection: "Legacy did not produce a usable file selection for this task."
+            explicit_target_missing:
+              "The task named a target that does not exist in the current project inventory.",
+            no_grounded_candidates:
+              "No project file had enough grounded evidence to become a safe task target.",
+            no_ranked_candidates:
+              "Candidates were found, but none passed the deterministic selection threshold.",
+            ambiguous_target:
+              "The task area was understood, but the implementation target could not be confirmed safely.",
+            legacy_empty_selection:
+              "Legacy did not produce a usable file selection for this task.",
           },
           actions: {
             explicit_target_missing: {
               1: "Check the target name or path.",
               2: "Rescan the project if files changed recently.",
-              3: "Choose the intended file manually in Full Review."
+              3: "Choose the intended file manually in Full Review.",
             },
             no_grounded_candidates: {
               1: "Mention the page, feature, symbol, route, or file more specifically.",
-              2: "Open Full Review and choose the intended file manually."
+              2: "Open Full Review and choose the intended file manually.",
             },
             no_ranked_candidates: {
               1: "Clarify the expected change or the affected feature.",
-              2: "Review the retrieved candidates and confirm files manually."
+              2: "Review the retrieved candidates and confirm files manually.",
             },
             ambiguous_target: {
               1: "Add the affected page, component, route, service, or behavior to the task.",
-              2: "Choose the intended file manually in Full Review."
+              2: "Choose the intended file manually in Full Review.",
             },
             legacy_empty_selection: {
               1: "Clarify the task target.",
-              2: "Choose files manually in Full Review."
-            }
-          }
+              2: "Choose files manually in Full Review.",
+            },
+          },
         },
         evidence: {
           strong: "Strong evidence",
           supporting: "Supporting evidence",
-          reference: "Reference only"
+          reference: "Reference only",
         },
         none: "None",
         yes: "Yes",
@@ -660,7 +808,7 @@ const resources = {
           success: "success",
           fallback: "fallback",
           blocked: "blocked",
-          manualReview: "manual review"
+          manualReview: "manual review",
         },
         metrics: {
           area: "Area",
@@ -670,35 +818,38 @@ const resources = {
           pathOverlap: "Path overlap",
           editOverlap: "Edit overlap",
           primary: "Primary",
-          safety: "Safety"
+          safety: "Safety",
         },
         badges: {
           legacy: "Legacy",
           shadow: "Shadow",
           legacyFallback: "Legacy fallback",
+          targetFastPath: "Target fast path",
           compareLegacyOutput: "Compare · Legacy output",
-          manualSelection: "Manual selection · {{suggested}} suggested"
+          manualSelection: "Manual selection · {{suggested}} suggested",
         },
         modes: {
           legacy: {
             label: "Legacy",
-            description: "Stable current selector. Shadow is not used."
+            description: "Stable current selector. Shadow is not used.",
           },
           shadow_compare: {
             label: "Compare",
-            description: "Legacy creates the Task Pack while Shadow produces local comparison diagnostics."
+            description:
+              "Legacy creates the Task Pack while Shadow produces local comparison diagnostics.",
           },
           shadow_primary: {
             label: "Shadow",
-            description: "The new deterministic selector creates the Task Pack; technical failures fall back to Legacy."
-          }
-        }
+            description:
+              "The new deterministic selector creates the Task Pack; technical failures fall back to Legacy.",
+          },
+        },
       },
       taskPackExport: {
         markdown: "Export .md",
         text: "Export .txt",
         markdownDone: ".md exported",
-        textDone: ".txt exported"
+        textDone: ".txt exported",
       },
       settings: {
         title: "Settings",
@@ -707,12 +858,14 @@ const resources = {
         heroBadgeGithub: "GitHub-style control center",
         heroBadgeLocal: "Local-first workflow",
         heroTitle: "Configure ContextForge as a developer workspace.",
-        heroDescription: "Manage local AI, generation defaults, Context Composer limits, keyboard shortcuts and system metadata from one structured place.",
+        heroDescription:
+          "Manage local AI, generation defaults, Context Composer limits, keyboard shortcuts and system metadata from one structured place.",
         readyNotice: "Settings are ready.",
         loadedNotice: "Settings loaded.",
         savedNotice: "Settings saved.",
         refreshedTitle: "Settings refreshed",
-        refreshedMessage: "Latest local AI status and application settings were loaded.",
+        refreshedMessage:
+          "Latest local AI status and application settings were loaded.",
         refreshFailed: "Refresh failed",
         loadFailed: "Failed to load settings.",
         saveFailed: "Save failed",
@@ -720,66 +873,84 @@ const resources = {
         savedTitle: "Settings saved",
         savedMessage: "Your ContextForge preferences were saved successfully.",
         unsavedTitle: "Unsaved settings",
-        unsavedMessage: "You changed ContextForge preferences but have not saved them yet.",
+        unsavedMessage:
+          "You changed ContextForge preferences but have not saved them yet.",
         aiEngine: "AI Engine",
         generation: "Generation",
         composer: "Composer",
         selectorExperimentalLabel: "Experimental AI Core",
         selectorRolloutTitle: "Selector rollout mode",
-        selectorRolloutDescription: "Choose which context selector produces Task Packs. Compare and Shadow are intended for internal testing.",
+        selectorRolloutDescription:
+          "Choose which context selector produces Task Packs. Compare and Shadow are intended for internal testing.",
         selectorHistoryTitle: "Local diagnostics history",
-        selectorHistoryDescription: "{{count}} of 50 bounded records. No source content or absolute paths.",
+        selectorHistoryDescription:
+          "{{count}} of 50 bounded records. No source content or absolute paths.",
         selectorClearHistory: "Clear history",
         interface: "Interface",
         shortcuts: "Shortcuts",
         system: "System",
         language: "Language",
         languageTitle: "Application language",
-        languageDescription: "Switch the interface language. Project data, paths, Ollama messages and generated files stay untouched.",
+        languageDescription:
+          "Switch the interface language. Project data, paths, Ollama messages and generated files stay untouched.",
         languageSystem: "System language",
         languageEnglish: "English",
         languageRussian: "Russian",
         languageCurrent: "Current language",
-        languageSavedWithSettings: "The selected language is saved with the rest of your interface settings.",
+        languageSavedWithSettings:
+          "The selected language is saved with the rest of your interface settings.",
         sidebar: "Sidebar",
         navigationDensity: "Navigation density",
-        navigationDensityDescription: "Keep the sidebar compact by default, or show extra descriptions when you want more guidance.",
+        navigationDensityDescription:
+          "Keep the sidebar compact by default, or show extra descriptions when you want more guidance.",
         showSidebarDescriptions: "Show sidebar descriptions",
-        showSidebarDescriptionsDesc: "Display short helper text under each navigation item. Turn this off for a cleaner, more compact sidebar.",
+        showSidebarDescriptionsDesc:
+          "Display short helper text under each navigation item. Turn this off for a cleaner, more compact sidebar.",
         onboarding: "Onboarding",
         onboardingTitle: "First-run guide",
-        onboardingDescription: "Control whether ContextForge opens the guided first-run page before the workspace.",
+        onboardingDescription:
+          "Control whether ContextForge opens the guided first-run page before the workspace.",
         showOnboardingOnLaunch: "Show onboarding on launch",
-        showOnboardingOnLaunchDesc: "Open the guided setup page before Dashboard. Turn this off when you want to enter the app directly.",
+        showOnboardingOnLaunchDesc:
+          "Open the guided setup page before Dashboard. Turn this off when you want to enter the app directly.",
         repeatOnboardingDuringAlpha: "Repeat onboarding during alpha",
-        repeatOnboardingDuringAlphaDesc: "Useful while the onboarding flow is being developed. When disabled, the guide only appears until it is completed.",
+        repeatOnboardingDuringAlphaDesc:
+          "Useful while the onboarding flow is being developed. When disabled, the guide only appears until it is completed.",
         onboardingLaunchOff: "Onboarding is disabled on launch.",
         onboardingFirstRunOnly: "Onboarding appears only until completed.",
         onboardingEveryLaunch: "Onboarding appears on every launch.",
-        onboardingSavedWithSettings: "These preferences are saved locally with the rest of your interface settings.",
+        onboardingSavedWithSettings:
+          "These preferences are saved locally with the rest of your interface settings.",
         layoutTip: "Layout tip",
         collapsibleSidebar: "Collapsible sidebar",
-        collapsibleSidebarDesc: "The sidebar can be collapsed directly from the navigation panel. That state is saved locally on this device.",
+        collapsibleSidebarDesc:
+          "The sidebar can be collapsed directly from the navigation panel. That state is saved locally on this device.",
         recommendedSetup: "Recommended setup",
-        recommendedSetupDesc: "Keep descriptions hidden for daily work. Use collapsed mode when you want more horizontal space for tables, Composer, and generated Task Packs.",
+        recommendedSetupDesc:
+          "Keep descriptions hidden for daily work. Use collapsed mode when you want more horizontal space for tables, Composer, and generated Task Packs.",
         aiTitle: "Connect local models and control Ollama integration.",
-        aiDescription: "ContextForge can refine AGENTS.md files, Task Packs, intent analysis and file selection through a local Ollama model.",
+        aiDescription:
+          "ContextForge can refine AGENTS.md files, Task Packs, intent analysis and file selection through a local Ollama model.",
         ollamaIntegration: "Ollama integration",
-        ollamaIntegrationDesc: "Local model provider used to refine generated AGENTS.md files and Task Packs without sending project context to a cloud service.",
+        ollamaIntegrationDesc:
+          "Local model provider used to refine generated AGENTS.md files and Task Packs without sending project context to a cloud service.",
         ollamaUrl: "Ollama URL",
         noUrl: "No URL",
         statusMessage: "Status message",
         checkingOllama: "Checking Ollama...",
         localModels: "Local models",
         detectedModels: "Detected Ollama models",
-        detectedModelsDesc: "Models available from the configured Ollama instance. Select one as default for Ollama-assisted generation.",
+        detectedModelsDesc:
+          "Models available from the configured Ollama instance. Select one as default for Ollama-assisted generation.",
         noModels: "No models detected",
         pullModelFirst: "Start Ollama and pull a model first:",
         generationTitle: "Set default generation behavior for AI coding tasks.",
-        generationDescription: "Choose generation mode, default target tool, task type and default local model for new Task Packs.",
+        generationDescription:
+          "Choose generation mode, default target tool, task type and default local model for new Task Packs.",
         generationPreferences: "Generation preferences",
         defaultTaskPackBehavior: "Default Task Pack behavior",
-        defaultTaskPackBehaviorDesc: "These defaults are used when opening a new Task Pack draft or running assisted generation.",
+        defaultTaskPackBehaviorDesc:
+          "These defaults are used when opening a new Task Pack draft or running assisted generation.",
         generationMode: "Generation mode",
         template: "Template",
         templateDesc: "Fast deterministic generation",
@@ -794,25 +965,35 @@ const resources = {
         useTemplateOnly: "Use template mode only",
         generationModes: "Generation modes",
         templateVsOllama: "Template vs Ollama",
-        templateVsOllamaDesc: "Template mode is stable and deterministic. Ollama-assisted mode uses a local model for smarter refinement.",
+        templateVsOllamaDesc:
+          "Template mode is stable and deterministic. Ollama-assisted mode uses a local model for smarter refinement.",
         templateMode: "Template mode",
-        templateModeDesc: "Stable fallback. Generates deterministic context and prompts.",
+        templateModeDesc:
+          "Stable fallback. Generates deterministic context and prompts.",
         ollamaMode: "Ollama-assisted mode",
         ollamaModeDesc: "Uses local models to refine generated Task Packs.",
         taskUnderstandingBehavior: "Task understanding",
         clarificationModeTitle: "Clarification behavior",
-        clarificationModeDescription: "Choose when ContextForge should pause and ask the user to confirm or clarify the task before file selection.",
+        clarificationModeDescription:
+          "Choose when ContextForge should pause and ask the user to confirm or clarify the task before file selection.",
         clarificationModeAutomatic: "Automatic",
-        clarificationModeAutomaticDesc: "Fastest. Continues through review-level ambiguity and asks only when a required value or target is truly missing.",
+        clarificationModeAutomaticDesc:
+          "Fastest. Continues through review-level ambiguity and asks only when a required value or target is truly missing.",
         clarificationModeBalanced: "Balanced",
-        clarificationModeBalancedDesc: "Recommended. Asks for missing required details and confirms broad or subjective interpretations.",
+        clarificationModeBalancedDesc:
+          "Recommended. Asks for missing required details and confirms broad or subjective interpretations.",
         clarificationModeConfirmAll: "Confirm every task",
-        clarificationModeConfirmAllDesc: "Most controlled. Shows the interpreted task before every Analyze or Generate action, even when the task is already ready.",
-        clarificationModeSafetyNote: "Required information is never invented. Even Automatic mode still asks when ContextForge cannot safely proceed without a concrete user value.",
-        composerTitle: "Control how much context Composer shows before generation.",
-        composerDescription: "Tune file limits by task area. ContextForge still ranks files by priority first, then cuts the final list by your selected limit.",
+        clarificationModeConfirmAllDesc:
+          "Most controlled. Shows the interpreted task before every Analyze or Generate action, even when the task is already ready.",
+        clarificationModeSafetyNote:
+          "Required information is never invented. Even Automatic mode still asks when ContextForge cannot safely proceed without a concrete user value.",
+        composerTitle:
+          "Control how much context Composer shows before generation.",
+        composerDescription:
+          "Tune file limits by task area. ContextForge still ranks files by priority first, then cuts the final list by your selected limit.",
         fileCandidateLimits: "File candidate limits",
-        fileCandidateLimitsDesc: "Choose how many prioritized files should appear in Composer preview for each task area.",
+        fileCandidateLimitsDesc:
+          "Choose how many prioritized files should appear in Composer preview for each task area.",
         focused: "Focused",
         lessNoise: "Less noise",
         balanced: "Balanced",
@@ -821,13 +1002,17 @@ const resources = {
         moreContext: "More context",
         currentMode: "Current mode: {{mode}}",
         custom: "Custom",
-        fileLimitsExplanation: "Files are ranked by relevance first. These limits only control how many top-priority files are shown in Composer preview.",
+        fileLimitsExplanation:
+          "Files are ranked by relevance first. These limits only control how many top-priority files are shown in Composer preview.",
         shortcutsTitle: "Review current and planned keyboard shortcuts.",
-        shortcutsDescription: "Shortcuts make ContextForge feel more like a developer tool than a static dashboard.",
+        shortcutsDescription:
+          "Shortcuts make ContextForge feel more like a developer tool than a static dashboard.",
         keyboardShortcuts: "Keyboard shortcuts",
-        keyboardShortcutsDesc: "Current and planned shortcuts for faster navigation inside ContextForge.",
+        keyboardShortcutsDesc:
+          "Current and planned shortcuts for faster navigation inside ContextForge.",
         systemTitle: "Inspect application identity and local-first mode.",
-        systemDescription: "System settings summarize the current application phase, version and product mode.",
+        systemDescription:
+          "System settings summarize the current application phase, version and product mode.",
         applicationMetadata: "Application metadata",
         applicationMetadataDesc: "Current build identity and product status.",
         name: "Name",
@@ -836,14 +1021,17 @@ const resources = {
         mode: "Mode",
         direction: "Direction",
         productArchitecture: "Product architecture",
-        productArchitectureDesc: "ContextForge is being shaped as a local AI workflow layer for real developer projects.",
+        productArchitectureDesc:
+          "ContextForge is being shaped as a local AI workflow layer for real developer projects.",
         localFirstDesc: "Project context stays on the machine.",
         agentReady: "Agent-ready",
-        agentReadyDesc: "Outputs are prepared for Codex, Claude Code, Cursor and generic agents.",
+        agentReadyDesc:
+          "Outputs are prepared for Codex, Claude Code, Cursor and generic agents.",
         composerDriven: "Composer-driven",
-        composerDrivenDesc: "Task context is analyzed and reviewed before generation."
-      }
-    }
+        composerDrivenDesc:
+          "Task context is analyzed and reviewed before generation.",
+      },
+    },
   },
   ru: {
     translation: {
@@ -873,36 +1061,45 @@ const resources = {
         unknownError: "Неизвестная ошибка",
         statusReady: "Готово к сканированию первого проекта.",
         statusScanningProject: "Сканирование проекта...",
-        statusProjectAdded: "Проект \"{{name}}\" успешно добавлен.",
-        statusRescanningProject: "Пересканирование \"{{name}}\"...",
-        statusProjectRescanned: "Проект \"{{name}}\" успешно пересканирован.",
-        statusGeneratingAgentsOllama: "Генерация AGENTS.md через Ollama ({{model}}). На CPU это может занять 1-2 минуты...",
-        statusGeneratingAgents: "Генерация AGENTS.md для \"{{name}}\"...",
-        statusAgentsGenerated: "Preview AGENTS.md создан для \"{{name}}\".",
-        statusRegeneratingAgentsOllama: "Повторная генерация AGENTS.md через Ollama ({{model}}). Кэш будет проигнорирован...",
-        statusRegeneratingAgents: "Повторная генерация AGENTS.md для \"{{name}}\"...",
-        statusAgentsRegenerated: "AGENTS.md пересоздан для \"{{name}}\".",
-        statusSavingAgents: "Сохранение AGENTS.md для \"{{name}}\"...",
-        statusAgentsSaved: "AGENTS.md сохранён в проект \"{{name}}\".",
-        statusGeneratingTaskPackOllamaFiles: "Генерация task pack с {{count}} Composer-selected file(s) и Ollama ({{model}}). На CPU это может занять 1-2 минуты...",
-        statusGeneratingTaskPackOllama: "Генерация task pack через Ollama ({{model}}). На CPU это может занять 1-2 минуты...",
-        statusGeneratingTaskPackFiles: "Генерация task pack с {{count}} Composer-selected file(s) для \"{{name}}\"...",
-        statusGeneratingTaskPack: "Генерация task pack для \"{{name}}\"...",
+        statusProjectAdded: 'Проект "{{name}}" успешно добавлен.',
+        statusRescanningProject: 'Пересканирование "{{name}}"...',
+        statusProjectRescanned: 'Проект "{{name}}" успешно пересканирован.',
+        statusGeneratingAgentsOllama:
+          "Генерация AGENTS.md через Ollama ({{model}}). На CPU это может занять 1-2 минуты...",
+        statusGeneratingAgents: 'Генерация AGENTS.md для "{{name}}"...',
+        statusAgentsGenerated: 'Preview AGENTS.md создан для "{{name}}".',
+        statusRegeneratingAgentsOllama:
+          "Повторная генерация AGENTS.md через Ollama ({{model}}). Кэш будет проигнорирован...",
+        statusRegeneratingAgents:
+          'Повторная генерация AGENTS.md для "{{name}}"...',
+        statusAgentsRegenerated: 'AGENTS.md пересоздан для "{{name}}".',
+        statusSavingAgents: 'Сохранение AGENTS.md для "{{name}}"...',
+        statusAgentsSaved: 'AGENTS.md сохранён в проект "{{name}}".',
+        statusGeneratingTaskPackOllamaFiles:
+          "Генерация task pack с {{count}} Composer-selected file(s) и Ollama ({{model}}). На CPU это может занять 1-2 минуты...",
+        statusGeneratingTaskPackOllama:
+          "Генерация task pack через Ollama ({{model}}). На CPU это может занять 1-2 минуты...",
+        statusGeneratingTaskPackFiles:
+          'Генерация task pack с {{count}} Composer-selected file(s) для "{{name}}"...',
+        statusGeneratingTaskPack: 'Генерация task pack для "{{name}}"...',
         statusTaskPackGenerated: "Task pack успешно создан.",
-        statusLoadingTaskDefaults: "Загрузка defaults Task Pack для \"{{name}}\"...",
-        statusTaskDraftOpened: "Draft Task Pack открыт для \"{{name}}\".",
-        statusSettingsUnavailable: "Настройки недоступны. Используются значения Task Pack по умолчанию.",
-        statusAnalyzingContext: "Анализ контекста для \"{{name}}\"...",
-        statusContextReady: "Preview контекста готов для \"{{name}}\".",
-        statusSelectComposerFile: "Выберите хотя бы один Composer file перед генерацией Task Pack.",
-        statusInitialLoadFailed: "Не удалось загрузить начальные данные."
+        statusLoadingTaskDefaults:
+          'Загрузка defaults Task Pack для "{{name}}"...',
+        statusTaskDraftOpened: 'Draft Task Pack открыт для "{{name}}".',
+        statusSettingsUnavailable:
+          "Настройки недоступны. Используются значения Task Pack по умолчанию.",
+        statusAnalyzingContext: 'Анализ контекста для "{{name}}"...',
+        statusContextReady: 'Preview контекста готов для "{{name}}".',
+        statusSelectComposerFile:
+          "Выберите хотя бы один Composer file перед генерацией Task Pack.",
+        statusInitialLoadFailed: "Не удалось загрузить начальные данные.",
       },
       time: {
         never: "никогда",
         justNow: "только что",
         minutesAgo: "{{count}} мин назад",
         hoursAgo: "{{count}} ч назад",
-        daysAgo: "{{count}} дн назад"
+        daysAgo: "{{count}} дн назад",
       },
       nav: {
         navigation: "Навигация",
@@ -924,29 +1121,34 @@ const resources = {
         settings: "Настройки",
         dashboardDesc: "Главный экран, workflow продукта и быстрые действия.",
         projectsDesc: "Локальные репозитории, стек, readiness-отчёты.",
-        scannersDesc: "Подробные scanner-сигналы: команды, docs, tests, CI и структура проекта.",
+        scannersDesc:
+          "Подробные scanner-сигналы: команды, docs, tests, CI и структура проекта.",
         contextDesc: "Генерация AGENTS.md, контекста проекта и AI-инструкций.",
         taskPacksDesc: "Архив промптов для coding agents.",
-        agentsDesc: "Профили агентов для Codex, Cursor, Claude Code, Gemini и Generic Task Packs.",
+        agentsDesc:
+          "Профили агентов для Codex, Cursor, Claude Code, Gemini и Generic Task Packs.",
         templatesDesc: "Переиспользуемые шаблоны задач, промптов и контекста.",
-        integrationsDesc: "Будущие MCP, CLI, экспорт и подключения внешних агентов.",
+        integrationsDesc:
+          "Будущие MCP, CLI, экспорт и подключения внешних агентов.",
         githubDesc: "Browser pairing, привязка репозиториев и issue workflows.",
         reportsDesc: "Аналитика readiness, Task Packs и истории проектов.",
-        settingsDesc: "Ollama URL, режим генерации, defaults и настройки приложения.",
+        settingsDesc:
+          "Ollama URL, режим генерации, defaults и настройки приложения.",
         expandSidebar: "Развернуть сайдбар",
-        collapseSidebar: "Свернуть сайдбар"
+        collapseSidebar: "Свернуть сайдбар",
       },
       titlebar: {
         openNavigationAssistant: "Открыть навигацию",
         aiWorkflowReady: "AI workflow готов",
         minimizeWindow: "Свернуть окно",
         maximizeWindow: "Развернуть окно",
-        closeWindow: "Закрыть окно"
+        closeWindow: "Закрыть окно",
       },
       splash: {
         composerReady: "Composer готов",
         welcome: "Добро пожаловать в ContextForge",
-        description: "Подготавливаем локальный AI workflow, контекст проектов и workspace для Task Packs.",
+        description:
+          "Подготавливаем локальный AI workflow, контекст проектов и workspace для Task Packs.",
         starting: "Запуск ContextForge",
         loadingPrefs: "Загрузка настроек интерфейса",
         defaultPrefs: "Используем настройки интерфейса по умолчанию",
@@ -954,14 +1156,16 @@ const resources = {
         openingWorkspace: "Открываем workspace",
         loadingWorkspace: "Загрузка данных workspace",
         preparingWorkspace: "Подготовка workspace",
-        workspaceReady: "Workspace готов"
+        workspaceReady: "Workspace готов",
       },
       dashboard: {
         emptyTitle: "Начните с первого локального репозитория.",
-        emptyDescription: "Добавьте папку проекта. ContextForge просканирует её, посчитает readiness и поможет создать AGENTS.md и Task Packs для coding agents.",
+        emptyDescription:
+          "Добавьте папку проекта. ContextForge просканирует её, посчитает readiness и поможет создать AGENTS.md и Task Packs для coding agents.",
         workspaceOverview: "Обзор workspace",
         lastScan: "Последнее сканирование {{time}}",
-        summary: "{{count}} проект{{plural}} требует контекста · средний readiness {{readiness}} · Task Packs создано: {{taskPacks}}",
+        summary:
+          "{{count}} проект{{plural}} требует контекста · средний readiness {{readiness}} · Task Packs создано: {{taskPacks}}",
         projects: "Проекты",
         localWorkspaces: "локальные workspace",
         needAttention: "Нужно внимание",
@@ -974,14 +1178,17 @@ const resources = {
         priorityCaption: "Здесь показаны только самые приоритетные проекты.",
         viewAllProjects: "Все проекты",
         noUrgentIssues: "Срочных проблем нет",
-        noUrgentIssuesDesc: "У просканированных проектов нет срочных readiness-проблем.",
+        noUrgentIssuesDesc:
+          "У просканированных проектов нет срочных readiness-проблем.",
         recentTaskPacks: "Недавние Task Packs",
-        recentTaskPacksCaption: "Последние промпты, подготовленные для coding agents.",
+        recentTaskPacksCaption:
+          "Последние промпты, подготовленные для coding agents.",
         openArchive: "Открыть архив",
         noTaskPacks: "Task Packs пока нет",
         noTaskPacksDesc: "Создайте Task Pack из проекта, и он появится здесь.",
         readinessBreakdown: "Разбор readiness",
-        readinessBreakdownCaption: "Почему средний readiness низкий или высокий.",
+        readinessBreakdownCaption:
+          "Почему средний readiness низкий или высокий.",
         quickActions: "Быстрые действия",
         quickActionsCaption: "Переход к следующему полезному workflow.",
         openContextBuilder: "Открыть Context Builder",
@@ -1005,7 +1212,8 @@ const resources = {
         localAi: "Локальный AI",
         optionalAssistantMode: "Опциональный assistant-режим.",
         aiWorkflowReady: "AI workflow готов",
-        templateModeWorks: "Template mode работает локально. Настройте Ollama, если нужно AI-улучшение промптов.",
+        templateModeWorks:
+          "Template mode работает локально. Настройте Ollama, если нужно AI-улучшение промптов.",
         lastScanPrefix: "Последний скан: {{time}}",
         copyPrompt: "Скопировать промпт",
         openTaskPack: "Открыть Task Pack",
@@ -1014,18 +1222,21 @@ const resources = {
         readyForAiWorkflow: "Готово для AI workflow",
         buildContext: "Собрать контекст",
         scan: "Сканировать",
-        createPack: "Создать pack"
+        createPack: "Создать pack",
       },
       contextBuilder: {
         noProjects: "Проекты не найдены",
-        noProjectsDescription: "Сначала добавьте локальный проект. ContextForge просканирует его, определит стек и подготовит AI-ready context files.",
+        noProjectsDescription:
+          "Сначала добавьте локальный проект. ContextForge просканирует его, определит стек и подготовит AI-ready context files.",
         badge: "Context Builder",
         taskPackSource: "Источник Task Pack",
         title: "Соберите контекст проекта до отправки задач AI coding agents.",
-        description: "Выберите просканированный репозиторий, проверьте AI-readiness сигналы, создайте AGENTS.md или task-specific prompt pack.",
+        description:
+          "Выберите просканированный репозиторий, проверьте AI-readiness сигналы, создайте AGENTS.md или task-specific prompt pack.",
         projects: "Проекты",
         selectContextSource: "Выберите источник контекста",
-        selectContextSourceDescription: "Выберите локальный репозиторий, который станет источником AI-контекста.",
+        selectContextSourceDescription:
+          "Выберите локальный репозиторий, который станет источником AI-контекста.",
         searchProjects: "Поиск проектов...",
         noMatchingProjects: "Подходящих проектов нет",
         tryAnotherProject: "Попробуйте другое имя проекта или стек.",
@@ -1040,20 +1251,24 @@ const resources = {
         createTaskPack: "Создать Task Pack",
         readinessChecks: "Readiness-проверки",
         whatFound: "Что нашёл ContextForge",
-        signalsDescription: "Эти сигналы определяют, насколько безопасным и полезным будет сгенерированный контекст.",
+        signalsDescription:
+          "Эти сигналы определяют, насколько безопасным и полезным будет сгенерированный контекст.",
         passed: "пройдено: {{count}}",
         missing: "Не найдено или не обнаружено.",
         mainRecommendation: "Главная рекомендация",
         nextBestAction: "Следующее лучшее действие",
         noMajorIssues: "Крупных AI-readiness проблем не найдено.",
-        readyAction: "Сначала создайте AGENTS.md, затем task-specific Task Pack.",
-        improveAction: "Сначала улучшите context-файлы проекта, затем пересканируйте проект.",
+        readyAction:
+          "Сначала создайте AGENTS.md, затем task-specific Task Pack.",
+        improveAction:
+          "Сначала улучшите context-файлы проекта, затем пересканируйте проект.",
         contextHistoryKicker: "История контекста проекта",
         contextHistoryTitle: "Сохранённые AGENTS.md файлы",
-        contextHistoryDescription: "Компактная история context-файлов, сохранённых в корне проекта.",
+        contextHistoryDescription:
+          "Компактная история context-файлов, сохранённых в корне проекта.",
         contextHistoryNotGenerated: "Ещё не создан",
         contextHistoryPreview: "Открыть",
-        contextHistoryGenerate: "Создать свежий AGENTS.md"
+        contextHistoryGenerate: "Создать свежий AGENTS.md",
       },
       labels: {
         projectFallback: "Проект #{{id}}",
@@ -1076,17 +1291,20 @@ const resources = {
         targetCodex: "Codex",
         targetCursor: "Cursor",
         targetClaude: "Claude Code",
-        targetGeneric: "Generic AI Agent"
+        targetGeneric: "Generic AI Agent",
       },
       projectsPage: {
         noProjects: "Проектов пока нет",
-        noProjectsDescription: "Добавьте первый локальный проект, чтобы просканировать структуру, определить стек и подготовить его для AI agents.",
+        noProjectsDescription:
+          "Добавьте первый локальный проект, чтобы просканировать структуру, определить стек и подготовить его для AI agents.",
         selectFolder: "Выбрать папку",
         operations: "Операции проекта",
         localRepositories: "Локальные репозитории",
         aiReadiness: "AI readiness",
-        title: "Управляйте просканированными проектами и готовьте их для AI coding agents.",
-        description: "Ищите репозитории, проверяйте readiness, пересканируйте структуру проекта, генерируйте AGENTS.md и создавайте Task Packs из одного места.",
+        title:
+          "Управляйте просканированными проектами и готовьте их для AI coding agents.",
+        description:
+          "Ищите репозитории, проверяйте readiness, пересканируйте структуру проекта, генерируйте AGENTS.md и создавайте Task Packs из одного места.",
         projects: "Проекты",
         scannedRepositories: "просканированные репозитории",
         avgReadiness: "Средний readiness",
@@ -1098,7 +1316,8 @@ const resources = {
         filters: "Фильтры проектов",
         results: "результатов: {{count}}",
         clearFilters: "Сбросить фильтры",
-        searchPlaceholder: "Поиск по имени, пути, стеку, пакетному менеджеру...",
+        searchPlaceholder:
+          "Поиск по имени, пути, стеку, пакетному менеджеру...",
         all: "Все",
         everyProject: "Любой проект",
         low: "Низкий",
@@ -1114,7 +1333,8 @@ const resources = {
         packageDescription: "npm, pnpm, yarn, bun, unknown...",
         detectedPackageManager: "Найденный пакетный менеджер",
         latestScan: "Последний скан",
-        latestScanDesc: "Недавно просканированные или обновлённые проекты первыми",
+        latestScanDesc:
+          "Недавно просканированные или обновлённые проекты первыми",
         readinessLowFirst: "Сначала низкий readiness",
         readinessLowFirstDesc: "Сначала проекты, требующие внимания",
         readinessHighFirst: "Сначала высокий readiness",
@@ -1122,7 +1342,8 @@ const resources = {
         name: "Имя",
         nameDesc: "Алфавитный порядок проектов",
         noMatching: "Подходящих проектов нет",
-        noMatchingDescription: "Попробуйте изменить поиск или сбросить один из фильтров.",
+        noMatchingDescription:
+          "Попробуйте изменить поиск или сбросить один из фильтров.",
         ready: "Готов",
         needsPolish: "Нужно улучшить",
         needsAttentionStatus: "Требует внимания",
@@ -1144,8 +1365,10 @@ const resources = {
         missing: "Не найдено или не обнаружено.",
         recommendedImprovements: "Рекомендуемые улучшения",
         detectedSignals: "Найденные сигналы проекта",
-        detectedSignalsDescription: "Данные scanner из последнего рескана. По ним видно, почему readiness-проверки прошли или провалились.",
-        rescanForSignals: "Пересканируйте проект, чтобы собрать package, команды, docs, tests, env и CI сигналы.",
+        detectedSignalsDescription:
+          "Данные scanner из последнего рескана. По ним видно, почему readiness-проверки прошли или провалились.",
+        rescanForSignals:
+          "Пересканируйте проект, чтобы собрать package, команды, docs, tests, env и CI сигналы.",
         scanComplete: "Скан завершён",
         scanLimited: "Скан ограничен",
         inventorySummary: "{{files}} файлов · {{directories}} папок",
@@ -1153,7 +1376,8 @@ const resources = {
         signalPackagesDesc: "Найдено package manifest: {{count}}.",
         noPackagesDetected: "Package manifests не найдены.",
         signalCommands: "Команды",
-        signalCommandsDesc: "Scripts, которые ContextForge может использовать как hints для проверки.",
+        signalCommandsDesc:
+          "Scripts, которые ContextForge может использовать как hints для проверки.",
         signalDev: "Dev",
         signalBuild: "Build",
         signalTest: "Test",
@@ -1167,7 +1391,8 @@ const resources = {
         signalTestsDesc: "{{configs}} config · {{files}} files.",
         noTestsDetected: "Test files/configs не найдены.",
         signalEnvironment: "Environment",
-        signalEnvironmentDesc: "Только безопасные env examples; секреты не читаются.",
+        signalEnvironmentDesc:
+          "Только безопасные env examples; секреты не читаются.",
         noEnvDetected: "Безопасный env example не найден.",
         signalCi: "CI",
         signalCiDesc: "Workflow-файлы для автоматической проверки изменений.",
@@ -1177,14 +1402,17 @@ const resources = {
         signalStructure: "Структура проекта",
         noStructureDetected: "Ключевые папки структуры не найдены.",
         scanLimitedTitle: "Scanner достиг safety-лимита",
-        scanLimitedDescription: "Bounded scan остановился на depth {{depth}} или {{entries}} entries. Часть signals может быть неполной."
+        scanLimitedDescription:
+          "Bounded scan остановился на depth {{depth}} или {{entries}} entries. Часть signals может быть неполной.",
       },
       taskPacksPage: {
         noTaskPacks: "Task Packs пока нет",
-        noTaskPacksDescription: "Создайте Task Pack из любой карточки проекта. ContextForge сгенерирует структурированный промпт для Codex, Cursor, Claude Code или другого AI agent.",
+        noTaskPacksDescription:
+          "Создайте Task Pack из любой карточки проекта. ContextForge сгенерирует структурированный промпт для Codex, Cursor, Claude Code или другого AI agent.",
         archiveMetrics: "Метрики архива",
         storage: "Хранилище Task Pack",
-        storageDescription: "Сохранённые промпты, режимы body, видимые результаты и самый частый агент.",
+        storageDescription:
+          "Сохранённые промпты, режимы body, видимые результаты и самый частый агент.",
         visible: "Видимые",
         ofGenerated: "из {{count}} созданных",
         total: "Всего",
@@ -1198,8 +1426,10 @@ const resources = {
         archive: "Архив Task Pack",
         searchablePrompts: "Поиск по промптам",
         agentReadyHistory: "Agent-ready история",
-        title: "Управляйте сгенерированными промптами для проектов и coding agents.",
-        description: "Ищите, фильтруйте, копируйте и открывайте сохранённые Task Packs, созданные из локальных проектов. Эта страница работает как архив AI-ready задач разработки.",
+        title:
+          "Управляйте сгенерированными промптами для проектов и coding agents.",
+        description:
+          "Ищите, фильтруйте, копируйте и открывайте сохранённые Task Packs, созданные из локальных проектов. Эта страница работает как архив AI-ready задач разработки.",
         filterConsole: "Панель фильтров",
         results: "результатов: {{count}}",
         clearFilters: "Сбросить фильтры",
@@ -1212,7 +1442,8 @@ const resources = {
         targetAgent: "Целевой coding agent",
         allBodyModes: "Все body modes",
         allBodyModesDesc: "Показать все типы сгенерированного body",
-        ollamaRefinedDesc: "Финальное body улучшено через выбранного AI-провайдера",
+        ollamaRefinedDesc:
+          "Финальное body улучшено через выбранного AI-провайдера",
         safeTemplateDesc: "Стабильное template body ContextForge",
         cachedDesc: "Создано из кэша",
         fallbackDesc: "Откат AI к template",
@@ -1225,27 +1456,33 @@ const resources = {
         projectSort: "Проект",
         projectSortDesc: "Группировка по имени проекта",
         noMatching: "Подходящих Task Packs нет",
-        noMatchingDescription: "Попробуйте изменить поиск или сбросить один из фильтров.",
+        noMatchingDescription:
+          "Попробуйте изменить поиск или сбросить один из фильтров.",
         readyForCopy: "Готово для copy/paste в coding agent",
         copied: "Скопировано",
         copy: "Копировать",
-        open: "Открыть"
+        open: "Открыть",
       },
       taskPackBuilder: {
         badge: "Task Pack Builder",
         title: "Новый Task Pack",
-        description: "Опишите задачу, выберите настройки генерации, затем проанализируйте контекст или создайте валидированный промпт.",
+        description:
+          "Опишите задачу, выберите настройки генерации, затем проанализируйте контекст или создайте валидированный промпт.",
         back: "Назад",
         analyzeContext: "Анализировать контекст",
         generating: "Генерация...",
         generateTaskPack: "Создать Task Pack",
         describeTitle: "Опишите, что должен сделать AI agent.",
-        describeDescription: "Укажите ожидаемый результат, ограничения, файлы или области фокуса и то, что агент не должен менять.",
-        placeholder: "Пример: переработать страницу логина с более плавной анимацией смены языка. Не менять auth API, сохранить текущую localization logic, убрать визуальный шум и привести UI к новому стилю ContextForge.",
+        describeDescription:
+          "Укажите ожидаемый результат, ограничения, файлы или области фокуса и то, что агент не должен менять.",
+        placeholder:
+          "Пример: переработать страницу логина с более плавной анимацией смены языка. Не менять auth API, сохранить текущую localization logic, убрать визуальный шум и привести UI к новому стилю ContextForge.",
         goodTask: "Хорошая задача",
-        goodTaskDesc: "Достаточно деталей для выбора файлов и генерации промпта.",
+        goodTaskDesc:
+          "Достаточно деталей для выбора файлов и генерации промпта.",
         needsMoreDetail: "Нужно больше деталей",
-        needsMoreDetailDesc: "Добавьте ограничения, ожидаемое поведение и что нельзя менять.",
+        needsMoreDetailDesc:
+          "Добавьте ограничения, ожидаемое поведение и что нельзя менять.",
         tooShort: "Слишком коротко",
         tooShortDesc: "Опишите задачу перед генерацией Task Pack.",
         chars: "символов: {{count}}",
@@ -1260,49 +1497,67 @@ const resources = {
         acceptanceCriteria: "критерии приёмки.",
         pipeline: "Pipeline",
         analyzeIntent: "Анализ intent задачи",
-        analyzeIntentDesc: "Определяет task area, risk level, ограничения и полезные file hints.",
+        analyzeIntentDesc:
+          "Определяет task area, risk level, ограничения и полезные file hints.",
         selectFiles: "Выбор релевантных файлов",
-        selectFilesDesc: "Использует реальный inventory проекта и безопасные snippets вместо guessed paths.",
+        selectFilesDesc:
+          "Использует реальный inventory проекта и безопасные snippets вместо guessed paths.",
         generateValidated: "Генерация валидированного Task Pack",
-        generateValidatedDesc: "Рендерит структурированный промпт для Codex, Cursor, Claude или generic agents.",
+        generateValidatedDesc:
+          "Рендерит структурированный промпт для Codex, Cursor, Claude или generic agents.",
         exampleUi: "UI polish",
         exampleBugfix: "Bugfix",
         exampleRefactor: "Refactor",
-        exampleBackend: "Backend"
+        exampleBackend: "Backend",
       },
       taskUnderstanding: {
         eyebrow: "Понимание задачи",
         clarificationTitle: "Не хватает одной детали",
         reviewTitle: "Проверьте интерпретацию",
         detailsTitle: "Интерпретация задачи",
-        clarificationDescription: "ContextForge нужен один конкретный ответ перед выбором файлов.",
-        reviewDescription: "Задача понятна, но target или формулировка остаются широкими. Подтвердите интерпретацию перед продолжением.",
-        confirmAllReviewDescription: "В настройках включено подтверждение каждой задачи. Проверьте интерпретацию и продолжите либо измените формулировку.",
-        readyDescription: "В задаче достаточно подтверждённых данных для безопасного продолжения.",
-        sourceSummary: "Источник: {{source}} · уверенность: {{confidence}}%",
+        clarificationDescription:
+          "ContextForge нужен один конкретный ответ перед выбором файлов.",
+        reviewDescription:
+          "Задача понятна, но target или формулировка остаются широкими. Подтвердите интерпретацию перед продолжением.",
+        confirmAllReviewDescription:
+          "В настройках включено подтверждение каждой задачи. Проверьте интерпретацию и продолжите либо измените формулировку.",
+        readyDescription:
+          "В задаче достаточно подтверждённых данных для безопасного продолжения.",
+        sourceSummary: "Источник: {{source}} · уверенность интерпретации: {{confidence}}%",
         editTask: "Изменить задачу",
         checking: "Проверяем...",
-        checkingClarificationTitle: "Ответ сохранён. Проверяем обновлённую задачу...",
-        checkingClarificationDescription: "ContextForge привязывает ваш ответ к задаче и решает, можно ли продолжить. Повторно вводить ответ не нужно.",
+        checkingClarificationTitle:
+          "Ответ сохранён. Проверяем обновлённую задачу...",
+        checkingClarificationDescription:
+          "ContextForge привязывает ваш ответ к задаче и решает, можно ли продолжить. Повторно вводить ответ не нужно.",
         applyClarification: "Применить ответ",
         continueReviewed: "Продолжить с этой интерпретацией",
         closeDetails: "Всё верно",
-        targetHints: "Подтверждённые targets",
-        noTargetHints: "Точный путь пока не требуется. Shadow найдёт target по реальному inventory.",
+        targetHints: "Цели и доказательства",
+        noTargetHints:
+          "Target реализации пока не подтверждён. ContextForge исследует кандидатов из реального inventory и не будет считать rank настоящей уверенностью.",
+        unresolvedDecisions: "Нерешённые вопросы",
+        unresolvedDecisionsDescription:
+          "Эти решения могут изменить архитектуру или границы реализации. Их нужно уточнить до создания уверенного плана изменений.",
         groundedValues: "Точные значения пользователя",
-        noGroundedValues: "Точное literal-значение не требовалось или не было найдено.",
+        noGroundedValues:
+          "Точное literal-значение не требовалось или не было найдено.",
         originalTask: "Исходная задача",
         clarificationHistory: "Уточнения пользователя",
-        fallbackQuestion: "Какую дополнительную деталь должен учесть ContextForge?",
-        answerDescription: "Ответ сохраняется отдельно от исходной задачи и участвует в следующем анализе.",
-        answerPlaceholder: "Введите точный текст, значение, target или ограничение...",
-        preflightFailed: "Не удалось проанализировать задачу. Повторите попытку или измените формулировку.",
+        fallbackQuestion:
+          "Какую дополнительную деталь должен учесть ContextForge?",
+        answerDescription:
+          "Ответ сохраняется отдельно от исходной задачи и участвует в следующем анализе.",
+        answerPlaceholder:
+          "Введите точный текст, значение, target или ограничение...",
+        preflightFailed:
+          "Не удалось проанализировать задачу. Повторите попытку или измените формулировку.",
         statusReady: "Готово",
         statusReview: "Нужна проверка",
         statusClarification: "Нужно уточнение",
         openDetails: "Проверить понимание",
         clarificationCount: "Уточнений: {{count}}",
-        analyzing: "Понимаем задачу..."
+        analyzing: "Понимаем задачу...",
       },
       taskPackResult: {
         generated: "Сгенерированный Task Pack",
@@ -1310,6 +1565,7 @@ const resources = {
         openArchive: "Открыть архив",
         selectorDiagnostics: "Диагностика выбора контекста",
         generationDiagnostics: "Диагностика генерации",
+        performanceDiagnostics: "Диагностика производительности",
         copyPrompt: "Копировать промпт",
         copied: "Скопировано",
         target: "Target",
@@ -1322,9 +1578,12 @@ const resources = {
         noDuration: "-",
         milliseconds: "{{value}} мс",
         seconds: "{{value}} сек",
-        ollamaDescription: "Финальный Task Pack получил структурированное AI-улучшение и был валидирован ContextForge.",
-        fallbackDescriptionWithMessage: "{{message}} Intent analysis и file selection всё ещё могут использовать выбранного AI-провайдера; финальное markdown body было оставлено стабильным ContextForge.",
-        fallbackDescription: "Финальное markdown body было создано через safe template ContextForge. Intent analysis и file selection всё ещё могут использовать выбранного AI-провайдера."
+        ollamaDescription:
+          "Финальный Task Pack получил структурированное AI-улучшение и был валидирован ContextForge.",
+        fallbackDescriptionWithMessage:
+          "{{message}} Intent analysis и file selection всё ещё могут использовать выбранного AI-провайдера; финальное markdown body было оставлено стабильным ContextForge.",
+        fallbackDescription:
+          "Финальное markdown body было создано через safe template ContextForge. Intent analysis и file selection всё ещё могут использовать выбранного AI-провайдера.",
       },
       generationDiagnostics: {
         title: "Диагностика генерации Task Pack",
@@ -1336,7 +1595,8 @@ const resources = {
         live: "Новый запуск",
         notAvailable: "Недоступно",
         fallbackTitle: "Откат на валидированный шаблон",
-        fallbackDescription: "Финальный Task Pack остался на валидированном backend-шаблоне. Сырой ответ модели в diagnostics не сохраняется.",
+        fallbackDescription:
+          "Финальный Task Pack остался на валидированном backend-шаблоне. Сырой ответ модели в diagnostics не сохраняется.",
         finalValidationIssues: "Ошибки финального контракта",
         promptBudget: "Лимит промпта",
         originalPrompt: "Исходный промпт",
@@ -1345,8 +1605,10 @@ const resources = {
         compacted: "Сжат",
         truncatedFields: "Сжатые поля",
         attemptTimeline: "Попытки генерации",
-        noAttemptsTemplate: "Запрос к AI не требовался: использован проверенный шаблонный режим.",
-        noAttemptsCached: "Запрос к AI не требовался: повторно использовано проверенное улучшение из кеша.",
+        noAttemptsTemplate:
+          "Запрос к AI не требовался: использован проверенный шаблонный режим.",
+        noAttemptsCached:
+          "Запрос к AI не требовался: повторно использовано проверенное улучшение из кеша.",
         attempt: "Попытка {{number}}",
         phase: "Этап",
         duration: "Длительность",
@@ -1356,19 +1618,20 @@ const resources = {
         invalid: "Невалидно",
         yes: "Да",
         no: "Нет",
-        privacyNotice: "Diagnostics хранит только статус, размеры, время, этапы разбора и коды ошибок. Промпты, ответы модели, snippets, секреты и абсолютные пути не сохраняются.",
+        privacyNotice:
+          "Diagnostics хранит только статус, размеры, время, этапы разбора и коды ошибок. Промпты, ответы модели, snippets, секреты и абсолютные пути не сохраняются.",
         statuses: {
           template: "Валидированный шаблон",
           generated: "Валидированное AI-улучшение",
           repaired: "AI-ответ восстановлен локально",
           retried: "AI-ответ получен после повтора",
-          fallback: "Откат на валидированный шаблон"
+          fallback: "Откат на валидированный шаблон",
         },
         metrics: {
           attempts: "Попытки",
           prompt: "Размер промпта",
           output: "Финальный Task Pack",
-          refinements: "Добавленные улучшения"
+          refinements: "Добавленные улучшения",
         },
         failureCodes: {
           template_mode: "Шаблонный режим",
@@ -1380,7 +1643,8 @@ const resources = {
           truncated_response: "Ответ обрезан",
           retry_failed: "Повторная попытка не помогла",
           composition_failed: "Ошибка безопасной сборки",
-          semantic_policy_rejected: "AI-улучшение отклонено смысловой политикой безопасности"
+          semantic_policy_rejected:
+            "AI-улучшение отклонено смысловой политикой безопасности",
         },
         policy: {
           title: "Смысловая политика AI-улучшений",
@@ -1394,39 +1658,105 @@ const resources = {
           rejectionReasons: "Действия политики",
           ambiguitiesTitle: "Неоднозначности задачи",
           consistencyTitle: "Согласованность разделов",
-          description: "ContextForge локально фильтрует AI-улучшения. В diagnostics сохраняются только счётчики и коды причин — без отклонённого текста и сырого ответа модели.",
+          description:
+            "ContextForge локально фильтрует AI-улучшения. В diagnostics сохраняются только счётчики и коды причин — без отклонённого текста и сырого ответа модели.",
           rejections: {
-            unauthorized_git_commit: "Удалена неразрешённая инструкция сделать commit",
-            unauthorized_git_push: "Удалена неразрешённая инструкция выполнить push",
-            unauthorized_git_merge: "Удалена неразрешённая инструкция выполнить merge",
-            unauthorized_pull_request: "Удалена неразрешённая инструкция создать pull request",
-            unauthorized_git_tag: "Удалена неразрешённая инструкция создать Git-тег",
-            unauthorized_release_publish: "Удалена неразрешённая публикация релиза",
-            forced_verification_claim: "Обязательное заявление об успехе заменено на отчёт о фактическом результате",
-            unselected_file_reference: "Удалена ссылка на файл вне выбранного контекста"
+            unauthorized_git_commit:
+              "Удалена неразрешённая инструкция сделать commit",
+            unauthorized_git_push:
+              "Удалена неразрешённая инструкция выполнить push",
+            unauthorized_git_merge:
+              "Удалена неразрешённая инструкция выполнить merge",
+            unauthorized_pull_request:
+              "Удалена неразрешённая инструкция создать pull request",
+            unauthorized_git_tag:
+              "Удалена неразрешённая инструкция создать Git-тег",
+            unauthorized_release_publish:
+              "Удалена неразрешённая публикация релиза",
+            forced_verification_claim:
+              "Обязательное заявление об успехе заменено на отчёт о фактическом результате",
+            unselected_file_reference:
+              "Удалена ссылка на файл вне выбранного контекста",
           },
           ambiguities: {
-            missing_replacement_value: "Задача просит заменить значение, но точный новый текст или значение не указаны"
+            missing_replacement_value:
+              "Задача просит заменить значение, но точный новый текст или значение не указаны",
           },
           consistency: {
             clarification_mode_enabled: "Включён режим уточнения",
-            completion_requirements_deferred: "Требования к завершённой реализации отложены до уточнения",
-            verification_deferred: "Проверки реализации отложены до получения недостающего значения",
-            final_response_rewritten: "Финальный ответ переведён в режим запроса уточнения",
+            completion_requirements_deferred:
+              "Требования к завершённой реализации отложены до уточнения",
+            verification_deferred:
+              "Проверки реализации отложены до получения недостающего значения",
+            final_response_rewritten:
+              "Финальный ответ переведён в режим запроса уточнения",
             semantic_duplicates_removed: "Похожие пункты AI-улучшения удалены",
-            section_limits_applied: "Применены лимиты пунктов для отдельных разделов",
-            explicit_value_grounded: "Точное значение пользователя закреплено без перефразирования"
-          }
-        }
+            section_limits_applied:
+              "Применены лимиты пунктов для отдельных разделов",
+            explicit_value_grounded:
+              "Точное значение пользователя закреплено без перефразирования",
+          },
+        },
+      },
+      performanceDiagnostics: {
+        title: "Диагностика производительности",
+        description:
+          "Безопасные тайминги и счётчики AI-вызовов для полного потока этого Task Pack.",
+        eyebrow: "Локальный аудит производительности",
+        sessionSummary:
+          "Запросов: {{requests}} · реальных AI-вызовов: {{calls}}",
+        copied: "Скопировано",
+        copyJson: "Копировать diagnostics JSON",
+        notAvailable: "Недоступно",
+        success: "Успешно",
+        failed: "Ошибка",
+        prompt: "Промпт",
+        response: "Ответ",
+        modelLoad: "Загрузка модели",
+        tokens: "Токены промпта / ответа",
+        promptEval: "Обработка промпта",
+        tokenGeneration: "Генерация токенов",
+        requestTimeline: "Таймлайн запросов и этапов",
+        aiTimeline: "Реальные обращения к AI",
+        cacheEvents: "События кеша",
+        noAiCalls:
+          "За записанный поток не было реальных запросов к AI-провайдеру.",
+        request: "Запрос {{number}}",
+        aiCall: "AI-вызов {{number}}",
+        modelStateSummary:
+          "Холодных вызовов: {{cold}} · тёплых вызовов: {{warm}}",
+        modelStateDescription:
+          "Для Ollama состояние модели оценивается по времени загрузки, которое вернул сам провайдер. Для других провайдеров состояние остаётся неизвестным.",
+        operations: {
+          preflight: "Предварительное понимание задачи",
+          generation: "Генерация Task Pack",
+        },
+        modelStates: {
+          cold: "Холодная модель",
+          warm: "Тёплая модель",
+          unknown: "Состояние неизвестно",
+        },
+        metrics: {
+          total: "Суммарное время",
+          aiCalls: "AI-вызовы",
+          aiTime: "Время AI",
+          inventory: "Сканирования inventory",
+          cache: "Кеш hit / miss",
+        },
+        privacyNotice:
+          "Сохраняются только счётчики, тайминги, размеры, названия провайдера/модели и безопасные метаданные этапов. Сырые промпты, ответы модели, исходный код, секреты и абсолютные пути не сохраняются.",
       },
       selectorDiagnostics: {
         title: "Диагностика выбора контекста",
         eyebrow: "Локальные данные тестирования",
         copied: "Скопировано",
         copyJson: "Копировать diagnostics JSON",
-        requestedActual: "Запрошен режим {{requested}}; итоговый Task Pack использовал {{actual}}.",
-        requestedSuggested: "Запрошен режим {{requested}}; {{suggested}} сформировал исходную рекомендацию до ручного подтверждения.",
-        manualOverrideNotice: "Финальный список файлов подтверждён вручную; badge показывает исходную рекомендацию pipeline.",
+        requestedActual:
+          "Запрошен режим {{requested}}; итоговый Task Pack использовал {{actual}}.",
+        requestedSuggested:
+          "Запрошен режим {{requested}}; {{suggested}} сформировал исходную рекомендацию до ручного подтверждения.",
+        manualOverrideNotice:
+          "Финальный список файлов подтверждён вручную; badge показывает исходную рекомендацию pipeline.",
         fallbackTitle: "Откат на Legacy",
         compareFailureTitle: "Сравнение Shadow не выполнено",
         notScored: "Не оценено",
@@ -1446,50 +1776,56 @@ const resources = {
         abstention: {
           title: "Целевая область не подтверждена",
           shadowTitle: "Shadow не смог подтвердить цель",
-          compareNotice: "Фактический Task Pack в режиме сравнения всё равно создал Legacy. Отказ Shadow показан только как диагностический результат.",
+          compareNotice:
+            "Фактический Task Pack в режиме сравнения всё равно создал Legacy. Отказ Shadow показан только как диагностический результат.",
           nextActions: "Что можно сделать безопасно",
           codes: {
             explicit_target_missing: "Указанная цель не найдена",
             no_grounded_candidates: "Нет подтверждённых кандидатов",
             no_ranked_candidates: "Кандидаты не прошли отбор",
             ambiguous_target: "Цель неоднозначна",
-            legacy_empty_selection: "Legacy не выбрал файлы"
+            legacy_empty_selection: "Legacy не выбрал файлы",
           },
           messages: {
-            explicit_target_missing: "В задаче указана цель, которой нет в текущем inventory проекта.",
-            no_grounded_candidates: "Ни для одного файла проекта не найдено достаточно подтверждений, чтобы безопасно считать его целью задачи.",
-            no_ranked_candidates: "Кандидаты найдены, но ни один из них не прошёл детерминированный порог выбора.",
-            ambiguous_target: "Общая область задачи понятна, но конкретную цель реализации безопасно подтвердить не удалось.",
-            legacy_empty_selection: "Legacy не смог сформировать пригодный список файлов для этой задачи."
+            explicit_target_missing:
+              "В задаче указана цель, которой нет в текущем inventory проекта.",
+            no_grounded_candidates:
+              "Ни для одного файла проекта не найдено достаточно подтверждений, чтобы безопасно считать его целью задачи.",
+            no_ranked_candidates:
+              "Кандидаты найдены, но ни один из них не прошёл детерминированный порог выбора.",
+            ambiguous_target:
+              "Общая область задачи понятна, но конкретную цель реализации безопасно подтвердить не удалось.",
+            legacy_empty_selection:
+              "Legacy не смог сформировать пригодный список файлов для этой задачи.",
           },
           actions: {
             explicit_target_missing: {
               1: "Проверь название или путь целевого файла.",
               2: "Пересканируй проект, если файлы недавно изменились.",
-              3: "Выбери нужный файл вручную в Full Review."
+              3: "Выбери нужный файл вручную в Full Review.",
             },
             no_grounded_candidates: {
               1: "Укажи страницу, функцию, символ, маршрут или файл точнее.",
-              2: "Открой Full Review и выбери нужный файл вручную."
+              2: "Открой Full Review и выбери нужный файл вручную.",
             },
             no_ranked_candidates: {
               1: "Уточни ожидаемое изменение или затронутую функцию.",
-              2: "Просмотри найденных кандидатов и подтверди файлы вручную."
+              2: "Просмотри найденных кандидатов и подтверди файлы вручную.",
             },
             ambiguous_target: {
               1: "Добавь в задачу затронутую страницу, компонент, маршрут, сервис или поведение.",
-              2: "Выбери нужный файл вручную в Full Review."
+              2: "Выбери нужный файл вручную в Full Review.",
             },
             legacy_empty_selection: {
               1: "Уточни цель задачи.",
-              2: "Выбери файлы вручную в Full Review."
-            }
-          }
+              2: "Выбери файлы вручную в Full Review.",
+            },
+          },
         },
         evidence: {
           strong: "Сильное основание",
           supporting: "Вспомогательный контекст",
-          reference: "Только справка"
+          reference: "Только справка",
         },
         none: "Нет",
         yes: "Да",
@@ -1500,7 +1836,7 @@ const resources = {
           success: "успешно",
           fallback: "откат",
           blocked: "заблокировано",
-          manualReview: "ручная проверка"
+          manualReview: "ручная проверка",
         },
         metrics: {
           area: "Область",
@@ -1510,35 +1846,37 @@ const resources = {
           pathOverlap: "Совпадение путей",
           editOverlap: "Совпадение edit-целей",
           primary: "Основная цель",
-          safety: "Безопасность"
+          safety: "Безопасность",
         },
         badges: {
           legacy: "Legacy",
           shadow: "Shadow",
           legacyFallback: "Откат на Legacy",
           compareLegacyOutput: "Сравнение · итог Legacy",
-          manualSelection: "Ручной выбор · рекомендация {{suggested}}"
+          manualSelection: "Ручной выбор · рекомендация {{suggested}}",
         },
         modes: {
           legacy: {
             label: "Legacy",
-            description: "Стабильный текущий selector. Shadow не используется."
+            description: "Стабильный текущий selector. Shadow не используется.",
           },
           shadow_compare: {
             label: "Сравнение",
-            description: "Task Pack создаёт Legacy, а Shadow параллельно формирует локальную диагностику сравнения."
+            description:
+              "Task Pack создаёт Legacy, а Shadow параллельно формирует локальную диагностику сравнения.",
           },
           shadow_primary: {
             label: "Shadow",
-            description: "Новое детерминированное ядро создаёт Task Pack; при техническом сбое выполняется откат на Legacy."
-          }
-        }
+            description:
+              "Новое детерминированное ядро создаёт Task Pack; при техническом сбое выполняется откат на Legacy.",
+          },
+        },
       },
       taskPackExport: {
         markdown: "Экспорт .md",
         text: "Экспорт .txt",
         markdownDone: ".md сохранён",
-        textDone: ".txt сохранён"
+        textDone: ".txt сохранён",
       },
       settings: {
         title: "Настройки",
@@ -1547,12 +1885,14 @@ const resources = {
         heroBadgeGithub: "GitHub-style control center",
         heroBadgeLocal: "Local-first workflow",
         heroTitle: "Настройте ContextForge как developer workspace.",
-        heroDescription: "Управляйте локальным AI, defaults генерации, лимитами Context Composer, горячими клавишами и метаданными системы из одного места.",
+        heroDescription:
+          "Управляйте локальным AI, defaults генерации, лимитами Context Composer, горячими клавишами и метаданными системы из одного места.",
         readyNotice: "Настройки готовы.",
         loadedNotice: "Настройки загружены.",
         savedNotice: "Настройки сохранены.",
         refreshedTitle: "Настройки обновлены",
-        refreshedMessage: "Актуальный статус локального AI и настройки приложения загружены.",
+        refreshedMessage:
+          "Актуальный статус локального AI и настройки приложения загружены.",
         refreshFailed: "Не удалось обновить",
         loadFailed: "Не удалось загрузить настройки.",
         saveFailed: "Не удалось сохранить",
@@ -1560,66 +1900,84 @@ const resources = {
         savedTitle: "Настройки сохранены",
         savedMessage: "Настройки ContextForge успешно сохранены.",
         unsavedTitle: "Есть несохранённые настройки",
-        unsavedMessage: "Вы изменили настройки ContextForge, но ещё не сохранили их.",
+        unsavedMessage:
+          "Вы изменили настройки ContextForge, но ещё не сохранили их.",
         aiEngine: "AI Engine",
         generation: "Генерация",
         composer: "Composer",
         selectorExperimentalLabel: "Экспериментальное AI-ядро",
         selectorRolloutTitle: "Режим выбора контекста",
-        selectorRolloutDescription: "Выберите, какой selector формирует Task Pack. Режимы сравнения и Shadow предназначены для внутреннего тестирования.",
+        selectorRolloutDescription:
+          "Выберите, какой selector формирует Task Pack. Режимы сравнения и Shadow предназначены для внутреннего тестирования.",
         selectorHistoryTitle: "Локальная история диагностики",
-        selectorHistoryDescription: "{{count}} из 50 записей. Исходный код и абсолютные пути не сохраняются.",
+        selectorHistoryDescription:
+          "{{count}} из 50 записей. Исходный код и абсолютные пути не сохраняются.",
         selectorClearHistory: "Очистить историю",
         interface: "Интерфейс",
         shortcuts: "Горячие клавиши",
         system: "Система",
         language: "Язык",
         languageTitle: "Язык приложения",
-        languageDescription: "Переключает язык интерфейса. Данные проектов, пути, сообщения Ollama и сгенерированные файлы не изменяются.",
+        languageDescription:
+          "Переключает язык интерфейса. Данные проектов, пути, сообщения Ollama и сгенерированные файлы не изменяются.",
         languageSystem: "Системный язык",
         languageEnglish: "English",
         languageRussian: "Русский",
         languageCurrent: "Текущий язык",
-        languageSavedWithSettings: "Выбранный язык сохраняется вместе с остальными настройками интерфейса.",
+        languageSavedWithSettings:
+          "Выбранный язык сохраняется вместе с остальными настройками интерфейса.",
         sidebar: "Сайдбар",
         navigationDensity: "Плотность навигации",
-        navigationDensityDescription: "Оставьте сайдбар компактным или включите описания, если нужны подсказки.",
+        navigationDensityDescription:
+          "Оставьте сайдбар компактным или включите описания, если нужны подсказки.",
         showSidebarDescriptions: "Показывать описания в сайдбаре",
-        showSidebarDescriptionsDesc: "Показывает короткие подсказки под пунктами навигации. Отключите для более чистого интерфейса.",
+        showSidebarDescriptionsDesc:
+          "Показывает короткие подсказки под пунктами навигации. Отключите для более чистого интерфейса.",
         onboarding: "Обучение",
         onboardingTitle: "Гайд первого запуска",
-        onboardingDescription: "Настройте, будет ли ContextForge открывать обучающую страницу перед workspace.",
+        onboardingDescription:
+          "Настройте, будет ли ContextForge открывать обучающую страницу перед workspace.",
         showOnboardingOnLaunch: "Показывать обучение при запуске",
-        showOnboardingOnLaunchDesc: "Открывает guided setup перед Dashboard. Отключите, если хотите сразу входить в приложение.",
+        showOnboardingOnLaunchDesc:
+          "Открывает guided setup перед Dashboard. Отключите, если хотите сразу входить в приложение.",
         repeatOnboardingDuringAlpha: "Повторять обучение во время alpha",
-        repeatOnboardingDuringAlphaDesc: "Полезно, пока flow обучения дорабатывается. Если выключить, гайд будет показываться только до завершения.",
+        repeatOnboardingDuringAlphaDesc:
+          "Полезно, пока flow обучения дорабатывается. Если выключить, гайд будет показываться только до завершения.",
         onboardingLaunchOff: "Обучение при запуске выключено.",
         onboardingFirstRunOnly: "Обучение показывается только до завершения.",
         onboardingEveryLaunch: "Обучение показывается при каждом запуске.",
-        onboardingSavedWithSettings: "Эти параметры сохраняются локально вместе с остальными настройками интерфейса.",
+        onboardingSavedWithSettings:
+          "Эти параметры сохраняются локально вместе с остальными настройками интерфейса.",
         layoutTip: "Подсказка по layout",
         collapsibleSidebar: "Складной сайдбар",
-        collapsibleSidebarDesc: "Сайдбар можно свернуть прямо из панели навигации. Состояние сохраняется локально на устройстве.",
+        collapsibleSidebarDesc:
+          "Сайдбар можно свернуть прямо из панели навигации. Состояние сохраняется локально на устройстве.",
         recommendedSetup: "Рекомендуемая настройка",
-        recommendedSetupDesc: "Для ежедневной работы держите описания скрытыми. Свернутый режим даёт больше места таблицам, Composer и Task Packs.",
+        recommendedSetupDesc:
+          "Для ежедневной работы держите описания скрытыми. Свернутый режим даёт больше места таблицам, Composer и Task Packs.",
         aiTitle: "Подключите локальные модели и управляйте Ollama.",
-        aiDescription: "ContextForge может улучшать AGENTS.md, Task Packs, анализ intent и подбор файлов через локальную модель Ollama.",
+        aiDescription:
+          "ContextForge может улучшать AGENTS.md, Task Packs, анализ intent и подбор файлов через локальную модель Ollama.",
         ollamaIntegration: "Интеграция Ollama",
-        ollamaIntegrationDesc: "Локальный model provider для улучшения AGENTS.md и Task Packs без отправки контекста проекта в облако.",
+        ollamaIntegrationDesc:
+          "Локальный model provider для улучшения AGENTS.md и Task Packs без отправки контекста проекта в облако.",
         ollamaUrl: "Ollama URL",
         noUrl: "URL отсутствует",
         statusMessage: "Статус",
         checkingOllama: "Проверка Ollama...",
         localModels: "Локальные модели",
         detectedModels: "Найденные модели Ollama",
-        detectedModelsDesc: "Модели, доступные в настроенном Ollama instance. Выберите default для Ollama-assisted генерации.",
+        detectedModelsDesc:
+          "Модели, доступные в настроенном Ollama instance. Выберите default для Ollama-assisted генерации.",
         noModels: "Модели не найдены",
         pullModelFirst: "Запустите Ollama и сначала скачайте модель:",
         generationTitle: "Задайте поведение генерации для AI coding tasks.",
-        generationDescription: "Выберите режим генерации, default AI tool, тип задачи и локальную модель для новых Task Packs.",
+        generationDescription:
+          "Выберите режим генерации, default AI tool, тип задачи и локальную модель для новых Task Packs.",
         generationPreferences: "Настройки генерации",
         defaultTaskPackBehavior: "Default-поведение Task Pack",
-        defaultTaskPackBehaviorDesc: "Эти defaults используются при открытии нового Task Pack draft или assisted generation.",
+        defaultTaskPackBehaviorDesc:
+          "Эти defaults используются при открытии нового Task Pack draft или assisted generation.",
         generationMode: "Режим генерации",
         template: "Template",
         templateDesc: "Быстрая детерминированная генерация",
@@ -1634,25 +1992,35 @@ const resources = {
         useTemplateOnly: "Использовать только template mode",
         generationModes: "Режимы генерации",
         templateVsOllama: "Template vs Ollama",
-        templateVsOllamaDesc: "Template mode стабильный и детерминированный. Ollama-assisted mode использует локальную модель для более умного refinement.",
+        templateVsOllamaDesc:
+          "Template mode стабильный и детерминированный. Ollama-assisted mode использует локальную модель для более умного refinement.",
         templateMode: "Template mode",
-        templateModeDesc: "Стабильный fallback. Создаёт детерминированный контекст и промпты.",
+        templateModeDesc:
+          "Стабильный fallback. Создаёт детерминированный контекст и промпты.",
         ollamaMode: "Ollama-assisted mode",
         ollamaModeDesc: "Использует локальные модели для улучшения Task Packs.",
         taskUnderstandingBehavior: "Понимание задачи",
         clarificationModeTitle: "Поведение уточнений",
-        clarificationModeDescription: "Выберите, когда ContextForge должен остановиться и попросить пользователя подтвердить или уточнить задачу до выбора файлов.",
+        clarificationModeDescription:
+          "Выберите, когда ContextForge должен остановиться и попросить пользователя подтвердить или уточнить задачу до выбора файлов.",
         clarificationModeAutomatic: "Автоматический",
-        clarificationModeAutomaticDesc: "Самый быстрый. Продолжает задачи уровня review и спрашивает только тогда, когда действительно отсутствует обязательное значение или target.",
+        clarificationModeAutomaticDesc:
+          "Самый быстрый. Продолжает задачи уровня review и спрашивает только тогда, когда действительно отсутствует обязательное значение или target.",
         clarificationModeBalanced: "Сбалансированный",
-        clarificationModeBalancedDesc: "Рекомендуется. Запрашивает обязательные детали и подтверждает широкие или субъективные интерпретации.",
+        clarificationModeBalancedDesc:
+          "Рекомендуется. Запрашивает обязательные детали и подтверждает широкие или субъективные интерпретации.",
         clarificationModeConfirmAll: "Подтверждать каждую задачу",
-        clarificationModeConfirmAllDesc: "Максимальный контроль. Показывает интерпретацию перед каждым Analyze или Generate, даже когда задача уже готова.",
-        clarificationModeSafetyNote: "Обязательные данные никогда не выдумываются. Даже автоматический режим задаст вопрос, если без конкретного ответа пользователя безопасно продолжить нельзя.",
-        composerTitle: "Настройте, сколько контекста Composer показывает перед генерацией.",
-        composerDescription: "Настраивайте лимиты файлов по области задачи. ContextForge сначала ранжирует файлы по приоритету, затем ограничивает финальный список.",
+        clarificationModeConfirmAllDesc:
+          "Максимальный контроль. Показывает интерпретацию перед каждым Analyze или Generate, даже когда задача уже готова.",
+        clarificationModeSafetyNote:
+          "Обязательные данные никогда не выдумываются. Даже автоматический режим задаст вопрос, если без конкретного ответа пользователя безопасно продолжить нельзя.",
+        composerTitle:
+          "Настройте, сколько контекста Composer показывает перед генерацией.",
+        composerDescription:
+          "Настраивайте лимиты файлов по области задачи. ContextForge сначала ранжирует файлы по приоритету, затем ограничивает финальный список.",
         fileCandidateLimits: "Лимиты файлов-кандидатов",
-        fileCandidateLimitsDesc: "Выберите, сколько приоритетных файлов показывать в Composer preview для каждой области задачи.",
+        fileCandidateLimitsDesc:
+          "Выберите, сколько приоритетных файлов показывать в Composer preview для каждой области задачи.",
         focused: "Фокус",
         lessNoise: "Меньше шума",
         balanced: "Баланс",
@@ -1661,13 +2029,17 @@ const resources = {
         moreContext: "Больше контекста",
         currentMode: "Текущий режим: {{mode}}",
         custom: "Свой",
-        fileLimitsExplanation: "Файлы сначала ранжируются по релевантности. Эти лимиты управляют только количеством top-priority файлов в Composer preview.",
+        fileLimitsExplanation:
+          "Файлы сначала ранжируются по релевантности. Эти лимиты управляют только количеством top-priority файлов в Composer preview.",
         shortcutsTitle: "Проверьте текущие и запланированные горячие клавиши.",
-        shortcutsDescription: "Горячие клавиши делают ContextForge похожим на developer tool, а не на статичный dashboard.",
+        shortcutsDescription:
+          "Горячие клавиши делают ContextForge похожим на developer tool, а не на статичный dashboard.",
         keyboardShortcuts: "Горячие клавиши",
-        keyboardShortcutsDesc: "Текущие и запланированные shortcuts для быстрой навигации внутри ContextForge.",
+        keyboardShortcutsDesc:
+          "Текущие и запланированные shortcuts для быстрой навигации внутри ContextForge.",
         systemTitle: "Проверьте identity приложения и local-first режим.",
-        systemDescription: "Системные настройки показывают текущую фазу, версию и продуктовый режим приложения.",
+        systemDescription:
+          "Системные настройки показывают текущую фазу, версию и продуктовый режим приложения.",
         applicationMetadata: "Метаданные приложения",
         applicationMetadataDesc: "Текущая build identity и статус продукта.",
         name: "Название",
@@ -1676,15 +2048,18 @@ const resources = {
         mode: "Режим",
         direction: "Направление",
         productArchitecture: "Архитектура продукта",
-        productArchitectureDesc: "ContextForge развивается как локальный AI workflow layer для реальных developer-проектов.",
+        productArchitectureDesc:
+          "ContextForge развивается как локальный AI workflow layer для реальных developer-проектов.",
         localFirstDesc: "Контекст проекта остаётся на машине.",
         agentReady: "Agent-ready",
-        agentReadyDesc: "Output готовится для Codex, Claude Code, Cursor и generic agents.",
+        agentReadyDesc:
+          "Output готовится для Codex, Claude Code, Cursor и generic agents.",
         composerDriven: "Composer-driven",
-        composerDrivenDesc: "Контекст задачи анализируется и проверяется до генерации."
-      }
-    }
-  }
+        composerDrivenDesc:
+          "Контекст задачи анализируется и проверяется до генерации.",
+      },
+    },
+  },
 } as const;
 
 export function resolveAppLanguage(language: AppLanguage = "system") {
@@ -1716,11 +2091,11 @@ void i18n
     detection: {
       order: ["localStorage", "navigator"],
       lookupLocalStorage: "contextforge.language",
-      caches: []
+      caches: [],
     },
     interpolation: {
-      escapeValue: false
-    }
+      escapeValue: false,
+    },
   });
 
 export default i18n;

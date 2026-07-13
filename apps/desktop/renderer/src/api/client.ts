@@ -472,6 +472,8 @@ export async function understandTaskPack(input: {
   taskType: string;
   targetTool: string;
   clarifications?: import("../types").TaskClarification[];
+  performanceSessionId?: string;
+  understandingSnapshotId?: string;
 }): Promise<TaskUnderstandingResponse> {
   const data = await request<{ ok: true } & TaskUnderstandingResponse>(
     "/task-packs/understand",
@@ -482,11 +484,14 @@ export async function understandTaskPack(input: {
   );
 
   return {
+    understandingSnapshotId: data.understandingSnapshotId,
+    understandingSnapshotReused: Boolean(data.understandingSnapshotReused),
     taskUnderstanding: data.taskUnderstanding,
     interaction: data.interaction,
     clarifications: data.clarifications ?? [],
     taskIntent: data.taskIntent,
     inventorySummary: data.inventorySummary,
+    performanceDiagnostics: data.performanceDiagnostics,
   };
 }
 
@@ -497,6 +502,8 @@ export async function createTaskPack(input: {
   targetTool: string;
   selectedFilePaths?: string[];
   clarifications?: import("../types").TaskClarification[];
+  performanceSessionId?: string;
+  understandingSnapshotId?: string;
 
   templateId?: string;
   ruleProfileId?: string;
@@ -613,6 +620,7 @@ export async function createContextComposerPreview(input: {
   taskType: string;
   targetTool: string;
   clarifications?: import("../types").TaskClarification[];
+  understandingSnapshotId?: string;
 }): Promise<ContextComposerPreview> {
   const data = await request<{
     ok: true;

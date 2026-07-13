@@ -26,7 +26,9 @@
     "db:logs": "docker compose logs -f postgres",
     "test:generation:taskpack": "npm run test:generation:taskpack -w @contextforge/server",
     "test:understanding": "npm run test:understanding -w @contextforge/server",
-    "test:clarification": "npm run test:clarification -w @contextforge/server"
+    "test:clarification": "npm run test:clarification -w @contextforge/server",
+    "test:performance": "npm run test:performance -w @contextforge/server",
+    "test:handoff": "npm run test:handoff -w @contextforge/server"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",

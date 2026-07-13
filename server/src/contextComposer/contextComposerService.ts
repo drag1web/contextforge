@@ -33,6 +33,8 @@ import {
   normalizeTaskClarifications,
   type TaskClarification,
 } from "../taskPacks/taskClarifications.js";
+import { resolveTaskUnderstandingSnapshot } from "../taskPacks/taskUnderstandingSnapshot.js";
+import { applyExplicitTargetGuard } from "../selection/explicitTargetGuard.js";
 
 interface ProjectReadinessReport {
   issues: string[];
@@ -412,6 +414,7 @@ export async function buildContextComposerPreview(input: {
   taskType: string;
   targetTool: string;
   clarifications?: TaskClarification[];
+  understandingSnapshotId?: string;
 }): Promise<ContextComposerPreview> {
   const project = await getProjectById(input.projectId);
 
@@ -424,14 +427,26 @@ export async function buildContextComposerPreview(input: {
   const clarifications = normalizeTaskClarifications(input.clarifications);
   const selectionTask = buildSelectionTaskText(input.rawTask, clarifications);
 
-  const analyzedTaskIntent = await analyzeTaskIntent({
-    rawTask: selectionTask,
+  const snapshotResolution = resolveTaskUnderstandingSnapshot({
+    snapshotId: input.understandingSnapshotId,
+    projectId: project.id,
+    rawTask: input.rawTask,
     taskType: input.taskType,
     targetTool: input.targetTool,
-    project,
-    projectTree: inventory.files.map((file) => file.path)
+    clarifications,
+    inventory,
   });
-  const taskIntent = {
+  const analyzedTaskIntent =
+    snapshotResolution.hit && snapshotResolution.snapshot
+      ? snapshotResolution.snapshot.taskIntent
+      : await analyzeTaskIntent({
+          rawTask: selectionTask,
+          taskType: input.taskType,
+          targetTool: input.targetTool,
+          project,
+          projectTree: inventory.files.map((file) => file.path),
+        });
+  let taskIntent = {
     ...analyzedTaskIntent,
     taskUnderstanding: applyTaskClarificationsToUnderstanding(
       analyzedTaskIntent.taskUnderstanding,
@@ -448,7 +463,14 @@ export async function buildContextComposerPreview(input: {
     settings,
     projectRef: String(project.id),
   });
-  const fileSelection = pipeline.selection;
+  const explicitTargetGuard = applyExplicitTargetGuard({
+    rawTask: selectionTask,
+    inventory,
+    taskIntent,
+    selection: pipeline.selection,
+  });
+  taskIntent = explicitTargetGuard.taskIntent;
+  const fileSelection = explicitTargetGuard.selection;
 
   const selectedFiles = buildFileReferences({
     inventory,

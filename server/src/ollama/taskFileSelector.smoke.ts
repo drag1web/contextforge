@@ -569,7 +569,7 @@ async function testGeneralHeaderTaskWithBackendConstraintStaysUi() {
   assert.equal(result.selectedFiles[0]?.path, "src/components/Header.tsx");
   assert.equal(
     result.notes.includes(
-      "Selector safety profile: ui-specific-target-review-v5.",
+      "Selector safety profile: evidence-grounding-gate-v7.",
     ),
     true,
   );
@@ -797,7 +797,7 @@ async function testHallucinatedHeaderHintsDoNotOverrideSpecificFormTask() {
   );
   assert.equal(
     result.notes.includes(
-      "Selector safety profile: ui-specific-target-review-v5.",
+      "Selector safety profile: evidence-grounding-gate-v7.",
     ),
     true,
   );
@@ -1410,6 +1410,8 @@ async function testSemanticGraphResolvesPageSupportEdges() {
   ]);
 
   const graph = buildProjectSemanticGraph(projectInventory);
+  const cachedGraph = buildProjectSemanticGraph(projectInventory);
+  assert.strictEqual(cachedGraph, graph);
   const support = graph.getSupportFiles(["src/pages/ProductPage.tsx"], {
     maxPerTarget: 8,
   });
@@ -2640,10 +2642,14 @@ function testInvalidSelectorJsonCannotScoreAsPerfect() {
 async function withMockedFetch(
   responses: string[],
   callback: () => Promise<void>,
+  onRequest?: (body: Record<string, unknown>) => void,
 ) {
   const originalFetch = globalThis.fetch;
   let index = 0;
-  globalThis.fetch = (async () => {
+  globalThis.fetch = (async (_input, init) => {
+    if (onRequest && typeof init?.body === "string") {
+      onRequest(JSON.parse(init.body) as Record<string, unknown>);
+    }
     const response = responses[Math.min(index, responses.length - 1)] ?? "";
     index += 1;
     return {
@@ -2797,6 +2803,454 @@ async function testOllamaSelectorUsesStrictRetryJson() {
 }
 
 
+async function testOllamaSelectorUsesCompactGroundedPromptShortlist() {
+  const capturedBodies: Record<string, unknown>[] = [];
+  const noiseFiles = Array.from({ length: 231 }, (_, index) =>
+    sourceFile(`server/src/noise/Noise${index}.ts`, {
+      role: "service",
+      symbols: [`Noise${index}`],
+      textHints: ["unrelated", "background", `noise-${index}`],
+      contentPreview: `export function Noise${index}() { return ${index}; }`,
+    }),
+  );
+  const target = sourceFile(
+    "apps/desktop/renderer/src/components/layout/AppHeader.tsx",
+    {
+      role: "component",
+      symbols: ["AppHeader"],
+      exports: ["AppHeader"],
+      textHints: ["app header", "top panel", "navigation"],
+      contentPreview:
+        "export function AppHeader() { return <header>Welcome back</header>; }",
+    },
+  );
+
+  await withMockedFetch(
+    [
+      JSON.stringify({
+        selectedFiles: [
+          {
+            path: target.path,
+            usage: "inspect-and-edit",
+            reason: "The explicit AppHeader target owns the requested header UI.",
+            confidence: 0.94,
+          },
+        ],
+        notes: [],
+      }),
+    ],
+    async () => {
+      const result = await selectTaskFiles({
+        rawTask:
+          "In AppHeader, make the top panel visually lighter without changing its structure.",
+        taskType: "ui",
+        targetTool: "codex",
+        inventory: inventory([...noiseFiles, target]),
+        settings: ollamaTestSettings(),
+        taskIntent: structuredIntent({
+          taskArea: "ui",
+          structuredIntent: {
+            schemaVersion: 1,
+            primaryTargets: [
+              {
+                kind: "component",
+                value: "AppHeader",
+                path: target.path,
+                name: "AppHeader",
+                confidence: 0.98,
+                evidence: "Explicit component name in the task.",
+              },
+            ],
+            positiveActions: ["make header visually lighter"],
+            protectedScopes: ["component structure"],
+            allowedEditScope: "target_with_supporting_context",
+            needsStyles: true,
+            needsBackend: false,
+            ambiguities: [],
+            modelNotes: [],
+          },
+        }),
+      });
+
+      const prompt = String(capturedBodies[0]?.prompt ?? "");
+      assert.equal(result.selectedFiles[0]?.path, target.path);
+      assert.equal(result.diagnostics?.promptInventoryTotalFiles, 232);
+      assert.equal(
+        (result.diagnostics?.promptCandidateCount ?? 999) <= 24,
+        true,
+      );
+      assert.equal(result.diagnostics?.promptShortlistApplied, true);
+      assert.equal((result.diagnostics?.initialPromptChars ?? 99_999) < 20_000, true);
+      assert.equal(prompt.includes(target.path), true);
+      assert.equal(prompt.includes("Candidate inventory shortlist"), true);
+      assert.equal(prompt.includes("server/src/noise/Noise230.ts"), false);
+    },
+    (body) => capturedBodies.push(body),
+  );
+}
+
+async function testCompactPromptKeepsFullstackLayers() {
+  const capturedBodies: Record<string, unknown>[] = [];
+  const files = [
+    ...Array.from({ length: 90 }, (_, index) =>
+      sourceFile(`src/noise/Unused${index}.tsx`, {
+        role: "component",
+        symbols: [`Unused${index}`],
+        textHints: ["unrelated"],
+      }),
+    ),
+    sourceFile("src/pages/AccountPage.tsx", {
+      role: "page",
+      imports: ["../api/client"],
+      symbols: ["AccountPage", "handleProviderClick"],
+      textHints: ["account", "provider", "button", "click"],
+    }),
+    sourceFile("src/api/client.ts", {
+      role: "client-api",
+      symbols: ["connectProvider"],
+      textHints: ["api", "provider", "request"],
+    }),
+    sourceFile("server/routes/provider.ts", {
+      role: "api-route",
+      symbols: ["connectProviderRoute"],
+      textHints: ["api", "provider", "endpoint"],
+    }),
+  ];
+
+  await withMockedFetch(
+    [
+      JSON.stringify({
+        selectedFiles: [
+          {
+            path: "src/pages/AccountPage.tsx",
+            usage: "inspect-and-edit",
+            reason: "UI trigger for provider connection.",
+            confidence: 0.9,
+          },
+          {
+            path: "src/api/client.ts",
+            usage: "inspect-and-edit",
+            reason: "Client API bridge for the request.",
+            confidence: 0.86,
+          },
+          {
+            path: "server/routes/provider.ts",
+            usage: "inspect-and-edit",
+            reason: "Server endpoint handling the request.",
+            confidence: 0.84,
+          },
+        ],
+        notes: [],
+      }),
+    ],
+    async () => {
+      await selectTaskFiles({
+        rawTask:
+          "Connect the AccountPage provider button to the server API endpoint.",
+        taskType: "fullstack",
+        targetTool: "codex",
+        inventory: inventory(files),
+        settings: ollamaTestSettings(),
+        taskIntent: structuredIntent({
+          taskArea: "fullstack",
+          structuredIntent: {
+            schemaVersion: 1,
+            primaryTargets: [
+              {
+                kind: "page",
+                value: "AccountPage",
+                path: "src/pages/AccountPage.tsx",
+                name: "AccountPage",
+                confidence: 0.95,
+                evidence: "Explicit page target.",
+              },
+            ],
+            positiveActions: ["connect provider button to api endpoint"],
+            protectedScopes: [],
+            allowedEditScope: "target_with_supporting_context",
+            needsStyles: false,
+            needsBackend: true,
+            ambiguities: [],
+            modelNotes: [],
+          },
+        }),
+      });
+
+      const prompt = String(capturedBodies[0]?.prompt ?? "");
+      assert.equal(prompt.includes("src/pages/AccountPage.tsx"), true);
+      assert.equal(prompt.includes("src/api/client.ts"), true);
+      assert.equal(prompt.includes("server/routes/provider.ts"), true);
+      assert.equal(prompt.length < 20_000, true);
+    },
+    (body) => capturedBodies.push(body),
+  );
+}
+
+
+async function testClarificationContractWithholdsImplementationFiles() {
+  const files = [
+    sourceFile("server/routes/integrations.ts", {
+      role: "api-route",
+      symbols: ["integrationsRouter"],
+      textHints: ["integration", "authorization"],
+    }),
+    sourceFile("server/services/providerService.ts", {
+      role: "service",
+      symbols: ["providerService"],
+      textHints: ["provider", "credentials"],
+    }),
+  ];
+
+  await withMockedFetch(
+    [
+      JSON.stringify({
+        selectedFiles: [
+          {
+            path: "server/routes/integrations.ts",
+            usage: "inspect-and-edit",
+            reason: "Guess an authorization endpoint.",
+            confidence: 0.95,
+          },
+        ],
+        notes: [],
+      }),
+    ],
+    async () => {
+      const result = await selectTaskFiles({
+        rawTask: "Add a new connection method.",
+        taskType: "backend",
+        targetTool: "codex",
+        inventory: inventory(files),
+        settings: ollamaTestSettings(),
+        taskIntent: structuredIntent({
+          taskArea: "backend",
+          fileRoleHints: ["route", "service"],
+          taskUnderstanding: {
+            ...structuredIntent().taskUnderstanding,
+            action: "create",
+            interpretationRisk: "uncertain",
+            changeDefinition: "open_ended",
+            ambiguities: ["Which provider and user flow should be supported?"],
+            missingInformation: [
+              {
+                code: "architecture_decision",
+                description: "Which provider and user flow should be supported?",
+                required: true,
+              },
+            ],
+            readiness: "needs_clarification",
+            canProceed: false,
+            clarificationQuestion:
+              "Which provider and user flow should be supported?",
+          },
+        }),
+      });
+
+      assert.equal(result.selectedFiles.length, 0);
+      assert.equal(result.diagnostics?.executionMode, "clarification_required");
+      assert.ok(
+        result.notes.some((note) =>
+          note.includes("requires clarification"),
+        ),
+      );
+    },
+  );
+}
+
+async function testInvestigationContractDowngradesGuessedEditTargets() {
+  const files = [
+    sourceFile(
+      "apps/desktop/renderer/src/components/generation/GenerationDiagnosticsModal.tsx",
+      {
+        role: "component",
+        textHints: ["generation", "diagnostics", "cache status"],
+      },
+    ),
+    sourceFile("apps/desktop/renderer/src/api/client.ts", {
+      role: "client-api",
+      textHints: ["task pack", "generation", "api"],
+    }),
+    sourceFile("apps/desktop/renderer/src/hooks/useGenerationController.ts", {
+      role: "hook",
+      textHints: ["generation", "state", "cache"],
+    }),
+    sourceFile("server/routes/taskPacks.ts", {
+      role: "api-route",
+      textHints: ["generation", "cache", "diagnostics"],
+    }),
+  ];
+
+  await withMockedFetch(
+    [
+      JSON.stringify({
+        selectedFiles: [
+          {
+            path: "apps/desktop/renderer/src/components/generation/GenerationDiagnosticsModal.tsx",
+            usage: "inspect-and-edit",
+            reason: "The modal displays the status.",
+            confidence: 0.99,
+          },
+          {
+            path: "apps/desktop/renderer/src/hooks/useGenerationController.ts",
+            usage: "inspect-and-edit",
+            reason: "Controller may own generation state.",
+            confidence: 0.9,
+          },
+        ],
+        notes: [],
+      }),
+    ],
+    async () => {
+      const result = await selectTaskFiles({
+        rawTask: "Fix stale cache status after repeated generation.",
+        taskType: "bugfix",
+        targetTool: "codex",
+        inventory: inventory(files),
+        settings: ollamaTestSettings(),
+        taskIntent: structuredIntent({
+          taskArea: "bugfix",
+          fileRoleHints: ["state", "api"],
+          taskUnderstanding: {
+            ...structuredIntent().taskUnderstanding,
+            action: "fix",
+            goal: "Fix stale cache status after repeated generation.",
+          },
+        }),
+      });
+
+      assert.equal(result.diagnostics?.executionMode, "investigation");
+      assert.ok(result.selectedFiles.length > 0);
+      assert.ok(
+        result.selectedFiles.every((file) => file.usage === "inspect-only"),
+      );
+      assert.ok(
+        result.selectedFiles.every((file) => file.confidence <= 0.68),
+      );
+      assert.ok(
+        result.selectedFiles.every((file) =>
+          file.reason.includes("Investigation candidate; needs confirmation"),
+        ),
+      );
+    },
+  );
+}
+
+async function testExactLocalizedTextKeepsTranslationResourceInContext() {
+  const files = [
+    sourceFile("apps/desktop/renderer/src/components/layout/Sidebar.tsx", {
+      role: "component",
+      imports: ["react-i18next"],
+      symbols: ["Sidebar", "navigationSections"],
+      textHints: ["Sidebar", "Settings", "labelKey", "nav.settings"],
+      contentPreview:
+        'const { t } = useTranslation(); const itemLabel = t(item.labelKey); label: "Settings", labelKey: "nav.settings";',
+    }),
+    sourceFile("apps/desktop/renderer/src/i18n/index.ts", {
+      role: "data",
+      symbols: ["resources"],
+      textHints: ["settings", "Settings", "Настройки", "nav.settings"],
+      contentPreview:
+        'resources = { en: { nav: { settings: "Settings" } }, ru: { nav: { settings: "Настройки" } } };',
+    }),
+    sourceFile("apps/desktop/renderer/src/components/layout/SidebarItem.tsx", {
+      role: "component",
+      symbols: ["SidebarItem"],
+      textHints: ["sidebar", "settings", "label"],
+    }),
+    sourceFile("apps/desktop/renderer/src/components/layout/SidebarSection.tsx", {
+      role: "component",
+      symbols: ["SidebarSection"],
+      textHints: ["sidebar", "navigation", "settings"],
+    }),
+  ];
+
+  await withMockedFetch(
+    [
+      JSON.stringify({
+        selectedFiles: [
+          {
+            path: "apps/desktop/renderer/src/components/layout/Sidebar.tsx",
+            usage: "inspect-and-edit",
+            reason: "The named component contains the visible label.",
+            confidence: 0.96,
+          },
+          {
+            path: "apps/desktop/renderer/src/components/layout/SidebarItem.tsx",
+            usage: "inspect-only",
+            reason: "Supporting Sidebar item rendering.",
+            confidence: 0.82,
+          },
+          {
+            path: "apps/desktop/renderer/src/components/layout/SidebarSection.tsx",
+            usage: "inspect-only",
+            reason: "Supporting Sidebar navigation rendering.",
+            confidence: 0.8,
+          },
+        ],
+        notes: [],
+      }),
+    ],
+    async () => {
+      const result = await selectTaskFiles({
+        rawTask: 'In Sidebar replace the Settings label with "Настройки".',
+        taskType: "ui",
+        targetTool: "codex",
+        inventory: inventory(files),
+        settings: ollamaTestSettings(),
+        taskIntent: structuredIntent({
+          taskArea: "ui",
+          domainTerms: ["sidebar", "settings", "настройки"],
+          taskUnderstanding: {
+            ...structuredIntent().taskUnderstanding,
+            goal: "Replace the Settings label with Настройки in Sidebar.",
+            action: "update",
+            targetHints: [
+              "apps/desktop/renderer/src/components/layout/Sidebar.tsx",
+            ],
+            changeDefinition: "exact",
+            explicitValues: [
+              {
+                kind: "text",
+                value: "Настройки",
+                exact: true,
+                source: "user",
+              },
+            ],
+          },
+          structuredIntent: {
+            ...structuredIntent().structuredIntent,
+            primaryTargets: [
+              {
+                kind: "component",
+                value: "Sidebar",
+                path: "apps/desktop/renderer/src/components/layout/Sidebar.tsx",
+                name: "Sidebar",
+                confidence: 0.96,
+                evidence: "The task names Sidebar.",
+              },
+            ],
+            positiveActions: ["Replace the visible Settings label"],
+            needsBackend: false,
+          },
+        }),
+      });
+
+      const localization = result.selectedFiles.find(
+        (file) => file.path === "apps/desktop/renderer/src/i18n/index.ts",
+      );
+      assert.ok(localization);
+      assert.equal(localization.usage, "inspect-and-edit");
+      assert.ok(localization.confidence <= 0.72);
+      assert.ok(localization.reason.includes("needs confirmation"));
+      assert.ok(
+        result.notes.some((note) =>
+          note.includes("localization resource"),
+        ),
+      );
+    },
+  );
+}
+
 async function testReplacementClarificationDoesNotContaminateSettingsTarget() {
   const originalTask =
     "На странице Settings измени пояснение под заголовком Experimental AI Core.";
@@ -2932,6 +3386,11 @@ async function main() {
   await testOllamaSelectorFallsBackAfterInvalidJsonRetry();
   await testOllamaSelectorUsesRepairedJson();
   await testOllamaSelectorUsesStrictRetryJson();
+  await testOllamaSelectorUsesCompactGroundedPromptShortlist();
+  await testCompactPromptKeepsFullstackLayers();
+  await testClarificationContractWithholdsImplementationFiles();
+  await testInvestigationContractDowngradesGuessedEditTargets();
+  await testExactLocalizedTextKeepsTranslationResourceInContext();
   console.log("taskFileSelector smoke tests passed");
 }
 

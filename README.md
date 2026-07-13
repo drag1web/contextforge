@@ -281,3 +281,8 @@ ContextForge can now move in both directions between GitHub issues and local Tas
 4. Save source/created issue links in Task Pack result and archive metadata.
 
 The issue body is generated from Task Pack metadata and prompt preview. Project source files are not uploaded by this workflow.
+
+## Performance diagnostics
+
+Generated Task Packs can include a privacy-safe performance timeline that counts real AI calls, measures inventory/understanding/selection/generation stages, reports cache usage, and records Ollama load/evaluation timings without storing prompts, responses, source code, secrets, or absolute paths.
+

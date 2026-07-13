@@ -18,6 +18,7 @@ export type TaskClarification = z.infer<typeof taskClarificationSchema>;
 export type TaskClarificationKind =
   | "replacement_value"
   | "target_confirmation"
+  | "architecture_decision"
   | "constraint"
   | "general";
 
@@ -27,6 +28,8 @@ const TARGET_QUESTION_PATTERN =
   /(?:which\s+(?:exact\s+)?(?:page|screen|component|feature|file|route|section|target)|what\s+(?:page|screen|component|feature|file|route|section)|какую?\s+(?:конкретн[\p{L}\p{N}_-]*\s+)?(?:страниц[\p{L}\p{N}_-]*|экран[\p{L}\p{N}_-]*|компонент[\p{L}\p{N}_-]*|функц[\p{L}\p{N}_-]*|файл[\p{L}\p{N}_-]*|маршрут[\p{L}\p{N}_-]*|секци[\p{L}\p{N}_-]*|цель[\p{L}\p{N}_-]*))/iu;
 const CONSTRAINT_QUESTION_PATTERN =
   /(?:what\s+(?:must|should)\s+not\s+change|which\s+(?:files?|areas?|parts?)\s+(?:must|should)\s+remain|что\s+не\s+(?:менять|трогать)|какие?\s+(?:файлы|области|части)\s+не\s+(?:менять|трогать))/iu;
+const ARCHITECTURE_QUESTION_PATTERN =
+  /(?:key\s+(?:implementation\s+)?decision|exact\s+(?:behavior|flow|approach)|which\s+parts?\s+of\s+the\s+system|вариант\s+(?:поведения|реализации)|пользовательск\w*\s+flow|какие\s+части\s+системы|ключев\w*\s+решен)/iu;
 
 function normalizeLine(value: string) {
   return value.trim().replace(/\s+/g, " ");
@@ -56,6 +59,7 @@ export function classifyTaskClarificationQuestion(
 
   if (REPLACEMENT_QUESTION_PATTERN.test(value)) return "replacement_value";
   if (TARGET_QUESTION_PATTERN.test(value)) return "target_confirmation";
+  if (ARCHITECTURE_QUESTION_PATTERN.test(value)) return "architecture_decision";
   if (CONSTRAINT_QUESTION_PATTERN.test(value)) return "constraint";
 
   return "general";
@@ -172,6 +176,7 @@ export function applyTaskClarificationsToUnderstanding(
   const constraints = [...understanding.constraints];
   const explicitValues = [...understanding.explicitValues];
   let missingInformation = [...understanding.missingInformation];
+  let ambiguities = [...(understanding.ambiguities ?? [])];
   let interpretationRisk = understanding.interpretationRisk;
   let changeDefinition = understanding.changeDefinition;
   let resolvedCount = 0;
@@ -214,12 +219,35 @@ export function applyTaskClarificationsToUnderstanding(
       continue;
     }
 
+
+    if (kind === "architecture_decision") {
+      requestedChanges.push(answer);
+      const before = missingInformation.length;
+      missingInformation = missingInformation.filter(
+        (item) => item.code !== "architecture_decision",
+      );
+      ambiguities = [];
+      interpretationRisk = "objective";
+      changeDefinition = "bounded";
+      if (missingInformation.length !== before) resolvedCount += 1;
+      continue;
+    }
+
     if (kind === "constraint") {
       constraints.push(answer);
       continue;
     }
 
     requestedChanges.push(answer);
+    if (missingInformation.some((item) => item.code === "architecture_decision")) {
+      missingInformation = missingInformation.filter(
+        (item) => item.code !== "architecture_decision",
+      );
+      ambiguities = [];
+      interpretationRisk = "objective";
+      changeDefinition = "bounded";
+      resolvedCount += 1;
+    }
   }
 
   const hasRequiredMissing = missingInformation.some((item) => item.required);
@@ -234,6 +262,7 @@ export function applyTaskClarificationsToUnderstanding(
     targetHints: uniqueByNormalized(targetHints).slice(0, 12),
     requestedChanges: uniqueByNormalized(requestedChanges).slice(0, 12),
     constraints: uniqueByNormalized(constraints).slice(0, 12),
+    ambiguities: uniqueByNormalized(ambiguities).slice(0, 8),
     interpretationRisk,
     changeDefinition,
     explicitValues: explicitValues.slice(0, 12),

@@ -5,6 +5,10 @@ import {
   getOpenAiCompatibleApiKey,
   type AppSettings,
 } from "../settings/settingsService.js";
+import {
+  beginPerformanceAiCall,
+  finishPerformanceAiCall,
+} from "../performance/performanceTrace.js";
 
 export type AiProviderId =
   "ollama" | "openai-compatible" | "anthropic" | "gemini";
@@ -33,6 +37,7 @@ export interface AiGenerateInput {
   numPredict?: number;
   responseFormat?: "text" | "json";
   timeoutMs?: number;
+  purpose?: string;
 }
 
 export interface AiGenerateResult {
@@ -52,6 +57,11 @@ interface OllamaModelResponse {
 
 interface OllamaGenerateResponse {
   response?: string;
+  load_duration?: number;
+  prompt_eval_count?: number;
+  prompt_eval_duration?: number;
+  eval_count?: number;
+  eval_duration?: number;
 }
 
 interface OpenAiModelsResponse {
@@ -517,6 +527,7 @@ export async function generateWithConfiguredAi({
   numPredict = 1600,
   responseFormat = "text",
   timeoutMs = 120_000,
+  purpose = "configured_ai_generation",
 }: AiGenerateInput): Promise<AiGenerateResult> {
   const signal = timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
   const settings = await getAppSettings();
@@ -526,6 +537,46 @@ export async function generateWithConfiguredAi({
     throw new Error("No AI model is selected.");
   }
 
+  const aiCall = beginPerformanceAiCall({
+    purpose,
+    provider: settings.aiProvider,
+    model,
+    promptChars: prompt.length,
+    responseFormat,
+    numPredict,
+  });
+
+  const finishSuccess = (input: {
+    content: string;
+    httpStatus?: number | null;
+    modelLoadMs?: number | null;
+    promptEvalMs?: number | null;
+    generationMs?: number | null;
+    promptTokens?: number | null;
+    responseTokens?: number | null;
+  }) => {
+    finishPerformanceAiCall(aiCall, {
+      success: true,
+      responseChars: input.content.length,
+      httpStatus: input.httpStatus ?? 200,
+      modelLoadMs: input.modelLoadMs,
+      promptEvalMs: input.promptEvalMs,
+      generationMs: input.generationMs,
+      promptTokens: input.promptTokens,
+      responseTokens: input.responseTokens,
+    });
+  };
+
+  const finishFailure = (errorCode: string, httpStatus?: number | null) => {
+    finishPerformanceAiCall(aiCall, {
+      success: false,
+      responseChars: 0,
+      httpStatus: httpStatus ?? null,
+      errorCode,
+    });
+  };
+
+  try {
   if (settings.aiProvider === "openai-compatible") {
     const url = normalizeUrl(settings.openAiCompatibleBaseUrl);
     const response = await fetch(`${url}/chat/completions`, {
@@ -549,6 +600,7 @@ export async function generateWithConfiguredAi({
     });
 
     if (!response.ok) {
+      finishFailure("http_error", response.status);
       throw new Error(
         `OpenAI-compatible endpoint responded with status ${response.status}.`,
       );
@@ -558,9 +610,11 @@ export async function generateWithConfiguredAi({
     const content = readOpenAiContent(data.choices?.[0] ?? {}).trim();
 
     if (!content) {
+      finishFailure("empty_response", response.status);
       throw new Error("OpenAI-compatible endpoint returned an empty response.");
     }
 
+    finishSuccess({ content, httpStatus: response.status });
     return {
       content,
       provider: "openai-compatible",
@@ -572,6 +626,7 @@ export async function generateWithConfiguredAi({
     const apiKey = await getAnthropicApiKey();
 
     if (!apiKey) {
+      finishFailure("api_key_missing");
       throw new Error("Claude API key is not configured.");
     }
 
@@ -594,6 +649,7 @@ export async function generateWithConfiguredAi({
     });
 
     if (!response.ok) {
+      finishFailure("http_error", response.status);
       throw new Error(`Claude API responded with status ${response.status}.`);
     }
 
@@ -601,9 +657,11 @@ export async function generateWithConfiguredAi({
     const content = readAnthropicContent(data);
 
     if (!content) {
+      finishFailure("empty_response", response.status);
       throw new Error("Claude API returned an empty response.");
     }
 
+    finishSuccess({ content, httpStatus: response.status });
     return {
       content,
       provider: "anthropic",
@@ -615,6 +673,7 @@ export async function generateWithConfiguredAi({
     const apiKey = await getGeminiApiKey();
 
     if (!apiKey) {
+      finishFailure("api_key_missing");
       throw new Error("Gemini API key is not configured.");
     }
 
@@ -651,6 +710,7 @@ export async function generateWithConfiguredAi({
     );
 
     if (!response.ok) {
+      finishFailure("http_error", response.status);
       throw new Error(`Gemini API responded with status ${response.status}.`);
     }
 
@@ -658,9 +718,11 @@ export async function generateWithConfiguredAi({
     const content = readGeminiContent(data);
 
     if (!content) {
+      finishFailure("empty_response", response.status);
       throw new Error("Gemini API returned an empty response.");
     }
 
+    finishSuccess({ content, httpStatus: response.status });
     return {
       content,
       provider: "gemini",
@@ -690,6 +752,7 @@ export async function generateWithConfiguredAi({
   });
 
   if (!response.ok) {
+    finishFailure("http_error", response.status);
     throw new Error(`Ollama responded with status ${response.status}.`);
   }
 
@@ -697,12 +760,34 @@ export async function generateWithConfiguredAi({
   const content = String(data.response ?? "").trim();
 
   if (!content) {
+    finishFailure("empty_response", response.status);
     throw new Error("Ollama returned an empty response.");
   }
+
+  const nsToMs = (value: number | undefined) =>
+    typeof value === "number" ? value / 1_000_000 : null;
+
+  finishSuccess({
+    content,
+    httpStatus: response.status,
+    modelLoadMs: nsToMs(data.load_duration),
+    promptEvalMs: nsToMs(data.prompt_eval_duration),
+    generationMs: nsToMs(data.eval_duration),
+    promptTokens: data.prompt_eval_count ?? null,
+    responseTokens: data.eval_count ?? null,
+  });
 
   return {
     content,
     provider: "ollama",
     model,
   };
+  } catch (error) {
+    finishFailure(
+      error instanceof Error && error.name === "TimeoutError"
+        ? "timeout"
+        : "request_error",
+    );
+    throw error;
+  }
 }

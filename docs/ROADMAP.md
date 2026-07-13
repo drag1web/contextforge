@@ -205,6 +205,17 @@ Implementation status: the grounded contract, preflight API, compact confirm/cor
 - [x] Keep required missing information non-bypassable in every mode.
 - [x] Show a saved-answer checking state and enforce truthful manual-verification reporting.
 
+## Performance stabilization before v0.6.8
+
+Goal: measure and reduce cold-start cost, repeated AI calls, repeated project work, and UI blocking before continuing the feature roadmap.
+
+- [x] Add privacy-safe end-to-end timings and real AI call counters.
+- [x] Remove redundant Task Understanding calls after simple clarification or confirmation.
+- [x] Reuse confirmed Understanding snapshots during generation.
+- [ ] Add incremental inventory and better-scoped caches.
+- [ ] Add AI request queueing, warm-up/keep-alive controls, and resource profiles.
+- [ ] Reduce prompt budgets and add cancellation/progress UX.
+
 ## v0.6.8-alpha — Shadow Readiness & Default Evaluation
 
 Goal: decide whether Shadow is ready to become recommended for new installations.

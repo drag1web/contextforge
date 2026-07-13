@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
+  Activity,
   Archive,
   ArrowLeft,
   Bot,
@@ -34,6 +35,7 @@ import {
   SelectorDiagnosticsModal,
 } from "../components/selector/SelectorDiagnosticsModal";
 import { GenerationDiagnosticsModal } from "../components/generation/GenerationDiagnosticsModal";
+import { PerformanceDiagnosticsModal } from "../components/performance/PerformanceDiagnosticsModal";
 
 interface TaskPackResultPageProps {
   taskPack: TaskPack;
@@ -915,6 +917,7 @@ export function TaskPackResultPage({
   const [isCreateIssueOpen, setIsCreateIssueOpen] = useState(false);
   const [isSelectorDiagnosticsOpen, setIsSelectorDiagnosticsOpen] = useState(false);
   const [isGenerationDiagnosticsOpen, setIsGenerationDiagnosticsOpen] = useState(false);
+  const [isPerformanceDiagnosticsOpen, setIsPerformanceDiagnosticsOpen] = useState(false);
 
   useEffect(() => {
     setCurrentTaskPack(taskPack);
@@ -933,6 +936,7 @@ export function TaskPackResultPage({
   const createdIssue = currentTaskPack.generationRecipe?.githubCreatedIssue;
   const selectorDiagnostics = currentTaskPack.generationRecipe?.selectorDiagnostics;
   const generationDiagnostics = currentTaskPack.generationRecipe?.generationDiagnostics;
+  const performanceDiagnostics = currentTaskPack.generationRecipe?.performanceDiagnostics;
 
   function handleTaskPackUpdated(nextTaskPack: TaskPack) {
     setCurrentTaskPack(nextTaskPack);
@@ -1059,6 +1063,16 @@ export function TaskPackResultPage({
               </Button>
             )}
 
+            {performanceDiagnostics && (
+              <Button
+                variant="secondary"
+                onClick={() => setIsPerformanceDiagnosticsOpen(true)}
+              >
+                <Activity size={15} />
+                {t("taskPackResult.performanceDiagnostics")}
+              </Button>
+            )}
+
             <Button variant="primary" onClick={handleCopyPrompt}>
               {isCopied ? <Check size={15} /> : <Copy size={15} />}
               {isCopied
@@ -1161,6 +1175,13 @@ export function TaskPackResultPage({
         <GenerationDiagnosticsModal
           diagnostics={generationDiagnostics}
           onClose={() => setIsGenerationDiagnosticsOpen(false)}
+        />
+      )}
+
+      {isPerformanceDiagnosticsOpen && performanceDiagnostics && (
+        <PerformanceDiagnosticsModal
+          diagnostics={performanceDiagnostics}
+          onClose={() => setIsPerformanceDiagnosticsOpen(false)}
         />
       )}
     </section>

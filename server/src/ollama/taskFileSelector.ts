@@ -1,4 +1,9 @@
 import { getAppSettings } from "../settings/settingsService.js";
+import {
+  beginPerformanceAiCall,
+  finishPerformanceAiCall,
+  measurePerformanceStage,
+} from "../performance/performanceTrace.js";
 import { resolveExplicitFileMentions } from "../selection/explicitFileMentions.js";
 import { buildProjectSemanticGraph } from "../selection/projectSemanticGraph.js";
 import {
@@ -15,6 +20,13 @@ import type {
   TaskIntentAnalysis,
   TaskArea,
 } from "./taskIntentAnalyzer.js";
+import {
+  applySelectionEvidenceGate,
+  buildTaskExecutionContractFromIntent,
+  type TaskEvidenceLevel,
+  type TaskExecutionContract,
+  type TaskExecutionLayer,
+} from "../taskPacks/taskExecutionContract.js";
 
 export type SelectedTaskFileUsage =
   | "inspect-and-edit"
@@ -29,6 +41,7 @@ export interface SelectedTaskFile {
   usage: SelectedTaskFileUsage;
   reason: string;
   confidence: number;
+  evidenceLevel?: TaskEvidenceLevel;
 }
 
 export type EffectiveTaskArea = TaskArea;
@@ -40,7 +53,8 @@ export type SelectorSelectionSource =
   | "fallback"
   | "blocked"
   | "manual-review"
-  | "shadow-deterministic";
+  | "shadow-deterministic"
+  | "explicit-target-guard";
 export type SelectorParseStage =
   | "not-run"
   | "direct-json"
@@ -53,7 +67,7 @@ export type SelectorParseStage =
 export interface TaskFileSelection {
   selectedFiles: SelectedTaskFile[];
   rejectedModelPaths: string[];
-  source: "ollama" | "fallback" | "shadow";
+  source: "ollama" | "fallback" | "shadow" | "fast-path";
   usedFallback: boolean;
   durationMs: number;
   notes: string[];
@@ -83,6 +97,20 @@ export interface TaskFileSelection {
     schemaError?: string;
     modelConfidence?: number;
     finalConfidence?: number;
+    explicitTargetStatus?: "matched" | "unresolved" | "not-applicable";
+    explicitTargetPath?: string;
+    explicitTargetLabels?: string[];
+    promptInventoryTotalFiles?: number;
+    promptCandidateCount?: number;
+    promptShortlistApplied?: boolean;
+    initialPromptChars?: number;
+    retryPromptChars?: number;
+    executionMode?: TaskExecutionContract["mode"];
+    requiredLayers?: TaskExecutionLayer[];
+    missingRequiredLayers?: TaskExecutionLayer[];
+    implementationGateReasons?: string[];
+    existingImplementationCandidates?: string[];
+    evidenceSummary?: Record<TaskEvidenceLevel, number>;
   };
 }
 
@@ -97,6 +125,11 @@ interface SelectTaskFilesInput {
 
 interface OllamaGenerateResponse {
   response?: string;
+  load_duration?: number;
+  prompt_eval_count?: number;
+  prompt_eval_duration?: number;
+  eval_count?: number;
+  eval_duration?: number;
 }
 
 interface TokenContext {
@@ -109,9 +142,17 @@ interface TokenContext {
 
 const MAX_SELECTED_FILES = 14;
 const MIN_MODEL_SELECTED_FILES = 3;
-const MAX_INVENTORY_FILES_FOR_PROMPT = 700;
-const SELECTOR_ENGINE_VERSION = "2026-07-02.protected-ui-area-v2";
-const SELECTOR_SAFETY_PROFILE = "ui-specific-target-review-v5";
+const MAX_SELECTOR_PROMPT_CANDIDATES = 24;
+const MAX_SELECTOR_PROMPT_INVENTORY_CHARS = 6_500;
+const SELECTOR_ENGINE_VERSION = "2026-07-13.evidence-grounding-v5";
+const SELECTOR_SAFETY_PROFILE = "evidence-grounding-gate-v7";
+
+const taskConstraintsCache = new WeakMap<object, TaskConstraints>();
+const tokenContextCache = new WeakMap<object, TokenContext>();
+const fileSearchTextCache = new WeakMap<ProjectInventoryFile, string>();
+const fallbackScoreCache = new WeakMap<object, Map<string, number>>();
+const pageSemanticScoreCache = new WeakMap<object, Map<string, number>>();
+const executionContractCache = new WeakMap<object, TaskExecutionContract | null>();
 
 const VALID_USAGES: SelectedTaskFileUsage[] = [
   "inspect-and-edit",
@@ -749,7 +790,7 @@ function mentionsOtherPagesProtected(rawTask: string) {
   ]);
 }
 
-function getTaskConstraints(input: SelectTaskFilesInput): TaskConstraints {
+function buildTaskConstraintsUncached(input: SelectTaskFilesInput): TaskConstraints {
   const rawTask = input.rawTask;
   const selectedArea = getSelectedTaskTypeArea(input.taskType);
   const frontendProtectedForBackendTask =
@@ -938,6 +979,14 @@ function getTaskConstraints(input: SelectTaskFilesInput): TaskConstraints {
         : "",
     ].filter(Boolean),
   };
+}
+
+function getTaskConstraints(input: SelectTaskFilesInput): TaskConstraints {
+  const cached = taskConstraintsCache.get(input);
+  if (cached) return cached;
+  const value = buildTaskConstraintsUncached(input);
+  taskConstraintsCache.set(input, value);
+  return value;
 }
 
 function normalizeConfidence(value: unknown) {
@@ -2597,7 +2646,7 @@ function extractProtectedRouteTermsFromInventory(
   return Array.from(terms).filter(Boolean);
 }
 
-function buildTokenContext(input: SelectTaskFilesInput): TokenContext {
+function buildTokenContextUncached(input: SelectTaskFilesInput): TokenContext {
   const positiveTaskText = getPositiveTaskText(input.rawTask);
   const explicitResolution = resolveExplicitFileMentions(
     positiveTaskText,
@@ -2668,6 +2717,15 @@ function buildTokenContext(input: SelectTaskFilesInput): TokenContext {
     routeMentions,
   };
 }
+
+function buildTokenContext(input: SelectTaskFilesInput): TokenContext {
+  const cached = tokenContextCache.get(input);
+  if (cached) return cached;
+  const value = buildTokenContextUncached(input);
+  tokenContextCache.set(input, value);
+  return value;
+}
+
 function getPathSegments(pathValue: string) {
   return tokenize(pathValue);
 }
@@ -3173,6 +3231,12 @@ function getKindWeight(
 }
 
 function getFileSearchParts(file: ProjectInventoryFile) {
+  const identifierParts = [
+    file.path,
+    file.name,
+    ...(file.exports ?? []),
+    ...(file.symbols ?? []),
+  ].flatMap(tokenizeIdentifierLike);
   return [
     file.path,
     file.name,
@@ -3184,12 +3248,17 @@ function getFileSearchParts(file: ProjectInventoryFile) {
     ...(file.exports ?? []),
     ...(file.symbols ?? []),
     ...(file.textHints ?? []),
+    ...identifierParts,
     file.contentPreview ?? "",
   ];
 }
 
 function getFileSearchText(file: ProjectInventoryFile) {
-  return normalizeForCompare(getFileSearchParts(file).join(" "));
+  const cached = fileSearchTextCache.get(file);
+  if (cached) return cached;
+  const value = normalizeForCompare(getFileSearchParts(file).join(" "));
+  fileSearchTextCache.set(file, value);
+  return value;
 }
 
 function normalizedTermMatches(text: string, term: string) {
@@ -3781,7 +3850,7 @@ function canUseSemanticPageTargetFile(
   return true;
 }
 
-function getPageSemanticMatchScore(
+function getPageSemanticMatchScoreUncached(
   file: ProjectInventoryFile,
   input: SelectTaskFilesInput,
   tokenContext = buildTokenContext(input),
@@ -3993,6 +4062,24 @@ function isSingularConcretePageRequest(input: SelectTaskFilesInput) {
     "в разделе",
     "этот раздел",
   ]);
+}
+
+function getPageSemanticMatchScore(
+  file: ProjectInventoryFile,
+  input: SelectTaskFilesInput,
+  tokenContext = buildTokenContext(input),
+) {
+  let scores = pageSemanticScoreCache.get(input);
+  if (!scores) {
+    scores = new Map<string, number>();
+    pageSemanticScoreCache.set(input, scores);
+  }
+  const key = normalizeForCompare(file.path);
+  const cached = scores.get(key);
+  if (cached !== undefined) return cached;
+  const value = getPageSemanticMatchScoreUncached(file, input, tokenContext);
+  scores.set(key, value);
+  return value;
 }
 
 function getConcretePageTargetLimit(
@@ -6548,7 +6635,7 @@ function scorePathTokenMatches(
   return score;
 }
 
-function scoreFileFallback(
+function scoreFileFallbackUncached(
   file: ProjectInventoryFile,
   tokenContext: TokenContext,
   input: SelectTaskFilesInput,
@@ -6677,6 +6764,26 @@ function scoreFileFallback(
     score -= 18;
 
   return score;
+}
+
+function scoreFileFallback(
+  file: ProjectInventoryFile,
+  tokenContext: TokenContext,
+  input: SelectTaskFilesInput,
+  area: EffectiveTaskArea,
+  assetMode: AssetMode,
+) {
+  let scores = fallbackScoreCache.get(input);
+  if (!scores) {
+    scores = new Map<string, number>();
+    fallbackScoreCache.set(input, scores);
+  }
+  const key = `${normalizeForCompare(file.path)}|${area}|${assetMode}`;
+  const cached = scores.get(key);
+  if (cached !== undefined) return cached;
+  const value = scoreFileFallbackUncached(file, tokenContext, input, area, assetMode);
+  scores.set(key, value);
+  return value;
 }
 
 function getAssetCap(assetMode: AssetMode) {
@@ -11108,112 +11215,700 @@ function buildFallbackSelection(
   };
 }
 
-function compactInventoryForPrompt(inventory: ProjectInventory) {
-  return inventory.files
-    .slice(0, MAX_INVENTORY_FILES_FOR_PROMPT)
-    .map((file) => ({
+interface SelectorPromptPlan {
+  files: ProjectInventoryFile[];
+  totalInventoryFiles: number;
+  shortlistApplied: boolean;
+  omittedFiles: number;
+  executionContract: TaskExecutionContract | null;
+}
+
+function addSelectorPromptCandidate(
+  ordered: ProjectInventoryFile[],
+  seen: Set<string>,
+  file: ProjectInventoryFile | undefined,
+  input: SelectTaskFilesInput,
+  area: EffectiveTaskArea,
+  assetMode: AssetMode,
+) {
+  if (!file) return;
+  const normalizedPath = normalizeForCompare(file.path);
+  if (!normalizedPath || seen.has(normalizedPath)) return;
+  if (!canUseSelectedFile(input, file, area, assetMode)) return;
+  if (isSecretLikePath(file.path) || file.isLikelyGenerated) return;
+
+  seen.add(normalizedPath);
+  ordered.push(file);
+}
+
+function getSelectorPromptCoverageScore(
+  file: ProjectInventoryFile,
+  area: EffectiveTaskArea,
+) {
+  const pathText = normalizeForCompare(file.path);
+  const roleText = normalizeForCompare(file.role);
+  let score = 0;
+
+  if (file.canReadText) score += 4;
+  if (file.kind === "source") score += 8;
+  if (file.kind === "config") score += 5;
+  if (file.kind === "docs") score += 4;
+  if (file.kind === "style") score += 4;
+
+  if (area === "ui") {
+    if (isClientUiPath(file.path)) score += 34;
+    if (file.kind === "style") score += 22;
+    if (["page", "component", "layout", "ui-component"].includes(roleText))
+      score += 20;
+    if (isBackendLeaningPath(file.path) && !isClientApiBridgePath(file.path))
+      score -= 45;
+  } else if (area === "backend") {
+    if (isBackendLeaningPath(file.path)) score += 38;
+    if (isClientApiBridgePath(file.path)) score += 10;
+    if (isClientUiPath(file.path) && !isClientApiBridgePath(file.path))
+      score -= 35;
+  } else if (area === "fullstack") {
+    if (isBackendLeaningPath(file.path)) score += 24;
+    if (isClientApiBridgePath(file.path)) score += 28;
+    if (isClientUiPath(file.path)) score += 24;
+  } else if (area === "build") {
+    if (isPackageOrConfigPath(file.path)) score += 36;
+    if (includesAny(pathText, ["entry", "main", "vite", "webpack", "tsconfig"]))
+      score += 18;
+  } else if (area === "docs") {
+    if (file.kind === "docs") score += 40;
+    if (isPackageOrConfigPath(file.path)) score += 16;
+  } else if (area === "tests") {
+    if (includesAny(pathText, ["test", "spec", "smoke", "replay", "fixture"]))
+      score += 38;
+    if (isPackageOrConfigPath(file.path)) score += 12;
+  }
+
+  if (includesAny(pathText, ["package-lock", "pnpm-lock", "yarn.lock"]))
+    score -= 80;
+
+  return score;
+}
+
+
+function fileMatchesExecutionLayer(
+  file: ProjectInventoryFile,
+  layer: TaskExecutionLayer,
+) {
+  const pathText = normalizeForCompare(file.path);
+  const roleText = normalizeForCompare(file.role);
+
+  if (layer === "ui") {
+    return isClientUiPath(file.path) && !isClientApiBridgePath(file.path);
+  }
+  if (layer === "client-api") return isClientApiBridgePath(file.path);
+  if (layer === "backend") {
+    return isBackendLeaningPath(file.path) && !isClientApiBridgePath(file.path);
+  }
+  if (layer === "state") {
+    return (
+      includesAny(pathText, [
+        "/hooks/",
+        "/store/",
+        "/stores/",
+        "/state/",
+        "controller",
+        "context",
+        "reducer",
+        "cache",
+      ]) ||
+      includesAny(roleText, ["state", "controller", "hook", "store"])
+    );
+  }
+  if (layer === "storage") {
+    return includesAny(pathText, [
+      "/db/",
+      "/database/",
+      "/storage/",
+      "/repositories/",
+      "/repository/",
+      "schema",
+      "migration",
+    ]);
+  }
+  if (layer === "tests") {
+    return (
+      file.kind === "test" ||
+      includesAny(pathText, ["test", "spec", "smoke", "replay", "fixture"])
+    );
+  }
+  if (layer === "config") return isPackageOrConfigPath(file.path);
+  if (layer === "docs") return file.kind === "docs";
+  return false;
+}
+
+function getExecutionLayerCandidateScore(
+  file: ProjectInventoryFile,
+  layer: TaskExecutionLayer,
+  input: SelectTaskFilesInput,
+  area: EffectiveTaskArea,
+  assetMode: AssetMode,
+  tokenContext: TokenContext,
+) {
+  let score =
+    scoreFileFallback(file, tokenContext, input, area, assetMode) +
+    getSelectorPromptCoverageScore(file, area);
+  const pathText = normalizeForCompare(file.path);
+
+  if (fileMatchesExecutionLayer(file, layer)) score += 90;
+  if (file.kind === "source" || file.kind === "test") score += 18;
+  if (file.exports.length > 0 || file.symbols.length > 0) score += 10;
+  if (
+    layer !== "config" &&
+    (file.kind === "config" || pathText.endsWith("package.json"))
+  ) {
+    score -= 100;
+  }
+  if (
+    layer !== "ui" &&
+    includesAny(pathText, ["index.css", "globals.css", "app.css"])
+  ) {
+    score -= 90;
+  }
+
+  return score;
+}
+
+function isExactLocalizedTextTask(input: SelectTaskFilesInput) {
+  const understanding = input.taskIntent?.taskUnderstanding;
+  if (!understanding || understanding.changeDefinition !== "exact") return false;
+  if (!includesAny(normalizeForCompare(input.rawTask), [
+    "text",
+    "label",
+    "title",
+    "heading",
+    "copy",
+    "translation",
+    "translate",
+    "текст",
+    "подпись",
+    "надпись",
+    "заголов",
+    "перевод",
+  ])) {
+    return false;
+  }
+
+  return understanding.explicitValues.some((value) =>
+    value.kind === "text" || value.kind === "literal",
+  );
+}
+
+function fileUsesLocalizationIndirection(file: ProjectInventoryFile) {
+  const searchText = normalizeForCompare([
+    file.path,
+    file.role,
+    ...file.imports,
+    ...file.exports,
+    ...file.symbols,
+    ...file.textHints,
+    file.contentPreview ?? "",
+  ].join(" "));
+
+  return includesAny(searchText, [
+    "react-i18next",
+    "useTranslation",
+    "i18next",
+    "intl",
+    "localization",
+    "localisation",
+    "labelKey",
+    "descriptionKey",
+    "titleKey",
+    "messageKey",
+    " t(",
+  ].map(normalizeForCompare));
+}
+
+function isLocalizationResourceFile(file: ProjectInventoryFile) {
+  const pathText = normalizeForCompare(file.path);
+  const roleText = normalizeForCompare(file.role);
+  return (
+    includesAny(pathText, [
+      "/i18n/",
+      "/locale/",
+      "/locales/",
+      "/translation/",
+      "/translations/",
+      "/messages/",
+      "i18n.",
+      "locale.",
+      "locales.",
+      "translation.",
+      "translations.",
+      "messages.",
+    ]) ||
+    includesAny(roleText, ["i18n", "locale", "translation", "messages"])
+  );
+}
+
+function getLocalizationSupportCandidates(
+  input: SelectTaskFilesInput,
+  area: EffectiveTaskArea,
+  assetMode: AssetMode,
+  tokenContext: TokenContext,
+  excludedPaths: Set<string>,
+) {
+  return input.inventory.files
+    .filter((file) => !excludedPaths.has(normalizeForCompare(file.path)))
+    .filter((file) => isLocalizationResourceFile(file))
+    .filter((file) => canUseSelectedFile(input, file, area, assetMode))
+    .filter((file) => !isSecretLikePath(file.path) && !file.isLikelyGenerated)
+    .map((file) => {
+      const strongMatches = getStrongTokenMatchCountForFile(
+        file,
+        tokenContext.strongTokens,
+      );
+      const score =
+        scoreFileFallback(file, tokenContext, input, area, assetMode) +
+        120 +
+        Math.min(80, strongMatches * 35) +
+        (file.canReadText ? 10 : 0);
+      return { file, score, strongMatches };
+    })
+    .sort((left, right) => right.score - left.score);
+}
+
+function addLocalizationSupportPromptCandidates(
+  ordered: ProjectInventoryFile[],
+  seen: Set<string>,
+  input: SelectTaskFilesInput,
+  area: EffectiveTaskArea,
+  assetMode: AssetMode,
+  tokenContext: TokenContext,
+) {
+  if (!isExactLocalizedTextTask(input)) return;
+  if (!ordered.some((file) => fileUsesLocalizationIndirection(file))) return;
+
+  for (const { file } of getLocalizationSupportCandidates(
+    input,
+    area,
+    assetMode,
+    tokenContext,
+    seen,
+  ).slice(0, 2)) {
+    addSelectorPromptCandidate(
+      ordered,
+      seen,
+      file,
+      input,
+      area,
+      assetMode,
+    );
+  }
+}
+
+function augmentLocalizationSupportSelection(
+  selectedFiles: SelectedTaskFile[],
+  input: SelectTaskFilesInput,
+  area: EffectiveTaskArea,
+  assetMode: AssetMode,
+) {
+  if (!isExactLocalizedTextTask(input)) {
+    return { selectedFiles, notes: [] as string[] };
+  }
+
+  const inventoryByPath = new Map(
+    input.inventory.files.map((file) => [normalizeForCompare(file.path), file]),
+  );
+  const localizedTargetSelected = selectedFiles.some((selected) => {
+    const inventoryFile = inventoryByPath.get(normalizeForCompare(selected.path));
+    return inventoryFile ? fileUsesLocalizationIndirection(inventoryFile) : false;
+  });
+  if (!localizedTargetSelected) {
+    return { selectedFiles, notes: [] as string[] };
+  }
+
+  const alreadyHasResource = selectedFiles.some((selected) => {
+    const inventoryFile = inventoryByPath.get(normalizeForCompare(selected.path));
+    return inventoryFile ? isLocalizationResourceFile(inventoryFile) : false;
+  });
+  if (alreadyHasResource) {
+    return { selectedFiles, notes: [] as string[] };
+  }
+
+  const seen = new Set(selectedFiles.map((file) => normalizeForCompare(file.path)));
+  const tokenContext = buildTokenContext(input);
+  const candidate = getLocalizationSupportCandidates(
+    input,
+    area,
+    assetMode,
+    tokenContext,
+    seen,
+  )[0];
+  if (!candidate) {
+    return {
+      selectedFiles,
+      notes: [
+        "The selected UI target appears localization-driven, but no real localization resource was grounded from inventory.",
+      ],
+    };
+  }
+
+  const usage: SelectedTaskFileUsage =
+    candidate.strongMatches > 0 ? "inspect-and-edit" : "inspect-only";
+  return {
+    selectedFiles: [
+      ...selectedFiles,
+      {
+        path: candidate.file.path,
+        kind: candidate.file.kind,
+        usage,
+        confidence: candidate.strongMatches > 0 ? 0.72 : 0.64,
+        reason:
+          "Localization support candidate; exact visible text appears to be resolved indirectly and this real resource should be inspected before changing the UI target. Candidate rank only; needs confirmation.",
+      },
+    ].slice(0, MAX_SELECTED_FILES),
+    notes: [
+      "Exact text selection was augmented with a real localization resource because the chosen UI target uses localization indirection.",
+    ],
+  };
+}
+
+function addExecutionContractCandidates(
+  ordered: ProjectInventoryFile[],
+  seen: Set<string>,
+  input: SelectTaskFilesInput,
+  area: EffectiveTaskArea,
+  assetMode: AssetMode,
+  tokenContext: TokenContext,
+  contract: TaskExecutionContract | null,
+) {
+  if (!contract) return;
+
+  const layers = [...contract.requiredLayers];
+  if (contract.mode === "investigation") {
+    for (const layer of ["backend", "client-api", "state", "ui"] as const) {
+      if (!layers.includes(layer)) layers.push(layer);
+    }
+  }
+
+  for (const layer of layers) {
+    const limit = contract.mode === "investigation" ? 2 : 3;
+    const candidates = input.inventory.files
+      .filter((file) => !seen.has(normalizeForCompare(file.path)))
+      .filter((file) => canUseSelectedFile(input, file, area, assetMode))
+      .filter((file) => !isSecretLikePath(file.path) && !file.isLikelyGenerated)
+      .filter((file) => fileMatchesExecutionLayer(file, layer))
+      .map((file) => ({
+        file,
+        score: getExecutionLayerCandidateScore(
+          file,
+          layer,
+          input,
+          area,
+          assetMode,
+          tokenContext,
+        ),
+      }))
+      .sort((left, right) => right.score - left.score)
+      .slice(0, limit);
+
+    for (const { file } of candidates) {
+      addSelectorPromptCandidate(
+        ordered,
+        seen,
+        file,
+        input,
+        area,
+        assetMode,
+      );
+    }
+  }
+}
+
+function buildSelectorPromptPlan(
+  input: SelectTaskFilesInput,
+  fallback: TaskFileSelection,
+): SelectorPromptPlan {
+  const area = fallback.effectiveTaskArea;
+  const assetMode = fallback.assetMode;
+  const tokenContext = buildTokenContext(input);
+  const ordered: ProjectInventoryFile[] = [];
+  const seen = new Set<string>();
+  const inventoryByPath = new Map(
+    input.inventory.files.map((file) => [normalizeForCompare(file.path), file]),
+  );
+  const executionContract = getCachedExecutionContract(input);
+
+  for (const explicitPath of tokenContext.explicitExistingPaths) {
+    addSelectorPromptCandidate(
+      ordered,
+      seen,
+      inventoryByPath.get(normalizeForCompare(explicitPath)),
+      input,
+      area,
+      assetMode,
+    );
+  }
+
+  for (const target of getStructuredIntentTargets(input).sort(
+    (left, right) => right.confidence - left.confidence,
+  )) {
+    if (!structuredTargetHasTaskSupport(input, target)) continue;
+    addSelectorPromptCandidate(
+      ordered,
+      seen,
+      findStructuredTargetFile(input, target),
+      input,
+      area,
+      assetMode,
+    );
+  }
+
+  addLocalizationSupportPromptCandidates(
+    ordered,
+    seen,
+    input,
+    area,
+    assetMode,
+    tokenContext,
+  );
+
+  addExecutionContractCandidates(
+    ordered,
+    seen,
+    input,
+    area,
+    assetMode,
+    tokenContext,
+    executionContract,
+  );
+
+  if (executionContract) {
+    for (const pathValue of getExistingImplementationCandidates(input, executionContract)) {
+      addSelectorPromptCandidate(
+        ordered,
+        seen,
+        inventoryByPath.get(normalizeForCompare(pathValue)),
+        input,
+        area,
+        assetMode,
+      );
+    }
+  }
+
+  for (const selectedFile of fallback.selectedFiles) {
+    addSelectorPromptCandidate(
+      ordered,
+      seen,
+      inventoryByPath.get(normalizeForCompare(selectedFile.path)),
+      input,
+      area,
+      assetMode,
+    );
+  }
+
+  const seedPaths = ordered.slice(0, 12).map((file) => file.path);
+  if (seedPaths.length > 0) {
+    const semanticGraph = buildProjectSemanticGraph(input.inventory);
+    const includeImportedBy =
+      area === "tests" ||
+      area === "fullstack" ||
+      area === "bugfix" ||
+      executionContract?.mode === "investigation";
+    const firstHop = semanticGraph.getSupportFiles(seedPaths, {
+      includeImportedBy,
+      includeRouteLocal: true,
+      maxPerTarget: 5,
+    });
+    for (const support of firstHop) {
+      addSelectorPromptCandidate(
+        ordered,
+        seen,
+        support.file,
+        input,
+        area,
+        assetMode,
+      );
+    }
+
+    if (executionContract?.mode === "investigation" || area === "fullstack" || area === "bugfix") {
+      const secondHopSeeds = firstHop.slice(0, 10).map((item) => item.file.path);
+      for (const support of semanticGraph.getSupportFiles(secondHopSeeds, {
+        includeImportedBy: true,
+        includeRouteLocal: true,
+        maxPerTarget: 2,
+      })) {
+        addSelectorPromptCandidate(
+          ordered,
+          seen,
+          support.file,
+          input,
+          area,
+          assetMode,
+        );
+      }
+    }
+  }
+
+  const scoredCandidates = getScoredCandidates(
+    input,
+    area,
+    assetMode,
+    tokenContext,
+    [],
+  );
+  for (const { file } of scoredCandidates) {
+    if (ordered.length >= MAX_SELECTOR_PROMPT_CANDIDATES) break;
+    addSelectorPromptCandidate(ordered, seen, file, input, area, assetMode);
+  }
+
+  if (ordered.length < MAX_SELECTOR_PROMPT_CANDIDATES) {
+    const coverageCandidates = input.inventory.files
+      .filter((file) => !seen.has(normalizeForCompare(file.path)))
+      .filter((file) => canUseSelectedFile(input, file, area, assetMode))
+      .filter((file) => !isSecretLikePath(file.path))
+      .filter((file) => !file.isLikelyGenerated)
+      .map((file) => ({
+        file,
+        score:
+          getSelectorPromptCoverageScore(file, area) +
+          Math.max(
+            0,
+            scoreFileFallback(file, tokenContext, input, area, assetMode),
+          ),
+      }))
+      .sort((left, right) => right.score - left.score);
+
+    for (const { file } of coverageCandidates) {
+      if (ordered.length >= MAX_SELECTOR_PROMPT_CANDIDATES) break;
+      addSelectorPromptCandidate(ordered, seen, file, input, area, assetMode);
+    }
+  }
+
+  const files = ordered.slice(0, MAX_SELECTOR_PROMPT_CANDIDATES);
+  return {
+    files,
+    totalInventoryFiles: input.inventory.files.length,
+    shortlistApplied: files.length < input.inventory.files.length,
+    omittedFiles: Math.max(0, input.inventory.files.length - files.length),
+    executionContract,
+  };
+}
+
+function truncatePromptText(value: string | undefined, maxLength: number) {
+  const normalized = String(value ?? "").replace(/\s+/g, " ").trim();
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function compactInventoryForPrompt(plan: SelectorPromptPlan) {
+  const compact: Array<Record<string, unknown>> = [];
+  let serializedChars = 2;
+
+  for (let index = 0; index < plan.files.length; index += 1) {
+    const file = plan.files[index]!;
+    const item: Record<string, unknown> = {
       path: file.path,
       kind: file.kind,
-      role: file.role,
-      routePath: file.routePath,
-      extension: file.extension,
-      sizeBytes: file.sizeBytes,
-      canReadText: file.canReadText,
-      isLikelyGenerated: file.isLikelyGenerated,
-      imports: file.imports.slice(0, 8),
-      exports: file.exports.slice(0, 8),
-      symbols: file.symbols.slice(0, 12),
-      textHints: file.textHints.slice(0, 14),
-      contentPreview: file.contentPreview,
-    }));
+    };
+    if (file.role) item.role = file.role;
+    if (file.routePath) item.route = file.routePath;
+
+    const symbols = uniqueStrings([
+      ...file.exports.slice(0, 4),
+      ...file.symbols.slice(0, 5),
+    ]).slice(0, 6);
+    const imports = file.imports.slice(0, 3);
+    const hints = file.textHints.slice(0, 5);
+    if (symbols.length > 0) item.symbols = symbols;
+    if (imports.length > 0) item.imports = imports;
+    if (hints.length > 0) item.hints = hints;
+    if (index < 10 && file.contentPreview) {
+      item.preview = truncatePromptText(file.contentPreview, 180);
+    }
+
+    const serialized = JSON.stringify(item);
+    if (
+      compact.length >= 10 &&
+      serializedChars + serialized.length + 1 >
+        MAX_SELECTOR_PROMPT_INVENTORY_CHARS
+    ) {
+      break;
+    }
+
+    compact.push(item);
+    serializedChars += serialized.length + 1;
+  }
+
+  return compact;
 }
 
-function buildSelectorPrompt(input: SelectTaskFilesInput) {
+function compactTaskIntentForPrompt(taskIntent: TaskIntentAnalysis | undefined) {
+  if (!taskIntent) return null;
+  return {
+    taskArea: taskIntent.taskArea,
+    intentTags: taskIntent.intentTags.slice(0, 8),
+    fileRoleHints: taskIntent.fileRoleHints.slice(0, 8),
+    understanding: {
+      action: taskIntent.taskUnderstanding.action,
+      readiness: taskIntent.taskUnderstanding.readiness,
+      interpretationRisk: taskIntent.taskUnderstanding.interpretationRisk,
+      changeDefinition: taskIntent.taskUnderstanding.changeDefinition,
+      ambiguities: taskIntent.taskUnderstanding.ambiguities?.slice(0, 6) ?? [],
+      targetHints: taskIntent.taskUnderstanding.targetHints.slice(0, 8),
+      constraints: taskIntent.taskUnderstanding.constraints.slice(0, 8),
+    },
+    structuredIntent: {
+      primaryTargets: taskIntent.structuredIntent.primaryTargets.slice(0, 8),
+      positiveActions: taskIntent.structuredIntent.positiveActions.slice(0, 8),
+      protectedScopes: taskIntent.structuredIntent.protectedScopes.slice(0, 8),
+      allowedEditScope: taskIntent.structuredIntent.allowedEditScope,
+      needsStyles: taskIntent.structuredIntent.needsStyles,
+      needsBackend: taskIntent.structuredIntent.needsBackend,
+    },
+  };
+}
+
+function buildSelectorPrompt(
+  input: SelectTaskFilesInput,
+  plan: SelectorPromptPlan,
+) {
   const effectiveTaskArea = getEffectiveTaskArea(input);
   const assetMode = getAssetMode(input);
-  const compactInventory = compactInventoryForPrompt(input.inventory);
+  const compactInventory = compactInventoryForPrompt(plan);
 
   return `
-You are ContextForge's AI file selector.
+You select real project files for an external coding agent. Return one strict JSON object only.
 
-Your job:
-Select the most relevant REAL files from the project inventory for a Task Pack that will be used by an external coding agent.
+Task: ${input.rawTask}
+Requested task type: ${input.taskType}
+Implementation area: ${effectiveTaskArea}
+Asset mode: ${assetMode}
+Target tool: ${input.targetTool}
 
-Important:
-- You are not editing files.
-- You are not generating code changes.
-- Select only paths that exist in the provided inventory.
-- Never invent file paths, components, services, handlers, stores, pages, or assets.
-- The selected task type is the user's requested workflow. The inferred task area is "${effectiveTaskArea}". If they conflict, select files that make the conflict visible instead of silently switching to docs/config only.
-- Asset mode is "${assetMode}".
-- If asset mode is "none", do not select assets.
-- If asset mode is "mixed", select mostly source/style files and at most 1-2 highly relevant assets.
-- If asset mode is "primary", select matching real assets such as logo, favicon, icons, images, or files under public/assets, plus source/style files that reference them.
-- For build/config tasks, prefer package.json, framework config, TypeScript config, lint config, entry/layout/page/route files that may cause build/import failures.
-- For docs tasks, prefer README/docs/package/config files. Avoid unrelated source files. If README/docs is only a secondary deliverable for an implementation task, include README as reference but still select real source files for the main implementation.
-- For fullstack tasks, include server/API files, client API bridge files, and the most relevant UI component/page.
-- For backend tasks, prefer server/api/routes/db/services/electron files and avoid client UI files unless they are API bridge files.
-- For UI tasks, prefer page/component/layout/style files and avoid server-only files.
-- If the user says "keep backend API unchanged", "do not change backend", "frontend only", or "UI only", treat backend/API files as protected context and do not select them as edit targets.
-- Mentioning API/backend as a constraint does not automatically make the task backend or fullstack.
-- If backend/API files are protected by the user instruction, prefer UI page/component/layout/style files instead.
-- If the user says "backend only", "API only", or "do not change UI", avoid selecting UI files as edit targets.
-- Avoid package-lock.json, pnpm-lock.yaml, yarn.lock, empty files, generated files, and unrelated source files.
-- Binary files should usually be "asset-reference" or "inspect-only".
-- Style/source files must never use "asset-reference".
-- Use inventory role, routePath, imports, exports, symbols, textHints, and contentPreview to understand files dynamically. Do not rely on project-specific assumptions.
-- Treat taskIntent.structuredIntent as the first semantic hypothesis, not as permission to invent paths.
-- Validate structuredIntent.primaryTargets against the inventory. If a target path exists and is safe, include it before broad fallback candidates.
-- Respect structuredIntent.protectedScopes: protected areas may be inspected only when useful, but should not become edit targets.
-- If structuredIntent.allowedEditScope is "explicit_targets_only", keep selectedFiles narrow.
-- Keep the selection focused and reviewable. Usually select 4 to 12 files.
-- Return strict JSON only. No Markdown. No code fences.
+Intent summary:
+${JSON.stringify(compactTaskIntentForPrompt(input.taskIntent))}
 
-Allowed usage values:
-inspect-and-edit, create-and-edit, inspect-only, asset-reference, config-reference
+Backend execution contract:
+${JSON.stringify(plan.executionContract)}
 
-Return JSON shape:
-{
-  "selectedFiles": [
-    {
-      "path": "src/App.tsx",
-      "usage": "inspect-and-edit",
-      "reason": "This real file is likely related to the requested change.",
-      "confidence": 0.86
-    }
-  ],
-  "notes": []
-}
+Candidate inventory shortlist (${compactInventory.length} of ${plan.totalInventoryFiles} real files):
+${JSON.stringify(compactInventory)}
 
-User task:
-${input.rawTask}
+Rules:
+- Select only exact paths from the candidate shortlist. Never invent paths.
+- Prefer validated structured targets and direct semantic support before broad candidates.
+- UI: prefer page/component/layout/style; avoid server-only files.
+- Backend: prefer server/api/routes/db/services; avoid unrelated UI.
+- Fullstack: include the relevant UI, client API bridge, and server layer when present.
+- Treat requiredLayers in the execution contract as mandatory coverage, not optional hints.
+- In investigation mode, select a small traceable ownership/data-flow chain and use inspect-only unless an edit target is confirmed.
+- In clarification_required mode, return an empty selection rather than guessing implementation files.
+- Never turn candidate rank into certainty: lower confidence for fallback/support candidates and state that confirmation is needed.
+- Respect protected scopes and explicit-target-only boundaries.
+- Assets use asset-reference; config uses config-reference when it is reference-only.
+- Keep the set focused, usually 1-8 files. If no candidate is safe, return an empty list.
+- Every item requires path, usage, short grounded reason, and confidence from 0 to 1.
 
-Selected task type:
-${input.taskType}
-
-Inferred task area:
-${effectiveTaskArea}
-
-Target tool:
-${input.targetTool}
-
-Task intent:
-${JSON.stringify(input.taskIntent ?? null, null, 2)}
-
-Inventory summary:
-${JSON.stringify(
-  {
-    totalFiles: input.inventory.totalFiles,
-    scannedFiles: input.inventory.scannedFiles,
-    truncated: input.inventory.truncated,
-    notes: input.inventory.notes,
-  },
-  null,
-  2,
-)}
-
-Project inventory:
-${JSON.stringify(compactInventory, null, 2)}
+Allowed usage: inspect-and-edit, create-and-edit, inspect-only, asset-reference, config-reference
+JSON shape: {"selectedFiles":[{"path":"real/path","usage":"inspect-and-edit","reason":"grounded reason","confidence":0.8}],"notes":[]}
 `.trim();
 }
 
@@ -11487,6 +12182,302 @@ function appendFallbackFilesIfNeeded(
   return next;
 }
 
+
+function isFallbackRankedReason(reason: string) {
+  const text = normalizeForCompare(reason);
+  return includesAny(text, [
+    "fallback",
+    "added because ollama selected too few",
+    "added to cover",
+    "optional styling context",
+    "universal fallback ranking",
+    "candidate rank",
+  ]);
+}
+
+function getCachedExecutionContract(input: SelectTaskFilesInput) {
+  if (!input.taskIntent) return null;
+  const cached = executionContractCache.get(input);
+  if (cached !== undefined) return cached;
+  const resolvedArea = getEffectiveTaskArea(input);
+  const contractArea = ["ui", "backend", "fullstack"].includes(resolvedArea)
+    ? resolvedArea
+    : input.taskIntent.taskArea;
+  const value = buildTaskExecutionContractFromIntent({
+    rawTask: input.rawTask,
+    projectTree: input.inventory.files.map((file) => file.path),
+    taskIntent: input.taskIntent,
+    effectiveTaskArea: contractArea,
+  });
+  executionContractCache.set(input, value);
+  return value;
+}
+
+function userTaskExplicitlyNamesSelectedFile(
+  input: SelectTaskFilesInput,
+  selected: SelectedTaskFile,
+) {
+  const inventoryFile = findInventoryFile(input.inventory, selected.path);
+  if (!inventoryFile) return false;
+  const taskText = normalizeForCompare(input.rawTask);
+  const normalizedPath = normalizeForCompare(selected.path);
+  const basename = normalizedPath.split("/").pop() ?? normalizedPath;
+  if (taskText.includes(normalizedPath) || taskText.includes(basename)) return true;
+
+  const identityTokens = uniqueStrings([
+    ...tokenizeIdentifierLike(inventoryFile.name),
+    ...tokenizeIdentifierLike(inventoryFile.path.split("/").pop() ?? ""),
+  ]).filter(
+    (token) =>
+      token.length >= 3 &&
+      !BROAD_PATH_TOKENS.has(token) &&
+      !["tsx", "jsx", "typescript", "javascript"].includes(token),
+  );
+  const identityMatch = identityTokens.some((token) => taskText.includes(token));
+  const role = normalizeForCompare(inventoryFile.role);
+  const roleMatch =
+    ((role === "page" || normalizedPath.includes("/pages/")) &&
+      includesAny(taskText, ["page", "screen", "страниц", "экран"])) ||
+    ((role === "component" || role === "ui-component" || normalizedPath.includes("/components/")) &&
+      includesAny(taskText, ["component", "компонент"])) ||
+    ((role === "service" || normalizedPath.includes("/services/")) &&
+      includesAny(taskText, ["service", "сервис"])) ||
+    ((role === "hook" || normalizedPath.includes("/hooks/")) &&
+      includesAny(taskText, ["hook", "хук"]));
+  return identityMatch && roleMatch;
+}
+
+function inferSelectedFileEvidenceLevel(
+  file: SelectedTaskFile,
+  contract: TaskExecutionContract,
+  input: SelectTaskFilesInput,
+): TaskEvidenceLevel {
+  const normalizedPath = normalizeForCompare(file.path);
+  if (
+    contract.confirmedTargets.some(
+      (target) => normalizeForCompare(target) === normalizedPath,
+    )
+  ) {
+    return "user_confirmed";
+  }
+
+  const reason = normalizeForCompare(file.reason);
+  if (userTaskExplicitlyNamesSelectedFile(input, file)) return "user_confirmed";
+  if (file.usage === "create-and-edit") {
+    const taskText = normalizeForCompare(input.rawTask);
+    const createTokens = tokenizeIdentifierLike(file.path.split("/").pop() ?? "")
+      .filter((token) => token.length >= 4 && !BROAD_PATH_TOKENS.has(token));
+    const explicitCreateTarget = createTokens.some((token) => taskText.includes(token)) &&
+      includesAny(taskText, ["page", "route", "screen", "страниц", "маршрут", "экран", "create", "add", "добав", "созд"]);
+    if (explicitCreateTarget) return "user_confirmed";
+  }
+  if (includesAny(reason, ["explicit target guard", "user explicitly", "user-named"])) {
+    return "user_confirmed";
+  }
+  if (reason.includes("semantic graph")) return "graph_supported";
+  if (isFallbackRankedReason(file.reason)) return "ranked_candidate";
+  if (file.usage === "create-and-edit" && reason.includes("explicit")) {
+    return "user_confirmed";
+  }
+  return "model_proposed";
+}
+
+function getExistingImplementationCandidates(
+  input: SelectTaskFilesInput,
+  contract: TaskExecutionContract,
+) {
+  const tokenContext = buildTokenContext(input);
+  const meaningfulTokens = tokenContext.strongTokens.filter(
+    (token) =>
+      token.length >= 4 &&
+      !WEAK_TASK_TOKENS.has(token) &&
+      !BROAD_PATH_TOKENS.has(token),
+  );
+  if (meaningfulTokens.length < 2) return [];
+
+  return input.inventory.files
+    .filter((file) => file.canReadText && !file.isLikelyGenerated)
+    .filter((file) => !isSecretLikePath(file.path) && file.kind !== "runtime")
+    .map((file) => {
+      const searchText = getFileSearchText(file);
+      const identityText = normalizeForCompare(
+        [
+          file.path,
+          file.name,
+          ...(file.exports ?? []),
+          ...(file.symbols ?? []),
+          ...(file.textHints ?? []),
+          ...[
+            file.path,
+            file.name,
+            ...(file.exports ?? []),
+            ...(file.symbols ?? []),
+          ].flatMap(tokenizeIdentifierLike),
+        ].join(" "),
+      );
+      const matches = meaningfulTokens.filter((token) =>
+        normalizedTermMatches(searchText, token),
+      );
+      const identityMatches = meaningfulTokens.filter((token) =>
+        normalizedTermMatches(identityText, token),
+      );
+      const layerBonus = contract.requiredLayers.some((layer) =>
+        fileMatchesExecutionLayer(file, layer),
+      )
+        ? 18
+        : 0;
+      const score = matches.length * 18 + identityMatches.length * 28 + layerBonus;
+      return { file, matches, identityMatches, score };
+    })
+    .filter(
+      (item) =>
+        item.identityMatches.length >= 2 ||
+        (item.matches.length >= 3 && item.identityMatches.length >= 1),
+    )
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 6)
+    .map((item) => item.file.path);
+}
+
+function applyExecutionContractSelectionPolicy(
+  selectedFiles: SelectedTaskFile[],
+  input?: SelectTaskFilesInput,
+) {
+  if (!input?.taskIntent) {
+    return {
+      selectedFiles,
+      contract: null as TaskExecutionContract | null,
+      missingRequiredLayers: [] as TaskExecutionLayer[],
+      existingImplementationCandidates: [] as string[],
+      evidenceSummary: {
+        user_confirmed: 0,
+        inventory_exact: 0,
+        graph_supported: 0,
+        model_proposed: 0,
+        ranked_candidate: 0,
+      } as Record<TaskEvidenceLevel, number>,
+      notes: [] as string[],
+    };
+  }
+
+  const baseContract = getCachedExecutionContract(input)!;
+  if (baseContract.mode === "clarification_required") {
+    return {
+      selectedFiles: [],
+      contract: baseContract,
+      missingRequiredLayers: baseContract.requiredLayers,
+      existingImplementationCandidates: [] as string[],
+      evidenceSummary: {
+        user_confirmed: 0,
+        inventory_exact: 0,
+        graph_supported: 0,
+        model_proposed: 0,
+        ranked_candidate: 0,
+      } as Record<TaskEvidenceLevel, number>,
+      notes: [
+        "Execution contract requires clarification; automatic implementation files were intentionally withheld.",
+      ],
+    };
+  }
+
+  const evidenceFiles = selectedFiles.map((file) => ({
+    ...file,
+    evidenceLevel:
+      file.evidenceLevel ?? inferSelectedFileEvidenceLevel(file, baseContract, input),
+  }));
+  const inventoryByPath = new Map(
+    input.inventory.files.map((file) => [normalizeForCompare(file.path), file]),
+  );
+  const missingRequiredLayers = baseContract.requiredLayers.filter(
+    (layer) =>
+      !evidenceFiles.some((selected) => {
+        const inventoryFile = inventoryByPath.get(normalizeForCompare(selected.path));
+        return inventoryFile ? fileMatchesExecutionLayer(inventoryFile, layer) : false;
+      }),
+  );
+  const existingImplementationCandidates = getExistingImplementationCandidates(
+    input,
+    baseContract,
+  );
+  const contract = applySelectionEvidenceGate({
+    contract: baseContract,
+    selectedFiles: evidenceFiles,
+    missingRequiredLayers,
+    existingImplementationCandidates,
+  });
+
+  const governedFiles = evidenceFiles.map((file) => {
+    const investigation = contract.mode === "investigation";
+    const evidenceLevel = file.evidenceLevel ?? "model_proposed";
+    const usage: SelectedTaskFileUsage = investigation
+      ? file.usage === "asset-reference" || file.usage === "config-reference"
+        ? file.usage
+        : "inspect-only"
+      : file.usage;
+    const confidenceCap: Record<TaskEvidenceLevel, number> = {
+      user_confirmed: 0.98,
+      graph_supported: 0.86,
+      inventory_exact: 0.78,
+      model_proposed: 0.72,
+      ranked_candidate: 0.64,
+    };
+    const confidence = investigation
+      ? Math.min(file.confidence, evidenceLevel === "user_confirmed" ? 0.86 : 0.68)
+      : Math.min(file.confidence, confidenceCap[evidenceLevel]);
+    const prefix = investigation
+      ? `Investigation candidate; needs confirmation. Evidence level: ${evidenceLevel.replace(/_/g, " ")}. `
+      : evidenceLevel === "ranked_candidate"
+        ? "Ranked candidate; needs confirmation. "
+        : evidenceLevel === "model_proposed"
+          ? "Model-proposed candidate; needs confirmation. "
+          : evidenceLevel === "inventory_exact"
+            ? "Real inventory path, but ownership needs confirmation. "
+            : "";
+
+    return {
+      ...file,
+      usage,
+      confidence,
+      evidenceLevel,
+      reason: prefix && !normalizeForCompare(file.reason).startsWith(normalizeForCompare(prefix))
+        ? `${prefix}${file.reason}`
+        : file.reason,
+    };
+  });
+
+  const evidenceSummary: Record<TaskEvidenceLevel, number> = {
+    user_confirmed: 0,
+    inventory_exact: 0,
+    graph_supported: 0,
+    model_proposed: 0,
+    ranked_candidate: 0,
+  };
+  for (const file of governedFiles) {
+    evidenceSummary[file.evidenceLevel ?? "model_proposed"] += 1;
+  }
+
+  return {
+    selectedFiles: governedFiles,
+    contract,
+    missingRequiredLayers,
+    existingImplementationCandidates,
+    evidenceSummary,
+    notes: [
+      ...contract.reasons,
+      ...(missingRequiredLayers.length > 0
+        ? [
+            `Execution contract layer coverage is incomplete: ${missingRequiredLayers.join(", ")}.`,
+          ]
+        : []),
+      ...(existingImplementationCandidates.length > 0
+        ? [
+            `Existing implementation search found ${existingImplementationCandidates.length} candidate file(s): ${existingImplementationCandidates.join(", ")}. Inspect before adding duplicate behavior.`,
+          ]
+        : []),
+    ],
+  };
+}
+
 function withSelectorSafetyProfile(
   selection: TaskFileSelection,
   input?: SelectTaskFilesInput,
@@ -11497,18 +12488,32 @@ function withSelectorSafetyProfile(
   const finalized = input
     ? finalizeSelectedFilesForSafety(selection, input)
     : { selectedFiles: selection.selectedFiles, notes: [] };
+  const localizationSupport = input
+    ? augmentLocalizationSupportSelection(
+        finalized.selectedFiles,
+        input,
+        selection.effectiveTaskArea,
+        selection.assetMode,
+      )
+    : { selectedFiles: finalized.selectedFiles, notes: [] as string[] };
+  const executionPolicy = applyExecutionContractSelectionPolicy(
+    localizationSupport.selectedFiles,
+    input,
+  );
   const notes = [
     ...(selection.notes.some((note) => note === versionMarker)
       ? []
       : [versionMarker]),
     ...(selection.notes.some((note) => note === marker) ? [] : [marker]),
     ...finalized.notes,
+    ...localizationSupport.notes,
+    ...executionPolicy.notes,
     ...selection.notes,
   ];
   const notesText = notes.join(" ").toLowerCase();
   const inferredSelectionSource: SelectorSelectionSource =
     selection.diagnostics?.selectionSource ??
-    (finalized.selectedFiles.length === 0
+    (executionPolicy.selectedFiles.length === 0
       ? notesText.includes("hard safety") ||
         notesText.includes("unsafe") ||
         notesText.includes("out-of-project") ||
@@ -11525,7 +12530,7 @@ function withSelectorSafetyProfile(
 
   return {
     ...selection,
-    selectedFiles: finalized.selectedFiles,
+    selectedFiles: executionPolicy.selectedFiles,
     notes,
     diagnostics: {
       ...selection.diagnostics,
@@ -11549,6 +12554,12 @@ function withSelectorSafetyProfile(
       conflictReason: areaDiagnostics.conflictReason,
       roleAdjustments,
       semanticGraphEvidence,
+      executionMode: executionPolicy.contract?.mode,
+      requiredLayers: executionPolicy.contract?.requiredLayers,
+      missingRequiredLayers: executionPolicy.missingRequiredLayers,
+      implementationGateReasons: executionPolicy.contract?.implementationGateReasons,
+      existingImplementationCandidates: executionPolicy.existingImplementationCandidates,
+      evidenceSummary: executionPolicy.evidenceSummary,
     },
   };
 }
@@ -11665,6 +12676,8 @@ function normalizeModelSelection(
   const semanticRejectedCount = rejectedModelPaths.filter((item) =>
     item.includes("semantic quality gate"),
   ).length;
+  const modelNotes = getModelNotes(value);
+  const groundedModelNotes = selectedFiles.length > 0 ? modelNotes : [];
 
   return {
     selectedFiles: completedSelection,
@@ -11676,7 +12689,12 @@ function normalizeModelSelection(
     assetMode,
     conflictNote: fallback.conflictNote,
     notes: [
-      ...getModelNotes(value),
+      ...groundedModelNotes,
+      ...(modelNotes.length > 0 && groundedModelNotes.length === 0
+        ? [
+            "Discarded AI selector notes because no model-selected path survived semantic validation.",
+          ]
+        : []),
       `Effective task area: ${effectiveTaskArea}.`,
       `Asset mode: ${assetMode}.`,
       `Composer file limit for "${effectiveTaskArea}": ${getSelectionLimitFromSettings(input, effectiveTaskArea, assetMode)}.`,
@@ -11720,46 +12738,32 @@ ${rawResponse.slice(0, 6000)}
 `.trim();
 }
 
-function buildSelectorRetryPrompt(input: SelectTaskFilesInput) {
+function buildSelectorRetryPrompt(
+  input: SelectTaskFilesInput,
+  plan: SelectorPromptPlan,
+) {
   const effectiveTaskArea = getEffectiveTaskArea(input);
   const assetMode = getAssetMode(input);
-  const compactInventory = compactInventoryForPrompt(input.inventory);
+  const compactInventory = compactInventoryForPrompt(plan);
 
   return `
-Return strict JSON only. The previous selector response was invalid.
+Return one strict JSON object only. The previous selector response was invalid.
 
-Task:
-${input.rawTask}
-
-User-selected task type: ${input.taskType}
-Implementation area diagnostic: ${effectiveTaskArea}
+Task: ${input.rawTask}
+Area: ${effectiveTaskArea}
 Asset mode: ${assetMode}
-
-Use only paths from this inventory:
+Candidate shortlist (${compactInventory.length} of ${plan.totalInventoryFiles} real files):
 ${JSON.stringify(compactInventory)}
 
-Required JSON contract:
-{
-  "selectedFiles": [
-    {
-      "path": "exact/path/from/inventory",
-      "usage": "inspect-and-edit|create-and-edit|inspect-only|asset-reference|config-reference",
-      "reason": "short reason grounded in inventory role/path/symbols/textHints/imports",
-      "confidence": 0.0
-    }
-  ],
-  "notes": ["short diagnostic note"]
-}
+Contract:
+{"selectedFiles":[{"path":"exact/path/from/shortlist","usage":"inspect-and-edit|create-and-edit|inspect-only|asset-reference|config-reference","reason":"short grounded reason","confidence":0.8}],"notes":[]}
 
 Rules:
-- Output one JSON object only.
-- Do not use Markdown.
-- Do not invent paths.
-- Every selectedFiles item must include path, usage, reason, and numeric confidence between 0 and 1.
-- For docs tasks, prefer README/docs and package/config references.
-- For tests/planning tasks, prefer package/test config/existing tests/source-under-test references.
-- For review/propose-only tasks, use inspect-only/reference usage unless the user explicitly asks to edit.
-- If no real file is safe to select, return { "selectedFiles": [], "notes": ["No safe high-confidence inventory target was found."] }.
+- Use only exact paths from the shortlist.
+- Every item must include path, usage, reason, and numeric confidence from 0 to 1.
+- Prefer the explicit/structured target and its direct support.
+- Respect UI/backend/fullstack scope and protected areas.
+- If no safe candidate fits, return {"selectedFiles":[],"notes":["No safe high-confidence candidate was found."]}.
 `.trim();
 }
 
@@ -11768,46 +12772,88 @@ async function requestSelectorJson({
   model,
   prompt,
   numPredict,
+  purpose,
 }: {
   ollamaUrl: string;
   model: string;
   prompt: string;
   numPredict: number;
+  purpose: string;
 }) {
-  const response = await fetch(`${ollamaUrl.replace(/\/$/, "")}/api/generate`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      model,
-      prompt,
-      stream: false,
-      format: "json",
-      options: { temperature: 0, num_predict: numPredict },
-    }),
+  const aiCall = beginPerformanceAiCall({
+    purpose,
+    provider: "ollama",
+    model,
+    promptChars: prompt.length,
+    responseFormat: "json",
+    numPredict,
   });
 
-  if (!response.ok) {
-    return {
-      ok: false as const,
-      status: response.status,
-      raw: "",
-      rawLength: 0,
-      json: null,
-      parseStage: "not-run" as SelectorParseStage,
-    };
-  }
+  try {
+    const response = await fetch(`${ollamaUrl.replace(/\/$/, "")}/api/generate`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model,
+        prompt,
+        stream: false,
+        format: "json",
+        options: { temperature: 0, num_predict: numPredict },
+      }),
+    });
 
-  const data = (await response.json()) as OllamaGenerateResponse;
-  const raw = String(data.response ?? "");
-  const extracted = extractJsonObjectWithStage(raw);
-  return {
-    ok: true as const,
-    status: response.status,
-    raw,
-    rawLength: raw.length,
-    json: extracted.json,
-    parseStage: extracted.stage,
-  };
+    if (!response.ok) {
+      finishPerformanceAiCall(aiCall, {
+        success: false,
+        httpStatus: response.status,
+        errorCode: "http_error",
+      });
+      return {
+        ok: false as const,
+        status: response.status,
+        raw: "",
+        rawLength: 0,
+        json: null,
+        parseStage: "not-run" as SelectorParseStage,
+      };
+    }
+
+    const data = (await response.json()) as OllamaGenerateResponse;
+    const raw = String(data.response ?? "");
+    const extracted = extractJsonObjectWithStage(raw);
+    const nsToMs = (value: number | undefined) =>
+      typeof value === "number" ? value / 1_000_000 : null;
+
+    finishPerformanceAiCall(aiCall, {
+      success: Boolean(raw.trim()),
+      httpStatus: response.status,
+      responseChars: raw.length,
+      modelLoadMs: nsToMs(data.load_duration),
+      promptEvalMs: nsToMs(data.prompt_eval_duration),
+      generationMs: nsToMs(data.eval_duration),
+      promptTokens: data.prompt_eval_count ?? null,
+      responseTokens: data.eval_count ?? null,
+      errorCode: raw.trim() ? null : "empty_response",
+    });
+
+    return {
+      ok: true as const,
+      status: response.status,
+      raw,
+      rawLength: raw.length,
+      json: extracted.json,
+      parseStage: extracted.stage,
+    };
+  } catch (error) {
+    finishPerformanceAiCall(aiCall, {
+      success: false,
+      errorCode:
+        error instanceof Error && error.name === "TimeoutError"
+          ? "timeout"
+          : "request_error",
+    });
+    throw error;
+  }
 }
 
 export async function selectTaskFiles(
@@ -11820,7 +12866,11 @@ export async function selectTaskFiles(
     settings,
   };
 
-  const fallback = buildFallbackSelection(inputWithSettings);
+  const fallback = await measurePerformanceStage(
+    "selector_fallback_ranking",
+    "Build deterministic selector fallback",
+    () => buildFallbackSelection(inputWithSettings),
+  );
 
   if (settings.generationMode !== "ollama" || !settings.defaultOllamaModel) {
     return withSelectorSafetyProfile(
@@ -11830,13 +12880,45 @@ export async function selectTaskFiles(
     );
   }
 
+  let promptPlan: SelectorPromptPlan | null = null;
+  let initialPromptChars = 0;
+  let retryPromptChars = 0;
+  const getPromptDiagnostics = () => ({
+    promptInventoryTotalFiles: promptPlan?.totalInventoryFiles,
+    promptCandidateCount: promptPlan?.files.length,
+    promptShortlistApplied: promptPlan?.shortlistApplied,
+    initialPromptChars: initialPromptChars || undefined,
+    retryPromptChars: retryPromptChars || undefined,
+    executionMode: promptPlan?.executionContract?.mode,
+    requiredLayers: promptPlan?.executionContract?.requiredLayers,
+  });
+  const getPromptNotes = () =>
+    promptPlan
+      ? [
+          `Selector prompt shortlist included ${promptPlan.files.length} of ${promptPlan.totalInventoryFiles} real inventory files and omitted ${promptPlan.omittedFiles} lower-ranked candidates.`,
+        ]
+      : [];
+
   try {
-    const firstAttempt = await requestSelectorJson({
-      ollamaUrl: settings.ollamaUrl,
-      model: settings.defaultOllamaModel,
-      prompt: buildSelectorPrompt(inputWithSettings),
-      numPredict: 1100,
-    });
+    promptPlan = await measurePerformanceStage(
+      "selector_prompt_shortlist",
+      "Build compact selector prompt shortlist",
+      () => buildSelectorPromptPlan(inputWithSettings, fallback),
+    );
+    const initialPrompt = buildSelectorPrompt(inputWithSettings, promptPlan);
+    initialPromptChars = initialPrompt.length;
+
+    const firstAttempt = await measurePerformanceStage(
+      "selector_ai_initial",
+      "Run initial AI file selection",
+      () => requestSelectorJson({
+        ollamaUrl: settings.ollamaUrl,
+        model: settings.defaultOllamaModel!,
+        prompt: initialPrompt,
+        numPredict: 900,
+        purpose: "file_selection_initial",
+      }),
+    );
 
     if (!firstAttempt.ok) {
       return withSelectorSafetyProfile(
@@ -11852,8 +12934,10 @@ export async function selectTaskFiles(
             retryAttempted: false,
             schemaValid: false,
             schemaError: `Ollama responded with status ${firstAttempt.status}.`,
+            ...getPromptDiagnostics(),
           } as TaskFileSelection["diagnostics"],
           notes: [
+            ...getPromptNotes(),
             ...fallback.notes,
             `Ollama file selector responded with status ${firstAttempt.status}.`,
           ],
@@ -11876,14 +12960,19 @@ export async function selectTaskFiles(
       json = firstAttempt.json;
     } else {
       repairAttempted = true;
-      const repairAttempt = await requestSelectorJson({
-        ollamaUrl: settings.ollamaUrl,
-        model: settings.defaultOllamaModel,
-        prompt: buildSelectorRepairPrompt(
-          redactSelectorResponse(firstAttempt.raw),
-        ),
-        numPredict: 700,
-      });
+      const repairAttempt = await measurePerformanceStage(
+        "selector_ai_repair",
+        "Repair AI file selection JSON",
+        () => requestSelectorJson({
+          ollamaUrl: settings.ollamaUrl,
+          model: settings.defaultOllamaModel!,
+          prompt: buildSelectorRepairPrompt(
+            redactSelectorResponse(firstAttempt.raw),
+          ),
+          numPredict: 450,
+          purpose: "file_selection_repair",
+        }),
+      );
       parseStages.push(
         repairAttempt.parseStage === "not-run"
           ? "not-run"
@@ -11912,12 +13001,22 @@ export async function selectTaskFiles(
 
     if (!json) {
       retryAttempted = true;
-      const retryAttempt = await requestSelectorJson({
-        ollamaUrl: settings.ollamaUrl,
-        model: settings.defaultOllamaModel,
-        prompt: buildSelectorRetryPrompt(inputWithSettings),
-        numPredict: 900,
-      });
+      const retryPrompt = buildSelectorRetryPrompt(
+        inputWithSettings,
+        promptPlan,
+      );
+      retryPromptChars = retryPrompt.length;
+      const retryAttempt = await measurePerformanceStage(
+        "selector_ai_retry",
+        "Retry AI file selection with strict contract",
+        () => requestSelectorJson({
+          ollamaUrl: settings.ollamaUrl,
+          model: settings.defaultOllamaModel!,
+          prompt: retryPrompt,
+          numPredict: 700,
+          purpose: "file_selection_retry",
+        }),
+      );
       parseStages.push(
         retryAttempt.parseStage === "not-run"
           ? "not-run"
@@ -11961,8 +13060,10 @@ export async function selectTaskFiles(
             schemaError:
               schema.reason ??
               "Ollama selector response did not satisfy the strict JSON contract.",
+            ...getPromptDiagnostics(),
           } as TaskFileSelection["diagnostics"],
           notes: [
+            ...getPromptNotes(),
             ...fallback.notes,
             ...repairNotes,
             schema.reason
@@ -11975,11 +13076,15 @@ export async function selectTaskFiles(
       );
     }
 
-    const normalized = normalizeModelSelection(
-      json,
-      inputWithSettings,
-      fallback,
-      startedAt,
+    const normalized = await measurePerformanceStage(
+      "selector_normalization",
+      "Normalize and validate AI file selection",
+      () => normalizeModelSelection(
+        json,
+        inputWithSettings,
+        fallback,
+        startedAt,
+      ),
     );
     return withSelectorSafetyProfile(
       {
@@ -11996,8 +13101,13 @@ export async function selectTaskFiles(
           repairAttempted,
           retryAttempted,
           schemaValid: true,
+          ...getPromptDiagnostics(),
         } as TaskFileSelection["diagnostics"],
-        notes: [...repairNotes, ...normalized.notes],
+        notes: [
+          ...getPromptNotes(),
+          ...repairNotes,
+          ...normalized.notes,
+        ],
       },
       inputWithSettings,
       settings,
@@ -12017,8 +13127,10 @@ export async function selectTaskFiles(
           schemaValid: false,
           schemaError:
             error instanceof Error ? error.message : "Ollama selector failed.",
+          ...getPromptDiagnostics(),
         } as TaskFileSelection["diagnostics"],
         notes: [
+          ...getPromptNotes(),
           ...fallback.notes,
           error instanceof Error
             ? `Ollama file selector failed: ${error.message}`

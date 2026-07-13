@@ -403,6 +403,8 @@ export function useDashboardController() {
         targetTool: activeDraft.targetTool,
         selectedFilePaths,
         clarifications: activeDraft.clarifications,
+        performanceSessionId: activeDraft.performanceSessionId,
+        understandingSnapshotId: activeDraft.understandingSnapshotId,
 
         templateId: activeDraft.templateId || undefined,
         ruleProfileId: activeDraft.ruleProfileId || undefined,
@@ -433,6 +435,7 @@ export function useDashboardController() {
             taskType: activeDraft.taskType,
             targetTool: activeDraft.targetTool,
             clarifications: activeDraft.clarifications,
+            understandingSnapshotId: activeDraft.understandingSnapshotId,
           });
 
           setContextComposerPreview(preview);
@@ -564,6 +567,7 @@ export function useDashboardController() {
       taskType: activeDraft.taskType,
       targetTool: activeDraft.targetTool,
       clarifications: activeDraft.clarifications,
+      understandingSnapshotId: activeDraft.understandingSnapshotId,
     });
 
     setTaskPackContextPreview(preview);

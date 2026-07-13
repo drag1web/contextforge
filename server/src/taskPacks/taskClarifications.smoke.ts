@@ -105,6 +105,48 @@ function testReplacementClarificationResolvesUnderstanding() {
   assert.doesNotMatch(result.goal, /User Clarifications|Question:|User answer:/u);
 }
 
+function testArchitectureClarificationResolvesUnderstanding() {
+  const result = applyTaskClarificationsToUnderstanding(
+    {
+      ...baseUnderstanding(),
+      goal: "Добавь новый способ подключения в приложение.",
+      action: "create",
+      targetHints: [],
+      ambiguities: ["Какой provider и пользовательский flow нужны?"],
+      interpretationRisk: "uncertain",
+      changeDefinition: "open_ended",
+      missingInformation: [
+        {
+          code: "architecture_decision",
+          description: "Какой provider и пользовательский flow нужны?",
+          required: true,
+        },
+      ],
+      clarificationQuestion:
+        "Уточните ключевое решение перед реализацией: какой provider и пользовательский flow нужны?",
+    },
+    [
+      {
+        question:
+          "Уточните ключевое решение перед реализацией: какой provider и пользовательский flow нужны?",
+        answer: "Использовать device flow существующего GitHub-подключения для входа пользователя.",
+      },
+    ],
+  );
+
+  assert.equal(result.readiness, "ready");
+  assert.equal(result.canProceed, true);
+  assert.equal(result.interpretationRisk, "objective");
+  assert.equal(result.changeDefinition, "bounded");
+  assert.equal(result.ambiguities?.length ?? 0, 0);
+  assert.equal(
+    result.missingInformation.some(
+      (item) => item.code === "architecture_decision",
+    ),
+    false,
+  );
+}
+
 function testQuestionClassification() {
   assert.equal(
     classifyTaskClarificationQuestion(
@@ -152,6 +194,7 @@ const tests = [
   testReplacementAnswerDoesNotContaminateSelectionInput,
   testTargetAnswerRemainsAvailableToSelection,
   testReplacementClarificationResolvesUnderstanding,
+  testArchitectureClarificationResolvesUnderstanding,
   testQuestionClassification,
   testDuplicatesAreRemoved,
   testMultipleClarificationsPreserveOrder,

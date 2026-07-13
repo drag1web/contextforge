@@ -1,5 +1,9 @@
 import { getAppSettings } from "../settings/settingsService.js";
 import {
+    beginPerformanceAiCall,
+    finishPerformanceAiCall
+} from "../performance/performanceTrace.js";
+import {
     buildFallbackTaskUnderstanding,
     filterTaskUnderstandingAmbiguities,
     normalizeTaskUnderstanding,
@@ -37,6 +41,13 @@ export type StructuredIntentAllowedEditScope =
     | "broad_but_safe"
     | "unknown";
 
+export type StructuredIntentTargetProvenance =
+    | "user_confirmed"
+    | "inventory_exact"
+    | "graph_supported"
+    | "model_proposed"
+    | "ranked_candidate";
+
 export interface StructuredIntentTarget {
     kind: StructuredIntentTargetKind;
     value: string;
@@ -45,6 +56,7 @@ export interface StructuredIntentTarget {
     name?: string;
     confidence: number;
     evidence: string;
+    provenance?: StructuredIntentTargetProvenance;
 }
 
 export interface StructuredTaskIntent {
@@ -92,6 +104,11 @@ interface AnalyzeTaskIntentInput {
 
 interface OllamaGenerateResponse {
     response?: string;
+    load_duration?: number;
+    prompt_eval_count?: number;
+    prompt_eval_duration?: number;
+    eval_count?: number;
+    eval_duration?: number;
 }
 
 type AreaScores = Record<TaskArea, number>;
@@ -270,7 +287,23 @@ function hasNoFrontendChangeConstraint(rawTask: string) {
         "не трогать фронт",
         "не менять ui",
         "не трогать ui",
+        "ui не менять",
+        "ui не меняй",
+        "ui не трогать",
+        "ui не трогай",
+        "frontend не менять",
+        "frontend не меняй",
+        "frontend не трогать",
+        "frontend не трогай",
+        "фронт не менять",
+        "фронт не меняй",
+        "фронт не трогать",
+        "фронт не трогай",
         "не менять интерфейс",
+        "интерфейс не менять",
+        "интерфейс не меняй",
+        "интерфейс не трогать",
+        "интерфейс не трогай",
         "без изменений ui",
         "без изменений интерфейса",
         "только backend",
@@ -409,7 +442,8 @@ function getExistingExplicitPathTargets(rawTask: string, projectTree: string[]):
             value: matchedPath,
             path: matchedPath,
             confidence: 0.98,
-            evidence: "The user explicitly mentioned this real project path."
+            evidence: "The user explicitly mentioned this real project path.",
+            provenance: "user_confirmed"
         });
     }
 
@@ -682,12 +716,22 @@ function getStructuredObject(data: Record<string, unknown>) {
 function normalizeStructuredTarget(value: unknown, rawTask: string, projectTree: string[]): StructuredIntentTarget | null {
     if (!value || typeof value !== "object") {
         if (typeof value === "string" && value.trim()) {
+            const existsInInventory = pathAppearsInProject(projectTree, value);
+            const userConfirmed = taskMentionsPath(rawTask, value) ||
+                normalizeForCompare(rawTask).includes(normalizeForCompare(value));
             return {
-                kind: pathAppearsInProject(projectTree, value) ? "explicit_file" : "entity",
+                kind: existsInInventory ? "explicit_file" : "entity",
                 value: normalizeShortString(value),
-                path: pathAppearsInProject(projectTree, value) ? normalizePath(value) : undefined,
-                confidence: 0.58,
-                evidence: "Model returned a string target."
+                path: existsInInventory ? normalizePath(value) : undefined,
+                confidence: userConfirmed ? 0.9 : 0.58,
+                evidence: userConfirmed
+                    ? "The user explicitly named this target."
+                    : "Model returned a target that still needs project evidence.",
+                provenance: userConfirmed
+                    ? "user_confirmed"
+                    : existsInInventory
+                        ? "inventory_exact"
+                        : "model_proposed"
             };
         }
         return null;
@@ -722,14 +766,29 @@ function normalizeStructuredTarget(value: unknown, rawTask: string, projectTree:
 
     if (!groundedValue) return null;
 
+    const userNamedPath = Boolean(rawPath && taskMentionsPath(rawTask, rawPath));
+    const userNamedRoute = Boolean(
+        rawRoute && normalizeForCompare(rawTask).includes(normalizeForCompare(rawRoute)),
+    );
+    const userNamedValue = Boolean(
+        rawValue && normalizeForCompare(rawTask).includes(normalizeForCompare(rawValue)),
+    );
+    const provenance: StructuredIntentTargetProvenance =
+        userNamedPath || userNamedRoute || userNamedValue
+            ? "user_confirmed"
+            : rawPath
+                ? "inventory_exact"
+                : "model_proposed";
+
     return {
         kind,
         value: groundedValue,
         path: rawPath || undefined,
         routePath: rawRoute || undefined,
         name: normalizeShortString(row.name) || undefined,
-        confidence,
-        evidence
+        confidence: provenance === "model_proposed" ? Math.min(confidence, 0.62) : confidence,
+        evidence,
+        provenance
     };
 }
 
@@ -1087,158 +1146,256 @@ function normalizeIntentResult(value: unknown, fallback: TaskIntentAnalysis, raw
     };
 }
 
-function buildIntentPrompt({ rawTask, taskType, targetTool, project, projectTree = [] }: AnalyzeTaskIntentInput) {
-    return `
-You are ContextForge's task intent analyzer.
+export const TASK_UNDERSTANDING_INITIAL_NUM_PREDICT = 520;
+export const TASK_UNDERSTANDING_REPAIR_NUM_PREDICT = 360;
+export const TASK_UNDERSTANDING_PROJECT_PATH_LIMIT = 40;
 
-Return strict JSON only. No Markdown. No code fences.
+function isRepresentativeIntentProjectPath(filePath: string) {
+    const path = normalizeForCompare(filePath);
+    if (!path) return false;
+    if (/(?:^|\/)(?:node_modules|dist|build|coverage|\.git|\.vite)(?:\/|$)/u.test(path)) {
+        return false;
+    }
+    if (/(?:^|\/)\.env(?:\.|$)/u.test(path)) return false;
+    if (/\.(?:sqlite|sqlite3|db|png|jpe?g|gif|webp|ico|pdf|zip|7z|tar|gz|exe|dll|so|dylib)$/u.test(path)) {
+        return false;
+    }
+    return true;
+}
+
+function isUiIntentProjectPath(filePath: string) {
+    const path = normalizeForCompare(filePath);
+    return /(?:^|\/)(?:apps?\/desktop\/renderer|renderer|frontend|client|pages?|components?|styles?)(?:\/|$)/u.test(path);
+}
+
+function isBackendIntentProjectPath(filePath: string) {
+    const path = normalizeForCompare(filePath);
+    return /(?:^|\/)(?:server|backend|api|routes?|services?|controllers?|database|db|models?|schemas?)(?:\/|$)/u.test(path);
+}
+
+function scoreRepresentativeIntentProjectPath(
+    filePath: string,
+    taskArea: TaskArea,
+) {
+    const path = normalizeForCompare(filePath);
+    let score = 0;
+    if (path.includes("/src/") || path.startsWith("src/")) score += 45;
+    if (/\.(?:ts|tsx|js|jsx|mjs|cjs|svelte|vue|py|go|rs|java|kt|cs)$/u.test(path)) score += 30;
+    if (/(?:^|\/)(?:pages?|components?|routes?|services?|controllers?|models?|schemas?|stores?|state|config|tests?)(?:\/|$)/u.test(path)) score += 18;
+
+    const isUi = isUiIntentProjectPath(path);
+    const isBackend = isBackendIntentProjectPath(path);
+    const isBuild = /(?:^|\/)(?:package\.json|tsconfig[^/]*\.json|vite\.config\.[^/]+|eslint[^/]*|docker-compose\.ya?ml|\.github)(?:\/|$)/u.test(path);
+    const isDocs = /(?:^|\/)(?:docs?|readme\.md|agents\.md|changelog\.md)(?:\/|$)/u.test(path);
+    const isTest = /(?:^|\/)(?:tests?|__tests__)(?:\/|$)|\.(?:test|spec)\.[^.]+$/u.test(path);
+
+    if (taskArea === "ui" && isUi) score += 130;
+    if (taskArea === "backend" && isBackend) score += 130;
+    if (taskArea === "fullstack" && (isUi || isBackend)) score += 72;
+    if (taskArea === "build" && isBuild) score += 110;
+    if (taskArea === "docs" && isDocs) score += 110;
+    if (taskArea === "tests" && isTest) score += 110;
+    if (taskArea === "bugfix" && (isTest || isUi || isBackend)) score += 32;
+    if (taskArea === "refactor" && (isUi || isBackend)) score += 32;
+
+    if (/(?:^|\/)(?:package\.json|tsconfig[^/]*\.json|vite\.config\.[^/]+|readme\.md|agents\.md)$/u.test(path)) score += 10;
+    return score;
+}
+
+function scoreIntentProjectPath(rawTask: string, filePath: string) {
+    const task = normalizeForCompare(rawTask);
+    const path = normalizeForCompare(filePath);
+    const fileName = path.split("/").pop() ?? path;
+    const baseName = fileName.replace(/\.[^.]+$/, "");
+    let score = 0;
+
+    if (path && task.includes(path)) score += 1200;
+    if (fileName.length >= 4 && task.includes(fileName)) score += 900;
+    if (baseName.length >= 4 && task.includes(baseName)) score += 760;
+
+    const taskTokens = tokenize(rawTask)
+        .map((token) => token.replace(/\.[a-z0-9]+$/i, ""))
+        .filter((token) => token.length >= 4)
+        .filter((token) => !STOP_WORDS.has(token));
+
+    for (const token of taskTokens) {
+        if (path.includes(token)) score += 30 + Math.min(token.length, 16);
+    }
+
+    return score;
+}
+
+export function buildCompactIntentProjectTreeSnapshot(
+    rawTask: string,
+    projectTree: string[],
+    limit = TASK_UNDERSTANDING_PROJECT_PATH_LIMIT,
+    taskType = "general",
+) {
+    const safeLimit = Math.max(1, Math.min(limit, TASK_UNDERSTANDING_PROJECT_PATH_LIMIT));
+    const normalized = Array.from(
+        new Set(projectTree.map((path) => normalizePath(path)).filter(Boolean))
+    );
+    const scored = normalized
+        .map((path, index) => ({
+            path,
+            index,
+            score: scoreIntentProjectPath(rawTask, path)
+        }))
+        .sort((left, right) => right.score - left.score || left.index - right.index);
+    const scoredArea = bestArea(scoreTaskMeaning(rawTask, taskType)).area;
+    const selectedArea = getSelectedTaskTypeArea(taskType);
+    const inferredArea =
+        selectedArea !== "general" ? selectedArea : scoredArea;
+    const representative = normalized
+        .map((path, index) => ({
+            path,
+            index,
+            score: scoreRepresentativeIntentProjectPath(path, inferredArea)
+        }))
+        .sort((left, right) => right.score - left.score || left.index - right.index);
+
+    const result: string[] = [];
+    const seen = new Set<string>();
+    const add = (path: string) => {
+        const key = normalizeForCompare(path);
+        if (!key || seen.has(key) || result.length >= safeLimit) return;
+        seen.add(key);
+        result.push(path);
+    };
+
+    for (const item of scored) {
+        if (item.score <= 0) break;
+        add(item.path);
+    }
+
+    // Fullstack understanding should see at least a small sample from both
+    // client and server layers even when the project tree is heavily skewed
+    // toward one side.
+    if (inferredArea === "fullstack") {
+        for (const item of representative.filter((entry) =>
+            isUiIntentProjectPath(entry.path),
+        ).slice(0, 6)) {
+            if (isRepresentativeIntentProjectPath(item.path)) add(item.path);
+        }
+        for (const item of representative.filter((entry) =>
+            isBackendIntentProjectPath(entry.path),
+        ).slice(0, 6)) {
+            if (isRepresentativeIntentProjectPath(item.path)) add(item.path);
+        }
+    }
+
+    // Understanding is not the file selector. When no path is named directly,
+    // keep a small representative tree sample so the model can ground generic
+    // page/service/config terms without serializing the entire project. Paths
+    // that are secret-like, generated, binary, or runtime data are not useful
+    // representative context, but an explicitly named path can still appear in
+    // the scored block above.
+    for (const item of representative) {
+        if (isRepresentativeIntentProjectPath(item.path)) add(item.path);
+    }
+
+    return result;
+}
+
+export function buildIntentPrompt({ rawTask, taskType, targetTool, project, projectTree = [] }: AnalyzeTaskIntentInput) {
+    const compactTree = buildCompactIntentProjectTreeSnapshot(
+        rawTask,
+        projectTree,
+        TASK_UNDERSTANDING_PROJECT_PATH_LIMIT,
+        taskType,
+    );
+    const omittedPathCount = Math.max(0, projectTree.length - compactTree.length);
+
+    return `
+You are ContextForge's semantic task analyzer.
+Return one compact JSON object only. No Markdown, explanations, or extra keys.
+
+Backend authority:
+- The backend derives readiness, canProceed, missing information, exact literal values, clarification questions, tags, search terms, and final safety decisions.
+- Do not repeat the full task, project tree, or long reasoning.
 
 Rules:
-- The selected task type is a hint, not an absolute truth.
-- If selected task type conflicts with the actual user task, classify by the actual task text.
-- Use "backend" for API, authorization, authentication, session, token, cookie, server, database, endpoint, route, or service tasks.
-- Use "fullstack" when the task needs both UI and backend/API changes.
-- If the user says "keep backend API unchanged", "do not change backend", "frontend only", or "UI only", classify as "ui" unless the task explicitly asks to implement backend behavior.
-- Mentioning API/backend as a constraint does not automatically make the task backend or fullstack.
-- If the user says "backend only", "API only", or "do not change UI", classify as "backend" unless the task explicitly asks to change UI behavior.
-- Use "build" for build, compiler, import, module resolution, tsconfig, vite, next, eslint, or path alias problems.
-- Use "docs" only when the task is actually about README, documentation, setup instructions, or developer guide.
-- Do not invent files, components, services, routes, stores, pages, or assets.
-- domainTerms must be business/domain nouns from the user's task or visible project paths.
-- Do not put generic words like page, screen, button, style, component, api, build, server into domainTerms.
-- fileRoleHints should use generic roles: page, component, layout, style, api, route, service, state, store, model, schema, test, docs, config, asset, entry.
-- recommendedSearchTerms must be short fragments grounded in the project tree.
-- structuredIntent is the important part: extract what the user wants changed, what must not be changed, and the primary target(s).
-- taskUnderstanding summarizes the user-visible goal, action, grounded target hints, requested changes, constraints, interpretation risk, and how tightly the requested change is defined.
-- interpretationRisk must be "objective" when success can be checked from concrete task evidence, "subjective" when the request mainly expresses taste, feel, polish, or aesthetics without a concrete outcome, and "uncertain" when the wording is too unclear to classify safely.
-- changeDefinition must be "exact" only when the user supplied a literal target value, "bounded" when the transformation or behavior is specific enough to implement without choosing among materially different outcomes, and "open_ended" when several substantially different implementations could all satisfy the wording.
-- Examples: replacing a label with an exact string is objective/exact; making copy shorter and clearer is objective/bounded; making a block "less wooden" or "more modern" without design criteria is subjective/open_ended.
-- Do not decide canProceed, readiness, missingInformation, or clarificationQuestion; the backend derives those fields from grounded task evidence.
-- Do not invent explicit values. Exact literal values are grounded by the backend from the original user task.
-- primaryTargets must be grounded in user text or the project tree. Prefer explicit_file targets when the user names a file path.
-- For vague page/feature requests, use kind "page", "route", "component", "symbol", or "entity" with a short target value that appears in the task or project tree.
-- Do not copy placeholder values from this schema. Use only real paths, routes, symbols, and evidence from the user task or project tree.
-- protectedScopes should capture constraints such as "backend/api", "frontend/ui", "other files", "styles", "tests", named pages, named features, or business logic.
-- allowedEditScope should be "explicit_targets_only" when the user names exact files and says not to change other files; otherwise use "target_with_supporting_context" or "broad_but_safe".
-- needsBackend and needsStyles can be true, false, or null when uncertain.
-- Empty arrays are better than guessed values.
+- Classify the actual task: ui, backend, fullstack, build, bugfix, refactor, docs, tests, or general.
+- A backend/API mention used only as a "do not change" constraint does not make a UI task fullstack.
+- Targets must be present in the user task or relevant project paths. Never invent paths, routes, symbols, or services.
+- interpretationRisk: objective for concrete outcomes, subjective for taste/polish/aesthetics, uncertain only when meaning is unclear.
+- changeDefinition: exact only for a literal supplied value, bounded for a specific transformation, open_ended for materially different valid implementations.
+- Maximums: 2 primaryTargets, 3 targetHints, 4 positiveActions, 4 protectedScopes, 3 ambiguities. Keep every string under 120 characters.
+- Use empty arrays instead of guesses. Keep the complete response under 360 tokens.
 
-Allowed taskArea values:
-ui, backend, fullstack, build, bugfix, refactor, docs, tests, general
-
-Allowed riskLevel values:
-low, medium, high
-
-Return JSON shape:
-{
-  "taskArea": "ui",
-  "intentTags": [],
-  "domainTerms": [],
-  "mentionedEntities": [],
-  "fileRoleHints": [],
-  "recommendedSearchTerms": [],
-  "riskLevel": "medium",
-  "confidence": 0.8,
-  "taskUnderstanding": {
-    "schemaVersion": 1,
-    "goal": "<compact goal grounded in the user task>",
-    "action": "create|update|replace|remove|fix|refactor|review|test|document|configure|investigate|unknown",
-    "targetHints": [],
-    "requestedChanges": [],
-    "constraints": [],
-    "interpretationRisk": "objective|subjective|uncertain",
-    "changeDefinition": "exact|bounded|open_ended",
-    "confidence": 0.8
-  },
-  "structuredIntent": {
-    "schemaVersion": 1,
-    "primaryTargets": [
-      {
-        "kind": "explicit_file",
-        "value": "<real target from task or project tree>",
-        "path": "<real/relative/path.ext or null>",
-        "routePath": "<real route path or null>",
-        "name": "<real symbol/page/component name or null>",
-        "confidence": 0.98,
-        "evidence": "<short evidence from user task or inventory>"
-      }
-    ],
-    "positiveActions": ["fix navigation"],
-    "protectedScopes": ["other files"],
-    "allowedEditScope": "explicit_targets_only",
-    "needsStyles": null,
-    "needsBackend": false,
-    "ambiguities": [],
-    "modelNotes": []
-  },
-  "notes": []
-}
-
-Selected task type:
-${taskType}
-
-Target tool:
-${targetTool}
-
-User task:
-${rawTask}
-
-Project metadata:
-${JSON.stringify({
-        name: project.name,
-        localPath: project.localPath,
-        packageManager: project.packageManager,
-        detectedStack: project.detectedStack,
-        scripts: project.scripts,
-        readinessScore: project.readinessScore
-    }, null, 2)}
-
-Project tree snapshot:
-${projectTree.slice(0, 240).join("\n")}
-`.trim();
-}
-
-function buildIntentRepairPrompt(rawResponse: string) {
-    return `
-Repair this model response into strict JSON only. No Markdown. No code fences.
-
-Keep only fields that match this schema:
+Return exactly this shape:
 {
   "taskArea": "ui|backend|fullstack|build|bugfix|refactor|docs|tests|general",
-  "intentTags": [],
-  "domainTerms": [],
-  "mentionedEntities": [],
-  "fileRoleHints": [],
-  "recommendedSearchTerms": [],
   "riskLevel": "low|medium|high",
   "confidence": 0.8,
   "taskUnderstanding": {
-    "schemaVersion": 1,
+    "goal": "short grounded goal",
+    "action": "create|update|replace|remove|fix|refactor|review|test|document|configure|investigate|unknown",
+    "targetHints": [],
+    "interpretationRisk": "objective|subjective|uncertain",
+    "changeDefinition": "exact|bounded|open_ended"
+  },
+  "structuredIntent": {
+    "primaryTargets": [
+      {
+        "kind": "explicit_file|route|page|component|symbol|entity|service|config|docs|asset|unknown",
+        "value": "grounded target",
+        "path": "real relative path or empty string",
+        "routePath": "real route or empty string",
+        "name": "real name or empty string",
+        "confidence": 0.8
+      }
+    ],
+    "positiveActions": [],
+    "protectedScopes": [],
+    "allowedEditScope": "explicit_targets_only|target_with_supporting_context|broad_but_safe|unknown",
+    "needsStyles": null,
+    "needsBackend": null,
+    "ambiguities": []
+  }
+}
+
+Selected task type: ${taskType}
+Target tool: ${targetTool}
+User task: ${rawTask}
+Project: ${project.name}
+Package manager: ${project.packageManager ?? "unknown"}
+Stack: ${(project.detectedStack ?? []).slice(0, 12).join(", ") || "unknown"}
+Relevant project paths (${compactTree.length}/${projectTree.length}; ${omittedPathCount} omitted):
+${compactTree.join("\n") || "(none)"}
+`.trim();
+}
+
+export function buildIntentRepairPrompt(rawResponse: string) {
+    return `
+Repair the response into one compact JSON object only. No Markdown or extra keys.
+Keep strings short and arrays small. Do not invent project details.
+
+Required shape:
+{
+  "taskArea": "ui|backend|fullstack|build|bugfix|refactor|docs|tests|general",
+  "riskLevel": "low|medium|high",
+  "confidence": 0.8,
+  "taskUnderstanding": {
     "goal": "",
     "action": "create|update|replace|remove|fix|refactor|review|test|document|configure|investigate|unknown",
     "targetHints": [],
-    "requestedChanges": [],
-    "constraints": [],
     "interpretationRisk": "objective|subjective|uncertain",
-    "changeDefinition": "exact|bounded|open_ended",
-    "confidence": 0.8
+    "changeDefinition": "exact|bounded|open_ended"
   },
   "structuredIntent": {
-    "schemaVersion": 1,
     "primaryTargets": [],
     "positiveActions": [],
     "protectedScopes": [],
     "allowedEditScope": "explicit_targets_only|target_with_supporting_context|broad_but_safe|unknown",
     "needsStyles": null,
     "needsBackend": null,
-    "ambiguities": [],
-    "modelNotes": []
-  },
-  "notes": []
+    "ambiguities": []
+  }
 }
 
 Invalid response:
-${rawResponse.slice(0, 6000)}
+${rawResponse.slice(0, 3200)}
 `.trim();
 }
 
@@ -1246,41 +1403,83 @@ async function requestOllamaJson({
     ollamaUrl,
     model,
     prompt,
-    numPredict
+    numPredict,
+    purpose
 }: {
     ollamaUrl: string;
     model: string;
     prompt: string;
     numPredict: number;
+    purpose: string;
 }) {
-    const response = await fetch(`${ollamaUrl.replace(/\/$/, "")}/api/generate`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-            model,
-            prompt,
-            stream: false,
-            format: "json",
-            options: { temperature: 0, num_predict: numPredict }
-        })
+    const aiCall = beginPerformanceAiCall({
+        purpose,
+        provider: "ollama",
+        model,
+        promptChars: prompt.length,
+        responseFormat: "json",
+        numPredict
     });
 
-    if (!response.ok) {
-        return {
-            ok: false as const,
-            status: response.status,
-            raw: ""
-        };
-    }
+    try {
+        const response = await fetch(`${ollamaUrl.replace(/\/$/, "")}/api/generate`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+                model,
+                prompt,
+                stream: false,
+                format: "json",
+                options: { temperature: 0, num_predict: numPredict }
+            })
+        });
 
-    const data = (await response.json()) as OllamaGenerateResponse;
-    const raw = String(data.response ?? "");
-    return {
-        ok: true as const,
-        status: response.status,
-        raw,
-        json: extractJsonObject(raw)
-    };
+        if (!response.ok) {
+            finishPerformanceAiCall(aiCall, {
+                success: false,
+                httpStatus: response.status,
+                errorCode: "http_error"
+            });
+            return {
+                ok: false as const,
+                status: response.status,
+                raw: ""
+            };
+        }
+
+        const data = (await response.json()) as OllamaGenerateResponse;
+        const raw = String(data.response ?? "");
+        const nsToMs = (value: number | undefined) =>
+            typeof value === "number" ? value / 1_000_000 : null;
+
+        finishPerformanceAiCall(aiCall, {
+            success: Boolean(raw.trim()),
+            httpStatus: response.status,
+            responseChars: raw.length,
+            modelLoadMs: nsToMs(data.load_duration),
+            promptEvalMs: nsToMs(data.prompt_eval_duration),
+            generationMs: nsToMs(data.eval_duration),
+            promptTokens: data.prompt_eval_count ?? null,
+            responseTokens: data.eval_count ?? null,
+            errorCode: raw.trim() ? null : "empty_response"
+        });
+
+        return {
+            ok: true as const,
+            status: response.status,
+            raw,
+            json: extractJsonObject(raw)
+        };
+    } catch (error) {
+        finishPerformanceAiCall(aiCall, {
+            success: false,
+            errorCode:
+                error instanceof Error && error.name === "TimeoutError"
+                    ? "timeout"
+                    : "request_error"
+        });
+        throw error;
+    }
 }
 
 export async function analyzeTaskIntent(input: AnalyzeTaskIntentInput): Promise<TaskIntentAnalysis> {
@@ -1301,7 +1500,8 @@ export async function analyzeTaskIntent(input: AnalyzeTaskIntentInput): Promise<
             ollamaUrl: settings.ollamaUrl,
             model: settings.defaultOllamaModel,
             prompt: buildIntentPrompt(input),
-            numPredict: 1300
+            numPredict: TASK_UNDERSTANDING_INITIAL_NUM_PREDICT,
+            purpose: "task_understanding_initial"
         });
 
         if (!firstAttempt.ok) {
@@ -1319,7 +1519,8 @@ export async function analyzeTaskIntent(input: AnalyzeTaskIntentInput): Promise<
                 ollamaUrl: settings.ollamaUrl,
                 model: settings.defaultOllamaModel,
                 prompt: buildIntentRepairPrompt(firstAttempt.raw),
-                numPredict: 1100
+                numPredict: TASK_UNDERSTANDING_REPAIR_NUM_PREDICT,
+                purpose: "task_understanding_repair"
             });
 
             if (repairAttempt.ok && repairAttempt.json) {
