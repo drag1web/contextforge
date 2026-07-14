@@ -2802,6 +2802,61 @@ async function testOllamaSelectorUsesStrictRetryJson() {
   );
 }
 
+async function testModelSelectedExistingPathKeepsModelInferenceSource() {
+  await withMockedFetch(
+    [
+      JSON.stringify({
+        selectedFiles: [
+          {
+            path: "src/reference/StatusBucket.ts",
+            usage: "inspect-and-edit",
+            reason: "Status bucket looks relevant to status behavior.",
+            confidence: 0.95,
+          },
+        ],
+        notes: ["implementation requires modifying StatusBucket.ts directly."],
+      }),
+    ],
+    async () => {
+      const files = [
+        sourceFile("src/reference/StatusBucket.ts", {
+          role: "utility",
+          symbols: ["StatusBucket"],
+          textHints: ["status", "bucket", "behavior"],
+        }),
+      ];
+      const result = await selectTaskFiles({
+        rawTask: "Improve status bucket behavior.",
+        taskType: "general",
+        targetTool: "codex",
+        inventory: inventory(files),
+        settings: ollamaTestSettings(),
+        taskIntent: structuredIntent({
+          taskArea: "ui",
+          structuredIntent: {
+            ...structuredIntent().structuredIntent,
+            primaryTargets: [],
+          },
+        }),
+      });
+      const selected = result.selectedFiles.find((file) => file.path === "src/reference/StatusBucket.ts");
+      assert.ok(selected, "model-selected existing file should survive semantic validation");
+      assert.equal(selected.selectionEvidence?.targetSource, "model_inference");
+      assert.equal(selected.selectionEvidence?.pathValidity, "inventory_exact");
+      assert.equal(selected.selectionEvidence?.ownershipEvidence, "model_only");
+      assert.equal(selected.selectionEvidence?.actionConfidence, "inspect_only");
+      assert.equal(selected.evidenceLevel, "model_proposed");
+      assert.equal(selected.usage, "inspect-only");
+      assert.equal(result.diagnostics?.candidateLayerCoverage !== undefined, true);
+      assert.equal(result.diagnostics?.confirmedLayerCoverage !== undefined, true);
+      assert.equal(result.diagnostics?.missingConfirmedLayers !== undefined, true);
+      const notesText = result.notes.join(" ");
+      assert.equal(/implementation requires|must modify|should be extended|must reside|edit this component|fix requires changing/i.test(notesText), false);
+      assert.equal(notesText.includes("Untrusted model hypothesis"), true);
+    },
+  );
+}
+
 
 async function testOllamaSelectorUsesCompactGroundedPromptShortlist() {
   const capturedBodies: Record<string, unknown>[] = [];
@@ -3238,8 +3293,16 @@ async function testExactLocalizedTextKeepsTranslationResourceInContext() {
       const localization = result.selectedFiles.find(
         (file) => file.path === "apps/desktop/renderer/src/i18n/index.ts",
       );
+      const sidebar = result.selectedFiles.find(
+        (file) => file.path === "apps/desktop/renderer/src/components/layout/Sidebar.tsx",
+      );
       assert.ok(localization);
       assert.equal(localization.usage, "inspect-and-edit");
+      assert.equal(localization.selectionEvidence?.ownershipEvidence, "symbol_exact");
+      assert.ok(localization.selectionEvidence?.semanticRoles.includes("contract"));
+      assert.ok(sidebar);
+      assert.equal(sidebar.usage, "inspect-only");
+      assert.ok(sidebar.selectionEvidence?.semanticRoles.includes("display"));
       assert.ok(localization.confidence <= 0.72);
       assert.ok(localization.reason.includes("needs confirmation"));
       assert.ok(
@@ -3386,6 +3449,7 @@ async function main() {
   await testOllamaSelectorFallsBackAfterInvalidJsonRetry();
   await testOllamaSelectorUsesRepairedJson();
   await testOllamaSelectorUsesStrictRetryJson();
+  await testModelSelectedExistingPathKeepsModelInferenceSource();
   await testOllamaSelectorUsesCompactGroundedPromptShortlist();
   await testCompactPromptKeepsFullstackLayers();
   await testClarificationContractWithholdsImplementationFiles();

@@ -876,8 +876,12 @@ export function evaluateContextSelectionQuality(
         ? "manual-review"
         : "fallback"
       : "ai");
-  const semanticGraphEvidenceCount =
-    input.fileSelection.diagnostics?.semanticGraphEvidence?.length ?? 0;
+  const semanticGraphEvidenceCount = Math.max(
+    input.fileSelection.diagnostics?.semanticGraphEvidence?.length ?? 0,
+    input.fileSelection.diagnostics?.ownershipEvidenceChains?.length ?? 0,
+  );
+  const effectiveExecutionMode =
+    input.fileSelection.diagnostics?.executionMode ?? executionContract?.mode;
   const areaConflict = Boolean(input.fileSelection.diagnostics?.areaConflict);
   const selectorRepairAttempted = Boolean(
     input.fileSelection.diagnostics?.repairAttempted,
@@ -1010,14 +1014,14 @@ export function evaluateContextSelectionQuality(
     score -= 70;
   }
 
-  if (executionContract?.mode === "clarification_required") {
+  if (effectiveExecutionMode === "clarification_required") {
     blockingReasons.push(
       "Task Understanding still contains a required unresolved decision. Clarify the task before implementation context is generated.",
     );
     score = Math.min(score, 20);
-  } else if (executionContract?.mode === "investigation") {
+  } else if (effectiveExecutionMode === "investigation") {
     warnings.push(
-      "Execution contract is investigation-first. Selected files are candidates for tracing ownership and data flow, not confirmed edit targets.",
+      "Execution contract is investigation-first. Selected files are candidates for tracing ownership and code relationships, not confirmed edit targets.",
     );
     score = Math.min(score, 68);
   }
@@ -1039,7 +1043,7 @@ export function evaluateContextSelectionQuality(
     warnings.push(
       `${confirmationCandidateCount} selected file candidate(s) are rank-based and still need confirmation before editing.`,
     );
-    score = Math.min(score, executionContract?.mode === "implementation" ? 76 : 68);
+    score = Math.min(score, effectiveExecutionMode === "implementation" ? 76 : 68);
   }
 
   if (selectedFiles.length === 0 && !hasCreateTarget) {
@@ -1354,9 +1358,9 @@ export function evaluateContextSelectionQuality(
   // Execution-contract caps are final semantic ceilings. Later lexical or
   // structural bonuses must never turn unresolved/investigative context into
   // high-confidence implementation context.
-  if (executionContract?.mode === "clarification_required") {
+  if (effectiveExecutionMode === "clarification_required") {
     score = Math.min(score, 20);
-  } else if (executionContract?.mode === "investigation") {
+  } else if (effectiveExecutionMode === "investigation") {
     score = Math.min(score, 68);
   }
   if (missingRequiredLayers.length > 0) {
@@ -1365,7 +1369,7 @@ export function evaluateContextSelectionQuality(
   if (confirmationCandidateCount > 0) {
     score = Math.min(
       score,
-      executionContract?.mode === "implementation" ? 76 : 68,
+      effectiveExecutionMode === "implementation" ? 76 : 68,
     );
   }
 
@@ -1377,9 +1381,7 @@ export function evaluateContextSelectionQuality(
     manualSelectionConfirmed: Boolean(input.manualSelectionConfirmed),
   });
 
-  return {
-    ...result,
-    signals: buildQualitySignals({
+  const signals = buildQualitySignals({
       selectedFiles,
       score: result.score,
       warnings: result.warnings,
@@ -1400,6 +1402,16 @@ export function evaluateContextSelectionQuality(
       implementationArea: area,
       semanticGraphEvidenceCount,
       areaConflict,
-    }),
+    });
+  if (effectiveExecutionMode === "clarification_required") {
+    signals.confidence = Math.min(signals.confidence, 20);
+    signals.targetConfidence = Math.min(signals.targetConfidence, 20);
+  } else if (effectiveExecutionMode === "investigation") {
+    signals.confidence = Math.min(signals.confidence, 58);
+  }
+
+  return {
+    ...result,
+    signals,
   };
 }

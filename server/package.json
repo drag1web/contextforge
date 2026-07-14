@@ -12,14 +12,15 @@
     "test:selector:benchmark": "tsx src/selection/benchmark/benchmarkSmoke.ts",
     "test:selector:rollout": "tsx src/selection/pipelineRollout.smoke.ts",
     "benchmark:selector": "tsx src/selection/benchmark/benchmarkRunner.ts",
-    "benchmark:selector:validation": "tsx src/selection/benchmark/benchmarkRunner.ts --split validation --external-only",
+    "benchmark:selector:validation": "tsx src/selection/benchmark/benchmarkRunner.ts --split validation --external-only --manifest ../selector-validation.projects.json --validation-lock ../selector-validation.lock.json --gate standard",
     "benchmark:selector:snapshot": "tsx src/selection/benchmark/benchmarkSnapshot.ts",
     "start": "node dist/index.js",
     "test:generation:taskpack": "tsx src/ollama/taskPackGenerationReliability.smoke.ts",
     "test:understanding": "tsx src/ollama/taskUnderstanding.smoke.ts",
     "test:clarification": "tsx src/taskPacks/taskClarifications.smoke.ts",
     "test:performance": "tsx src/performance/performanceTrace.smoke.ts && tsx src/taskPacks/taskUnderstandingSnapshot.smoke.ts && tsx src/selection/explicitTargetGuard.smoke.ts",
-    "test:handoff": "tsx src/taskPacks/taskExecutionContract.smoke.ts"
+    "test:handoff": "tsx src/taskPacks/taskExecutionContract.smoke.ts",
+    "test:ownership": "tsx src/selection/repositorySemanticIndex.smoke.ts"
   },
   "dependencies": {
     "@types/sql.js": "^1.4.11",

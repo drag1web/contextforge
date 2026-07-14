@@ -36,6 +36,7 @@ import {
   type ContextSelectionQuality,
 } from "../selection/contextQuality.js";
 import { isSecretLikePath } from "../selection/safetyPolicy.js";
+import type { FileSelectionEvidence } from "../selection/repositorySemanticIndex.js";
 import { buildExportSafeProjectMetadata } from "../taskPacks/taskPackPrivacy.js";
 import { resolveTaskUnderstandingInteraction } from "../taskPacks/taskUnderstandingInteraction.js";
 import {
@@ -311,6 +312,7 @@ interface TaskContextFileReference {
   reason: string;
   confidence: number;
   evidenceLevel?: string;
+  selectionEvidence?: FileSelectionEvidence;
   canReadText: boolean;
   sizeBytes: number;
 }
@@ -631,6 +633,7 @@ function buildFileReferences({
         reason: selectedFile.reason,
         confidence: selectedFile.confidence,
         evidenceLevel: selectedFile.evidenceLevel,
+        selectionEvidence: selectedFile.selectionEvidence,
         canReadText: false,
         sizeBytes: 0,
       });
@@ -644,6 +647,7 @@ function buildFileReferences({
       reason: selectedFile.reason,
       confidence: selectedFile.confidence,
       evidenceLevel: selectedFile.evidenceLevel,
+      selectionEvidence: selectedFile.selectionEvidence,
       canReadText: inventoryFile.canReadText,
       sizeBytes: inventoryFile.sizeBytes,
     });
@@ -1000,6 +1004,8 @@ function buildEffectiveExecutionContract({
       fileSelection.diagnostics?.missingRequiredLayers ?? [],
     existingImplementationCandidates:
       fileSelection.diagnostics?.existingImplementationCandidates ?? [],
+    existingImplementationRequiresReview:
+      fileSelection.diagnostics?.existingImplementationRequiresReview ?? false,
   });
 }
 
@@ -1253,7 +1259,7 @@ ${rows.join("\n")}
 `.trim();
 }
 
-function buildContextForgeNotesSection(context: UniversalTaskPackContext) {
+export function buildContextForgeNotesSection(context: UniversalTaskPackContext) {
   const rejectedModelPaths = getUniqueStrings(
     context.fileSelection.rejectedModelPaths,
   );
@@ -1325,9 +1331,18 @@ function buildContextForgeNotesSection(context: UniversalTaskPackContext) {
     context.executionContract.unresolvedDecisions.length > 0
       ? `- Unresolved decisions: ${context.executionContract.unresolvedDecisions.join("; ")}`
       : "- Unresolved decisions: none",
+    context.fileSelection.diagnostics?.candidateLayerCoverage?.length
+      ? `- Candidate layer coverage: ${context.fileSelection.diagnostics.candidateLayerCoverage.join(", ")}`
+      : "- Candidate layer coverage: none",
+    context.fileSelection.diagnostics?.confirmedLayerCoverage?.length
+      ? `- Confirmed layer coverage: ${context.fileSelection.diagnostics.confirmedLayerCoverage.join(", ")}`
+      : "- Confirmed layer coverage: none",
+    context.fileSelection.diagnostics?.missingConfirmedLayers?.length
+      ? `- Missing confirmed layers: ${context.fileSelection.diagnostics.missingConfirmedLayers.join(", ")}`
+      : "- Missing confirmed layers: none",
     context.fileSelection.diagnostics?.missingRequiredLayers?.length
-      ? `- Missing required layers: ${context.fileSelection.diagnostics.missingRequiredLayers.join(", ")}`
-      : "- Missing required layers: none",
+      ? `- Missing required layers (candidate-level): ${context.fileSelection.diagnostics.missingRequiredLayers.join(", ")}`
+      : "- Missing required layers (candidate-level): none",
   ].join("\n");
 
   const quality = [
@@ -2322,6 +2337,7 @@ taskPacksRouter.post("/", async (req, res) => {
                 usage: file.usage,
                 reason: file.reason,
                 evidenceLevel: file.evidenceLevel,
+                selectionEvidence: file.selectionEvidence,
               })),
               taskIntent: universalContext.taskIntent,
               selectionQuality: universalContext.selectionQuality,

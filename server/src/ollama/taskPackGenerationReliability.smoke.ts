@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 
 import type { AiGenerateResult } from "../ai/providerService.js";
 import type { AppSettings } from "../settings/settingsService.js";
+import { buildContextForgeNotesSection } from "../routes/taskPacks.js";
 import {
   applyTaskPackRefinement,
   buildTaskPackRefinementPrompt,
@@ -1221,6 +1222,68 @@ export function AppHeader() { return <header><h2>{title}</h2><Button>Add project
         "execution_contract_investigation_applied",
       ),
     );
+    scenarios += 1;
+  }
+
+  {
+    const notes = buildContextForgeNotesSection({
+      taskType: "general",
+      effectiveTaskArea: "fullstack",
+      projectTree: [],
+      relevantFiles: [],
+      fileSnippets: [],
+      fileReferences: [],
+      fileSelection: {
+        selectedFiles: [],
+        rejectedModelPaths: [],
+        notes: [],
+        source: "fallback",
+        durationMs: 12,
+        usedFallback: true,
+        diagnostics: {
+          candidateLayerCoverage: ["backend", "ui"],
+          confirmedLayerCoverage: ["backend"],
+          missingConfirmedLayers: ["ui"],
+          missingRequiredLayers: [],
+          selectionSource: "fallback",
+        } as any,
+      } as any,
+      selectionQuality: {
+        score: 40,
+        status: "warning",
+        requiredManualReview: true,
+        blockingReasons: [],
+        warnings: [],
+      } as any,
+      executionContract: {
+        schemaVersion: 1,
+        mode: "investigation",
+        requiredLayers: ["backend", "ui"],
+        confirmedTargets: [],
+        proposedTargets: [],
+        targetEvidence: [],
+        unresolvedDecisions: [],
+        implementationGateReasons: ["UI layer is candidate-only."],
+        forbiddenAssumptions: [],
+        allowImplementationGuidance: false,
+        requiresLayerCoverage: true,
+        reasons: [],
+      },
+      projectMemories: [],
+      inventorySummary: {
+        totalFiles: 0,
+        scannedFiles: 0,
+        truncated: false,
+        notes: [],
+      },
+      notes: [],
+    });
+
+    assert.match(notes, /Candidate layer coverage: backend, ui/u);
+    assert.match(notes, /Confirmed layer coverage: backend/u);
+    assert.match(notes, /Missing confirmed layers: ui/u);
+    assert.doesNotMatch(notes, /Missing required layers: none/u);
+    assert.match(notes, /Missing required layers \(candidate-level\): none/u);
     scenarios += 1;
   }
 

@@ -14,6 +14,11 @@ import {
   type SemanticGraphEdgeKind,
 } from "./projectSemanticGraph.js";
 import { detectHardTaskSafetyIssue, isSecretLikePath } from "./safetyPolicy.js";
+import {
+  resolveRepositorySemanticEvidence,
+  type FileSelectionEvidence,
+  type RepositorySemanticQueryResult,
+} from "./repositorySemanticIndex.js";
 
 export type CandidateRetrievalChannel =
   | "explicit-target"
@@ -26,7 +31,9 @@ export type CandidateRetrievalChannel =
   | "layer-relation"
   | "test-relation"
   | "docs-config"
-  | "core-responsibility";
+  | "core-responsibility"
+  | "ownership-evidence"
+  | "negative-constraint";
 
 export type CandidateTechnicalRole = "primary" | "support" | "reference";
 
@@ -48,11 +55,13 @@ export interface RetrievedCandidate {
   filenameMatchCount: number;
   roleIntentMatch: boolean;
   explicit: boolean;
+  selectionEvidence?: FileSelectionEvidence;
 }
 
 export interface CandidateRetrievalOptions {
   maxCandidates?: number;
   graph?: ProjectSemanticGraph;
+  semanticEvidence?: RepositorySemanticQueryResult;
 }
 
 export interface CandidateRetrievalInput {
@@ -70,6 +79,7 @@ export interface CandidateRetrievalResult {
   requestedTaskType: string;
   inventory: ProjectInventory;
   graph?: ProjectSemanticGraph;
+  semanticEvidence?: RepositorySemanticQueryResult;
   implementationArea: TaskArea;
   reviewOnly: boolean;
   blocked: boolean;
@@ -156,6 +166,17 @@ function importMentionsFile(importPath: string, file: ProjectInventoryFile) {
 function expandTechnicalToken(token: string) {
   const expanded = [token];
   if (/^главн/u.test(token)) expanded.push("home", "landing");
+  if (/^документац/u.test(token) || /^документ/u.test(token)) expanded.push("docs", "documentation");
+  if (/^настро/u.test(token)) expanded.push("settings");
+  if (/^хранилищ/u.test(token) || /^баз/u.test(token)) expanded.push("storage", "database", "db");
+  if (/^навигац/u.test(token)) expanded.push("navigation", "nav", "header", "menu");
+  if (/^мобил/u.test(token) || /^адаптив/u.test(token)) expanded.push("mobile", "responsive", "breakpoint");
+  if (/^форм/u.test(token)) expanded.push("form");
+  if (/^вход/u.test(token)) expanded.push("login", "auth", "authentication");
+  if (/^авторизац/u.test(token) || /^аутентификац/u.test(token)) expanded.push("auth", "authentication");
+  if (/^подключ/u.test(token)) expanded.push("connection", "integration");
+  if (/^репозитор/u.test(token)) expanded.push("repository");
+  if (/^главн/u.test(token)) expanded.push("home", "landing");
   if (/^документац/u.test(token)) expanded.push("docs", "documentation");
   if (/^сопостав/u.test(token) || /^мапп/u.test(token)) expanded.push("mapping");
   if (/^словар/u.test(token)) expanded.push("dictionary", "dictionaries");
@@ -194,7 +215,7 @@ function expandTechnicalToken(token: string) {
     if (token === "appearance") expanded.push("theme", "style");
     if (token === "pull") expanded.push("pr");
   }
-  return expanded;
+  return Array.from(new Set(expanded));
 }
 
 function tokenize(value: string) {
@@ -366,6 +387,21 @@ const GENERIC_IDENTITY_TOKENS = new Set([
   "change", "update", "improve", "fix", "refactor", "review", "tests", "test",
 ]);
 
+function negativeConstraintConflictsForFile(file: ProjectInventoryFile, constraints: string[]) {
+  if (constraints.length === 0) return [];
+  const identityText = normalizeText(fileIdentity(file));
+  const identityTokens = new Set(tokenize(identityText).filter((token) => !GENERIC_IDENTITY_TOKENS.has(token)));
+  if (identityTokens.size === 0) return [];
+  return constraints.filter((constraint) => {
+    const constraintTokens = tokenize(constraint).filter((token) => !GENERIC_IDENTITY_TOKENS.has(token));
+    if (constraintTokens.length === 0) return false;
+    const overlap = constraintTokens.filter((token) =>
+      identityTokens.has(token) || (token.length >= 5 && identityText.includes(token)),
+    );
+    return overlap.length >= 1;
+  });
+}
+
 function isPrimaryRoleForArea(file: ProjectInventoryFile, area: TaskArea, hasIdentityEvidence: boolean) {
   if (area === "docs") return file.kind === "docs" || file.role === "docs";
   if (!hasIdentityEvidence) return false;
@@ -463,6 +499,8 @@ function candidateWindowPriority(candidate: RetrievedCandidate) {
     candidate.identityMatchCount * 32_000 +
     Number(candidate.roleIntentMatch) * 26_000 +
     Number(candidate.channels.includes("core-responsibility")) * 18_000 +
+    Number(candidate.channels.includes("ownership-evidence")) * 80_000 -
+    Number(candidate.channels.includes("negative-constraint")) * 120_000 +
     candidate.graphRelationships.length * 4_000 +
     candidate.score
   );
@@ -643,6 +681,12 @@ export function retrieveCandidates(input: CandidateRetrievalInput): CandidateRet
   }
 
   const graph = input.options?.graph ?? buildProjectSemanticGraph(input.inventory);
+  const semanticEvidence = input.options?.semanticEvidence ??
+    resolveRepositorySemanticEvidence({
+      rawTask: input.rawTask,
+      inventory: input.inventory,
+      taskIntent: input.taskIntent,
+    });
   const taskTokens = tokenize([input.rawTask, ...(input.taskIntent?.domainTerms ?? []), ...(input.taskIntent?.recommendedSearchTerms ?? [])].join(" "));
   const explicitSet = new Set(explicit.existingPaths.map(normalizeText));
   const scored = new Map<string, RetrievedCandidate>();
@@ -679,9 +723,29 @@ export function retrieveCandidates(input: CandidateRetrievalInput): CandidateRet
       (["client-api", "repository", "db-schema", "store"].includes(file.role) || isPersistenceFile(file));
     const docsSupport = area === "docs" && isDocumentationSupportFile(file);
     const roleWeight = roleScore(file, area, coreTask);
+    const codeEvidence = semanticEvidence.byPath.get(pathValue);
+    const lexicalNegativeConflicts = negativeConstraintConflictsForFile(file, semanticEvidence.negativeConstraints);
+    const negativeConstraintConflicts = [
+      ...(codeEvidence?.negativeConstraintConflicts ?? []),
+      ...lexicalNegativeConflicts,
+    ];
+    const ownershipBoost = codeEvidence
+      ? codeEvidence.ownershipEvidence === "symbol_exact" ||
+        codeEvidence.ownershipEvidence === "state_graph" ||
+        codeEvidence.ownershipEvidence === "route_graph"
+        ? 112
+        : codeEvidence.ownershipEvidence === "reference_graph"
+          ? 34
+          : codeEvidence.ownershipEvidence === "content_supported"
+            ? 26
+            : 0
+      : 0;
+    const negativePenalty = negativeConstraintConflicts.length
+      ? 180
+      : 0;
     let score = roleWeight + overlap.length * 18 + filenameMatches.length * 18 + symbolMatches.length * 42 +
       (roleIntentMatch ? 42 : 0) + (storageIntegrationHost ? 30 : 0) +
-      (fullstackLayerFallback ? 16 : 0) + (docsSupport ? 52 : 0);
+      (fullstackLayerFallback ? 16 : 0) + (docsSupport ? 52 : 0) + ownershipBoost - negativePenalty;
     const evidence: string[] = [];
     const channels = new Set<CandidateRetrievalChannel>();
 
@@ -733,6 +797,14 @@ export function retrieveCandidates(input: CandidateRetrievalInput): CandidateRet
       evidence.push("build-package-support");
       channels.add("technical-role");
     }
+    if (codeEvidence && ownershipBoost > 0) {
+      evidence.push(codeEvidence.reason);
+      channels.add("ownership-evidence");
+    }
+    if (negativeConstraintConflicts.length) {
+      evidence.push("negative-constraint-conflict");
+      channels.add("negative-constraint");
+    }
 
     const hasGroundingEvidence =
       isExplicit ||
@@ -743,6 +815,7 @@ export function retrieveCandidates(input: CandidateRetrievalInput): CandidateRet
       storageIntegrationHost ||
       fullstackLayerFallback ||
       (coreTask && roleWeight >= 50) ||
+      ownershipBoost > 0 ||
       (area === "docs" && (file.kind === "config" || pathValue.endsWith("readme.md") || docsSupport)) ||
       (area === "build" && file.kind === "config");
     if (!hasGroundingEvidence || (score < 18 && !isExplicit)) continue;
@@ -750,15 +823,22 @@ export function retrieveCandidates(input: CandidateRetrievalInput): CandidateRet
       isExplicit ||
       filenameMatches.length > 0 ||
       symbolMatches.length > 0 ||
+      codeEvidence?.actionConfidence === "confirmed_edit" ||
+      codeEvidence?.actionConfidence === "inspect_then_edit" ||
       meaningfulOverlap.length >= 2 ||
       (meaningfulOverlap.length >= 1 && PRIMARY_IMPLEMENTATION_ROLES.has(file.role)) ||
       roleIntentGrounded;
-    const primaryRole =
+    const conflictsWithNegativeConstraint = negativeConstraintConflicts.length > 0;
+    const primaryRole = codeEvidence?.actionConfidence === "inspect_only" || conflictsWithNegativeConstraint
+      ? false
+      :
       isExplicit ||
       (area === "build" && (file.kind === "config" || file.role === "config")) ||
       isPrimaryRoleForArea(file, area, strongIdentityEvidence);
     const baseUsage = usageFor(file, area, reviewOnly);
-    const proposedUsage =
+    const proposedUsage = codeEvidence?.actionConfidence === "inspect_only" || conflictsWithNegativeConstraint
+      ? "inspect-only"
+      :
       primaryRole &&
       !reviewOnly &&
       file.kind === "source" &&
@@ -785,6 +865,7 @@ export function retrieveCandidates(input: CandidateRetrievalInput): CandidateRet
       filenameMatchCount: filenameMatches.length,
       roleIntentMatch,
       explicit: isExplicit,
+      selectionEvidence: codeEvidence,
     });
   }
 
@@ -848,6 +929,7 @@ export function retrieveCandidates(input: CandidateRetrievalInput): CandidateRet
             filenameMatchCount: 0,
             roleIntentMatch: false,
             explicit: false,
+            selectionEvidence: semanticEvidence.byPath.get(key),
           };
           scored.set(key, added);
           if (depth === 0) nextFrontier.push(added);
@@ -898,6 +980,7 @@ export function retrieveCandidates(input: CandidateRetrievalInput): CandidateRet
           filenameMatchCount: 0,
           roleIntentMatch: false,
           explicit: false,
+          selectionEvidence: semanticEvidence.byPath.get(key),
         });
       }
     }
@@ -915,6 +998,7 @@ export function retrieveCandidates(input: CandidateRetrievalInput): CandidateRet
     requestedTaskType: input.requestedTaskType,
     inventory: input.inventory,
     graph,
+    semanticEvidence,
     implementationArea: area,
     reviewOnly,
     blocked: false,

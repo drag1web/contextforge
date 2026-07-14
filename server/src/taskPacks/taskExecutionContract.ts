@@ -5,6 +5,13 @@ import type {
   TaskIntentAnalysis,
 } from "../ollama/taskIntentAnalyzer.js";
 import type { TaskUnderstanding } from "../ollama/taskUnderstanding.js";
+import type {
+  FileSelectionEvidence,
+  SelectionActionConfidence,
+  SelectionOwnershipEvidence,
+  SelectionPathValidity,
+  SelectionTargetSource,
+} from "../selection/repositorySemanticIndex.js";
 
 export type TaskExecutionLayer =
   | "ui"
@@ -29,12 +36,19 @@ export interface TaskExecutionTargetEvidence {
   evidenceLevel: TaskEvidenceLevel;
   confirmedForImplementation: boolean;
   reason: string;
+  targetSource?: SelectionTargetSource;
+  pathValidity?: SelectionPathValidity;
+  ownershipEvidence?: SelectionOwnershipEvidence;
+  actionConfidence?: SelectionActionConfidence;
 }
 
 export interface TaskExecutionContract {
   schemaVersion: 1 | 2;
   mode: TaskExecutionMode;
   requiredLayers: TaskExecutionLayer[];
+  candidateLayerCoverage?: TaskExecutionLayer[];
+  confirmedLayerCoverage?: TaskExecutionLayer[];
+  missingConfirmedLayers?: TaskExecutionLayer[];
   confirmedTargets: string[];
   targetEvidence: TaskExecutionTargetEvidence[];
   proposedTargets: string[];
@@ -206,6 +220,30 @@ function inferRequiredLayers({
   const add = (layer: TaskExecutionLayer) => {
     if (!layers.includes(layer)) layers.push(layer);
   };
+  const protectedText = [
+    taskText,
+    ...(structuredIntent?.protectedScopes ?? []),
+    ...(understanding.constraints ?? []),
+  ].join(" ").toLowerCase();
+  const protectedLayers = new Set<TaskExecutionLayer>();
+  if (
+    /(?:\bbackend\b|server|api|сервер|бэк|бекенд|бэкенд)[^.!?\n]{0,80}(?:не\s+(?:трогай|трогать|меняй|менять|изменяй|изменять|редактируй|редактировать)|do not|don't|dont|without)/iu
+      .test(protectedText) ||
+    /(?:не\s+(?:трогай|трогать|меняй|менять|изменяй|изменять|редактируй|редактировать)|do not|don't|dont|without)[^.!?\n]{0,80}(?:\bbackend\b|server|api|сервер|бэк|бекенд|бэкенд)/iu
+      .test(protectedText)
+  ) {
+    protectedLayers.add("backend");
+    protectedLayers.add("storage");
+  }
+  if (
+    /(?:\b(?:frontend|ui|client)\b|фронт|интерфейс|клиент)[^.!?\n]{0,80}(?:не\s+(?:трогай|трогать|меняй|менять|изменяй|изменять|редактируй|редактировать)|do not|don't|dont|without)/iu
+      .test(protectedText) ||
+    /(?:не\s+(?:трогай|трогать|меняй|менять|изменяй|изменять|редактируй|редактировать)|do not|don't|dont|without)[^.!?\n]{0,80}(?:\b(?:frontend|ui|client)\b|фронт|интерфейс|клиент)/iu
+      .test(protectedText)
+  ) {
+    protectedLayers.add("ui");
+    protectedLayers.add("client-api");
+  }
 
   if (area === "ui") add("ui");
   if (area === "backend") add("backend");
@@ -245,7 +283,7 @@ function inferRequiredLayers({
     add("state");
   }
 
-  return layers;
+  return layers.filter((layer) => !protectedLayers.has(layer));
 }
 
 function pathMatchesLayer(pathValue: string, layer: TaskExecutionLayer) {
@@ -259,6 +297,29 @@ function pathMatchesLayer(pathValue: string, layer: TaskExecutionLayer) {
   if (layer === "config") return /(?:package\.json|tsconfig|vite|config)/u.test(pathText);
   if (layer === "docs") return /(?:\.md$|\/docs\/|readme)/u.test(pathText);
   return false;
+}
+
+function evidenceConfirmsOwnership(evidence?: FileSelectionEvidence) {
+  if (!evidence || evidence.actionConfidence === "inspect_only") return false;
+  return ["symbol_exact", "route_graph", "state_graph"].includes(evidence.ownershipEvidence);
+}
+
+function evidenceConfirmsLayer(
+  file: {
+    path: string;
+    evidenceLevel?: TaskEvidenceLevel;
+    selectionEvidence?: FileSelectionEvidence;
+  },
+  layer: TaskExecutionLayer,
+) {
+  if (!pathMatchesLayer(file.path, layer)) return false;
+  if (file.evidenceLevel === "user_confirmed") return true;
+  const evidence = file.selectionEvidence;
+  if (!evidenceConfirmsOwnership(evidence)) return false;
+  if (layer === "storage") {
+    return Boolean(evidence?.semanticRoles.includes("storage"));
+  }
+  return true;
 }
 
 function buildUnresolvedDecisions(
@@ -350,7 +411,7 @@ export function buildTaskExecutionContract({
 
   const forbiddenAssumptions = uniqueStrings(
     [
-      "Do not invent files, endpoints, providers, state owners, storage behavior, or data flow that are not grounded in the selected project context.",
+      "Do not invent files, endpoints, providers, state owners, storage behavior, or code relationships that are not grounded in the selected project context.",
       "Model-proposed targets and ranked candidates are not confirmed implementation owners.",
       mode !== "implementation"
         ? "Do not convert an unresolved task into a file-specific implementation plan. Investigate or clarify first."
@@ -361,6 +422,12 @@ export function buildTaskExecutionContract({
       requiredLayers.length > 1
         ? "Do not drop a required technical layer merely because another layer has a stronger lexical match."
         : "",
+      ...understanding.constraints.map(
+        (constraint) => `User safeguard: ${constraint}`,
+      ),
+      ...(structuredIntent?.protectedScopes ?? []).map(
+        (scope) => `Protected scope: ${scope}`,
+      ),
     ],
     10,
   );
@@ -369,6 +436,11 @@ export function buildTaskExecutionContract({
     schemaVersion: 2,
     mode,
     requiredLayers,
+    candidateLayerCoverage: requiredLayers.filter((layer) =>
+      [...confirmedTargets, ...proposedTargets].some((target) => pathMatchesLayer(target, layer)),
+    ),
+    confirmedLayerCoverage: [...confirmedLayerCoverage],
+    missingConfirmedLayers: requiredLayers.filter((layer) => !confirmedLayerCoverage.has(layer)),
     confirmedTargets,
     targetEvidence,
     proposedTargets,
@@ -405,9 +477,11 @@ export function applySelectionEvidenceGate(input: {
     path: string;
     usage: string;
     evidenceLevel?: TaskEvidenceLevel;
+    selectionEvidence?: FileSelectionEvidence;
   }>;
   missingRequiredLayers?: TaskExecutionLayer[];
   existingImplementationCandidates?: string[];
+  existingImplementationRequiresReview?: boolean;
 }) {
   const selectedPaths = new Set(
     input.selectedFiles.map((file) => normalizeForCompare(file.path)),
@@ -416,33 +490,90 @@ export function applySelectionEvidenceGate(input: {
   const editable = input.selectedFiles.filter((file) =>
     file.usage === "inspect-and-edit" || file.usage === "create-and-edit",
   );
-  const hasTrustedEditableEvidence = editable.some((file) =>
-    file.evidenceLevel === "user_confirmed" || file.evidenceLevel === "graph_supported",
-  );
+  const hasTrustedEditableEvidence = editable.some((file) => {
+    if (file.evidenceLevel === "user_confirmed") return true;
+    const evidence = file.selectionEvidence;
+    return evidenceConfirmsOwnership(evidence);
+  });
   const missingConfirmedTargets = input.contract.confirmedTargets.filter(
     (target) => !selectedPaths.has(normalizeForCompare(target)),
+  );
+  const candidateLayerCoverage = input.contract.requiredLayers.filter((layer) =>
+    input.selectedFiles.some((file) => pathMatchesLayer(file.path, layer)),
+  );
+  const confirmedLayerCoverage = input.contract.requiredLayers.filter((layer) =>
+    input.selectedFiles.some((file) => evidenceConfirmsLayer(file, layer)),
+  );
+  const missingConfirmedLayers = input.contract.requiredLayers.filter(
+    (layer) => !confirmedLayerCoverage.includes(layer),
   );
   const gateReasons = uniqueStrings([
     ...input.contract.implementationGateReasons,
     missingRequiredLayers.length > 0
       ? `Required layer coverage is incomplete: ${missingRequiredLayers.join(", ")}.`
       : "",
+    missingConfirmedLayers.length > 0 && input.contract.requiredLayers.length > 0
+      ? `Confirmed layer coverage is incomplete: ${missingConfirmedLayers.join(", ")}.`
+      : "",
     missingConfirmedTargets.length > 0
       ? `Final selection omitted confirmed target(s): ${missingConfirmedTargets.join(", ")}.`
       : "",
     editable.length > 0 && !hasTrustedEditableEvidence
-      ? "Editable candidates are only model-proposed, inventory-exact, or rank-based; ownership still needs code evidence."
+      ? "Editable candidates do not have user-confirmed or code-confirmed ownership evidence; ownership still needs code evidence and implementation must remain investigative."
       : "",
-    (input.existingImplementationCandidates?.length ?? 0) > 0 && !hasTrustedEditableEvidence
-      ? "Existing implementation evidence was found and must be inspected before adding duplicate behavior."
+    input.existingImplementationRequiresReview
+      ? "Existing implementation evidence matches an add/create request; inspect the ownership evidence chain before adding duplicate behavior."
+      : (input.existingImplementationCandidates?.length ?? 0) > 0 && !hasTrustedEditableEvidence
+        ? "Existing implementation evidence was found and must be inspected before adding duplicate behavior."
       : "",
   ], 12);
 
-  if (input.contract.mode === "clarification_required") return input.contract;
-  if (gateReasons.length === 0) return input.contract;
+  const targetEvidence = input.contract.targetEvidence.map((target) => {
+    const matching = input.selectedFiles.find((file) =>
+      target.path && normalizeForCompare(file.path) === normalizeForCompare(target.path),
+    );
+    return matching?.selectionEvidence
+      ? {
+          ...target,
+          targetSource: matching.selectionEvidence.targetSource,
+          pathValidity: matching.selectionEvidence.pathValidity,
+          ownershipEvidence: matching.selectionEvidence.ownershipEvidence,
+          actionConfidence: matching.selectionEvidence.actionConfidence,
+        }
+      : target;
+  });
+  for (const file of input.selectedFiles) {
+    if (!file.selectionEvidence) continue;
+    if (targetEvidence.some((target) =>
+      target.path && normalizeForCompare(target.path) === normalizeForCompare(file.path),
+    )) continue;
+    targetEvidence.push({
+      target: file.path,
+      path: file.path,
+      evidenceLevel: file.evidenceLevel ?? "model_proposed",
+      confirmedForImplementation:
+        file.selectionEvidence.actionConfidence === "confirmed_edit" &&
+        file.usage === "inspect-and-edit",
+      reason: file.selectionEvidence.reason,
+      targetSource: file.selectionEvidence.targetSource,
+      pathValidity: file.selectionEvidence.pathValidity,
+      ownershipEvidence: file.selectionEvidence.ownershipEvidence,
+      actionConfidence: file.selectionEvidence.actionConfidence,
+    });
+  }
+  const contractWithEvidence = {
+    ...input.contract,
+    candidateLayerCoverage,
+    confirmedLayerCoverage,
+    missingConfirmedLayers,
+    targetEvidence,
+  };
+
+  if (input.contract.mode === "clarification_required") return contractWithEvidence;
+  if (gateReasons.length === 0) return contractWithEvidence;
 
   return {
-    ...input.contract,
+    ...contractWithEvidence,
     mode: "investigation" as const,
     allowImplementationGuidance: false,
     implementationGateReasons: gateReasons,

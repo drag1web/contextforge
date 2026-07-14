@@ -38,6 +38,17 @@ export type ProjectInventoryFileRole =
     | "runtime"
     | "unknown";
 
+export interface ProjectInventorySemanticFacts {
+    declarations: string[];
+    references: string[];
+    assignments: string[];
+    objectProperties: string[];
+    stateSymbols: string[];
+    translationKeys: string[];
+    translationEntries: Array<{ key: string; value: string }>;
+    routePaths: string[];
+}
+
 export interface ProjectInventoryFile {
     path: string;
     name: string;
@@ -49,6 +60,7 @@ export interface ProjectInventoryFile {
     exports: string[];
     symbols: string[];
     textHints: string[];
+    semanticFacts?: ProjectInventorySemanticFacts;
     contentPreview?: string;
     sizeBytes: number;
     depth: number;
@@ -253,6 +265,7 @@ const HINT_STOP_WORDS = new Set([
 const MAX_FILES = 800;
 const MAX_DEPTH = 7;
 const MAX_ANALYZED_TEXT_BYTES = 80_000;
+const MAX_LARGE_TEXT_ANALYSIS_CHARS = 90_000;
 const MAX_CONTENT_PREVIEW_CHARS = 360;
 
 function normalizePath(value: string) {
@@ -471,9 +484,43 @@ function extractMatches(content: string, regex: RegExp, limit: number) {
     for (const match of content.matchAll(regex)) {
         const value = match[1]?.trim();
         if (value) values.push(value);
-        if (values.length >= limit) break;
     }
-    return getUniqueStrings(values, limit);
+    const unique = Array.from(new Set(values.map((value) => value.trim()).filter(Boolean)));
+    if (unique.length <= limit) return unique;
+
+    const headCount = Math.ceil(limit * 0.5);
+    const tailCount = Math.floor(limit * 0.3);
+    const middleCount = Math.max(0, limit - headCount - tailCount);
+    const middleStart = Math.max(headCount, Math.floor((unique.length - middleCount) / 2));
+    return getUniqueStrings([
+        ...unique.slice(0, headCount),
+        ...unique.slice(middleStart, middleStart + middleCount),
+        ...unique.slice(-tailCount),
+    ], limit);
+}
+
+function extractTranslationEntries(content: string, limit: number) {
+    const values: Array<{ key: string; value: string }> = [];
+    const seen = new Set<string>();
+    for (const match of content.matchAll(/(?:^|[{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*["'`]([^"'`]{1,180})["'`]/gm)) {
+        const key = match[1]?.trim();
+        const value = match[2]?.trim();
+        const identity = `${key?.toLowerCase()}:${value?.toLowerCase()}`;
+        if (!key || !value || seen.has(identity)) continue;
+        seen.add(identity);
+        values.push({ key, value });
+    }
+    if (values.length <= limit) return values;
+
+    const headCount = Math.ceil(limit * 0.45);
+    const tailCount = Math.floor(limit * 0.35);
+    const middleCount = Math.max(0, limit - headCount - tailCount);
+    const middleStart = Math.max(headCount, Math.floor((values.length - middleCount) / 2));
+    return [
+        ...values.slice(0, headCount),
+        ...values.slice(middleStart, middleStart + middleCount),
+        ...values.slice(-tailCount),
+    ].slice(0, limit);
 }
 
 function tokenizeHints(value: string) {
@@ -541,6 +588,78 @@ function getContentPreview(content: string) {
         .slice(0, MAX_CONTENT_PREVIEW_CHARS);
 }
 
+function buildBoundedAnalysisContent(content: string) {
+    if (content.length <= MAX_LARGE_TEXT_ANALYSIS_CHARS) return content;
+
+    const headChars = Math.floor(MAX_LARGE_TEXT_ANALYSIS_CHARS * 0.45);
+    const middleChars = Math.floor(MAX_LARGE_TEXT_ANALYSIS_CHARS * 0.25);
+    const tailChars = MAX_LARGE_TEXT_ANALYSIS_CHARS - headChars - middleChars;
+    const middleStart = Math.max(headChars, Math.floor((content.length - middleChars) / 2));
+
+    return [
+        content.slice(0, headChars),
+        "\n/* ... ContextForge bounded large-file middle sample ... */\n",
+        content.slice(middleStart, middleStart + middleChars),
+        "\n/* ... ContextForge bounded large-file tail sample ... */\n",
+        content.slice(-tailChars),
+    ].join("");
+}
+
+const CODE_IDENTIFIER_STOP_WORDS = new Set([
+    "as", "async", "await", "break", "case", "catch", "class", "const",
+    "continue", "default", "delete", "do", "else", "enum", "export", "extends",
+    "false", "finally", "for", "from", "function", "if", "implements", "import",
+    "in", "instanceof", "interface", "let", "new", "null", "of", "private",
+    "protected", "public", "return", "static", "super", "switch", "this", "throw",
+    "true", "try", "type", "typeof", "undefined", "var", "void", "while", "with",
+    "yield"
+]);
+
+function extractSemanticFacts(
+    content: string,
+    declarations: string[],
+    targetedContent = content,
+): ProjectInventorySemanticFacts {
+    const references = extractMatches(
+        content,
+        /\b([A-Za-z_$][A-Za-z0-9_$]{2,})\b/g,
+        640,
+    ).filter((value) => !CODE_IDENTIFIER_STOP_WORDS.has(value));
+    const assignments = getUniqueStrings([
+        ...extractMatches(content, /\b([A-Za-z_$][A-Za-z0-9_$]*)\s*=(?!=|>)/g, 160),
+        ...extractMatches(content, /\bset([A-Z][A-Za-z0-9_$]*)\s*\(/g, 80),
+    ], 200);
+    const objectProperties = getUniqueStrings([
+        ...extractMatches(content, /(?:^|[{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*:/gm, 240),
+        ...extractMatches(content, /["'`]([A-Za-z_$][A-Za-z0-9_$]*)["'`]\s*:/g, 120),
+    ], 280);
+    const stateSymbols = getUniqueStrings([
+        ...extractMatches(content, /\[\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*set[A-Z][A-Za-z0-9_$]*\s*\]\s*=\s*(?:React\.)?useState\b/g, 80),
+        ...extractMatches(content, /\[\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\]\s*=\s*(?:React\.)?useReducer\b/g, 40),
+        ...extractMatches(content, /\b(?:createContext|createStore|configureStore)\s*\(\s*([A-Za-z_$][A-Za-z0-9_$]*)?/g, 40),
+    ], 120);
+    const translationKeys = getUniqueStrings([
+        ...extractMatches(content, /\b(?:labelKey|descriptionKey|titleKey|translationKey)\s*:\s*["'`]([^"'`]+)["'`]/g, 120),
+        ...extractMatches(content, /\b(?:t|translate|i18n\.t)\s*\(\s*["'`]([^"'`]+)["'`]/g, 120),
+    ], 180);
+    const translationEntries = extractTranslationEntries(targetedContent, 1000);
+    const routePaths = getUniqueStrings([
+        ...extractMatches(content, /\b(?:router|app)\.(?:get|post|put|patch|delete|use)\s*\(\s*["'`]([^"'`]+)["'`]/gi, 80),
+        ...extractMatches(content, /\b(?:path|routePath)\s*:\s*["'`]([^"'`]+)["'`]/gi, 80),
+    ], 120);
+
+    return {
+        declarations: getUniqueStrings(declarations, 80),
+        references,
+        assignments,
+        objectProperties,
+        stateSymbols,
+        translationKeys,
+        translationEntries,
+        routePaths,
+    };
+}
+
 function redactSensitiveText(content: string) {
     return content
         .replace(/\b([A-Z0-9_]*(?:SECRET|TOKEN|PASSWORD|PASS|API_KEY|PRIVATE_KEY|DATABASE_URL|CLIENT_SECRET|ACCESS_KEY)[A-Z0-9_]*)\s*[:=]\s*["'`]?[^\s"',`}]+/gi, "$1=<redacted>")
@@ -548,7 +667,7 @@ function redactSensitiveText(content: string) {
 }
 
 async function analyzeTextFile(absolutePath: string, relativePath: string, sizeBytes: number, canReadText: boolean) {
-    if (!canReadText || sizeBytes <= 0 || sizeBytes > MAX_ANALYZED_TEXT_BYTES) {
+    if (!canReadText || sizeBytes <= 0) {
         return {
             imports: [],
             exports: [],
@@ -559,7 +678,10 @@ async function analyzeTextFile(absolutePath: string, relativePath: string, sizeB
     }
 
     try {
-        const content = redactSensitiveText(await fs.readFile(absolutePath, "utf8"));
+        const fullContent = redactSensitiveText(await fs.readFile(absolutePath, "utf8"));
+        const content = sizeBytes > MAX_ANALYZED_TEXT_BYTES
+            ? buildBoundedAnalysisContent(fullContent)
+            : fullContent;
         const imports = getUniqueStrings([
             ...extractMatches(content, /import[\s\S]{0,120}?from\s+["']([^"']+)["']/g, 24),
             ...extractMatches(content, /import\s*\(\s*["']([^"']+)["']\s*\)/g, 12),
@@ -592,6 +714,7 @@ async function analyzeTextFile(absolutePath: string, relativePath: string, sizeB
             exports,
             symbols,
             textHints,
+            semanticFacts: extractSemanticFacts(content, [...exports, ...symbols], fullContent),
             contentPreview: getContentPreview(content)
         };
     } catch {
@@ -666,6 +789,7 @@ export async function scanProjectInventory(rootPath: string): Promise<ProjectInv
                 exports: textAnalysis.exports,
                 symbols: textAnalysis.symbols,
                 textHints: textAnalysis.textHints,
+                semanticFacts: textAnalysis.semanticFacts,
                 contentPreview: textAnalysis.contentPreview,
                 sizeBytes,
                 depth: getDepth(relativePath),

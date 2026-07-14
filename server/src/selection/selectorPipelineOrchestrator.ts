@@ -478,6 +478,16 @@ function shadowSelectionFromResult(
         `${file.path}: review-only task was reduced to inspect-only.`,
       );
     }
+    if (
+      isEditableUsage(usage) &&
+      (candidate.selectionEvidence?.actionConfidence === "inspect_only" ||
+        candidate.selectionEvidence?.negativeConstraintConflicts.length)
+    ) {
+      usage = "inspect-only";
+      roleAdjustments.push(
+        `${file.path}: ownership is not confirmed or conflicts with a negative constraint; reduced to inspect-only.`,
+      );
+    }
 
     seen.add(key);
     selectedFiles.push({
@@ -486,6 +496,7 @@ function shadowSelectionFromResult(
       usage,
       reason: selected.reason,
       confidence: selected.confidence,
+      selectionEvidence: candidate.selectionEvidence,
     });
   }
 

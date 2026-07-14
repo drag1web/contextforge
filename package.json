@@ -28,7 +28,8 @@
     "test:understanding": "npm run test:understanding -w @contextforge/server",
     "test:clarification": "npm run test:clarification -w @contextforge/server",
     "test:performance": "npm run test:performance -w @contextforge/server",
-    "test:handoff": "npm run test:handoff -w @contextforge/server"
+    "test:handoff": "npm run test:handoff -w @contextforge/server",
+    "test:ownership": "npm run test:ownership -w @contextforge/server"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",

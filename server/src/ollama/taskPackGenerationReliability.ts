@@ -2,6 +2,7 @@ import { z } from "zod";
 
 import type { TaskExecutionContract } from "../taskPacks/taskExecutionContract.js";
 import type { AiProviderId } from "../ai/providerService.js";
+import type { FileSelectionEvidence } from "../selection/repositorySemanticIndex.js";
 import { recordPerformanceCacheEvent } from "../performance/performanceTrace.js";
 import { generateWithConfiguredAi } from "../ai/providerService.js";
 import {
@@ -105,7 +106,8 @@ export type TaskPackGenerationPolicyIssueCode =
   | "unauthorized_release_publish"
   | "forced_verification_claim"
   | "unselected_file_reference"
-  | "ungrounded_ui_element";
+  | "ungrounded_ui_element"
+  | "inspect_only_promoted_to_edit";
 
 export type TaskPackGenerationAmbiguityCode = "missing_replacement_value";
 
@@ -198,6 +200,7 @@ export interface TaskPackGenerationPromptInput {
     usage: string;
     reason: string;
     evidenceLevel?: string;
+    selectionEvidence?: FileSelectionEvidence;
   }>;
   taskIntent?: {
     source?: string;
@@ -867,7 +870,7 @@ function applyExecutionContractClarificationConsistency(
   pushRefinementItem(
     refinement,
     "implementationGuidance",
-    `Ask the user to clarify ${unresolved}. Do not choose an architecture, provider, endpoint, data flow, storage mechanism, or edit target on the user's behalf.`,
+    `Ask the user to clarify ${unresolved}. Do not choose an architecture, provider, endpoint, ownership chain, storage mechanism, or edit target on the user's behalf.`,
   );
   pushRefinementItem(
     refinement,
@@ -920,7 +923,7 @@ function applyExecutionContractInvestigationConsistency(
   pushRefinementItem(
     refinement,
     "implementationGuidance",
-    "Treat the selected files as investigation candidates, not confirmed edit targets. Inspect their full contents and follow imports, callers, API contracts, state ownership, and data flow to locate the real owner before editing.",
+    "Treat the selected files as investigation candidates, not confirmed edit targets. Inspect their full contents and verify imports, callers, API contracts, state ownership, and code relationships before editing.",
   );
   pushRefinementItem(
     refinement,
@@ -930,7 +933,7 @@ function applyExecutionContractInvestigationConsistency(
   pushRefinementItem(
     refinement,
     "implementationGuidance",
-    "Confirm the root cause with concrete code evidence, then make the smallest focused change in the actual owner and only the directly affected contracts or consumers.",
+    "Confirm the root cause with concrete code evidence and record which owner, contracts, and consumers would be affected before proposing any edit.",
   );
   pushRefinementItem(
     refinement,
@@ -953,7 +956,7 @@ function applyExecutionContractInvestigationConsistency(
   pushRefinementItem(
     refinement,
     "acceptanceCriteria",
-    `The final implementation covers every directly affected required layer (${layerText}) or explicitly explains why a layer needs no code change.`,
+    `The investigation accounts for every directly affected layer (${layerText}) and records whether each layer has code evidence or needs no change.`,
   );
   pushRefinementItem(
     refinement,
@@ -989,6 +992,27 @@ function applyExecutionContractInvestigationConsistency(
     "execution_contract_investigation_applied",
   );
   addUniqueCode(diagnostics.consistencyCodes, "final_response_rewritten");
+}
+
+function inspectOnlyMandatoryEditConflict(
+  item: string,
+  relevantFiles: TaskPackGenerationPromptInput["relevantFiles"],
+) {
+  const normalized = item.toLowerCase().replace(/\\/g, "/");
+  if (/\b(?:do not|don't|must not|without)\s+(?:edit|modify|change|update|replace)\b/i.test(item)) {
+    return false;
+  }
+  const mandatoryEdit = /\b(?:edit|modify|change|update|replace|extend|add\s+(?:the\s+)?(?:field|property|logic|code)\s+(?:in|to)|must\s+(?:reside|change)|requires?\s+(?:editing|changing|updating))\b/i.test(item);
+  if (!mandatoryEdit) return false;
+  return relevantFiles
+    .filter((file) => !["inspect-and-edit", "create-and-edit"].includes(file.usage))
+    .some((file) => {
+      const pathValue = file.path.toLowerCase().replace(/\\/g, "/");
+      const basename = pathValue.split("/").pop() ?? pathValue;
+      const stem = basename.replace(/\.[a-z0-9]+$/i, "");
+      return normalized.includes(pathValue) || normalized.includes(basename) ||
+        (stem.length >= 5 && normalized.includes(stem));
+    });
 }
 
 function applyExecutionContractConsistency(
@@ -1072,6 +1096,14 @@ export function enforceTaskPackRefinementPolicy(
 
   for (const key of keys) {
     for (const item of refinement[key]) {
+      if (
+        (key === "implementationGuidance" || key === "acceptanceCriteria") &&
+        inspectOnlyMandatoryEditConflict(item, input.relevantFiles)
+      ) {
+        diagnostics.rejectedItems += 1;
+        addUniqueCode(diagnostics.rejectionCodes, "inspect_only_promoted_to_edit");
+        continue;
+      }
       const gitIssue = findUnauthorizedGitAction(item, input.rawTask);
       if (gitIssue) {
         diagnostics.rejectedItems += 1;
@@ -1477,6 +1509,9 @@ function buildPromptPayload(
         path: file.path,
         usage: file.usage,
         reason: truncate(file.reason, options.reasonChars),
+        ownershipEvidence: file.selectionEvidence?.ownershipEvidence ?? null,
+        actionConfidence: file.selectionEvidence?.actionConfidence ?? null,
+        semanticRoles: file.selectionEvidence?.semanticRoles ?? [],
       })),
     intent: {
       source: input.taskIntent?.source ?? null,
@@ -1595,7 +1630,7 @@ Rules:
 - Never require the coding agent to claim that a build, test, or manual check succeeded. Require reporting the actual result, including failures or checks that were not run.
 - Treat executionContract as authoritative backend policy, not as optional advice.
 - If executionContract.mode is clarification_required, do not propose implementation. Ask for the unresolved decision, keep files unchanged, and defer verification.
-- If executionContract.mode is investigation, produce an investigation-first plan: trace the real owner and data flow before editing, do not assume selected candidates are confirmed edit targets, and do not invent state, endpoints, providers, token flows, or storage behavior.
+- If executionContract.mode is investigation, produce an investigation-first plan: verify the real owner and code relationships before editing, do not assume selected candidates are confirmed edit targets, and do not invent state, endpoints, providers, token flows, or storage behavior.
 - Cover every executionContract.requiredLayers entry with selected context or explicitly state that the missing layer must be located before implementation.
 - Never convert a candidate rank, model proposal, or inventory-exact path into certainty. Only user-confirmed or code-graph-supported evidence may justify a file-specific implementation owner.
 - If executionContract.implementationGateReasons is non-empty, keep the response investigation-first and do not create file-specific safeguards or acceptance checks that assume ownership.

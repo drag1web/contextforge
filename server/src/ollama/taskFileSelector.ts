@@ -7,6 +7,11 @@ import {
 import { resolveExplicitFileMentions } from "../selection/explicitFileMentions.js";
 import { buildProjectSemanticGraph } from "../selection/projectSemanticGraph.js";
 import {
+  resolveRepositorySemanticEvidence,
+  type FileSelectionEvidence,
+} from "../selection/repositorySemanticIndex.js";
+import { retainGraphSeeds } from "../selection/selectionConsistency.js";
+import {
   detectHardTaskSafetyIssue,
   isSecretLikePath,
 } from "../selection/safetyPolicy.js";
@@ -42,6 +47,7 @@ export interface SelectedTaskFile {
   reason: string;
   confidence: number;
   evidenceLevel?: TaskEvidenceLevel;
+  selectionEvidence?: FileSelectionEvidence;
 }
 
 export type EffectiveTaskArea = TaskArea;
@@ -108,10 +114,71 @@ export interface TaskFileSelection {
     executionMode?: TaskExecutionContract["mode"];
     requiredLayers?: TaskExecutionLayer[];
     missingRequiredLayers?: TaskExecutionLayer[];
+    candidateLayerCoverage?: TaskExecutionLayer[];
+    confirmedLayerCoverage?: TaskExecutionLayer[];
+    missingConfirmedLayers?: TaskExecutionLayer[];
     implementationGateReasons?: string[];
     existingImplementationCandidates?: string[];
+    existingImplementationRequiresReview?: boolean;
     evidenceSummary?: Record<TaskEvidenceLevel, number>;
+    ownershipEvidenceChains?: FileSelectionEvidence["chain"][];
+    semanticIndexBuildMs?: number;
+    semanticIndexQueryMs?: number;
+    semanticIndexReused?: boolean;
   };
+}
+
+function createModelOnlySelectionEvidence(file: ProjectInventoryFile): FileSelectionEvidence {
+  return {
+    targetSource: "model_inference",
+    pathValidity: "inventory_exact",
+    ownershipEvidence: "model_only",
+    actionConfidence: "inspect_only",
+    semanticRoles: ["reference"],
+    symbols: [],
+    chain: [],
+    negativeConstraintConflicts: [],
+    reason:
+      "Model selected an existing inventory path; ownership still requires repository evidence.",
+  };
+}
+
+function createRankingOnlySelectionEvidence(file: SelectedTaskFile): FileSelectionEvidence {
+  return {
+    targetSource: "ranking",
+    pathValidity: "inventory_exact",
+    ownershipEvidence: "rank_only",
+    actionConfidence: "inspect_only",
+    semanticRoles: ["reference"],
+    symbols: [],
+    chain: [],
+    negativeConstraintConflicts: [],
+    reason:
+      "Deterministic ranking suggested this real inventory path; ownership still requires repository evidence.",
+  };
+}
+
+function mergeSelectionEvidence(
+  fileEvidence: FileSelectionEvidence | undefined,
+  repositoryEvidence: FileSelectionEvidence | undefined,
+) {
+  if (!fileEvidence) return repositoryEvidence;
+  if (!repositoryEvidence) return fileEvidence;
+  return {
+    ...repositoryEvidence,
+    targetSource: fileEvidence.targetSource,
+  };
+}
+
+function getFallbackSelectionEvidence(
+  file: SelectedTaskFile,
+  repositoryEvidence: FileSelectionEvidence | undefined,
+) {
+  if (file.selectionEvidence || repositoryEvidence) {
+    return mergeSelectionEvidence(file.selectionEvidence, repositoryEvidence);
+  }
+  if (isFallbackRankedReason(file.reason)) return createRankingOnlySelectionEvidence(file);
+  return undefined;
 }
 
 interface SelectTaskFilesInput {
@@ -11342,6 +11409,20 @@ function fileMatchesExecutionLayer(
   return false;
 }
 
+function selectionEvidenceMatchesLayer(
+  evidence: FileSelectionEvidence | undefined,
+  layer: TaskExecutionLayer,
+) {
+  if (!evidence) return false;
+  const roles = new Set(evidence.semanticRoles);
+  if (layer === "state") return roles.has("state-owner");
+  if (layer === "storage") return roles.has("storage");
+  if (layer === "ui") return roles.has("display");
+  if (layer === "client-api") return roles.has("contract") || roles.has("consumer");
+  if (layer === "backend") return roles.has("route") || roles.has("producer");
+  return false;
+}
+
 function getExecutionLayerCandidateScore(
   file: ProjectInventoryFile,
   layer: TaskExecutionLayer,
@@ -12244,7 +12325,10 @@ function userTaskExplicitlyNamesSelectedFile(
       includesAny(taskText, ["service", "сервис"])) ||
     ((role === "hook" || normalizedPath.includes("/hooks/")) &&
       includesAny(taskText, ["hook", "хук"]));
-  return identityMatch && roleMatch;
+  const docsRoleMatch =
+    (role === "docs" || inventoryFile.kind === "docs") &&
+    /\b(?:readme|documentation|docs)\b|(?:\u0440\u0438\u0434\u043c\u0438|\u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442\u0430\u0446)/iu.test(taskText);
+  return identityMatch && (roleMatch || docsRoleMatch);
 }
 
 function inferSelectedFileEvidenceLevel(
@@ -12263,6 +12347,21 @@ function inferSelectedFileEvidenceLevel(
 
   const reason = normalizeForCompare(file.reason);
   if (userTaskExplicitlyNamesSelectedFile(input, file)) return "user_confirmed";
+  if (
+    file.selectionEvidence?.actionConfidence === "confirmed_edit" &&
+    (file.selectionEvidence.targetSource === "user_text" ||
+      file.selectionEvidence.targetSource === "clarification")
+  ) {
+    return "user_confirmed";
+  }
+  if (
+    file.selectionEvidence?.actionConfidence === "inspect_then_edit" &&
+    ["symbol_exact", "route_graph", "state_graph"].includes(
+      file.selectionEvidence.ownershipEvidence,
+    )
+  ) {
+    return "graph_supported";
+  }
   if (file.usage === "create-and-edit") {
     const taskText = normalizeForCompare(input.rawTask);
     const createTokens = tokenizeIdentifierLike(file.path.split("/").pop() ?? "")
@@ -12274,69 +12373,33 @@ function inferSelectedFileEvidenceLevel(
   if (includesAny(reason, ["explicit target guard", "user explicitly", "user-named"])) {
     return "user_confirmed";
   }
-  if (reason.includes("semantic graph")) return "graph_supported";
   if (isFallbackRankedReason(file.reason)) return "ranked_candidate";
+  if (file.selectionEvidence?.ownershipEvidence === "rank_only") return "ranked_candidate";
+  if (
+    file.selectionEvidence?.targetSource === "model_inference" &&
+    file.selectionEvidence.ownershipEvidence === "model_only"
+  ) {
+    return "model_proposed";
+  }
   if (file.usage === "create-and-edit" && reason.includes("explicit")) {
     return "user_confirmed";
   }
-  return "model_proposed";
+  return input.inventory.files.some(
+    (candidate) => normalizeForCompare(candidate.path) === normalizedPath,
+  )
+    ? "inventory_exact"
+    : "model_proposed";
 }
 
 function getExistingImplementationCandidates(
   input: SelectTaskFilesInput,
-  contract: TaskExecutionContract,
+  _contract: TaskExecutionContract,
 ) {
-  const tokenContext = buildTokenContext(input);
-  const meaningfulTokens = tokenContext.strongTokens.filter(
-    (token) =>
-      token.length >= 4 &&
-      !WEAK_TASK_TOKENS.has(token) &&
-      !BROAD_PATH_TOKENS.has(token),
-  );
-  if (meaningfulTokens.length < 2) return [];
-
-  return input.inventory.files
-    .filter((file) => file.canReadText && !file.isLikelyGenerated)
-    .filter((file) => !isSecretLikePath(file.path) && file.kind !== "runtime")
-    .map((file) => {
-      const searchText = getFileSearchText(file);
-      const identityText = normalizeForCompare(
-        [
-          file.path,
-          file.name,
-          ...(file.exports ?? []),
-          ...(file.symbols ?? []),
-          ...(file.textHints ?? []),
-          ...[
-            file.path,
-            file.name,
-            ...(file.exports ?? []),
-            ...(file.symbols ?? []),
-          ].flatMap(tokenizeIdentifierLike),
-        ].join(" "),
-      );
-      const matches = meaningfulTokens.filter((token) =>
-        normalizedTermMatches(searchText, token),
-      );
-      const identityMatches = meaningfulTokens.filter((token) =>
-        normalizedTermMatches(identityText, token),
-      );
-      const layerBonus = contract.requiredLayers.some((layer) =>
-        fileMatchesExecutionLayer(file, layer),
-      )
-        ? 18
-        : 0;
-      const score = matches.length * 18 + identityMatches.length * 28 + layerBonus;
-      return { file, matches, identityMatches, score };
-    })
-    .filter(
-      (item) =>
-        item.identityMatches.length >= 2 ||
-        (item.matches.length >= 3 && item.identityMatches.length >= 1),
-    )
-    .sort((left, right) => right.score - left.score)
-    .slice(0, 6)
-    .map((item) => item.file.path);
+  return resolveRepositorySemanticEvidence({
+    rawTask: input.rawTask,
+    inventory: input.inventory,
+    taskIntent: input.taskIntent,
+  }).existingImplementationPaths;
 }
 
 function applyExecutionContractSelectionPolicy(
@@ -12357,10 +12420,17 @@ function applyExecutionContractSelectionPolicy(
         ranked_candidate: 0,
       } as Record<TaskEvidenceLevel, number>,
       notes: [] as string[],
+      repositoryEvidence: null,
+      existingImplementationRequiresReview: false,
     };
   }
 
   const baseContract = getCachedExecutionContract(input)!;
+  const repositoryEvidence = resolveRepositorySemanticEvidence({
+    rawTask: input.rawTask,
+    inventory: input.inventory,
+    taskIntent: input.taskIntent,
+  });
   if (baseContract.mode === "clarification_required") {
     return {
       selectedFiles: [],
@@ -12377,14 +12447,21 @@ function applyExecutionContractSelectionPolicy(
       notes: [
         "Execution contract requires clarification; automatic implementation files were intentionally withheld.",
       ],
+      repositoryEvidence,
+      existingImplementationRequiresReview: false,
     };
   }
 
-  const evidenceFiles = selectedFiles.map((file) => ({
-    ...file,
-    evidenceLevel:
-      file.evidenceLevel ?? inferSelectedFileEvidenceLevel(file, baseContract, input),
-  }));
+  const evidenceFiles = selectedFiles.map((file) => {
+    const repositoryFileEvidence = repositoryEvidence.byPath.get(normalizeForCompare(file.path));
+    const selectionEvidence = getFallbackSelectionEvidence(file, repositoryFileEvidence);
+    const normalizedFile = { ...file, selectionEvidence };
+    return {
+      ...normalizedFile,
+      evidenceLevel:
+        file.evidenceLevel ?? inferSelectedFileEvidenceLevel(normalizedFile, baseContract, input),
+    };
+  });
   const inventoryByPath = new Map(
     input.inventory.files.map((file) => [normalizeForCompare(file.path), file]),
   );
@@ -12392,24 +12469,35 @@ function applyExecutionContractSelectionPolicy(
     (layer) =>
       !evidenceFiles.some((selected) => {
         const inventoryFile = inventoryByPath.get(normalizeForCompare(selected.path));
-        return inventoryFile ? fileMatchesExecutionLayer(inventoryFile, layer) : false;
+        return selectionEvidenceMatchesLayer(selected.selectionEvidence, layer) ||
+          (inventoryFile ? fileMatchesExecutionLayer(inventoryFile, layer) : false);
       }),
   );
   const existingImplementationCandidates = getExistingImplementationCandidates(
     input,
     baseContract,
   );
+  const existingImplementationRequiresReview =
+    existingImplementationCandidates.length > 0 &&
+    /\b(?:add|create|introduce|expose)\b|(?:добав|созд|введ|вывед)/iu.test(input.rawTask) &&
+    /\b(?:field|property|metric|status|flag|endpoint|handler|state|cache|timing|value)\b|(?:пол[ея]|свойств|метрик|статус|флаг|эндпоинт|обработчик|состояни|кеш|кэш|врем|значени)/iu.test(
+      input.rawTask,
+    );
   const contract = applySelectionEvidenceGate({
     contract: baseContract,
     selectedFiles: evidenceFiles,
     missingRequiredLayers,
     existingImplementationCandidates,
+    existingImplementationRequiresReview,
   });
 
   const governedFiles = evidenceFiles.map((file) => {
     const investigation = contract.mode === "investigation";
     const evidenceLevel = file.evidenceLevel ?? "model_proposed";
-    const usage: SelectedTaskFileUsage = investigation
+    const evidenceRequiresInspection =
+      file.selectionEvidence?.actionConfidence === "inspect_only" ||
+      Boolean(file.selectionEvidence?.negativeConstraintConflicts.length);
+    const usage: SelectedTaskFileUsage = investigation || evidenceRequiresInspection
       ? file.usage === "asset-reference" || file.usage === "config-reference"
         ? file.usage
         : "inspect-only"
@@ -12461,6 +12549,7 @@ function applyExecutionContractSelectionPolicy(
     contract,
     missingRequiredLayers,
     existingImplementationCandidates,
+    existingImplementationRequiresReview,
     evidenceSummary,
     notes: [
       ...contract.reasons,
@@ -12475,7 +12564,40 @@ function applyExecutionContractSelectionPolicy(
           ]
         : []),
     ],
+    repositoryEvidence,
   };
+}
+
+const CATEGORICAL_MODEL_NOTE_PATTERNS = [
+  /\bimplementation requires\b/i,
+  /\bmust modify\b/i,
+  /\bshould be extended\b/i,
+  /\bmust reside\b/i,
+  /\bmust be added\b/i,
+  /\bedit this component\b/i,
+  /\bfix requires changing\b/i,
+  /\brequires modifying\b/i,
+];
+
+function sanitizeSelectorNotesForExecutionMode(
+  notes: string[],
+  mode: TaskExecutionContract["mode"] | undefined,
+) {
+  if (mode !== "investigation" && mode !== "clarification_required") return notes;
+  return notes.map((note) => {
+    if (!CATEGORICAL_MODEL_NOTE_PATTERNS.some((pattern) => pattern.test(note))) {
+      return note;
+    }
+    return `Untrusted model hypothesis; verify before editing: ${note
+      .replace(/\bimplementation requires\b/gi, "implementation may involve")
+      .replace(/\brequires modifying\b/gi, "may involve inspecting")
+      .replace(/\bmust modify\b/gi, "inspect whether to modify")
+      .replace(/\bshould be extended\b/gi, "may need to be inspected")
+      .replace(/\bmust reside\b/gi, "may belong")
+      .replace(/\bmust be added\b/gi, "may need to be added")
+      .replace(/\bedit this component\b/gi, "inspect this component")
+      .replace(/\bfix requires changing\b/gi, "fix may involve investigating")}`;
+  });
 }
 
 function withSelectorSafetyProfile(
@@ -12500,7 +12622,7 @@ function withSelectorSafetyProfile(
     localizationSupport.selectedFiles,
     input,
   );
-  const notes = [
+  const rawNotes = [
     ...(selection.notes.some((note) => note === versionMarker)
       ? []
       : [versionMarker]),
@@ -12510,6 +12632,10 @@ function withSelectorSafetyProfile(
     ...executionPolicy.notes,
     ...selection.notes,
   ];
+  const notes = sanitizeSelectorNotesForExecutionMode(
+    rawNotes,
+    executionPolicy.contract?.mode,
+  );
   const notesText = notes.join(" ").toLowerCase();
   const inferredSelectionSource: SelectorSelectionSource =
     selection.diagnostics?.selectionSource ??
@@ -12557,9 +12683,18 @@ function withSelectorSafetyProfile(
       executionMode: executionPolicy.contract?.mode,
       requiredLayers: executionPolicy.contract?.requiredLayers,
       missingRequiredLayers: executionPolicy.missingRequiredLayers,
+      candidateLayerCoverage: executionPolicy.contract?.candidateLayerCoverage,
+      confirmedLayerCoverage: executionPolicy.contract?.confirmedLayerCoverage,
+      missingConfirmedLayers: executionPolicy.contract?.missingConfirmedLayers,
       implementationGateReasons: executionPolicy.contract?.implementationGateReasons,
       existingImplementationCandidates: executionPolicy.existingImplementationCandidates,
+      existingImplementationRequiresReview:
+        executionPolicy.existingImplementationRequiresReview,
       evidenceSummary: executionPolicy.evidenceSummary,
+      ownershipEvidenceChains: executionPolicy.repositoryEvidence?.chains ?? [],
+      semanticIndexBuildMs: executionPolicy.repositoryEvidence?.buildDurationMs,
+      semanticIndexQueryMs: executionPolicy.repositoryEvidence?.queryDurationMs,
+      semanticIndexReused: executionPolicy.repositoryEvidence?.indexReused,
     },
   };
 }
@@ -12632,10 +12767,11 @@ function normalizeModelSelection(
       ),
       reason: getReasonFromModelItem(item),
       confidence: getConfidenceFromModelItem(item),
+      selectionEvidence: createModelOnlySelectionEvidence(inventoryFile),
     });
   }
 
-  const completedSelection = ensureRequiredFullstackLayers(
+  const completedBeforeSeedConsistency = ensureRequiredFullstackLayers(
     applyVisualOnlyScopeGuard(
       scopeFullstackSelectionToPrimaryUiTargets(
         input,
@@ -12659,6 +12795,13 @@ function normalizeModelSelection(
     effectiveTaskArea,
     assetMode,
   );
+  const seedConsistency = retainGraphSeeds({
+    selectedFiles: completedBeforeSeedConsistency,
+    fallbackSeeds: fallback.selectedFiles,
+    inventory: input.inventory,
+    maxFiles: getSelectionLimitFromSettings(input, effectiveTaskArea, assetMode),
+  });
+  const completedSelection = seedConsistency.selectedFiles;
 
   if (completedSelection.length === 0) {
     return {
@@ -12709,6 +12852,12 @@ function normalizeModelSelection(
       wasAugmented
         ? "Selection was augmented with fallback-ranked files because Ollama selected too few valid files or needed coverage balancing."
         : "Selection was produced by Ollama and validated by ContextForge.",
+      ...(seedConsistency.retainedSeeds.length > 0
+        ? [`Retained central graph seed(s): ${seedConsistency.retainedSeeds.join(", ")}.`]
+        : []),
+      ...seedConsistency.omittedSeeds.map(
+        (item) => `Graph seed omitted: ${item.path}. ${item.reason}`,
+      ),
     ],
   };
 }
