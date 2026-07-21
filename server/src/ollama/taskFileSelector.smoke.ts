@@ -3667,6 +3667,27 @@ async function testBoundedUiChangeSeparatesScopeTargetAndPreserveSurface() {
     "artifact-reference",
     "a slash path inside a protected clause must not become an editable target",
   );
+  const groupedReferenceTask =
+    "Create server/routes/profileSummary.ts and wire it in server/index.ts. " +
+    "Use server/auth.ts and server/db.ts only as reference providers; do not modify either provider file.";
+  assert.equal(
+    classifyFileMentionSemanticRole(groupedReferenceTask, "server/auth.ts"),
+    "artifact-reference",
+    "the first member of a grouped reference-only file list must remain protected",
+  );
+  assert.equal(
+    classifyFileMentionSemanticRole(groupedReferenceTask, "server/db.ts"),
+    "artifact-reference",
+    "the final member of a grouped reference-only file list must remain protected",
+  );
+  assert.equal(
+    classifyFileMentionSemanticRole(
+      "Create server/routes/a.ts and use server/auth.ts only as a reference.",
+      "server/routes/a.ts",
+    ),
+    "editable-target",
+    "a separate create target before a protected reference must not be downgraded",
+  );
 }
 
 async function testCreateMissingBackendEndpointKeepsExplicitDestination() {

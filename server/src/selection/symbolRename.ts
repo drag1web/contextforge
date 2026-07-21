@@ -4,6 +4,9 @@ export interface SymbolRenameIntent {
 }
 
 const IDENTIFIER = String.raw`[A-Za-z_$][A-Za-z0-9_$]*`;
+const CODE_FILE_PATH = String.raw`(?:['"\x60]?(?:[A-Za-z]:)?(?:[A-Za-z0-9_.@()\[\]{}+~$!#%&=,'^-]+[\\/])*[A-Za-z0-9_.@()\[\]{}+~$!#%&=,'^-]+\.(?:ts|tsx|js|jsx|mjs|cjs|mts|cts)['"\x60]?)`;
+const ENGLISH_OWNER_QUALIFIER = String.raw`(?:\s+(?:in|inside|within)\s+(?:the\s+)?(?:file\s+)?${CODE_FILE_PATH})?`;
+const RUSSIAN_OWNER_QUALIFIER = String.raw`(?:\s+в\s+(?:файл(?:е|а)?\s+)?${CODE_FILE_PATH})?`;
 
 /**
  * Extracts a literal code-symbol rename from user wording. The matcher is
@@ -15,11 +18,11 @@ export function extractSymbolRenameIntent(
 ): SymbolRenameIntent | null {
   const patterns = [
     new RegExp(
-      String.raw`\brename\s+(?:the\s+)?(?:(?:exported|public)\s+)?(?:(?:typescript|ts)\s*[- ]?\s*)?(?:(?:type|interface|class|enum|symbol)\s+)?(${IDENTIFIER})\s+(?:to|as)\s+(${IDENTIFIER})\b`,
+      String.raw`\brename\s+(?:the\s+)?(?:(?:exported|public)\s+)?(?:(?:typescript|ts)\s*[- ]?\s*)?(?:(?:type|interface|class|enum|symbol)\s+)?(${IDENTIFIER})${ENGLISH_OWNER_QUALIFIER}\s+(?:to|as)\s+(${IDENTIFIER})\b`,
       "iu",
     ),
     new RegExp(
-      String.raw`(?:^|[^\p{L}\p{N}_])переимен(?:уй|овать)\s+(?:(?:экспортируем\p{L}*|публичн\p{L}*)\s+)?(?:(?:typescript|ts)\s*[- ]?\s*)?(?:(?:тип|интерфейс|класс|enum|символ)\s+)?(${IDENTIFIER})\s+в\s+(${IDENTIFIER})\b`,
+      String.raw`(?:^|[^\p{L}\p{N}_])переимен(?:уй|овать)\s+(?:(?:экспортируем\p{L}*|публичн\p{L}*)\s+)?(?:(?:typescript|ts)\s*[- ]?\s*)?(?:(?:тип|интерфейс|класс|enum|символ)\s+)?(${IDENTIFIER})${RUSSIAN_OWNER_QUALIFIER}\s+в\s+(${IDENTIFIER})\b`,
       "iu",
     ),
   ];

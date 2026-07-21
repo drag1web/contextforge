@@ -5128,6 +5128,19 @@ export function reconcileFinalSelectionDecision(input: {
   });
   if (conditionalRemoval) return conditionalRemoval;
 
+  // A parser-backed symbol rename is a stronger operation contract than a
+  // literal file mention. Resolve source/destination declarations before any
+  // generic exact-file branch can authorize the named owner path.
+  if (profile.kind === "symbol-rename") {
+    const symbolRename = resolveSymbolRenameSelection({
+      rawTask: input.rawTask,
+      inventory: input.inventory,
+      profile,
+      maxFiles: input.maxFiles,
+    });
+    if (symbolRename) return symbolRename;
+  }
+
   const literalFileTargets = resolveLiteralFileTargetSelection({
     rawTask: input.rawTask,
     taskIntent: input.taskIntent,
@@ -5154,16 +5167,6 @@ export function reconcileFinalSelectionDecision(input: {
     maxFiles: input.maxFiles,
   });
   if (explicitDocumentation) return explicitDocumentation;
-
-  if (profile.kind === "symbol-rename") {
-    const symbolRename = resolveSymbolRenameSelection({
-      rawTask: input.rawTask,
-      inventory: input.inventory,
-      profile,
-      maxFiles: input.maxFiles,
-    });
-    if (symbolRename) return symbolRename;
-  }
 
   if (profile.kind === "exact-text") {
     const exact = resolveExactTextSelection({

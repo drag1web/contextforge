@@ -777,6 +777,91 @@ async function testGroupedReferenceOnlyProvidersRemainInspectOnly() {
   );
 }
 
+async function testGroupedReferenceOnlyProvidersAreRecoveredFromRawTask() {
+  const createTarget = "server/routes/profileSummary.ts";
+  const registrationTarget = "server/index.ts";
+  const providerOne = "server/auth.ts";
+  const providerTwo = "server/db.ts";
+  const selection = await run({
+    rawTask:
+      `Create ${createTarget} and wire it in ${registrationTarget}. ` +
+      `Use ${providerOne} and ${providerTwo} only as reference providers; do not modify either provider file.`,
+    files: [
+      file(registrationTarget, {
+        role: "server-entry",
+        exports: ["server"],
+        symbols: ["server"],
+      }),
+      file(providerOne, {
+        role: "service",
+        exports: ["requireAuth"],
+        symbols: ["requireAuth"],
+      }),
+      file(providerTwo, {
+        role: "repository",
+        exports: ["db"],
+        symbols: ["db"],
+      }),
+    ],
+    taskIntent: intent({
+      taskArea: "backend",
+      taskUnderstanding: {
+        ...intent().taskUnderstanding,
+        action: "create",
+        targetHints: [
+          createTarget,
+          registrationTarget,
+          providerOne,
+          providerTwo,
+        ],
+      },
+      structuredIntent: {
+        ...intent().structuredIntent,
+        // Simulate an upstream model that incorrectly promoted the first
+        // provider and omitted protection metadata. Raw user wording remains
+        // the final authority for the complete protected group.
+        primaryTargets: [
+          {
+            kind: "explicit_file",
+            value: registrationTarget,
+            path: registrationTarget,
+            confidence: 0.98,
+            evidence: "The user named the registration file.",
+            provenance: "user_confirmed",
+          },
+          {
+            kind: "explicit_file",
+            value: providerOne,
+            path: providerOne,
+            confidence: 0.98,
+            evidence: "Upstream fallback misclassified the first provider.",
+            provenance: "user_confirmed",
+          },
+        ],
+        protectedScopes: [],
+        allowedEditScope: "explicit_targets_only",
+        needsBackend: true,
+      },
+    }),
+  });
+
+  assert.equal(selection.diagnostics?.executionContract?.mode, "implementation");
+  assert.equal(
+    selection.selectedFiles.find((selected) => selected.path === providerOne)
+      ?.usage,
+    "inspect-only",
+  );
+  assert.equal(
+    selection.selectedFiles.find((selected) => selected.path === providerTwo)
+      ?.usage,
+    "inspect-only",
+  );
+  assert.deepEqual(
+    [...(selection.diagnostics?.executionContract?.authorization?.authorizedTargets ?? [])].sort(),
+    [createTarget, registrationTarget].sort(),
+  );
+}
+
 async function testExportedTypeRenameDestinationConflictIsInvestigation() {
   const owner = "client/src/api.ts";
   const selection = await run({
@@ -814,6 +899,68 @@ async function testExportedTypeRenameDestinationConflictIsInvestigation() {
         ...intent().taskUnderstanding,
         action: "refactor",
         targetHints: ["User", "RunRow"],
+      },
+    }),
+  });
+
+  assert.equal(selection.diagnostics?.executionContract?.mode, "investigation");
+  assert.deepEqual(
+    selection.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [],
+  );
+  assert.equal(selection.selectedFiles.length, 0);
+}
+
+async function testExportedTypeRenameWithOwnerPathChecksDestinationFirst() {
+  const owner = "client/src/api.ts";
+  const unrelated = "client/src/pages/Imports.tsx";
+  const selection = await run({
+    rawTask:
+      `Rename the exported TypeScript type User in ${owner} to RunRow and ` +
+      "update all imports and usages without changing any other declaration.",
+    files: [
+      file(owner, {
+        role: "client-api",
+        exports: ["User", "RunRow"],
+        symbols: ["User", "RunRow"],
+        semanticFacts: {
+          declarations: ["User", "RunRow"],
+          references: [],
+          assignments: [],
+          objectProperties: [],
+          stateSymbols: [],
+          translationKeys: [],
+          translationEntries: [],
+          routePaths: [],
+          symbolSyntax: {
+            parser: "js-ts-lexical-v1",
+            declarations: ["User", "RunRow"],
+            references: ["User", "RunRow"],
+            imports: [],
+            exports: ["User", "RunRow"],
+            symbols: ["User", "RunRow"],
+            moduleSpecifiers: [],
+          },
+        },
+      }),
+      file(unrelated, {
+        role: "page",
+        exports: ["Imports"],
+        symbols: ["Imports", "RunRow"],
+        textHints: ["imports", "runs", "rows"],
+      }),
+    ],
+    taskIntent: intent({
+      taskArea: "build",
+      taskUnderstanding: {
+        ...intent().taskUnderstanding,
+        action: "replace",
+        targetHints: [owner],
+        changeDefinition: "exact",
+      },
+      structuredIntent: {
+        ...intent().structuredIntent,
+        primaryTargets: [],
       },
     }),
   });
@@ -897,9 +1044,11 @@ async function main() {
   await testUiApiClientOutranksConsumerPages();
   await testModelProposalIsNotUserConfirmation();
   await testGroupedReferenceOnlyProvidersRemainInspectOnly();
+  await testGroupedReferenceOnlyProvidersAreRecoveredFromRawTask();
   await testExportedTypeRenameDestinationConflictIsInvestigation();
+  await testExportedTypeRenameWithOwnerPathChecksDestinationFirst();
   await testUntrustedSameStemUiProposalCannotBecomeEditable();
-  console.log("canonical core decision smoke passed: 13 scenarios");
+  console.log("canonical core decision smoke passed: 15 scenarios");
 }
 
 main().catch((error) => {
