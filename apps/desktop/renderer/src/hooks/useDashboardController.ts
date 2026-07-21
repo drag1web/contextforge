@@ -405,6 +405,8 @@ export function useDashboardController() {
         clarifications: activeDraft.clarifications,
         performanceSessionId: activeDraft.performanceSessionId,
         understandingSnapshotId: activeDraft.understandingSnapshotId,
+        reviewedUnderstandingSnapshotId:
+          activeDraft.reviewedUnderstandingSnapshotId,
 
         templateId: activeDraft.templateId || undefined,
         ruleProfileId: activeDraft.ruleProfileId || undefined,
@@ -436,6 +438,8 @@ export function useDashboardController() {
             targetTool: activeDraft.targetTool,
             clarifications: activeDraft.clarifications,
             understandingSnapshotId: activeDraft.understandingSnapshotId,
+            reviewedUnderstandingSnapshotId:
+              activeDraft.reviewedUnderstandingSnapshotId,
           });
 
           setContextComposerPreview(preview);
@@ -568,6 +572,8 @@ export function useDashboardController() {
       targetTool: activeDraft.targetTool,
       clarifications: activeDraft.clarifications,
       understandingSnapshotId: activeDraft.understandingSnapshotId,
+      reviewedUnderstandingSnapshotId:
+        activeDraft.reviewedUnderstandingSnapshotId,
     });
 
     setTaskPackContextPreview(preview);

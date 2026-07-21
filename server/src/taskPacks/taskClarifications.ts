@@ -278,6 +278,7 @@ export function applyTaskClarificationsToUnderstanding(
         ? Math.max(understanding.confidence, 0.8)
         : understanding.confidence,
     source: "merged",
+    reviewStatus: readiness === "ready" ? "not_required" : "pending",
     reasons: uniqueByNormalized([
       ...understanding.reasons,
       `Applied ${normalized.length} user clarification(s) without adding presentation metadata to selector input.`,

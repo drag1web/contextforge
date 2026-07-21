@@ -14,6 +14,13 @@ import type {
   ProjectInventoryFile,
 } from "../scanner/projectInventoryScanner.js";
 import type { AppSettings } from "../settings/settingsService.js";
+import type { FileSelectionEvidence } from "./repositorySemanticIndex.js";
+import { classifyTaskSelectionProfile } from "./taskSelectionProfile.js";
+import {
+  applySelectionEvidenceGate,
+  buildTaskExecutionContractFromIntent,
+  type TaskExecutionLayer,
+} from "../taskPacks/taskExecutionContract.js";
 
 interface ExplicitNamedTarget {
   kind: "page" | "component" | "route" | "section" | "entity";
@@ -58,11 +65,23 @@ const EDIT_ACTIONS = new Set([
 ]);
 
 const ENGLISH_FORWARD_TARGET_PATTERN =
-  /(?:page|screen|component|route|section|view)\s+(?:named\s+)?[«"“'`]?(.{2,80}?)(?=\s+(?:replace|change|update|edit|modify|improve|make|add|remove|fix|under|below|where|that|which)|[\n,.!?;]|$)/giu;
+  /(?:page|screen|component|route|section|view)\s+(?:named\s+)?[«"“'`]?(.{2,80}?)(?=\s+(?:replace|rename|change|update|edit|modify|improve|make|add|remove|fix|show|display|render|under|below|where|that|which)|[\n,.!?;]|$)/giu;
 const RUSSIAN_FORWARD_TARGET_PATTERN =
-  /(?:на\s+)?(страниц\p{L}*|экран\p{L}*|компонент\p{L}*|маршрут\p{L}*|секци\p{L}*|раздел\p{L}*)\s+(?:с\s+названием\s+)?[«"“'`]?(.{2,80}?)(?=\s+(?:замени|заменить|измени|изменить|обнови|обновить|сделай|добавь|добавить|удали|удалить|убери|убрать|исправь|исправить|под|где|которая|который|которое)|[\n,.!?;]|$)/giu;
+  /(?:на\s+)?(страниц\p{L}*|экран\p{L}*|компонент\p{L}*|маршрут\p{L}*|секци\p{L}*|раздел\p{L}*)\s+(?:с\s+названием\s+)?[«"“'`]?(.{2,80}?)(?=\s+(?:замени|заменить|переименуй|переименовать|измени|изменить|обнов\p{L}*|сделай|добавь|добавить|удали|удалить|убери|убрать|исправь|исправить|покажи|показать|отобрази|отобразить|выведи|вывести|под|где|которая|который|которое)|[\n,.!?;]|$)/giu;
+const ENGLISH_SCOPED_TARGET_PATTERN =
+  /\b(?:in|on)\s+(?:the\s+)?[«"“'`]?([A-Z][\p{L}\p{N}_. -]{1,70}?)(?=\s+(?:add|create|replace|rename|change|update|edit|remove|fix|show|display|render)\b)/gu;
+const RUSSIAN_SCOPED_TARGET_PATTERN =
+  /(?:^|[.!?;]\s*)[Вв]\s+[«"“'`]?([A-ZА-ЯЁ][\p{L}\p{N}_. -]{1,70}?)(?=\s+(?:добавь|добавить|создай|создать|замени|заменить|переименуй|переименовать|измени|изменить|обнов\p{L}*|удали|удалить|исправь|исправить|покажи|показать|отобрази|отобразить)(?=$|[\s,.;!?]))/gu;
+const RUSSIAN_NAMED_SURFACE_PATTERN =
+  /(?:^|[.!?;\s])(?:на\s+)?(страниц\p{L}*|экран\p{L}*|раздел\p{L}*|секци\p{L}*)\s+[«"“'`]?([A-ZА-ЯЁ][\p{L}\p{N}_.-]{1,70})[»"”'`]?/gu;
+const ENGLISH_NAMED_SURFACE_PATTERN =
+  /(?:^|[.!?;\s])(?:on\s+|in\s+)?(?:the\s+)?(page|screen|section|view)\s+[«"“'`]?([A-Z][\p{L}\p{N}_.-]{1,70})[»"”'`]?/gu;
+const RUSSIAN_ACTION_SCOPED_TARGET_PATTERN =
+  /(?:^|[.!?;]\s*)(?:добавь|добавить|создай|создать|сделай|изменить|измени|обнов\p{L}*|покажи|показать|размести|разместить)\s+(?:[^.!?;\n]{0,50}?\s+)?(?:в|на)\s+[«"“'`]?([A-ZА-ЯЁ][\p{L}\p{N}_.-]{1,70})[»"”'`]?/giu;
+const ENGLISH_ACTION_SCOPED_TARGET_PATTERN =
+  /(?:^|[.!?;]\s*)(?:add|create|make|update|change|show|place|render)\s+(?:[^.!?;\n]{0,50}?\s+)?(?:in|on)\s+(?:the\s+)?[«"“'`]?([A-Z][\p{L}\p{N}_.-]{1,70})[»"”'`]?/giu;
 const REVERSE_TARGET_PATTERN =
-  /[«"“'`]?([A-ZА-ЯЁ][\p{L}\p{N}_.-]{1,80})[»"”'`]?\s+(page|screen|component|route|view)\b/giu;
+  /[«"“'`]?([A-ZА-ЯЁ][\p{L}\p{N}_.-]{1,80})[»"”'`]?\s+(page|screen|component|route|view)\b/gu;
 const HEADING_TARGET_PATTERN =
   /(?:under\s+(?:the\s+)?heading|below\s+(?:the\s+)?heading|под\s+заголовк\p{L}*|под\s+названи\p{L}*)\s+[«"“'`]?(.{2,100}?)(?=\s+(?:на|with|to)\s+[«"“'`]|[\n.!?;]|$)/giu;
 
@@ -95,8 +114,55 @@ function mapTargetKind(value: string): ExplicitNamedTarget["kind"] {
   return "page";
 }
 
+function isPlausibleNamedTargetValue(value: string) {
+  const normalized = normalizeWhitespace(value).toLowerCase();
+  if (!normalized) return false;
+  return !/^(?:не\s+(?:созда|добав|меня|трог|редактир|измен)|(?:созда|добав)\p{L}*\s+не\s+нужно|do\s+not\s+(?:create|add|change|touch|edit)|(?:create|add)\s+not\s+needed)/iu.test(
+    normalized,
+  );
+}
+
 export function extractExplicitNamedTargets(rawTask: string) {
   const targets: ExplicitNamedTarget[] = [];
+
+  for (const pattern of [
+    RUSSIAN_NAMED_SURFACE_PATTERN,
+    ENGLISH_NAMED_SURFACE_PATTERN,
+  ]) {
+    pattern.lastIndex = 0;
+    for (const match of rawTask.matchAll(pattern)) {
+      const type = normalizeWhitespace(match[1] ?? "page");
+      const value = normalizeWhitespace(match[2] ?? "")
+        .replace(/^[«"“'`]|[»"”'`]$/gu, "")
+        .trim();
+      if (!isPlausibleNamedTargetValue(value)) continue;
+      targets.push({
+        kind: mapTargetKind(type),
+        value,
+        evidence: normalizeWhitespace(match[0]),
+        priority: 110,
+      });
+    }
+  }
+
+  for (const pattern of [
+    RUSSIAN_ACTION_SCOPED_TARGET_PATTERN,
+    ENGLISH_ACTION_SCOPED_TARGET_PATTERN,
+  ]) {
+    pattern.lastIndex = 0;
+    for (const match of rawTask.matchAll(pattern)) {
+      const value = normalizeWhitespace(match[1] ?? "")
+        .replace(/^[«"“'`]|[»"”'`]$/gu, "")
+        .trim();
+      if (!isPlausibleNamedTargetValue(value)) continue;
+      targets.push({
+        kind: "page",
+        value,
+        evidence: normalizeWhitespace(match[0]),
+        priority: 105,
+      });
+    }
+  }
 
   ENGLISH_FORWARD_TARGET_PATTERN.lastIndex = 0;
   for (const match of rawTask.matchAll(ENGLISH_FORWARD_TARGET_PATTERN)) {
@@ -104,7 +170,7 @@ export function extractExplicitNamedTargets(rawTask: string) {
     const value = normalizeWhitespace(match[1] ?? "")
       .replace(/^[«"“'`]|[»"”'`]$/gu, "")
       .trim();
-    if (!value) continue;
+    if (!isPlausibleNamedTargetValue(value)) continue;
     targets.push({
       kind: mapTargetKind(type),
       value,
@@ -119,7 +185,7 @@ export function extractExplicitNamedTargets(rawTask: string) {
     const value = normalizeWhitespace(match[2] ?? "")
       .replace(/^[«"“'`]|[»"”'`]$/gu, "")
       .trim();
-    if (!value) continue;
+    if (!isPlausibleNamedTargetValue(value)) continue;
     targets.push({
       kind: mapTargetKind(type),
       value,
@@ -128,10 +194,29 @@ export function extractExplicitNamedTargets(rawTask: string) {
     });
   }
 
+  for (const pattern of [
+    ENGLISH_SCOPED_TARGET_PATTERN,
+    RUSSIAN_SCOPED_TARGET_PATTERN,
+  ]) {
+    pattern.lastIndex = 0;
+    for (const match of rawTask.matchAll(pattern)) {
+      const value = normalizeWhitespace(match[1] ?? "")
+        .replace(/^[«"“'`]|[»"”'`]$/gu, "")
+        .trim();
+      if (!isPlausibleNamedTargetValue(value)) continue;
+      targets.push({
+        kind: "page",
+        value,
+        evidence: normalizeWhitespace(match[0]),
+        priority: 90,
+      });
+    }
+  }
+
   REVERSE_TARGET_PATTERN.lastIndex = 0;
   for (const match of rawTask.matchAll(REVERSE_TARGET_PATTERN)) {
     const value = normalizeWhitespace(match[1] ?? "");
-    if (!value) continue;
+    if (!isPlausibleNamedTargetValue(value)) continue;
     targets.push({
       kind: mapTargetKind(match[2] ?? "page"),
       value,
@@ -145,7 +230,7 @@ export function extractExplicitNamedTargets(rawTask: string) {
     const value = normalizeWhitespace(match[1] ?? "")
       .replace(/^[«"“'`]|[»"”'`]$/gu, "")
       .trim();
-    if (!value) continue;
+    if (!isPlausibleNamedTargetValue(value)) continue;
     targets.push({
       kind: "section",
       value,
@@ -284,6 +369,27 @@ function findStrongMatches(
   };
 }
 
+function isScopeOnlyNamedTarget(rawTask: string, target: ExplicitNamedTarget) {
+  if (target.kind !== "page" && target.kind !== "section") return false;
+  // A named nested container (card/component/modal/etc.) owns its controls and
+  // makes the surrounding page a scope hint. A bare action or button does not:
+  // in that case the explicitly named page remains the strongest real owner
+  // until repository imports prove a more specific component.
+  const directNestedTarget =
+    /\b(?:card|component|modal|dialog|form|panel|header|menu)\b|(?:карточк|компонент|модал|диалог|панел|шапк|меню)/iu.test(
+      rawTask,
+    ) ||
+    /(?:^|[^\p{L}])форм(?:а|е|у|ы|ой|ою|ах|ами)(?=$|[^\p{L}])/iu.test(rawTask);
+  if (!directNestedTarget) return false;
+
+  const escaped = target.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const scopePattern = new RegExp(
+    String.raw`(?:\b(?:on|in)\s+(?:the\s+)?(?:page|screen|section)\s+[«"“']?${escaped}|(?:на|в)\s+(?:страниц\p{L}*|экран\p{L}*|раздел\p{L}*|секци\p{L}*)\s+[«"“']?${escaped})`,
+    "iu",
+  );
+  return scopePattern.test(rawTask);
+}
+
 function resolveStrongExplicitTarget(
   rawTask: string,
   inventory: ProjectInventory,
@@ -294,9 +400,45 @@ function resolveStrongExplicitTarget(
     inventory,
     taskIntent,
   );
-  const explicitTargets = extractExplicitNamedTargets(rawTask);
-  const best = matches[0];
-  const second = matches[1];
+  const extractedTargets = extractExplicitNamedTargets(rawTask);
+  const pageBackedSectionKeys = new Set(
+    matches
+      .filter(
+        (match) =>
+          match.target.kind === "section" &&
+          match.file.role === "page" &&
+          match.score >= 220,
+      )
+      .map(
+        (match) =>
+          `${match.target.kind}:${normalizeCompact(match.target.value)}`,
+      ),
+  );
+  const explicitTargets = extractedTargets.filter(
+    (target) =>
+      target.kind !== "entity" &&
+      (target.kind !== "section" ||
+        pageBackedSectionKeys.has(
+          `${target.kind}:${normalizeCompact(target.value)}`,
+        )) &&
+      !isScopeOnlyNamedTarget(rawTask, target),
+  );
+  // A UI section label is a scope hint, not a concrete code target. Treating
+  // "section Projects" as if the user named projects.ts lets an early lexical
+  // match override later repository evidence. Only typed code targets such as a
+  // page, component, or route may be authoritative here.
+  const authoritativeKeys = new Set(
+    explicitTargets.map(
+      (target) => `${target.kind}:${normalizeCompact(target.value)}`,
+    ),
+  );
+  const authoritativeMatches = matches.filter((match) =>
+    authoritativeKeys.has(
+      `${match.target.kind}:${normalizeCompact(match.target.value)}`,
+    ),
+  );
+  const best = authoritativeMatches[0];
+  const second = authoritativeMatches[1];
   const strongMatch =
     best &&
     best.score >= 220 &&
@@ -409,6 +551,7 @@ function asStructuredTarget(match: ScoredTargetMatch): StructuredIntentTarget {
 }
 
 function mergeIntentTarget(
+  rawTask: string,
   taskIntent: TaskIntentAnalysis,
   match: ScoredTargetMatch,
 ): TaskIntentAnalysis {
@@ -420,11 +563,24 @@ function mergeIntentTarget(
     ),
   ].slice(0, 8);
 
+  const groundedUiTarget = [
+    "page",
+    "layout",
+    "component",
+    "ui-component",
+  ].includes(match.file.role);
+  const serverMutationProtected = taskProtectsServerMutation(
+    rawTask,
+    taskIntent,
+  );
+  const groundedBackendRequirement =
+    taskIntent.structuredIntent.needsBackend === true &&
+    !serverMutationProtected;
+
   return {
     ...taskIntent,
     taskArea:
-      taskIntent.taskArea === "general" &&
-      ["page", "layout", "component", "ui-component"].includes(match.file.role)
+      groundedUiTarget && !groundedBackendRequirement
         ? "ui"
         : taskIntent.taskArea,
     recommendedSearchTerms: [
@@ -438,6 +594,9 @@ function mergeIntentTarget(
     structuredIntent: {
       ...taskIntent.structuredIntent,
       primaryTargets,
+      needsBackend: serverMutationProtected
+        ? false
+        : taskIntent.structuredIntent.needsBackend,
       allowedEditScope:
         taskIntent.structuredIntent.allowedEditScope === "unknown" ||
         taskIntent.structuredIntent.allowedEditScope === "broad_but_safe"
@@ -544,13 +703,534 @@ function buildGuardedFile(
   match: ScoredTargetMatch,
   editRequested: boolean,
 ): SelectedTaskFile {
+  const semanticRole =
+    match.file.role === "page" ||
+    match.file.role === "layout" ||
+    /component/u.test(match.file.role)
+      ? "display"
+      : match.file.routePath || match.file.role === "api-route"
+        ? "route"
+        : "reference";
+  const evidenceReason = `The user named this target and the project inventory grounded it to ${match.file.path} (${match.evidence.join(", ")}).`;
+  const selectionEvidence: FileSelectionEvidence = {
+    targetSource: "user_text",
+    pathValidity: "inventory_exact",
+    ownershipEvidence: "symbol_exact",
+    actionConfidence: editRequested ? "confirmed_edit" : "inspect_only",
+    semanticRoles: [semanticRole],
+    symbols: [
+      match.file.name.replace(/\.[^.]+$/u, ""),
+      ...match.file.exports,
+      ...match.file.symbols,
+    ]
+      .filter(
+        (value, index, values) => value && values.indexOf(value) === index,
+      )
+      .slice(0, 10),
+    chain: [],
+    negativeConstraintConflicts: [],
+    reason: evidenceReason,
+  };
   return {
     path: match.file.path,
     kind: match.file.kind,
     usage: editRequested ? "inspect-and-edit" : "inspect-only",
     reason: `Explicit target guard matched the user-named ${match.target.kind} "${match.target.value}" to a real inventory file (${match.evidence.join(", ")}).`,
     confidence: 0.98,
+    evidenceLevel: "user_confirmed",
+    selectionEvidence,
   };
+}
+
+function isStateOrContractSupportFile(file: ProjectInventoryFile) {
+  const normalizedPath = normalizeProjectPath(file.path).toLowerCase();
+  return (
+    [
+      "hook",
+      "store",
+      "state",
+      "controller",
+      "client-api",
+      "types",
+      "type",
+      "config",
+    ].includes(file.role) ||
+    /(?:^|\/)(?:hooks?|stores?|state|types?|config|i18n|locales?|translations?|messages)(?:\/|$)/u.test(
+      normalizedPath,
+    ) ||
+    /(?:^|\/)api\/client\.[cm]?[jt]sx?$/u.test(normalizedPath)
+  );
+}
+
+function isServerOrStorageFile(file: ProjectInventoryFile) {
+  const normalizedPath = normalizeProjectPath(file.path).toLowerCase();
+  return (
+    isBackendSupportFile(file) ||
+    ["repository", "db-schema", "storage"].includes(file.role) ||
+    /(?:^|\/)(?:server|backend|database|db|storage|repositories)(?:\/|$)/u.test(
+      normalizedPath,
+    )
+  );
+}
+
+function taskProtectsServerMutation(
+  rawTask: string,
+  taskIntent: TaskIntentAnalysis,
+) {
+  const text = [
+    rawTask,
+    ...taskIntent.structuredIntent.protectedScopes,
+    ...taskIntent.taskUnderstanding.constraints,
+  ].join(" ");
+  const backendSurface = String.raw`(?:\b(?:backend|server|api|endpoint|route)\b|бэкенд|бекенд|сервер|апи|эндпоинт|маршрут)`;
+  const protection = String.raw`(?:do\s+not|don't|dont|without|не\s+(?:добавляй|добавлять|создавай|создавать|меняй|менять|трогай|трогать|изменяй|изменять)|запрещ)`;
+  const noNewSurface = String.raw`(?:(?:no|without)\s+(?:new|separate|additional)|без\s+(?:нов\p{L}*|отдельн\p{L}*|дополнительн\p{L}*))`;
+  const creationNotNeeded = String.raw`(?:(?:create|add|introduce|register)(?:ing)?\s+(?:is\s+)?not\s+(?:needed|required)|(?:создавать|добавлять|регистрировать)\s+не\s+(?:нужно|требуется))`;
+
+  return (
+    new RegExp(`${backendSurface}[^.!?\\n]{0,100}${protection}`, "iu").test(
+      text,
+    ) ||
+    new RegExp(`${protection}[^.!?\\n]{0,100}${backendSurface}`, "iu").test(
+      text,
+    ) ||
+    new RegExp(`${noNewSurface}[^.!?\\n]{0,60}${backendSurface}`, "iu").test(
+      text,
+    ) ||
+    new RegExp(
+      `${backendSurface}[^.!?\\n]{0,100}${creationNotNeeded}`,
+      "iu",
+    ).test(text) ||
+    new RegExp(
+      `${creationNotNeeded}[^.!?\\n]{0,100}${backendSurface}`,
+      "iu",
+    ).test(text)
+  );
+}
+
+const CONNECTED_SUPPORT_STOP_WORDS = new Set([
+  "add",
+  "after",
+  "app",
+  "application",
+  "change",
+  "display",
+  "existing",
+  "fix",
+  "from",
+  "into",
+  "last",
+  "page",
+  "project",
+  "show",
+  "the",
+  "this",
+  "update",
+  "use",
+  "with",
+  "добавь",
+  "данные",
+  "если",
+  "из",
+  "исправь",
+  "кеш",
+  "кэша",
+  "на",
+  "покажи",
+  "после",
+  "проекта",
+  "странице",
+  "существующие",
+]);
+
+function connectedSupportTokens(
+  rawTask: string,
+  taskIntent: TaskIntentAnalysis,
+) {
+  const text = [
+    rawTask,
+    taskIntent.taskUnderstanding.goal,
+    ...taskIntent.taskUnderstanding.requestedChanges,
+    ...taskIntent.taskUnderstanding.targetHints,
+    ...taskIntent.domainTerms,
+    ...taskIntent.mentionedEntities,
+    ...taskIntent.recommendedSearchTerms,
+  ].join(" ");
+  return Array.from(
+    new Set(
+      text
+        .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+        .toLowerCase()
+        .split(/[^\p{L}\p{N}_-]+/u)
+        .filter(
+          (token) =>
+            token.length >= 3 && !CONNECTED_SUPPORT_STOP_WORDS.has(token),
+        ),
+    ),
+  ).slice(0, 40);
+}
+
+function connectedSupportSearchText(file: ProjectInventoryFile) {
+  return [
+    file.path,
+    file.name,
+    file.role,
+    ...file.imports,
+    ...file.exports,
+    ...file.symbols,
+    ...file.textHints,
+    ...(file.semanticFacts?.declarations ?? []),
+    ...(file.semanticFacts?.references ?? []),
+    ...(file.semanticFacts?.assignments ?? []),
+    ...(file.semanticFacts?.objectProperties ?? []),
+    ...(file.semanticFacts?.typeFields ?? []),
+    ...(file.semanticFacts?.stateSymbols ?? []),
+    file.contentPreview ?? "",
+  ]
+    .join(" ")
+    .toLowerCase();
+}
+
+function supportTokenScore(file: ProjectInventoryFile, tokens: string[]) {
+  const text = connectedSupportSearchText(file);
+  return tokens.reduce(
+    (score, token) => score + (text.includes(token) ? 1 : 0),
+    0,
+  );
+}
+
+function connectedSupportEvidence(
+  file: ProjectInventoryFile,
+  relatedPath: string,
+  direction: "imports" | "imported-by",
+): FileSelectionEvidence {
+  const role =
+    file.role === "hook" || file.role === "store"
+      ? "state-owner"
+      : file.role === "client-api"
+        ? "route"
+        : file.role === "types" ||
+            /(?:^|\/)types?(?:\/|\.)/u.test(
+              normalizeProjectPath(file.path).toLowerCase(),
+            )
+          ? "contract"
+          : "reference";
+  const symbol =
+    file.exports[0] ?? file.symbols[0] ?? file.name.replace(/\.[^.]+$/u, "");
+  return {
+    targetSource: "ranking",
+    pathValidity: "inventory_exact",
+    ownershipEvidence: "reference_graph",
+    actionConfidence: "inspect_only",
+    semanticRoles: [role],
+    symbols: [symbol],
+    chain: [
+      {
+        symbol,
+        role,
+        path: file.path,
+        relatedPath,
+        evidence: "reference_graph",
+        relation: "import_graph",
+      },
+    ],
+    negativeConstraintConflicts: [],
+    reason: `Connected ${direction} edge from ${relatedPath} grounds this file as ${role} context for the user-named target.`,
+  };
+}
+
+function addConnectedInvestigationSupport(input: {
+  rawTask: string;
+  inventory: ProjectInventory;
+  taskIntent: TaskIntentAnalysis;
+  target: ProjectInventoryFile;
+  selectedFiles: SelectedTaskFile[];
+}) {
+  const profile = classifyTaskSelectionProfile({
+    rawTask: input.rawTask,
+    taskIntent: input.taskIntent,
+  });
+  const requestsExistingFlowContext =
+    /\b(?:existing|reuse|status api|api client|response data|rescan)\b|(?:существующ|используй[^.!?\n]{0,80}(?:api|апи|данн)|ответ\p{L}*\s+(?:api|апи|rescan)|провер\p{L}*\s+статус)/iu.test(
+      input.rawTask,
+    );
+  const groundedUiTarget = [
+    "page",
+    "layout",
+    "component",
+    "ui-component",
+  ].includes(input.target.role);
+  if (
+    profile.kind !== "state-behavior" &&
+    profile.kind !== "api-contract" &&
+    !(groundedUiTarget && requestsExistingFlowContext)
+  ) {
+    return input.selectedFiles;
+  }
+
+  const tokens = connectedSupportTokens(input.rawTask, input.taskIntent);
+  const serverProtected = taskProtectsServerMutation(
+    input.rawTask,
+    input.taskIntent,
+  );
+  const languageFlow =
+    /\b(?:language|locale|translation|i18n)\b|(?:язык|локализац|перевод)/iu.test(
+      input.rawTask,
+    );
+  const selected = input.selectedFiles.slice();
+  const seen = new Set(
+    selected.map((file) => normalizeProjectPath(file.path).toLowerCase()),
+  );
+  const queue: Array<{ file: ProjectInventoryFile; depth: number }> = [
+    { file: input.target, depth: 0 },
+  ];
+  const queued = new Set([
+    normalizeProjectPath(input.target.path).toLowerCase(),
+  ]);
+  const maxFiles = Math.min(7, profile.maxPrimaryFiles);
+
+  while (queue.length > 0 && selected.length < maxFiles) {
+    const current = queue.shift()!;
+    if (current.depth >= 3) continue;
+
+    const neighbors: Array<{
+      file: ProjectInventoryFile;
+      direction: "imports" | "imported-by";
+    }> = [];
+    for (const candidate of input.inventory.files) {
+      if (candidate.path === current.file.path) continue;
+      if (resolvesImportToFile(current.file, candidate)) {
+        neighbors.push({ file: candidate, direction: "imports" });
+        continue;
+      }
+      if (resolvesImportToFile(candidate, current.file)) {
+        neighbors.push({ file: candidate, direction: "imported-by" });
+      }
+    }
+
+    const rankedNeighbors = neighbors
+      .map((neighbor) => {
+        const relevance = supportTokenScore(neighbor.file, tokens);
+        const role = neighbor.file.role;
+        const structuralPriority = [
+          "hook",
+          "store",
+          "state",
+          "controller",
+        ].includes(role)
+          ? 90
+          : role === "client-api"
+            ? 80
+            : role === "types" ||
+                /(?:^|\/)types?(?:\/|\.)/u.test(
+                  normalizeProjectPath(neighbor.file.path).toLowerCase(),
+                )
+              ? 65
+              : 0;
+        const localizationPriority =
+          current.depth === 0 &&
+          languageFlow &&
+          isLocalizationResourceFile(neighbor.file)
+            ? 125
+            : 0;
+        const bridgePriority =
+          neighbor.direction === "imported-by" &&
+          ["page", "layout", "component", "ui-component"].includes(role)
+            ? current.depth === 0
+              ? 130
+              : 70
+            : 0;
+        const directionPriority = neighbor.direction === "imports" ? 15 : 0;
+        return {
+          ...neighbor,
+          relevance,
+          priority:
+            relevance * 24 +
+            structuralPriority +
+            localizationPriority +
+            bridgePriority +
+            directionPriority,
+        };
+      })
+      .sort(
+        (left, right) =>
+          right.priority - left.priority ||
+          left.file.path.localeCompare(right.file.path),
+      );
+    let addedFromCurrent = 0;
+    for (const neighbor of rankedNeighbors) {
+      const candidate = neighbor.file;
+      const key = normalizeProjectPath(candidate.path).toLowerCase();
+      if (
+        seen.has(key) ||
+        candidate.isLikelyGenerated ||
+        !candidate.canReadText
+      )
+        continue;
+      if (
+        candidate.kind === "test" ||
+        candidate.kind === "docs" ||
+        candidate.kind === "style" ||
+        candidate.kind === "asset"
+      )
+        continue;
+      if (serverProtected && isServerOrStorageFile(candidate)) continue;
+
+      const relevance = neighbor.relevance;
+      const directContract =
+        current.depth === 0 &&
+        (candidate.role === "types" || /(?:^|\/)types?(?:\/|\.)/u.test(key));
+      const directLocalization =
+        current.depth === 0 &&
+        languageFlow &&
+        isLocalizationResourceFile(candidate);
+      const flowSupport =
+        isStateOrContractSupportFile(candidate) && relevance > 0;
+      const directUiBridge =
+        current.depth === 0 &&
+        neighbor.direction === "imported-by" &&
+        ["page", "layout", "component", "ui-component"].includes(
+          candidate.role,
+        );
+      const relevantBridge =
+        neighbor.direction === "imported-by" && relevance > 0;
+      if (
+        !directContract &&
+        !directLocalization &&
+        !flowSupport &&
+        !relevantBridge &&
+        !directUiBridge
+      ) {
+        continue;
+      }
+
+      const evidence = connectedSupportEvidence(
+        candidate,
+        current.file.path,
+        neighbor.direction,
+      );
+      selected.push({
+        path: candidate.path,
+        kind: candidate.kind,
+        usage: "inspect-only",
+        reason: evidence.reason,
+        confidence: directContract ? 0.82 : 0.78,
+        evidenceLevel: "graph_supported",
+        selectionEvidence: evidence,
+      });
+      seen.add(key);
+      if (!queued.has(key)) {
+        queued.add(key);
+        queue.push({ file: candidate, depth: current.depth + 1 });
+      }
+      addedFromCurrent += 1;
+      if (addedFromCurrent >= 2) break;
+      if (selected.length >= maxFiles) break;
+    }
+  }
+
+  return selected;
+}
+
+function selectedFileMatchesLayer(
+  selected: SelectedTaskFile,
+  inventoryFile: ProjectInventoryFile | undefined,
+  layer: TaskExecutionLayer,
+) {
+  const pathValue = normalizeProjectPath(selected.path).toLowerCase();
+  const role = inventoryFile?.role.toLowerCase() ?? "";
+  if (layer === "ui")
+    return (
+      ["page", "layout", "component", "ui-component"].includes(role) ||
+      /\.(?:tsx|jsx)$/u.test(pathValue)
+    );
+  if (layer === "client-api")
+    return (
+      role === "client-api" ||
+      /(?:^|\/)api\/client\.[cm]?[jt]sx?$/u.test(pathValue)
+    );
+  if (layer === "backend")
+    return (
+      ["api-route", "service", "server-entry"].includes(role) ||
+      /(?:^|\/)(?:server|backend)(?:\/|$)/u.test(pathValue)
+    );
+  if (layer === "state")
+    return (
+      ["hook", "store", "state", "controller"].includes(role) ||
+      /(?:^|\/)(?:hooks?|stores?|state)(?:\/|$)|controller|reducer/u.test(
+        pathValue,
+      )
+    );
+  if (layer === "storage")
+    return (
+      ["repository", "db-schema", "storage"].includes(role) ||
+      /(?:^|\/)(?:database|db|storage|repositories)(?:\/|$)/u.test(pathValue)
+    );
+  if (layer === "tests")
+    return (
+      inventoryFile?.kind === "test" ||
+      /(?:test|spec|smoke|replay)\.[cm]?[jt]sx?$/u.test(pathValue)
+    );
+  if (layer === "config")
+    return (
+      inventoryFile?.kind === "config" ||
+      /(?:^|\/)(?:package\.json|tsconfig[^/]*\.json|vite\.config\.[^/]+)$/u.test(
+        pathValue,
+      )
+    );
+  return (
+    inventoryFile?.kind === "docs" ||
+    /(?:^|\/)(?:readme|agents)\.md$/u.test(pathValue)
+  );
+}
+
+function refreshGuardedExecutionContract(input: {
+  rawTask: string;
+  inventory: ProjectInventory;
+  taskIntent: TaskIntentAnalysis;
+  selection: TaskFileSelection;
+}) {
+  const base = buildTaskExecutionContractFromIntent({
+    rawTask: input.rawTask,
+    projectTree: input.inventory.files.map((file) => file.path),
+    taskIntent: input.taskIntent,
+    effectiveTaskArea: input.selection.effectiveTaskArea,
+  });
+  const inventoryByPath = new Map(
+    input.inventory.files.map((file) => [
+      normalizeProjectPath(file.path).toLowerCase(),
+      file,
+    ]),
+  );
+  const missingRequiredLayers = base.requiredLayers.filter(
+    (layer) =>
+      !input.selection.selectedFiles.some((selected) =>
+        selectedFileMatchesLayer(
+          selected,
+          inventoryByPath.get(
+            normalizeProjectPath(selected.path).toLowerCase(),
+          ),
+          layer,
+        ),
+      ),
+  );
+  const conditionalEvidenceFirst =
+    /\b(?:use|reuse)\s+(?:only\s+)?(?:the\s+)?existing\b|\bif\s+(?:it|they|data)\s+(?:exists?|is\s+available|are\s+available)\b|(?:используй|использовать)[^.!?\n]{0,80}существующ|если[^.!?\n]{0,80}(?:есть|существ)/iu.test(
+      input.rawTask,
+    );
+  const contract = applySelectionEvidenceGate({
+    contract: base,
+    rawTask: input.rawTask,
+    selectedFiles: input.selection.selectedFiles,
+    missingRequiredLayers,
+    existingImplementationCandidates:
+      input.selection.diagnostics?.existingImplementationCandidates ?? [],
+    existingImplementationRequiresReview:
+      Boolean(
+        input.selection.diagnostics?.existingImplementationRequiresReview,
+      ) || conditionalEvidenceFirst,
+  });
+  return { contract, missingRequiredLayers };
 }
 
 export function resolveExplicitTargetFastPath(input: {
@@ -602,7 +1282,11 @@ export function resolveExplicitTargetFastPath(input: {
     };
   }
 
-  const enrichedIntent = mergeIntentTarget(input.taskIntent, strongMatch);
+  const enrichedIntent = mergeIntentTarget(
+    input.rawTask,
+    input.taskIntent,
+    strongMatch,
+  );
   const guarded = buildGuardedFile(strongMatch, true);
   const note = `Explicit target fast path selected ${guarded.path} without an AI file-selection request.`;
   const effectiveTaskArea =
@@ -664,6 +1348,22 @@ export function applyExplicitTargetGuard(input: {
   taskIntent: TaskIntentAnalysis;
   selection: TaskFileSelection;
 }): ExplicitTargetGuardResult {
+  if (
+    input.selection.diagnostics?.selectionSource === "final-decision" &&
+    input.selection.diagnostics.executionContract
+  ) {
+    return {
+      taskIntent: input.taskIntent,
+      selection: input.selection,
+      status: "not-applicable",
+      matchedPath: null,
+      targetLabels: [],
+      notes: [
+        "Canonical final selection already produced the execution contract; the legacy explicit target guard did not override it.",
+      ],
+    };
+  }
+
   const { targets, explicitTargets, strongMatch } = resolveStrongExplicitTarget(
     input.rawTask,
     input.inventory,
@@ -707,7 +1407,11 @@ export function applyExplicitTargetGuard(input: {
     };
   }
 
-  const enrichedIntent = mergeIntentTarget(input.taskIntent, strongMatch);
+  const enrichedIntent = mergeIntentTarget(
+    input.rawTask,
+    input.taskIntent,
+    strongMatch,
+  );
   const editRequested = EDIT_ACTIONS.has(
     enrichedIntent.taskUnderstanding.action,
   );
@@ -722,9 +1426,10 @@ export function applyExplicitTargetGuard(input: {
       input.rawTask,
     );
   const backendRequested =
-    enrichedIntent.structuredIntent.needsBackend === true ||
-    enrichedIntent.taskArea === "backend" ||
-    enrichedIntent.taskArea === "fullstack";
+    !taskProtectsServerMutation(input.rawTask, enrichedIntent) &&
+    (enrichedIntent.structuredIntent.needsBackend === true ||
+      enrichedIntent.taskArea === "backend" ||
+      enrichedIntent.taskArea === "fullstack");
   const inventoryByPath = new Map(
     input.inventory.files.map((file) => [
       normalizeProjectPath(file.path).toLowerCase(),
@@ -756,8 +1461,7 @@ export function applyExplicitTargetGuard(input: {
           {
             ...file,
             confidence: Math.min(file.confidence, 0.72),
-            reason:
-              `Localization resource candidate retained for explicit target ${guarded.path}; visible text is resolved through localization indirection. Candidate rank only; needs confirmation.`,
+            reason: `Localization resource candidate retained for explicit target ${guarded.path}; visible text is resolved through localization indirection. Candidate rank only; needs confirmation.`,
           },
         ];
       }
@@ -793,47 +1497,105 @@ export function applyExplicitTargetGuard(input: {
       ? `Explicit target guard discarded ${droppedSupportCount} supporting candidate(s) that were not directly grounded to ${guarded.path}.`
       : "";
   const effectiveTaskArea =
-    input.selection.effectiveTaskArea === "general" &&
-    enrichedIntent.taskArea === "ui"
-      ? "ui"
-      : input.selection.effectiveTaskArea;
+    enrichedIntent.taskArea === "ui" ? "ui" : input.selection.effectiveTaskArea;
   const finalNotes = [
     ...sanitizeNotesAfterExplicitTargetGuard(input.selection.notes),
     note,
     supportNote,
   ].filter(Boolean);
 
+  const guardedSelectedFiles = [
+    existing
+      ? {
+          ...existing,
+          ...guarded,
+        }
+      : guarded,
+    ...remaining,
+  ];
+  const connectedSelectedFiles = guardedInventoryFile
+    ? addConnectedInvestigationSupport({
+        rawTask: input.rawTask,
+        inventory: input.inventory,
+        taskIntent: enrichedIntent,
+        target: guardedInventoryFile,
+        selectedFiles: guardedSelectedFiles,
+      })
+    : guardedSelectedFiles;
+  const guardedSelection: TaskFileSelection = {
+    ...input.selection,
+    selectedFiles: connectedSelectedFiles,
+    notes: finalNotes,
+    effectiveTaskArea,
+    diagnostics: input.selection.diagnostics
+      ? {
+          ...input.selection.diagnostics,
+          effectiveTaskArea,
+          selectionSource: "explicit-target-guard",
+          explicitTargetStatus: "matched",
+          explicitTargetPath: guarded.path,
+          explicitTargetLabels: explicitTargets.map((target) => target.value),
+          roleAdjustments: [
+            ...(input.selection.diagnostics.roleAdjustments ?? []),
+            note,
+            supportNote,
+          ].filter(Boolean),
+        }
+      : undefined,
+  };
+  const refreshed = refreshGuardedExecutionContract({
+    rawTask: input.rawTask,
+    inventory: input.inventory,
+    taskIntent: enrichedIntent,
+    selection: guardedSelection,
+  });
+  const deterministicGuardImplementation =
+    refreshed.contract.mode === "implementation" &&
+    enrichedIntent.taskUnderstanding.canProceed &&
+    enrichedIntent.taskUnderstanding.changeDefinition !== "open_ended" &&
+    refreshed.missingRequiredLayers.length === 0 &&
+    guarded.selectionEvidence?.actionConfidence === "confirmed_edit";
+  const finalSelection: TaskFileSelection = {
+    ...guardedSelection,
+    source: deterministicGuardImplementation
+      ? "deterministic"
+      : guardedSelection.source,
+    usedFallback: deterministicGuardImplementation
+      ? false
+      : guardedSelection.usedFallback,
+    selectedFiles:
+      refreshed.contract.mode === "implementation"
+        ? guardedSelection.selectedFiles
+        : guardedSelection.selectedFiles.map((file) => ({
+            ...file,
+            usage:
+              file.usage === "inspect-and-edit" ||
+              file.usage === "create-and-edit"
+                ? ("inspect-only" as const)
+                : file.usage,
+          })),
+    diagnostics: guardedSelection.diagnostics
+      ? {
+          ...guardedSelection.diagnostics,
+          usedFallback: deterministicGuardImplementation
+            ? false
+            : guardedSelection.diagnostics.usedFallback,
+          executionMode: refreshed.contract.mode,
+          requiredLayers: refreshed.contract.requiredLayers,
+          missingRequiredLayers: refreshed.missingRequiredLayers,
+          candidateLayerCoverage: refreshed.contract.candidateLayerCoverage,
+          confirmedLayerCoverage: refreshed.contract.confirmedLayerCoverage,
+          missingConfirmedLayers: refreshed.contract.missingConfirmedLayers,
+          implementationGateReasons:
+            refreshed.contract.implementationGateReasons,
+          executionContract: refreshed.contract,
+        }
+      : undefined,
+  };
+
   return {
     taskIntent: enrichedIntent,
-    selection: {
-      ...input.selection,
-      selectedFiles: [
-        existing
-          ? {
-              ...existing,
-              ...guarded,
-            }
-          : guarded,
-        ...remaining,
-      ],
-      notes: finalNotes,
-      effectiveTaskArea,
-      diagnostics: input.selection.diagnostics
-        ? {
-            ...input.selection.diagnostics,
-            effectiveTaskArea,
-            selectionSource: "explicit-target-guard",
-            explicitTargetStatus: "matched",
-            explicitTargetPath: guarded.path,
-            explicitTargetLabels: explicitTargets.map((target) => target.value),
-            roleAdjustments: [
-              ...(input.selection.diagnostics.roleAdjustments ?? []),
-              note,
-              supportNote,
-            ].filter(Boolean),
-          }
-        : undefined,
-    },
+    selection: finalSelection,
     status: "matched",
     matchedPath: guarded.path,
     targetLabels: explicitTargets.map((target) => target.value),

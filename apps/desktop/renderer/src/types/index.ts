@@ -692,6 +692,7 @@ export interface TaskPackDraft {
   clarifications?: TaskClarification[];
   performanceSessionId?: string;
   understandingSnapshotId?: string;
+  reviewedUnderstandingSnapshotId?: string;
 }
 
 export interface OllamaStatus {
@@ -1025,6 +1026,7 @@ export interface TaskUnderstandingPreview {
   clarificationQuestion: string | null;
   confidence: number;
   source: "fallback" | "merged";
+  reviewStatus?: "not_required" | "pending" | "accepted";
   reasons: string[];
 }
 

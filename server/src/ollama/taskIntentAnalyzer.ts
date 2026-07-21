@@ -1,5 +1,8 @@
 import { getAppSettings } from "../settings/settingsService.js";
 import {
+    isExplicitFileTargetMention
+} from "../selection/explicitFileMentions.js";
+import {
     beginPerformanceAiCall,
     finishPerformanceAiCall
 } from "../performance/performanceTrace.js";
@@ -194,10 +197,14 @@ function matchesAny(value: string, patterns: RegExp[]) {
 
 function hasRuntimeNoBackendConstraint(rawTask: string) {
     return matchesAny(rawTask, [
-        /\b(?:backend|api|server|auth|authorization|authentication|session|token|cookie|database|db)\b[^.!?\n]{0,120}\b(?:do\s+not|don't|dont)\s+(?:touch|change|edit|modify)\b/i,
-        /\b(?:do\s+not|don't|dont)\s+(?:touch|change|edit|modify)\b[^.!?\n]{0,120}\b(?:backend|api|server|auth|authorization|authentication|session|token|cookie|database|db)\b/i,
-        /(?:\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0430\u043f\u0438|api|\u0441\u0435\u0440\u0432\u0435\u0440|\u0430\u0432\u0442\u043e\u0440\u0438\u0437\u0430\u0446|\u0430\u0443\u0442\u0435\u043d\u0442\u0438\u0444|\u0441\u0435\u0441\u0441|\u0442\u043e\u043a\u0435\u043d|\u043a\u0443\u043a\u0438|\u0431\u0430\u0437\u0430|\u0431\u0434)[^.!?\n]{0,120}\u043d\u0435\s+(?:\u0442\u0440\u043e\u0433\u0430\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u043c\u0435\u043d\u044f\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c)/i,
-        /\u043d\u0435\s+(?:\u0442\u0440\u043e\u0433\u0430\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u043c\u0435\u043d\u044f\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c)[^.!?\n]{0,120}(?:\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0430\u043f\u0438|api|\u0441\u0435\u0440\u0432\u0435\u0440|\u0430\u0432\u0442\u043e\u0440\u0438\u0437\u0430\u0446|\u0430\u0443\u0442\u0435\u043d\u0442\u0438\u0444|\u0441\u0435\u0441\u0441|\u0442\u043e\u043a\u0435\u043d|\u043a\u0443\u043a\u0438|\u0431\u0430\u0437\u0430|\u0431\u0434)/i
+        /\b(?:backend|api|server|auth|authorization|authentication|session|token|cookie|database|db|endpoint|route)\b[^.!?\n]{0,120}\b(?:do\s+not|don't|dont)\s+(?:touch|change|edit|modify|create|add|introduce|register)\b/i,
+        /\b(?:no|without)\s+(?:new|separate|additional)\s+(?:backend|api|server|endpoint|route)\b/i,
+        /без\s+(?:нов\p{L}*|отдельн\p{L}*|дополнительн\p{L}*)\s+(?:бэк\p{L}*|бек\p{L}*|backend|api|апи|сервер\p{L}*|эндпоинт\p{L}*|маршрут\p{L}*)/iu,
+        /\b(?:backend|api|server|endpoint|route)\b[^.!?\n]{0,100}\b(?:create|add|introduce|register)(?:ing)?\s+(?:is\s+)?not\s+(?:needed|required)\b/i,
+        /(?:бэк\p{L}*|бек\p{L}*|backend|api|апи|сервер\p{L}*|эндпоинт\p{L}*|маршрут\p{L}*)[^.!?\n]{0,100}(?:создавать|добавлять|регистрировать)\s+не\s+(?:нужно|требуется)/iu,
+        /\b(?:do\s+not|don't|dont)\s+(?:touch|change|edit|modify|create|add|introduce|register)\b[^.!?\n]{0,120}\b(?:backend|api|server|auth|authorization|authentication|session|token|cookie|database|db|endpoint|route)\b/i,
+        /(?:\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0430\u043f\u0438|api|\u0441\u0435\u0440\u0432\u0435\u0440|\u044d\u043d\u0434\u043f\u043e\u0438\u043d\u0442|\u043c\u0430\u0440\u0448\u0440\u0443\u0442|\u0430\u0432\u0442\u043e\u0440\u0438\u0437\u0430\u0446|\u0430\u0443\u0442\u0435\u043d\u0442\u0438\u0444|\u0441\u0435\u0441\u0441|\u0442\u043e\u043a\u0435\u043d|\u043a\u0443\u043a\u0438|\u0431\u0430\u0437\u0430|\u0431\u0434)[^.!?\n]{0,120}\u043d\u0435\s+(?:\u0442\u0440\u043e\u0433\u0430\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u043c\u0435\u043d\u044f\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c|\u0441\u043e\u0437\u0434\u0430\u0432\u0430\u0439|\u0441\u043e\u0437\u0434\u0430\u0432\u0430\u0442\u044c|\u0434\u043e\u0431\u0430\u0432\u043b\u044f\u0439|\u0434\u043e\u0431\u0430\u0432\u043b\u044f\u0442\u044c|\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u0443\u0439|\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043e\u0432\u0430\u0442\u044c)/i,
+        /\u043d\u0435\s+(?:\u0442\u0440\u043e\u0433\u0430\u0439|\u0442\u0440\u043e\u0433\u0430\u0442\u044c|\u043c\u0435\u043d\u044f\u0439|\u043c\u0435\u043d\u044f\u0442\u044c|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u0443\u0439|\u0440\u0435\u0434\u0430\u043a\u0442\u0438\u0440\u043e\u0432\u0430\u0442\u044c|\u0438\u0437\u043c\u0435\u043d\u044f\u0439|\u0438\u0437\u043c\u0435\u043d\u044f\u0442\u044c|\u0441\u043e\u0437\u0434\u0430\u0432\u0430\u0439|\u0441\u043e\u0437\u0434\u0430\u0432\u0430\u0442\u044c|\u0434\u043e\u0431\u0430\u0432\u043b\u044f\u0439|\u0434\u043e\u0431\u0430\u0432\u043b\u044f\u0442\u044c|\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u0443\u0439|\u0440\u0435\u0433\u0438\u0441\u0442\u0440\u0438\u0440\u043e\u0432\u0430\u0442\u044c)[^.!?\n]{0,120}(?:\u0431\u044d\u043a|\u0431\u0435\u043a|\u0431\u044d\u043a\u0435\u043d\u0434|\u0431\u0435\u043a\u0435\u043d\u0434|\u0430\u043f\u0438|api|\u0441\u0435\u0440\u0432\u0435\u0440|\u044d\u043d\u0434\u043f\u043e\u0438\u043d\u0442|\u043c\u0430\u0440\u0448\u0440\u0443\u0442|\u0430\u0432\u0442\u043e\u0440\u0438\u0437\u0430\u0446|\u0430\u0443\u0442\u0435\u043d\u0442\u0438\u0444|\u0441\u0435\u0441\u0441|\u0442\u043e\u043a\u0435\u043d|\u043a\u0443\u043a\u0438|\u0431\u0430\u0437\u0430|\u0431\u0434)/i
     ]);
 }
 
@@ -430,6 +437,8 @@ function getExistingExplicitPathTargets(rawTask: string, projectTree: string[]):
     const targets: StructuredIntentTarget[] = [];
 
     for (const mention of extractPathMentionsFromTask(rawTask)) {
+        if (!isExplicitFileTargetMention(rawTask, mention)) continue;
+
         const matchedPath = projectTree.find((projectPath) => {
             const comparable = normalizeForCompare(projectPath);
             const normalizedMention = normalizeForCompare(mention);
@@ -499,7 +508,11 @@ function getDefaultStructuredIntent({
                 ? "target_with_supporting_context"
                 : "unknown",
         needsStyles: taskArea === "ui" ? null : false,
-        needsBackend: taskArea === "backend" || taskArea === "fullstack" ? true : hasNoBackendChangeConstraint(rawTask) ? false : null,
+        needsBackend: hasNoBackendChangeConstraint(rawTask)
+            ? false
+            : taskArea === "backend" || taskArea === "fullstack"
+                ? true
+                : null,
         ambiguities: [],
         modelNotes: ["Fallback structured intent was inferred from task text and project paths."]
     };
@@ -676,9 +689,13 @@ function taskMentionsPath(rawTask: string, filePath: string) {
     const task = normalizeForCompare(rawTask);
     const pathValue = normalizeForCompare(filePath);
     const fileName = pathValue.split("/").pop() ?? pathValue;
-    const baseName = fileName.replace(/\.[^.]+$/, "");
+    if (!pathValue || !fileName) return false;
 
-    return task.includes(pathValue) || task.includes(fileName) || (baseName.length >= 4 && task.includes(baseName));
+    if (pathValue.includes("/") && task.includes(pathValue)) return true;
+
+    const escapedFileName = fileName.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const mentioned = new RegExp(`(?:^|[^\\p{L}\\p{N}_])${escapedFileName}(?:$|[^\\p{L}\\p{N}_])`, "iu").test(rawTask);
+    return mentioned && isExplicitFileTargetMention(rawTask, fileName);
 }
 
 function meaningfulTaskTokens(rawTask: string) {
@@ -717,8 +734,12 @@ function normalizeStructuredTarget(value: unknown, rawTask: string, projectTree:
     if (!value || typeof value !== "object") {
         if (typeof value === "string" && value.trim()) {
             const existsInInventory = pathAppearsInProject(projectTree, value);
-            const userConfirmed = taskMentionsPath(rawTask, value) ||
-                normalizeForCompare(rawTask).includes(normalizeForCompare(value));
+            if (existsInInventory && !isExplicitFileTargetMention(rawTask, value)) {
+                return null;
+            }
+            const userConfirmed = existsInInventory
+                ? taskMentionsPath(rawTask, value)
+                : normalizeForCompare(rawTask).includes(normalizeForCompare(value));
             return {
                 kind: existsInInventory ? "explicit_file" : "entity",
                 value: normalizeShortString(value),
@@ -751,6 +772,18 @@ function normalizeStructuredTarget(value: unknown, rawTask: string, projectTree:
         return null;
     }
 
+    if (rawPath && !isExplicitFileTargetMention(rawTask, rawPath)) {
+        return null;
+    }
+
+    if (
+        !rawPath &&
+        kind === "explicit_file" &&
+        !isExplicitFileTargetMention(rawTask, rawValue)
+    ) {
+        return null;
+    }
+
     if (
         rawPath &&
         !taskMentionsPath(rawTask, rawPath) &&
@@ -771,7 +804,10 @@ function normalizeStructuredTarget(value: unknown, rawTask: string, projectTree:
         rawRoute && normalizeForCompare(rawTask).includes(normalizeForCompare(rawRoute)),
     );
     const userNamedValue = Boolean(
-        rawValue && normalizeForCompare(rawTask).includes(normalizeForCompare(rawValue)),
+        !rawPath &&
+        rawValue &&
+        normalizeForCompare(rawTask).includes(normalizeForCompare(rawValue)) &&
+        (kind !== "explicit_file" || isExplicitFileTargetMention(rawTask, rawValue)),
     );
     const provenance: StructuredIntentTargetProvenance =
         userNamedPath || userNamedRoute || userNamedValue
@@ -857,7 +893,9 @@ function normalizeStructuredIntent(
         protectedScopes,
         allowedEditScope,
         needsStyles: normalizeNullableBoolean(structured.needsStyles, fallback.needsStyles),
-        needsBackend: normalizeNullableBoolean(structured.needsBackend, fallback.needsBackend),
+        needsBackend: hasNoBackendChangeConstraint(rawTask)
+            ? false
+            : normalizeNullableBoolean(structured.needsBackend, fallback.needsBackend),
         ambiguities: filterTaskUnderstandingAmbiguities(
             mergeUniqueStrings(
                 fallback.ambiguities,

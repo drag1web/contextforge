@@ -20,7 +20,12 @@
     "test:clarification": "tsx src/taskPacks/taskClarifications.smoke.ts",
     "test:performance": "tsx src/performance/performanceTrace.smoke.ts && tsx src/taskPacks/taskUnderstandingSnapshot.smoke.ts && tsx src/selection/explicitTargetGuard.smoke.ts",
     "test:handoff": "tsx src/taskPacks/taskExecutionContract.smoke.ts",
-    "test:ownership": "tsx src/selection/repositorySemanticIndex.smoke.ts"
+    "test:investigation": "tsx src/investigation/investigationTrace.smoke.ts",
+    "test:ownership": "tsx src/selection/repositorySemanticIndex.smoke.ts",
+    "test:canonical-core": "tsx src/selection/canonicalCoreDecision.smoke.ts",
+    "test:context-quality": "tsx src/selection/contextQuality.smoke.ts",
+    "test:symbol-syntax": "tsx src/scanner/sourceSymbolSyntax.smoke.ts",
+    "test:support-grounding": "tsx src/selection/supportingContextGrounding.smoke.ts"
   },
   "dependencies": {
     "@types/sql.js": "^1.4.11",

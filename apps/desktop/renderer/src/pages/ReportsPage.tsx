@@ -26,6 +26,7 @@ import { Button } from "../components/ui/Button";
 import { SegmentedFilter, type SegmentedFilterOption } from "../components/ui/SegmentedFilter";
 import { AiToolLogo } from "../components/ai/AiToolLogo";
 import { getAiToolLabel } from "../components/ai/aiToolOptions";
+import { ValidationLab } from "../components/reports/ValidationLab";
 import { exportWorkspaceReport, type WorkspaceReportExportFormat } from "../utils/workspaceReportExport";
 
 interface ReportsPageProps {
@@ -698,6 +699,8 @@ export function ReportsPage({
           </aside>
         </div>
       </motion.div>
+
+      <ValidationLab projects={projects} />
 
       <div className="grid gap-4 lg:grid-cols-3 xl:grid-cols-6">
         <MetricCard icon={<FolderOpen size={18} />} label="Projects" value={projects.length} caption="scanned repositories" />

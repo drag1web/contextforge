@@ -16,7 +16,8 @@ const previewSchema = z.object({
   taskType: z.string().trim().min(1).default("general"),
   targetTool: z.string().trim().min(1).default("generic"),
   clarifications: taskClarificationsSchema.optional(),
-  understandingSnapshotId: z.string().trim().uuid().optional()
+  understandingSnapshotId: z.string().trim().uuid().optional(),
+  reviewedUnderstandingSnapshotId: z.string().trim().uuid().optional()
 });
 
 const fileSearchSchema = z.object({

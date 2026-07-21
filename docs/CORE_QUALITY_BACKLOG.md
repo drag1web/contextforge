@@ -14,11 +14,18 @@ Completed:
 - Preserved the original task and clarification answers separately in drafts, recipes, results and exports.
 - Re-ran understanding after each correction and resumed the same Task Pack draft.
 - Passed the same clarified task through Context Composer, Shadow, quality checks, template composition and final generation.
+- Added a repository-neutral Validation Lab for sequential manifest replay through the production Understanding and preview path.
+- Reconciled final context from real declaration, reference, import, route, state, localization, client, and backend evidence instead of project-name or business-domain aliases.
+- Separated edit authorization from reference context: only grounded owners are authorized, while supporting files remain inspect-only.
+- Preserved explicit safe paths for files that must be created and explicit conditional-removal targets backed by complete inventory proof.
+- Kept subjective design, unresolved conflicts, conditional existing-data work, and unproven bug ownership in investigation mode.
+- Invalidated stale Understanding snapshots after grounding and execution-contract changes.
+- Passed the portable CF-01—CF-15 production-shaped regression manifest: 15/15.
 
 Remaining live checks:
 
 - Exercise informal RU, EN, and mixed-language tasks with the maintainer's configured Ollama models.
-- Re-run the private 28-case regression and sealed 40-case validation before release commit.
+- Run additional manifests against unrelated repositories and mixed project stacks before changing the default rollout mode.
 
 ## v0.6.6-alpha — Task Pack Generation Reliability
 

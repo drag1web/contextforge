@@ -4,6 +4,7 @@ import {
   hasMissingReplacementValue,
   type TaskValueKind,
 } from "./taskValueGrounding.js";
+import { extractExplicitFileTargetMentions } from "../selection/explicitFileMentions.js";
 
 export type TaskUnderstandingReadiness =
   | "ready"
@@ -35,6 +36,11 @@ export type TaskUnderstandingAction =
   | "unknown";
 
 export type TaskUnderstandingSource = "fallback" | "merged";
+
+export type TaskUnderstandingReviewStatus =
+  | "not_required"
+  | "pending"
+  | "accepted";
 
 export type TaskUnderstandingMissingCode =
   | "replacement_value"
@@ -71,6 +77,7 @@ export interface TaskUnderstanding {
   clarificationQuestion: string | null;
   confidence: number;
   source: TaskUnderstandingSource;
+  reviewStatus?: TaskUnderstandingReviewStatus;
   reasons: string[];
 }
 
@@ -150,8 +157,36 @@ function hasOpenEndedArchitectureChoice(rawTask: string) {
   return OPEN_ENDED_ARCHITECTURE_CHOICE_PATTERN.test(rawTask);
 }
 
+const INTERACTIVE_CHECK_CONTROL_ADD_PATTERN =
+  /(?:\b(?:add|create|introduce|implement)\b[^.!?]{0,120}\b(?:button|control|action|toggle|switch)\b|(?:^|[^\p{L}])(?:добав(?:ь|ить)|созда(?:й|ть)|реализу(?:й|ть))[^.!?]{0,120}(?:кнопк\w*|элемент\w*\s+управлен\w*|действи\w*|переключател\w*))/iu;
+
+const INTERACTIVE_CHECK_OPERATION_PATTERN =
+  /(?:\b(?:check|test|verify|validate|probe)\b|(?:^|[^\p{L}])(?:провер\w*|тестир\w*|валидир\w*|диагностир\w*))/iu;
+
+const INTERACTIVE_FEEDBACK_CONTRACT_PATTERN =
+  /(?:\b(?:show|display|render|surface|return)\b[^.!?]{0,80}\b(?:success|failure|error|message|toast|status|result|feedback|indicator|spinner)\b|\b(?:disable|enable)\b[^.!?]{0,40}\b(?:button|control)\b|\b(?:loading|pending)\s+(?:state|indicator|spinner)\b|(?:^|[^\p{L}])(?:показ\w*|покаж\w*|отобраз\w*|вывед\w*)[^.!?]{0,80}(?:успех\w*|ошибк\w*|сообщен\w*|статус\w*|результат\w*|индикатор\w*|спиннер\w*)|(?:(?:кнопк\w*|элемент\w*\s+управлен\w*)[^.!?]{0,50}(?:блокир\w*|отключ\w*|активир\w*)|(?:блокир\w*|отключ\w*|активир\w*)[^.!?]{0,50}(?:кнопк\w*|элемент\w*\s+управлен\w*))|(?:состоян\w*\s+загрузк\w*|индикатор\w*\s+загрузк\w*))/iu;
+
+function hasUnderspecifiedInteractiveCheckBehavior(rawTask: string) {
+  return (
+    INTERACTIVE_CHECK_CONTROL_ADD_PATTERN.test(rawTask) &&
+    INTERACTIVE_CHECK_OPERATION_PATTERN.test(rawTask) &&
+    !INTERACTIVE_FEEDBACK_CONTRACT_PATTERN.test(rawTask)
+  );
+}
+
 const VAGUE_REFERENCE_PATTERN =
   /(?:\b(?:this|that|it|here|there|thing|stuff|something)\b|(?:^|[^\p{L}])(?:это|эта|эту|этот|тут|здесь|там|штук\w*|фигн\w*|вот\s+это)(?=$|[^\p{L}]))/iu;
+
+const IMPLEMENTATION_ACTIONS = new Set<TaskUnderstandingAction>([
+  "create",
+  "update",
+  "replace",
+  "remove",
+  "fix",
+  "refactor",
+  "configure",
+  "document",
+]);
 
 const NAMED_TARGET_PATTERNS = [
   /(?:\b(?:page|screen|component|section|modal|form|route|service|file)\s+|(?:страниц\w*|экран\w*|компонент\w*|секци\w*|раздел\w*|модал\w*|форм\w*|маршрут\w*|сервис\w*|файл\w*)\s+)([A-ZА-ЯЁ][\p{L}\p{N}_.-]*(?:\s+[A-ZА-ЯЁ][\p{L}\p{N}_.-]*){0,4})/gu,
@@ -277,12 +312,14 @@ function deriveInterpretationSemantics({
   rawTask,
   action,
   explicitValues,
+  hasBoundedExplicitFileTarget,
   modelInterpretationRisk,
   modelChangeDefinition,
 }: {
   rawTask: string;
   action: TaskUnderstandingAction;
   explicitValues: TaskUnderstandingExplicitValue[];
+  hasBoundedExplicitFileTarget: boolean;
   modelInterpretationRisk?: unknown;
   modelChangeDefinition?: unknown;
 }) {
@@ -290,6 +327,28 @@ function deriveInterpretationSemantics({
     return {
       interpretationRisk: "objective" as const,
       changeDefinition: "exact" as const,
+    };
+  }
+
+  // Adding a diagnostic/check control without defining how the UI presents
+  // pending, success, or failure leaves materially different valid UX flows.
+  // Keep this as a reviewable open-ended implementation instead of allowing
+  // a model response to nondeterministically classify it as bounded.
+  if (hasUnderspecifiedInteractiveCheckBehavior(rawTask)) {
+    return {
+      interpretationRisk: "objective" as const,
+      changeDefinition: "open_ended" as const,
+    };
+  }
+
+  // A concrete file destination plus an implementation verb is a bounded
+  // execution contract even when the destination does not exist yet. Missing
+  // create targets are planned files, not implicit architecture questions.
+  // The caller excludes subjective wording and real unresolved decisions.
+  if (hasBoundedExplicitFileTarget && IMPLEMENTATION_ACTIONS.has(action)) {
+    return {
+      interpretationRisk: "objective" as const,
+      changeDefinition: "bounded" as const,
     };
   }
 
@@ -332,17 +391,17 @@ function deriveInterpretationSemantics({
 
 function inferAction(rawTask: string): TaskUnderstandingAction {
   const task = normalizeForCompare(rawTask);
-  if (/(?:\b(?:replace|rename|rewrite)\b|замени|заменить|переименуй|переименовать|перепиши|переписать)/iu.test(task)) return "replace";
-  if (/(?:\b(?:create|add|introduce|implement)\b|создай|создать|добавь|добавить|реализуй|реализовать)/iu.test(task)) return "create";
-  if (/(?:\b(?:remove|delete|drop)\b|удали|удалить|убери|убрать)/iu.test(task)) return "remove";
-  if (/(?:\b(?:fix|repair|resolve|bug)\b|исправь|исправить|почини|починить|баг\w*|ошибк\w*)/iu.test(task)) return "fix";
-  if (/(?:\b(?:refactor|restructure|cleanup)\b|рефактор\w*|переструктур\w*|почисти)/iu.test(task)) return "refactor";
-  if (/(?:\b(?:review|audit|inspect|check)\b|проверь|проверить|аудит\w*|изучи|посмотри)/iu.test(task)) return "review";
-  if (/(?:\b(?:test|cover|verify)\b|тест\w*|покры\w*)/iu.test(task)) return "test";
-  if (/(?:\b(?:document|docs|readme|guide)\b|документ\w*|ридми|инструкц\w*)/iu.test(task)) return "document";
-  if (/(?:\b(?:configure|config|setup|set)\b|настрой|настроить|конфиг\w*|установи|установить|задай|задать)/iu.test(task)) return "configure";
-  if (/(?:\b(?:investigate|diagnose|find out|trace)\b|разберись|диагност\w*|выясни|найди\s+причин)/iu.test(task)) return "investigate";
-  if (/(?:\b(?:change|update|edit|modify|adjust|improve|make)\b|измени|изменить|обнови|обновить|поменяй|поменять|доработай|улучши|сделай)/iu.test(task)) return "update";
+  if (/(?:\b(?:replace|rename|rewrite)\b|замени|заменить|переименуй|переименовать|перепиши|переписать|заміни|замінити|перейменуй|перейменувати|перепиши|переписати)/iu.test(task)) return "replace";
+  if (/(?:\b(?:create|add|introduce|implement)\b|создай|создать|добавь|добавить|реализуй|реализовать|створи|створити|додай|додати|реалізуй|реалізувати)/iu.test(task)) return "create";
+  if (/(?:\b(?:remove|delete|drop)\b|удали|удалить|убери|убрать|видали|видалити|прибери|прибрати)/iu.test(task)) return "remove";
+  if (/(?:\b(?:fix|repair|resolve|bug)\b|исправь|исправить|почини|починить|баг\w*|ошибк\w*|виправ\w*|полагод\w*|помилк\w*)/iu.test(task)) return "fix";
+  if (/(?:\b(?:refactor|restructure|cleanup)\b|рефактор\w*|переструктур\w*|почисти|перебудуй|перебудувати)/iu.test(task)) return "refactor";
+  if (/(?:\b(?:review|audit|inspect|check)\b|проверь|проверить|аудит\w*|изучи|посмотри|перевір\w*|вивчи|подивись)/iu.test(task)) return "review";
+  if (/(?:\b(?:test|cover|verify)\b|тест\w*|покры\w*|покрий\w*)/iu.test(task)) return "test";
+  if (/(?:\b(?:document|docs|readme|guide)\b|документ\w*|ридми|інструкц\w*|инструкц\w*)/iu.test(task)) return "document";
+  if (/(?:\b(?:configure|config|setup|set)\b|настрой|настроить|налаштуй|налаштувати|конфиг\w*|конфіг\w*|установи|установить|встанови|встановити|задай|задать)/iu.test(task)) return "configure";
+  if (/(?:\b(?:investigate|diagnose|find out|trace)\b|разберись|розберися|діагност\w*|диагност\w*|выясни|з'ясуй|з’ясуй|найди\s+причин|знайди\s+причин)/iu.test(task)) return "investigate";
+  if (/(?:\b(?:change|update|edit|modify|adjust|improve|make)\b|измени|изменить|обнови|обновить|поменяй|поменять|доработай|улучши|сделай|зміни|змінити|онови|оновити|поміняй|поміняти|доопрацюй|покращ\w*|зроби)/iu.test(task)) return "update";
   return "unknown";
 }
 
@@ -463,6 +522,7 @@ function deriveMissingInformation({
   ambiguities,
   changeDefinition,
   projectTree,
+  hasExplicitFileTarget,
 }: {
   rawTask: string;
   action: TaskUnderstandingAction;
@@ -470,6 +530,7 @@ function deriveMissingInformation({
   ambiguities: string[];
   changeDefinition: TaskUnderstandingChangeDefinition;
   projectTree: string[];
+  hasExplicitFileTarget: boolean;
 }) {
   const missing: TaskUnderstandingMissingInformation[] = [];
   if (hasMissingReplacementValue(rawTask)) {
@@ -485,7 +546,7 @@ function deriveMissingInformation({
   const groundedTargetAvailable = hasGroundedTargetHint(
     targetHints,
     projectTree,
-  );
+  ) || (architectureShapingAction && hasExplicitFileTarget);
   const architectureDecisionMissing =
     changeDefinition === "open_ended" &&
     ((architectureShapingAction &&
@@ -604,17 +665,25 @@ function buildDerivedUnderstanding({
   const fallbackTargetHints = uniqueStrings([
     ...(targetHints ?? []),
     ...getStructuredTargetHints(structuredIntent),
+    ...extractExplicitFileTargetMentions(rawTask),
     ...extractNamedTargetHints(rawTask),
   ]);
   const explicitValues = deriveExplicitValues(rawTask);
+  const explicitFileTargets = extractExplicitFileTargetMentions(rawTask);
   const ambiguities = uniqueStrings(
     filterTaskUnderstandingAmbiguities(structuredIntent.ambiguities ?? []),
     8,
   );
+  const hasBoundedExplicitFileTarget =
+    explicitFileTargets.length > 0 &&
+    ambiguities.length === 0 &&
+    !hasOpenEndedQualitativeLanguage(rawTask) &&
+    !hasOpenEndedArchitectureChoice(rawTask);
   let { interpretationRisk, changeDefinition } = deriveInterpretationSemantics({
     rawTask,
     action: fallbackAction,
     explicitValues,
+    hasBoundedExplicitFileTarget,
     modelInterpretationRisk,
     modelChangeDefinition,
   });
@@ -625,6 +694,7 @@ function buildDerivedUnderstanding({
     ambiguities,
     changeDefinition,
     projectTree,
+    hasExplicitFileTarget: explicitFileTargets.length > 0,
   });
   if (missingInformation.some((item) => item.code === "architecture_decision")) {
     interpretationRisk = "uncertain";
@@ -681,6 +751,7 @@ function buildDerivedUnderstanding({
     clarificationQuestion,
     confidence: finalConfidence,
     source,
+    reviewStatus: readiness === "ready" ? "not_required" : "pending",
     reasons: buildReasons({
       source,
       action: fallbackAction,
@@ -691,6 +762,35 @@ function buildDerivedUnderstanding({
       changeDefinition,
       readiness,
     }),
+  };
+}
+
+/**
+ * Records a UI review decision without changing semantic risk, scope, targets,
+ * or missing information. The caller must validate that the decision belongs
+ * to the exact Task Understanding snapshot being executed.
+ */
+export function applyTaskUnderstandingReviewAcceptance(
+  understanding: TaskUnderstanding,
+  accepted: boolean,
+): TaskUnderstanding {
+  if (understanding.readiness !== "review") {
+    return {
+      ...understanding,
+      reviewStatus:
+        understanding.readiness === "ready" ? "not_required" : "pending",
+    };
+  }
+
+  return {
+    ...understanding,
+    reviewStatus: accepted ? "accepted" : "pending",
+    reasons: uniqueStrings([
+      ...understanding.reasons,
+      accepted
+        ? "The user accepted this interpretation for the reviewed snapshot."
+        : "The interpretation still requires user review.",
+    ], 12),
   };
 }
 

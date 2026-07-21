@@ -2,13 +2,42 @@ import crypto from "node:crypto";
 
 import type { TaskIntentAnalysis } from "../ollama/taskIntentAnalyzer.js";
 import type { ProjectInventory } from "../scanner/projectInventoryScanner.js";
+import type { AppSettings } from "../settings/settingsService.js";
 import {
   classifyTaskClarificationQuestion,
   normalizeTaskClarifications,
   type TaskClarification,
 } from "./taskClarifications.js";
 
-export const TASK_UNDERSTANDING_CACHE_VERSION = "2026-07-13.evidence-grounding-v3";
+export const TASK_UNDERSTANDING_CACHE_VERSION =
+  "2026-07-20.semantic-intent-grounding-v1";
+
+export function buildTaskUnderstandingAnalysisSignature(
+  settings: AppSettings,
+) {
+  const configuredModel =
+    settings.aiProvider === "gemini"
+      ? settings.geminiModel
+      : settings.aiProvider === "anthropic"
+        ? settings.anthropicModel
+        : settings.aiProvider === "openai-compatible"
+          ? settings.openAiCompatibleModel
+          : settings.defaultOllamaModel;
+
+  return JSON.stringify({
+    version: TASK_UNDERSTANDING_CACHE_VERSION,
+    provider: settings.aiProvider,
+    model: configuredModel ?? null,
+    endpoint:
+      settings.aiProvider === "ollama"
+        ? settings.ollamaUrl
+        : settings.aiProvider === "openai-compatible"
+          ? settings.openAiCompatibleBaseUrl
+          : settings.aiProvider === "gemini"
+            ? settings.geminiBaseUrl
+            : settings.anthropicBaseUrl,
+  });
+}
 
 export interface TaskUnderstandingSnapshotRecord {
   id: string;
@@ -68,6 +97,22 @@ export interface TaskUnderstandingSnapshotResolution {
   lookupSource: TaskUnderstandingSnapshotLookupSource;
   snapshot: TaskUnderstandingSnapshotRecord | null;
   appendedClarifications: TaskClarification[];
+}
+
+/**
+ * A review acknowledgement is valid only for the exact reusable snapshot that
+ * produced the interpretation. Changed task text, clarifications, inventory,
+ * or analysis settings invalidate the acknowledgement with the snapshot.
+ */
+export function isTaskUnderstandingSnapshotReviewAccepted(
+  resolution: TaskUnderstandingSnapshotResolution,
+  reviewedSnapshotId: string | undefined,
+) {
+  return Boolean(
+    reviewedSnapshotId &&
+    resolution.hit &&
+    resolution.snapshot?.id === reviewedSnapshotId,
+  );
 }
 
 const snapshots = new Map<string, TaskUnderstandingSnapshotRecord>();

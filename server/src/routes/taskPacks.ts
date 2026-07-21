@@ -39,6 +39,8 @@ import { isSecretLikePath } from "../selection/safetyPolicy.js";
 import type { FileSelectionEvidence } from "../selection/repositorySemanticIndex.js";
 import { buildExportSafeProjectMetadata } from "../taskPacks/taskPackPrivacy.js";
 import { resolveTaskUnderstandingInteraction } from "../taskPacks/taskUnderstandingInteraction.js";
+import { groundTaskCurrentState } from "../taskPacks/taskCurrentStateGrounding.js";
+import { applyTaskUnderstandingReviewAcceptance } from "../ollama/taskUnderstanding.js";
 import {
   applySelectionEvidenceGate,
   buildTaskExecutionContractFromIntent,
@@ -77,9 +79,10 @@ import {
   resolveExplicitTargetFastPath,
 } from "../selection/explicitTargetGuard.js";
 import {
+  buildTaskUnderstandingAnalysisSignature,
   createTaskUnderstandingSnapshot,
+  isTaskUnderstandingSnapshotReviewAccepted,
   resolveTaskUnderstandingSnapshot,
-  TASK_UNDERSTANDING_CACHE_VERSION,
 } from "../taskPacks/taskUnderstandingSnapshot.js";
 
 export const taskPacksRouter = Router();
@@ -209,33 +212,6 @@ function buildStableTaskPackRefinementCacheIdentity(input: {
   return createHash("sha256").update(JSON.stringify(payload)).digest("hex");
 }
 
-function buildTaskUnderstandingAnalysisSignature(
-  settings: Awaited<ReturnType<typeof getAppSettings>>,
-) {
-  const configuredModel =
-    settings.aiProvider === "gemini"
-      ? settings.geminiModel
-      : settings.aiProvider === "anthropic"
-        ? settings.anthropicModel
-        : settings.aiProvider === "openai-compatible"
-          ? settings.openAiCompatibleModel
-          : settings.defaultOllamaModel;
-
-  return JSON.stringify({
-    version: TASK_UNDERSTANDING_CACHE_VERSION,
-    provider: settings.aiProvider,
-    model: configuredModel ?? null,
-    endpoint:
-      settings.aiProvider === "ollama"
-        ? settings.ollamaUrl
-        : settings.aiProvider === "openai-compatible"
-          ? settings.openAiCompatibleBaseUrl
-          : settings.aiProvider === "gemini"
-            ? settings.geminiBaseUrl
-            : settings.anthropicBaseUrl,
-  });
-}
-
 const githubIssueTaskPackSourceSchema = z.object({
   type: z.literal("github-issue"),
   owner: z.string().trim().min(1).max(120),
@@ -279,6 +255,7 @@ const createTaskPackSchema = z.object({
   clarifications: taskClarificationsSchema.optional(),
   performanceSessionId: z.string().trim().min(8).max(120).optional(),
   understandingSnapshotId: z.string().trim().uuid().optional(),
+  reviewedUnderstandingSnapshotId: z.string().trim().uuid().optional(),
 
   templateId: z.string().trim().min(1).max(180).optional(),
   ruleProfileId: z.string().trim().min(1).max(180).optional(),
@@ -830,6 +807,9 @@ function buildManualComposerFileSelection({
     return {
       ...baseSelection,
       selectedFiles: [],
+      diagnostics: baseSelection.diagnostics
+        ? { ...baseSelection.diagnostics, executionContract: undefined }
+        : undefined,
       rejectedModelPaths: [
         ...baseSelection.rejectedModelPaths,
         ...rejectedManualPaths,
@@ -844,6 +824,9 @@ function buildManualComposerFileSelection({
   return {
     ...baseSelection,
     selectedFiles: manualSelectedFiles,
+    diagnostics: baseSelection.diagnostics
+      ? { ...baseSelection.diagnostics, executionContract: undefined }
+      : undefined,
     rejectedModelPaths: [
       ...baseSelection.rejectedModelPaths,
       ...rejectedManualPaths,
@@ -969,6 +952,9 @@ function buildEffectiveExecutionContract({
   taskIntent?: TaskIntentAnalysis;
   fileSelection: TaskFileSelection;
 }): TaskExecutionContract {
+  const canonicalContract = fileSelection.diagnostics?.executionContract;
+  if (canonicalContract) return canonicalContract;
+
   if (!taskIntent) {
     return {
       schemaVersion: 2,
@@ -999,6 +985,7 @@ function buildEffectiveExecutionContract({
 
   return applySelectionEvidenceGate({
     contract: base,
+    rawTask,
     selectedFiles: fileSelection.selectedFiles,
     missingRequiredLayers:
       fileSelection.diagnostics?.missingRequiredLayers ?? [],
@@ -1398,6 +1385,28 @@ export function buildContextForgeNotesSection(context: UniversalTaskPackContext)
     context.notes.length > 0
       ? context.notes.map((note) => `- ${note}`).join("\n")
       : "- No additional notes.";
+  const investigationTrace = context.fileSelection.diagnostics?.investigationTrace;
+  const traceSection = investigationTrace?.triggered
+    ? `
+### Investigation Trace
+
+- Trigger: ${investigationTrace.triggerReasons.join("; ")}
+- Seeds: ${investigationTrace.seedPaths.length > 0 ? investigationTrace.seedPaths.join(", ") : "none"}
+- Inspected files: ${investigationTrace.inspectedFileCount}; edges followed: ${investigationTrace.edges.length}; hops: ${investigationTrace.hopCount}; duration: ${investigationTrace.durationMs.toFixed(1)} ms; cache reused: ${investigationTrace.cacheReused ? "yes" : "no"}
+- Confirmed owner candidates: ${investigationTrace.outcome.confirmedOwners.length > 0 ? investigationTrace.outcome.confirmedOwners.join(", ") : "none"}
+- Probable owner candidates: ${investigationTrace.outcome.probableOwners.length > 0 ? investigationTrace.outcome.probableOwners.join(", ") : "none"}
+- Reference/display candidates: ${investigationTrace.outcome.references.length > 0 ? investigationTrace.outcome.references.slice(0, 8).join(", ") : "none"}
+- Unresolved trace points: ${investigationTrace.outcome.unresolved.length > 0 ? investigationTrace.outcome.unresolved.join("; ") : "none"}
+
+${investigationTrace.nodes.slice(0, 10).map((node) =>
+  `- ${node.path}: ${node.semanticRole}, ${node.ownershipStrength}; symbols=${node.inspectedSymbols.join(", ") || "none"}${node.rejectionReason ? `; reference-only because ${node.rejectionReason}` : ""}${node.omissionReason ? `; omitted because ${node.omissionReason}` : ""}`,
+).join("\n")}
+
+${investigationTrace.edges.slice(0, 10).map((edge) =>
+  `- ${edge.type}: ${edge.from} -> ${edge.to}${edge.symbol ? ` (${edge.symbol})` : ""}`,
+).join("\n")}
+`.trim()
+    : "";
 
   return `
 ## ContextForge Assisted Notes
@@ -1417,6 +1426,8 @@ ${fileSelection}
 ### Project Inventory
 
 ${inventory}
+
+${traceSection}
 
 ### Notes
 
@@ -1830,6 +1841,12 @@ taskPacksRouter.post("/understand", async (req, res) => {
             understandingSnapshotMissReason: snapshotResolution.reason,
           });
         }
+        taskIntent = groundTaskCurrentState({
+          rawTask: selectionTask,
+          inventory,
+          taskIntent,
+        });
+
         const interaction = await measurePerformanceStage(
           "interaction_resolution",
           "Resolve clarification interaction",
@@ -2053,6 +2070,25 @@ taskPacksRouter.post("/", async (req, res) => {
             understandingSnapshotMissReason: snapshotResolution.reason,
           });
         }
+
+        taskIntent = groundTaskCurrentState({
+          rawTask: selectionTask,
+          inventory,
+          taskIntent,
+        });
+
+        const reviewedSnapshotAccepted =
+          isTaskUnderstandingSnapshotReviewAccepted(
+            snapshotResolution,
+            parsed.data.reviewedUnderstandingSnapshotId,
+          );
+        taskIntent = {
+          ...taskIntent,
+          taskUnderstanding: applyTaskUnderstandingReviewAcceptance(
+            taskIntent.taskUnderstanding,
+            reviewedSnapshotAccepted,
+          ),
+        };
 
         const manualSelectionRequested = Array.isArray(
           parsed.data.selectedFilePaths,

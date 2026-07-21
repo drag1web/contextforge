@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 
 import {
+  applyTaskUnderstandingReviewAcceptance,
   buildFallbackTaskUnderstanding,
   filterTaskUnderstandingAmbiguities,
   normalizeTaskUnderstanding,
@@ -13,6 +14,9 @@ import {
 import {
   resolveTaskUnderstandingInteraction,
 } from "../taskPacks/taskUnderstandingInteraction.js";
+import { groundTaskCurrentState } from "../taskPacks/taskCurrentStateGrounding.js";
+import type { TaskIntentAnalysis } from "./taskIntentAnalyzer.js";
+import type { ProjectInventory } from "../scanner/projectInventoryScanner.js";
 import {
   buildCompactIntentProjectTreeSnapshot,
   buildIntentPrompt,
@@ -91,6 +95,175 @@ function testEnglishQuotedReplacement() {
   );
 }
 
+function testRussianTypeRenameGroundsNewSymbol() {
+  const result = fallback(
+    "Переименуй TypeScript-тип WorkspaceSearchResponse в GlobalSearchResponse и обнови все импорты. JSON-контракт API и поведение поиска не меняй.",
+  );
+
+  assertReady(result);
+  assert.equal(result.action, "replace");
+  assert.equal(result.changeDefinition, "exact");
+  assert.equal(result.explicitValues[0]?.value, "GlobalSearchResponse");
+  assert.equal(result.explicitValues[0]?.kind, "literal");
+}
+
+function testCreateTaskKeepsExplicitMissingPath() {
+  const explicitPath = "server/src/routes/projectFullTextSearch.ts";
+  const result = fallback(
+    `В файле ${explicitPath} добавь endpoint для полнотекстового поиска по проектам.`,
+    { taskArea: "backend" },
+  );
+
+  assertReady(result);
+  assert.equal(result.action, "create");
+  assert.ok(result.targetHints.includes(explicitPath));
+}
+
+function testMergedModelCannotTurnBoundedMissingCreatePathIntoArchitectureQuestion() {
+  const explicitPath = "server/src/routes/projectFullTextSearch.ts";
+  const rawTask =
+    `В файле ${explicitPath} добавь endpoint для полнотекстового поиска по проектам. ` +
+    "Реализовать только backend GET endpoint: он принимает поисковую строку в query-параметре q и возвращает найденные проекты. UI не менять.";
+  const structuredIntent = {
+    ...emptyStructuredIntent,
+    positiveActions: [
+      "Implement a GET endpoint that accepts query parameter q and returns matching projects.",
+    ],
+    protectedScopes: ["frontend/ui"],
+    allowedEditScope: "target_with_supporting_context",
+  };
+  const base = fallback(rawTask, {
+    taskArea: "backend",
+    projectTree,
+    structuredIntent,
+  });
+  const result = normalizeTaskUnderstanding({
+    modelValue: {
+      taskUnderstanding: {
+        goal: "Add a backend GET endpoint for full-text project search.",
+        action: "create",
+        targetHints: [explicitPath, "/search"],
+        requestedChanges: ["Accept query parameter q and return matching projects."],
+        interpretationRisk: "uncertain",
+        changeDefinition: "open_ended",
+        confidence: 0.95,
+      },
+    },
+    fallback: base,
+    rawTask,
+    taskArea: "backend",
+    taskType: "general",
+    confidence: 0.95,
+    projectTree,
+    structuredIntent,
+  });
+
+  assertReady(result);
+  assert.equal(result.interpretationRisk, "objective");
+  assert.equal(result.changeDefinition, "bounded");
+  assert.equal(result.missingInformation.length, 0);
+  assert.ok(result.targetHints.includes(explicitPath));
+}
+
+function testInteractiveConnectionCheckWithoutFeedbackUsesReview() {
+  const rawTask =
+    "В Settings добавь кнопку проверки подключения Ollama рядом с выбором модели. " +
+    "Используй существующий API проверки статуса и не создавай новый backend route.";
+  const result = fallback(rawTask, {
+    taskArea: "ui",
+    structuredIntent: {
+      ...emptyStructuredIntent,
+      primaryTargets: [{
+        kind: "explicit_file",
+        value: "apps/desktop/renderer/src/pages/SettingsPage.tsx",
+        path: "apps/desktop/renderer/src/pages/SettingsPage.tsx",
+      }],
+      positiveActions: ["Add an Ollama connection check button."],
+      protectedScopes: ["backend routes"],
+      allowedEditScope: "target_with_supporting_context",
+    },
+  });
+
+  assert.equal(result.readiness, "review");
+  assert.equal(result.canProceed, true);
+  assert.equal(result.interpretationRisk, "objective");
+  assert.equal(result.changeDefinition, "open_ended");
+  assert.equal(result.missingInformation.length, 0);
+}
+
+function testModelCannotRandomlyBoundInteractiveCheckWithoutFeedback() {
+  const rawTask =
+    "В Settings добавь кнопку проверки подключения Ollama рядом с выбором модели. " +
+    "Используй существующий API проверки статуса и не создавай новый backend route.";
+  const structuredIntent = {
+    ...emptyStructuredIntent,
+    primaryTargets: [{
+      kind: "explicit_file",
+      value: "apps/desktop/renderer/src/pages/SettingsPage.tsx",
+      path: "apps/desktop/renderer/src/pages/SettingsPage.tsx",
+    }],
+    positiveActions: ["Add an Ollama connection check button."],
+    protectedScopes: ["backend routes"],
+    allowedEditScope: "target_with_supporting_context",
+  };
+  const base = fallback(rawTask, {
+    taskArea: "ui",
+    structuredIntent,
+  });
+  const result = normalizeTaskUnderstanding({
+    modelValue: {
+      taskUnderstanding: {
+        goal: "Add an Ollama connection check button to Settings.",
+        action: "update",
+        targetHints: ["apps/desktop/renderer/src/pages/SettingsPage.tsx"],
+        requestedChanges: ["Use the existing status API."],
+        interpretationRisk: "objective",
+        changeDefinition: "bounded",
+        confidence: 0.95,
+      },
+    },
+    fallback: base,
+    rawTask,
+    taskArea: "ui",
+    taskType: "general",
+    confidence: 0.95,
+    projectTree,
+    structuredIntent,
+  });
+
+  assert.equal(result.readiness, "review");
+  assert.equal(result.interpretationRisk, "objective");
+  assert.equal(result.changeDefinition, "open_ended");
+  assert.equal(result.reviewStatus, "pending");
+}
+
+function testInteractiveCheckWithFeedbackContractIsBounded() {
+  const rawTask =
+    "В Settings добавь кнопку проверки подключения Ollama рядом с выбором модели. " +
+    "Во время проверки отключай кнопку, а после ответа показывай сообщение об успехе или ошибке. " +
+    "Используй существующий API и не создавай новый backend route.";
+  const result = fallback(rawTask, {
+    taskArea: "ui",
+    structuredIntent: {
+      ...emptyStructuredIntent,
+      primaryTargets: [{
+        kind: "explicit_file",
+        value: "apps/desktop/renderer/src/pages/SettingsPage.tsx",
+        path: "apps/desktop/renderer/src/pages/SettingsPage.tsx",
+      }],
+      positiveActions: [
+        "Add a connection check button with pending, success, and error feedback.",
+      ],
+      protectedScopes: ["backend routes"],
+      allowedEditScope: "target_with_supporting_context",
+    },
+  });
+
+  assertReady(result);
+  assert.equal(result.interpretationRisk, "objective");
+  assert.equal(result.changeDefinition, "bounded");
+}
+
 function testLiteralKinds() {
   const color = fallback("Set the button color to #22c55e.");
   assertReady(color);
@@ -126,6 +299,18 @@ function testRussianComparativeUiTaskUsesReview() {
   assert.equal(result.canProceed, true);
   assert.equal(result.interpretationRisk, "subjective");
   assert.equal(result.changeDefinition, "open_ended");
+}
+
+function testAcceptingReviewDoesNotAuthorizeOpenEndedScope() {
+  const result = fallback(
+    "Сделай карточки проектов удобнее и современнее.",
+  );
+  const accepted = applyTaskUnderstandingReviewAcceptance(result, true);
+
+  assert.equal(accepted.reviewStatus, "accepted");
+  assert.equal(accepted.interpretationRisk, "subjective");
+  assert.equal(accepted.changeDefinition, "open_ended");
+  assert.equal(accepted.readiness, "review");
 }
 
 function testEnglishComparativeUiTaskUsesReview() {
@@ -370,6 +555,92 @@ function testModelCannotClearRealMissingValue() {
       primaryTargets: [{ kind: "page", value: "Settings" }],
     },
   });
+
+  assert.equal(result.readiness, "needs_clarification");
+  assert.equal(result.canProceed, false);
+  assert.equal(result.missingInformation[0]?.code, "replacement_value");
+}
+
+function testExplanatoryEnvCommentDoesNotRequireExactCopy() {
+  const result = fallback(
+    "In .env.example add a comment above OLLAMA_URL explaining that it points to the local Ollama HTTP endpoint. Do not change runtime defaults or server configuration.",
+  );
+
+  assertReady(result);
+  assert.equal(
+    result.missingInformation.some(
+      (item) => item.code === "replacement_value",
+    ),
+    false,
+  );
+}
+
+function testExplicitCreateRouteDoesNotRequireReplacementValue() {
+  const result = fallback(
+    "Create server/src/routes/projectDiagnostics.ts exporting projectDiagnosticsRouter with GET /:id that returns { id, name, lastScannedAt }. Register it in server/src/index.ts at /api/project-diagnostics. Reuse the existing project storage API. Backend only; do not modify renderer files.",
+    { taskArea: "backend" },
+  );
+
+  assertReady(result);
+  assert.equal(result.action, "create");
+  assert.equal(
+    result.missingInformation.some(
+      (item) => item.code === "replacement_value",
+    ),
+    false,
+  );
+}
+
+function testSemanticDescriptionGoalDoesNotRequireExactCopy() {
+  const result = fallback(
+    "Update the Settings description so it explains that Shadow validates local project files.",
+  );
+
+  assert.notEqual(result.readiness, "needs_clarification");
+  assert.equal(result.canProceed, true);
+  assert.equal(result.clarificationQuestion, null);
+  assert.equal(
+    result.missingInformation.some(
+      (item) => item.code === "replacement_value",
+    ),
+    false,
+  );
+  assert.equal(result.changeDefinition, "bounded");
+}
+
+function testNegativeMutationClauseCannotCreateMissingValue() {
+  const result = fallback(
+    "Add a small status note to Settings. Do not change the API endpoint or runtime configuration.",
+  );
+
+  assertReady(result);
+  assert.equal(
+    result.missingInformation.some(
+      (item) => item.code === "replacement_value",
+    ),
+    false,
+  );
+}
+
+function testUkrainianExplanatoryCommentDoesNotRequireExactCopy() {
+  const result = fallback(
+    "У .env.example додай коментар над OLLAMA_URL, який пояснює, що це локальний HTTP endpoint Ollama. Значення та runtime configuration не змінюй.",
+  );
+
+  assertReady(result);
+  assert.equal(result.action, "create");
+  assert.equal(
+    result.missingInformation.some(
+      (item) => item.code === "replacement_value",
+    ),
+    false,
+  );
+}
+
+function testUkrainianMissingExactReplacementStillClarifies() {
+  const result = fallback(
+    "У Settings заміни пояснення під режимом Shadow.",
+  );
 
   assert.equal(result.readiness, "needs_clarification");
   assert.equal(result.canProceed, false);
@@ -635,13 +906,124 @@ function testCompactIntentTreeOmitsUnrelatedSecretAndRuntimePaths() {
   assert.ok(snapshot.includes("README.md") || snapshot.includes("docs/SETUP.md"));
 }
 
+function testCurrentShortcutStateMismatchRequiresReview() {
+  const inventory: ProjectInventory = {
+    rootPath: "C:/fixture",
+    totalFiles: 1,
+    scannedFiles: 1,
+    truncated: false,
+    notes: [],
+    files: [
+      {
+        path: "apps/renderer/src/config/keyboardShortcuts.ts",
+        name: "keyboardShortcuts.ts",
+        extension: ".ts",
+        kind: "config",
+        role: "config",
+        imports: [],
+        exports: ["keyboardShortcuts"],
+        symbols: ["keyboardShortcuts"],
+        textHints: ["global search", "keyboard shortcuts"],
+        semanticFacts: {
+          declarations: ["keyboardShortcuts"],
+          references: [],
+          assignments: [],
+          objectProperties: ["id", "displayKeys", "enabled"],
+          typeFields: [],
+          stateSymbols: [],
+          translationKeys: [],
+          translationEntries: [],
+          structuredEntries: [
+            {
+              values: [
+                { key: "id", value: "globalSearch" },
+                { key: "label", value: "Global Search" },
+                { key: "displayKeys", value: "Ctrl F" },
+                { key: "enabled", value: "true" },
+              ],
+            },
+            {
+              values: [
+                { key: "id", value: "openTaskPacks" },
+                { key: "label", value: "Open Task Packs" },
+                { key: "displayKeys", value: "Ctrl Shift P" },
+                { key: "enabled", value: "false" },
+              ],
+            },
+          ],
+          routePaths: [],
+        },
+        contentPreview: "Global Search Ctrl F Open Task Packs Ctrl Shift P",
+        sizeBytes: 1200,
+        depth: 5,
+        canReadText: true,
+        isLikelyGenerated: false,
+      },
+    ],
+  };
+  const understanding = buildFallbackTaskUnderstanding({
+    rawTask:
+      "Измени горячую клавишу открытия Global Search с Ctrl+K на Ctrl+Shift+P во всём приложении.",
+    taskArea: "general",
+    taskType: "general",
+    confidence: 0.9,
+    projectTree: inventory.files.map((file) => file.path),
+    structuredIntent: emptyStructuredIntent,
+  });
+  const taskIntent: TaskIntentAnalysis = {
+    taskArea: "general",
+    intentTags: [],
+    domainTerms: ["Global Search", "shortcut"],
+    mentionedEntities: [],
+    fileRoleHints: ["config"],
+    recommendedSearchTerms: ["globalSearch", "keyboardShortcuts"],
+    riskLevel: "low",
+    confidence: 0.9,
+    notes: [],
+    structuredIntent: {
+      schemaVersion: 1,
+      primaryTargets: [],
+      positiveActions: [],
+      protectedScopes: [],
+      allowedEditScope: "target_with_supporting_context",
+      needsStyles: null,
+      needsBackend: false,
+      ambiguities: [],
+      modelNotes: [],
+    },
+    taskUnderstanding: understanding,
+    source: "fallback",
+    durationMs: 0,
+  };
+  const grounded = groundTaskCurrentState({
+    rawTask:
+      "Измени горячую клавишу открытия Global Search с Ctrl+K на Ctrl+Shift+P во всём приложении.",
+    inventory,
+    taskIntent,
+  });
+  assert.equal(grounded.taskUnderstanding.readiness, "review");
+  assert.match(grounded.taskUnderstanding.goal, /Ctrl\+F/u);
+  assert.match(grounded.taskUnderstanding.clarificationQuestion ?? "", /Open Task Packs/u);
+  assert.equal(
+    grounded.structuredIntent.primaryTargets[0]?.path,
+    "apps/renderer/src/config/keyboardShortcuts.ts",
+  );
+}
+
 const tests = [
   testMissingRussianReplacement,
   testRussianQuotedReplacement,
   testEnglishQuotedReplacement,
+  testRussianTypeRenameGroundsNewSymbol,
+  testCreateTaskKeepsExplicitMissingPath,
+  testMergedModelCannotTurnBoundedMissingCreatePathIntoArchitectureQuestion,
+  testInteractiveConnectionCheckWithoutFeedbackUsesReview,
+  testModelCannotRandomlyBoundInteractiveCheckWithoutFeedback,
+  testInteractiveCheckWithFeedbackContractIsBounded,
   testLiteralKinds,
   testTransformationGoalDoesNotRequireLiteral,
   testRussianComparativeUiTaskUsesReview,
+  testAcceptingReviewDoesNotAuthorizeOpenEndedScope,
   testEnglishComparativeUiTaskUsesReview,
   testNoFilePathIsNotMissingContext,
   testOpenEndedArchitectureTaskRequiresClarification,
@@ -653,6 +1035,12 @@ const tests = [
   testStructuredTargetsAndConstraints,
   testModelMergeKeepsBackendAuthority,
   testModelCannotClearRealMissingValue,
+  testExplanatoryEnvCommentDoesNotRequireExactCopy,
+  testExplicitCreateRouteDoesNotRequireReplacementValue,
+  testSemanticDescriptionGoalDoesNotRequireExactCopy,
+  testNegativeMutationClauseCannotCreateMissingValue,
+  testUkrainianExplanatoryCommentDoesNotRequireExactCopy,
+  testUkrainianMissingExactReplacementStillClarifies,
   testMixedLanguageTask,
   testClarificationUnblocksMissingReplacementWithoutChangingTargetSemantics,
   testPathOnlyAmbiguityIsNotBlocking,
@@ -668,6 +1056,7 @@ const tests = [
   testCompactIntentGenerationLimits,
   testCompactIntentTreePreservesBackendAndFullstackCoverage,
   testCompactIntentTreeOmitsUnrelatedSecretAndRuntimePaths,
+  testCurrentShortcutStateMismatchRequiresReview,
 ];
 
 for (const test of tests) {

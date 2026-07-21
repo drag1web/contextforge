@@ -1,4 +1,5 @@
 import type { TaskIntentAnalysis } from "../ollama/taskIntentAnalyzer.js";
+import { isFileExclusionConstraint } from "./negativeConstraintSemantics.js";
 import type {
   ProjectInventory,
   ProjectInventoryFile,
@@ -185,9 +186,12 @@ function emptyFacts(): ProjectInventorySemanticFacts {
     references: [],
     assignments: [],
     objectProperties: [],
+    typeFields: [],
     stateSymbols: [],
     translationKeys: [],
     translationEntries: [],
+    stringLiterals: [],
+    structuredEntries: [],
     routePaths: [],
   };
 }
@@ -372,6 +376,7 @@ function extractNegativeConstraints(rawTask: string, taskIntent?: TaskIntentAnal
 }
 
 function negativeConflicts(file: IndexedFile, constraints: string[]) {
+  const fileExclusionConstraints = constraints.filter(isFileExclusionConstraint);
   const identity = new Set(identifierTokens([
     file.file.path,
     file.file.name,
@@ -379,7 +384,7 @@ function negativeConflicts(file: IndexedFile, constraints: string[]) {
     ...(file.file.symbols ?? []),
     ...(file.file.textHints ?? []),
   ].join(" ")));
-  return constraints.filter((constraint) => {
+  return fileExclusionConstraints.filter((constraint) => {
     const tokens = identifierTokens(constraint);
     const overlap = tokens.filter((token) => identity.has(token));
     return overlap.length >= Math.min(2, Math.max(1, tokens.length));
@@ -436,6 +441,47 @@ function actionForEvidence(
     return "inspect_then_edit";
   }
   return "inspect_only";
+}
+
+function scoreExistingImplementationCandidate(input: {
+  file: IndexedFile;
+  evidence: FileSelectionEvidence;
+  querySymbols: Set<string>;
+  rawTask: string;
+}) {
+  const directSymbols = input.evidence.symbols.filter((symbol) =>
+    input.querySymbols.has(symbol),
+  );
+  const meaningfulDirectSymbols = directSymbols.filter(
+    (symbol) => !BROAD_EXISTING_IMPLEMENTATION_SYMBOLS.has(symbol),
+  );
+  const asksForTests = /\b(?:test|tests|testing|spec|fixture)\b|(?:тест|провер)/iu.test(
+    input.rawTask,
+  );
+  const normalizedPath = input.file.normalizedPath;
+  const isTestLike =
+    input.file.file.kind === "test" ||
+    /(?:\.test\.|\.spec\.|\.smoke\.|\.replay\.|\/__tests__\/)/u.test(
+      normalizedPath,
+    );
+  const sameFileOwnerLinks = input.evidence.chain.filter(
+    (link) =>
+      link.relation === "same_file" &&
+      ["producer", "contract", "state-owner", "route"].includes(link.role),
+  ).length;
+
+  let score = meaningfulDirectSymbols.length * 180 + directSymbols.length * 35;
+  score += sameFileOwnerLinks * 35;
+  if (input.evidence.targetSource === "user_text") score += 320;
+  if (input.evidence.targetSource === "clarification") score += 260;
+  if (input.evidence.semanticRoles.includes("producer")) score += 28;
+  if (input.evidence.semanticRoles.includes("state-owner")) score += 26;
+  if (input.evidence.semanticRoles.includes("route")) score += 24;
+  if (input.evidence.ownershipEvidence === "symbol_exact") score += 20;
+  if (isTestLike && !asksForTests) score -= 90;
+  if (input.file.file.kind === "docs") score -= 70;
+
+  return score;
 }
 
 export function resolveRepositorySemanticEvidence(input: {
@@ -605,15 +651,37 @@ export function resolveRepositorySemanticEvidence(input: {
     });
   }
 
+  const querySymbolSet = new Set(query.symbols);
   const existingImplementationPaths = [...byPath.entries()]
-    .filter(([, evidence]) =>
+    .map(([path, evidence]) => ({
+      path,
+      evidence,
+      file: index.files.find((file) => file.normalizedPath === path),
+    }))
+    .filter((candidate): candidate is typeof candidate & { file: IndexedFile } =>
+      Boolean(candidate.file),
+    )
+    .filter(({ evidence }) =>
       ["symbol_exact", "state_graph"].includes(evidence.ownershipEvidence) &&
       evidence.semanticRoles.some((role) => ["producer", "contract", "state-owner", "route"].includes(role)),
     )
-    .filter(([, evidence]) =>
+    .filter(({ evidence }) =>
       evidence.symbols.some((symbol) => !BROAD_EXISTING_IMPLEMENTATION_SYMBOLS.has(symbol)),
     )
-    .map(([path]) => index.files.find((file) => file.normalizedPath === path)?.file.path ?? path)
+    .sort((left, right) =>
+      scoreExistingImplementationCandidate({
+        file: right.file,
+        evidence: right.evidence,
+        querySymbols: querySymbolSet,
+        rawTask: input.rawTask,
+      }) - scoreExistingImplementationCandidate({
+        file: left.file,
+        evidence: left.evidence,
+        querySymbols: querySymbolSet,
+        rawTask: input.rawTask,
+      }) || left.file.file.path.localeCompare(right.file.file.path),
+    )
+    .map(({ file }) => file.file.path)
     .slice(0, 12);
   const result: RepositorySemanticQueryResult = {
     byPath,

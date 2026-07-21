@@ -1,9 +1,12 @@
 # Changelog
 
-## Unreleased — Performance Diagnostics & AI Call Audit
+## Unreleased — Validation Lab & Universal Context Grounding
 
 ### Added
 
+- Added syntax-aware JavaScript/TypeScript symbol evidence that separates real declarations, imports, re-exports, and identifier references from comments, strings, template fixtures, regular expressions, and JSX text.
+- Added an end-to-end scanner-to-selector regression using a temporary repository, proving that fixture text cannot become symbol ownership or edit authorization.
+- Added semantic-intent regression coverage for explanatory comments, fully specified create-and-wire routes, negative protected clauses, and model wording around code-symbol renames.
 - Added reusable in-memory Task Understanding snapshots shared by preflight, Context Composer, and final Task Pack generation.
 - Added safe local application of exact replacement-value clarifications without a second full Understanding request.
 - Added complete Ollama selector call instrumentation for initial selection, JSON repair, and strict retry attempts.
@@ -15,13 +18,44 @@
 - Added cache hit/miss/bypass events for validated Task Pack refinement.
 - Added a Performance diagnostics modal on generated Task Packs with copyable local JSON.
 - Added a bounded in-memory session bridge so preflight and generation requests appear in one timeline.
+- Added a read-only, sequential Validation Lab that runs a portable manifest through the real Task Understanding and Context Composer preview pipeline and exports one diagnostic ZIP.
+- Added canonical final-selection profiles for exact text, bounded UI actions, API contracts, symbol renames, conditional removals, explicit documentation edits, and safe explicit create targets.
+- Added code-grounded ownership reconciliation across declarations, identifier references, imports, routes, state flow, translation entries, client boundaries, and backend boundaries.
 
 ### Changed
 
+- Exact symbol rename now requires parser-backed declaration proof. Missing source symbols and pre-existing destination declarations deterministically remain investigation-only with no authorized targets.
+- Rename consumers are editable only when a real named import or re-export resolves back to a confirmed declaration owner; test files remain eligible when they contain a genuine code import rather than fixture prose.
+- Parser-backed rename traversal follows real re-export barrels transitively, while renderer/frontend API bridges remain client-side instead of being promoted to backend by a generic `/api/` segment.
+- Selector cache identity advanced to `2026-07-21.parser-backed-symbol-evidence-v1`.
+- Exact code-symbol rename now takes precedence over generic exact-text wording, so model phrases such as `old type name` cannot redirect declaration/import grounding into visible-copy selection.
+- Symbol-rename destination collisions are now checked across every declaration file, including the source declaration module itself; collisions remain investigation-only with no authorized targets.
+- Ukrainian create/update/replace imperatives and explanatory relative clauses are normalized alongside Russian and English without repository-specific aliases.
+- Explanatory comments and bounded semantic descriptions no longer require a user-provided verbatim replacement string; genuinely unspecified exact replacements still require clarification.
+- Negative mutation clauses no longer create false `replacement_value` requirements from protected endpoint, value, name, or configuration terms.
+- Literal create-target paths are classified before generic process-artifact references, preserving missing route/module destinations while keeping UI action artifacts and protected references inspect-only.
+- Understanding and selector cache contracts advanced to `2026-07-20.semantic-intent-grounding-v1`.
+- Diagnostic/check controls that omit pending, success, and failure presentation are now deterministically classified as reviewable open-ended UI work; a model response can no longer randomly promote the same task to bounded/ready.
+- Explicit-create reference files retained as `inspect-only` no longer expose `confirmed_edit` action confidence in final evidence; authorization remains exclusive to the user-named create target.
+- Task Understanding cache identity advanced to `2026-07-19.interactive-check-grounding-v1` so earlier nondeterministic readiness decisions are not reused.
+- Preservation constraints such as `without changing the formula` are no longer treated as evidence that the implementation owner itself is forbidden; file/scope exclusions remain enforced separately.
+- Negative backend constraints now recognize phrasing such as `without changing server behavior`, preventing a UI-only task from being widened to fullstack.
+- Mixed-language technical normalization now preserves common feature nouns used by deterministic retrieval, including cards, orders, and persistence actions, without repository-specific paths.
+- Build configuration matching no longer treats a generic `dev server` mention as sufficient evidence for `tsconfig`; proxy/env tasks prefer the configuration files that actually own those settings.
+- Dashboard benchmark expectations now recognize a feature stylesheet as a valid primary owner for visual/responsive work instead of requiring every valid change to originate in a page or component.
+- Explicit missing create targets now rank same-directory reference files by behavioral similarity instead of directory order alone. HTTP method, named query parameters, target-role compatibility, semantic identity, and focused-module size are combined without repository-specific path rules.
+- Create-reference ranking now has a deterministic path tie-breaker and regression coverage for inventory permutation, while only the explicit missing destination remains authorized for editing.
+- Exact protocol identifiers are grounded separately from ordinary semantic tokens, so valid one-character query parameters are preserved instead of being discarded by the general token-length filter.
+- The create-reference regression fixture now mirrors real scanner metadata instead of relying on synthetic route paths or symbols that overstate the strength of the preferred reference.
 - Confirmed Understanding results are now reused instead of re-running the same Ollama analysis during generation.
 - Exact clarification answers can advance a compatible `needs_clarification` snapshot to `ready` locally; target-changing or otherwise semantic answers still force a fresh analysis.
 - A model-produced `unknown` action can no longer erase a stronger action grounded by the backend from the original task.
 - Selector diagnostics now expose the real selection origin and explicit-target guard status separately from the broad provider source/fallback flag.
+- Exact user-named files that do not exist yet are preserved as planned create targets; investigation tracing can no longer discard them merely because inventory has no file node yet.
+- Accepted review-level tasks advance to implementation only when objective scope, target ownership, required layers, and unresolved decisions are all grounded. Subjective open-ended design and unproven bug ownership remain investigative.
+- File-mention parsing now distinguishes `Edit X and keep Y unchanged` from `do not edit X`, including route-group paths and Windows-style paths.
+- Scanner metadata now retains longer import lists and declarations that occur late in large source files, improving cross-file ownership discovery without repository-specific rules.
+- Selector and Understanding cache contracts were advanced to `2026-07-18.universal-grounding-v2` so stale decisions are not reused.
 
 ### Privacy
 
@@ -30,15 +64,22 @@
 
 ### Validation
 
+- Parser-backed Symbol Evidence regression: syntax lexer 8 scenarios; selector smoke passed with real temporary-repository scan; live-like SIG-01—SIG-04 replay produced two exact implementation decisions and two empty safe investigations.
+- Semantic Intent Grounding regression: Task Understanding 46 scenarios; selector smoke passed; Canonical Core 7; Context Quality 6; rollout 32; Execution Contract 21; Investigation 25; Semantic Index 19; Shadow benchmark 54/54 with 0 shadow failures.
 - Performance trace smoke: 6 scenarios.
-- Understanding snapshot smoke: 4 scenarios.
-- Explicit target guard smoke: 2 scenarios.
-- Task Understanding: 27 scenarios.
-- Clarification: 9 scenarios.
-- Generation reliability: 36 scenarios.
+- Understanding snapshot smoke: 12 scenarios.
+- Explicit target guard smoke: 11 scenarios.
+- Task Understanding: 40 scenarios.
+- Clarification: 10 scenarios.
+- Generation reliability: 43 scenarios.
+- Task execution contract smoke: 16 scenarios.
+- Investigation trace smoke: 25 scenarios.
+- Repository semantic index smoke: 19 scenarios.
 - Selector rollout: 32 scenarios.
-- Replay: 108/108.
-- Synthetic selector benchmark: 54/54 across 24 families.
+- Synthetic selector benchmark: 54/54 across 24 families; shadow primary accuracy 100%, candidate recall 100%, edit-target precision 97.9%.
+- Validation Lab manifest/export smoke passed.
+- Earlier production-shaped CF-01—CF-15 manifest replay: 15/15.
+- CF-14 create-reference ranking passed six consecutive focused live replays and the complete CF-01—CF-15 Validation Lab replay after v4.
 - Renderer and server builds passed.
 
 

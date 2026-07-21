@@ -26,7 +26,6 @@ export {
 
 const MAX_PROMPT_CHARS = 24_000;
 const MAX_REPAIR_RESPONSE_CHARS = 8_000;
-const MAX_RETRY_PROMPT_CHARS = 28_000;
 const MAX_ITEM_CHARS = 600;
 
 const REFINEMENT_ARRAY_LIMITS = {
@@ -355,7 +354,7 @@ function uniqueGuidanceLines(values: string[]) {
   return result;
 }
 
-function normalizeStringArray(value: unknown) {
+function normalizeStringArray(value: unknown, depth = 0): string[] {
   if (typeof value === "string") {
     return uniqueGuidanceLines(
       value
@@ -365,15 +364,46 @@ function normalizeStringArray(value: unknown) {
     );
   }
 
-  if (!Array.isArray(value)) {
+  if (Array.isArray(value)) {
+    return uniqueGuidanceLines(
+      value.flatMap((item) =>
+        typeof item === "string"
+          ? [item.trim()]
+          : depth < 2
+            ? normalizeStringArray(item, depth + 1)
+            : [],
+      ).filter(Boolean),
+    );
+  }
+
+  if (!value || typeof value !== "object" || depth >= 2) {
     return [];
   }
 
+  const record = value as Record<string, unknown>;
+  const preferredKeys = [
+    "items",
+    "requirements",
+    "lines",
+    "values",
+    "value",
+    "text",
+    "content",
+    "summary",
+  ];
+  const preferred = preferredKeys.flatMap((key) =>
+    key in record ? normalizeStringArray(record[key], depth + 1) : [],
+  );
+  if (preferred.length > 0) {
+    return uniqueGuidanceLines(preferred);
+  }
+
   return uniqueGuidanceLines(
-    value
-      .filter((item): item is string => typeof item === "string")
-      .map((item) => item.trim())
-      .filter(Boolean),
+    Object.values(record).flatMap((item) =>
+      typeof item === "string" || Array.isArray(item)
+        ? normalizeStringArray(item, depth + 1)
+        : [],
+    ),
   );
 }
 
@@ -1813,28 +1843,31 @@ function buildRetryPrompt({
   invalidResponse: string;
   issueCodes: string[];
 }) {
-  const fixedText = `
+  const repairSource = invalidResponse.trim()
+    ? truncate(invalidResponse, MAX_REPAIR_RESPONSE_CHARS)
+    : truncate(originalPrompt.slice(-MAX_REPAIR_RESPONSE_CHARS), MAX_REPAIR_RESPONSE_CHARS);
+  const truncated = issueCodes.includes("truncated_response");
 
-The previous response was invalid.
+  return `Repair the previous Task Pack refinement response.
+
+Return one concise JSON object only, with exactly these five fields:
+{
+  "implementationGuidance": ["1-5 short strings"],
+  "constraints": ["0-4 short strings"],
+  "acceptanceCriteria": ["1-5 short strings"],
+  "verificationSteps": ["1-4 short strings"],
+  "finalResponseRequirements": ["1-3 short strings"]
+}
+
 Validation issues: ${issueCodes.join(", ") || "unknown schema error"}
-
-Previous response (possibly truncated):
-`;
-  const closing = `
-
-Return a corrected JSON object only. Include every required field and no commentary.`;
-  const availableResponseChars = Math.max(
-    800,
-    Math.min(
-      MAX_REPAIR_RESPONSE_CHARS,
-      MAX_RETRY_PROMPT_CHARS -
-        originalPrompt.length -
-        fixedText.length -
-        closing.length,
-    ),
-  );
-
-  return `${originalPrompt}${fixedText}${truncate(invalidResponse, availableResponseChars)}${closing}`;
+Rules:
+- Output valid JSON only. No Markdown or commentary.
+- Every field must be an array of strings. Convert a single string or object value into an array of concise strings.
+- Preserve only grounded, useful content from the previous response.
+- Keep each item under 240 characters and the entire JSON under 4,500 characters.
+${truncated ? "- The previous response was truncated; complete missing fields briefly instead of repeating long explanations.\n" : ""}
+Previous response:
+${repairSource}`;
 }
 
 function findSectionBounds(markdown: string, title: string) {

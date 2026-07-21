@@ -3099,7 +3099,12 @@ export function TaskPackBuilderPage({
         const resolvedDraft: TaskPackDraft = {
           ...sessionDraft,
           clarifications: response.clarifications,
-          understandingSnapshotId: response.understandingSnapshotId
+          understandingSnapshotId: response.understandingSnapshotId,
+          reviewedUnderstandingSnapshotId:
+            sessionDraft.reviewedUnderstandingSnapshotId ===
+            response.understandingSnapshotId
+              ? sessionDraft.reviewedUnderstandingSnapshotId
+              : undefined
         };
 
         setUnderstandingResponse(response);
@@ -3172,13 +3177,28 @@ export function TaskPackBuilderPage({
   const handleContinueUnderstanding = useCallback(async () => {
     const action = pendingUnderstandingAction;
     const activeDraft = understandingDraft ?? draft;
+    const reviewedDraft: TaskPackDraft = understandingResponse
+      ? {
+          ...activeDraft,
+          reviewedUnderstandingSnapshotId:
+            understandingResponse.understandingSnapshotId
+        }
+      : activeDraft;
 
     setIsUnderstandingModalOpen(false);
 
     if (action) {
-      await executeUnderstandingAction(action, activeDraft);
+      onChange(reviewedDraft);
+      await executeUnderstandingAction(action, reviewedDraft);
     }
-  }, [draft, executeUnderstandingAction, pendingUnderstandingAction, understandingDraft]);
+  }, [
+    draft,
+    executeUnderstandingAction,
+    onChange,
+    pendingUnderstandingAction,
+    understandingDraft,
+    understandingResponse
+  ]);
 
   const handleEditTaskFromUnderstanding = useCallback(() => {
     setIsUnderstandingModalOpen(false);
@@ -3276,6 +3296,10 @@ export function TaskPackBuilderPage({
     onChange({
       ...draft,
       ...patch,
+      reviewedUnderstandingSnapshotId: understandingInputChanged
+        ? undefined
+        : patch.reviewedUnderstandingSnapshotId ??
+          draft.reviewedUnderstandingSnapshotId,
       clarifications:
         rawTaskChanged && patch.clarifications === undefined
           ? []

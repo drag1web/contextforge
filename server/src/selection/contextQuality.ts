@@ -299,6 +299,57 @@ function isEditableCodeLike(file: ProjectInventoryFile) {
   );
 }
 
+function isEditableProjectTarget(file: ProjectInventoryFile) {
+  if (file.isLikelyGenerated || isSecretLikePath(file.path)) return false;
+
+  return (
+    file.kind === "source" ||
+    file.kind === "style" ||
+    file.kind === "test" ||
+    file.kind === "config" ||
+    file.kind === "docs" ||
+    file.kind === "data" ||
+    file.kind === "runtime" ||
+    file.kind === "unknown"
+  );
+}
+
+function isBuildOrConfigLike(file: ProjectInventoryFile) {
+  const path = normalizeForCompare(file.path);
+  const name = path.split("/").pop() ?? path;
+
+  return (
+    file.kind === "config" ||
+    file.role === "config" ||
+    name === "package.json" ||
+    name === "docker-compose.yml" ||
+    name === "docker-compose.yaml" ||
+    name === "compose.yml" ||
+    name === "compose.yaml" ||
+    name === "makefile" ||
+    /(?:^|\/)tsconfig(?:\.[^/]+)?\.json$/u.test(path) ||
+    /(?:^|\/)(?:vite|webpack|rollup|eslint|prettier|postcss|tailwind|babel|jest|vitest|playwright|cypress)\.config\.[^/]+$/u.test(
+      path,
+    ) ||
+    /(?:^|\/)\.env\.(?:example|sample|template)$/u.test(path)
+  );
+}
+
+function isDocumentationLike(file: ProjectInventoryFile) {
+  const path = normalizeForCompare(file.path);
+  const name = path.split("/").pop() ?? path;
+
+  return (
+    file.kind === "docs" ||
+    file.role === "docs" ||
+    /\.(?:md|mdx|txt)$/u.test(name) ||
+    name === "readme" ||
+    name.startsWith("readme.") ||
+    name === "agents.md" ||
+    name === "changelog.md"
+  );
+}
+
 function isUiLike(file: ProjectInventoryFile) {
   const path = normalizeForCompare(file.path);
   const name = path.split("/").pop() ?? path;
@@ -310,6 +361,8 @@ function isUiLike(file: ProjectInventoryFile) {
     file.role === "component" ||
     file.role === "ui-component" ||
     file.role === "app-entry" ||
+    (path.includes("/renderer/") && file.role !== "api-route") ||
+    (path.includes("/frontend/") && file.role !== "api-route") ||
     path.includes("/components/") ||
     path.includes("/pages/") ||
     path.startsWith("src/app/") ||
@@ -327,8 +380,13 @@ function isUiLike(file: ProjectInventoryFile) {
 
 function isBackendLike(file: ProjectInventoryFile) {
   const path = normalizeForCompare(file.path);
+  const clientApiBridge =
+    /(?:^|\/)(?:renderer|frontend|client)(?:\/|$)/u.test(path) &&
+    /(?:^|\/)api\/client\.(?:ts|tsx|js|jsx)$/u.test(path);
 
   return (
+    !clientApiBridge &&
+    (
     file.role === "api-route" ||
     file.role === "server-entry" ||
     file.role === "service" ||
@@ -342,6 +400,7 @@ function isBackendLike(file: ProjectInventoryFile) {
     path.includes("/service/") ||
     path.endsWith("/api.ts") ||
     path.endsWith("/api.js")
+    )
   );
 }
 
@@ -401,6 +460,29 @@ function isImplementationIntent(rawTask: string) {
   ]);
 }
 
+function isReviewOnlyIntent(rawTask: string) {
+  const text = normalizeForCompare(rawTask);
+  const reviewAction =
+    /\b(?:review|inspect|analy[sz]e|assess|audit|suggest|propose)\b/i.test(
+      text,
+    ) ||
+    /(?:посмотр|проанализ|оцени|проведи\s+аудит|предлож|дай\s+рекомендац)/iu.test(
+      text,
+    );
+  const mutationForbidden =
+    /\b(?:do\s+not|don't|dont|without)\s+(?:change|edit|modify|write|update)(?:\s+the)?\s+(?:code|files?|source)\b/i.test(
+      text,
+    ) ||
+    /(?:код|файл(?:ы|ов)?|исходник(?:и|ов)?)[^.!?\n]{0,60}не\s+(?:меняй|менять|трогай|трогать|редактируй|редактировать|изменяй|изменять)/iu.test(
+      text,
+    ) ||
+    /не\s+(?:меняй|менять|трогай|трогать|редактируй|редактировать|изменяй|изменять)[^.!?\n]{0,60}(?:код|файл(?:ы|ов)?|исходник(?:и|ов)?)/iu.test(
+      text,
+    );
+
+  return reviewAction && mutationForbidden;
+}
+
 function isTestPlanningIntent(rawTask: string, area: string) {
   if (area !== "tests" && area !== "general") return false;
   const text = normalizeForCompare(rawTask);
@@ -445,7 +527,7 @@ function isDocsPrimaryIntent(rawTask: string, area: string) {
     "описать команды",
     "команды запуска",
     "запуска проекта",
-  ]);
+  ]) || /(?:^|[\s/])[^\s/]+\.(?:md|mdx)(?=$|[\s,.;!?])/iu.test(rawTask);
 
   if (!docsIntent) return false;
   if (
@@ -501,14 +583,15 @@ function buildQualitySignals({
   score,
   warnings,
   blockingReasons,
-  hasEditableCode,
+  hasEditableTarget,
   hasOverlappingFile,
   strongOverlapFileCount,
-  plausibleCodeFileCount,
+  plausibleTargetFileCount,
   genericOnly,
   explicitPathSelected,
   docsConfigOnly,
   docsPrimaryIntent,
+  buildPrimaryIntent,
   isCodeTask,
   hasBackend,
   protectedBackendConstraint,
@@ -523,14 +606,15 @@ function buildQualitySignals({
   score: number;
   warnings: string[];
   blockingReasons: string[];
-  hasEditableCode: boolean;
+  hasEditableTarget: boolean;
   hasOverlappingFile: boolean;
   strongOverlapFileCount: number;
-  plausibleCodeFileCount: number;
+  plausibleTargetFileCount: number;
   genericOnly: boolean;
   explicitPathSelected: boolean;
   docsConfigOnly: boolean;
   docsPrimaryIntent: boolean;
+  buildPrimaryIntent: boolean;
   isCodeTask: boolean;
   hasBackend: boolean;
   protectedBackendConstraint: boolean;
@@ -548,11 +632,11 @@ function buildQualitySignals({
         : explicitPathSelected
           ? 95
           : hasOverlappingFile
-            ? 48 + strongOverlapFileCount * 14 + plausibleCodeFileCount * 7
+            ? 48 + strongOverlapFileCount * 14 + plausibleTargetFileCount * 7
             : genericOnly
               ? 24
-              : plausibleCodeFileCount > 0
-                ? 44 + plausibleCodeFileCount * 6
+              : plausibleTargetFileCount > 0
+                ? 44 + plausibleTargetFileCount * 6
                 : 32,
   );
   const contextCompleteness = clampScore(
@@ -560,11 +644,11 @@ function buildQualitySignals({
       ? 0
       : createTargetCount > 0
         ? 76 + Math.min(12, selectedFiles.length * 4)
-        : docsPrimaryIntent && docsConfigOnly
+        : (docsPrimaryIntent || buildPrimaryIntent) && docsConfigOnly
           ? 78
-          : (hasEditableCode ? 42 : 14) +
+          : (hasEditableTarget ? 42 : 14) +
             Math.min(34, selectedFiles.length * 7) +
-            Math.min(24, plausibleCodeFileCount * 8),
+            Math.min(24, plausibleTargetFileCount * 8),
   );
   const protectedScopeRisk = clampScore(
     protectedBackendConstraint && hasBackend
@@ -582,11 +666,11 @@ function buildQualitySignals({
     explicitPathSelected
       ? 94
       : hasOverlappingFile
-        ? 52 + strongOverlapFileCount * 14 + plausibleCodeFileCount * 6
+        ? 52 + strongOverlapFileCount * 14 + plausibleTargetFileCount * 6
         : genericOnly
           ? 24
-          : plausibleCodeFileCount > 0
-            ? 44 + plausibleCodeFileCount * 5
+          : plausibleTargetFileCount > 0
+            ? 44 + plausibleTargetFileCount * 5
             : totalContextCount > 0
               ? 32
               : 0,
@@ -647,7 +731,7 @@ function buildQualitySignals({
       "Keep backend/API files out of inspect-and-edit unless the user explicitly allows backend changes.",
     );
   }
-  if (genericOnly && isCodeTask) {
+  if (genericOnly && isCodeTask && !buildPrimaryIntent && !docsPrimaryIntent) {
     nextActions.push(
       "Replace generic shell/config files with a concrete page, component, service, or route.",
     );
@@ -830,6 +914,57 @@ function isHardSafetyReason(reason: string) {
   );
 }
 
+function reconcileCanonicalImplementationQuality({
+  executionMode,
+  authorizedTargets,
+  selectedEditablePaths,
+  warnings,
+  blockingReasons,
+  score,
+}: {
+  executionMode: string | undefined;
+  authorizedTargets: string[];
+  selectedEditablePaths: Set<string>;
+  warnings: string[];
+  blockingReasons: string[];
+  score: number;
+}) {
+  const normalizedAuthorizedTargets = authorizedTargets
+    .map(normalizeForCompare)
+    .filter(Boolean);
+  const canonicalImplementationAuthorized =
+    executionMode === "implementation" &&
+    normalizedAuthorizedTargets.length > 0 &&
+    normalizedAuthorizedTargets.every((pathValue) =>
+      selectedEditablePaths.has(pathValue),
+    );
+
+  if (!canonicalImplementationAuthorized) {
+    return { warnings, blockingReasons, score };
+  }
+
+  const hardBlockingReasons = blockingReasons.filter(isHardSafetyReason);
+  const reviewBlockingReasons = blockingReasons.filter(
+    (reason) => !isHardSafetyReason(reason),
+  );
+
+  if (reviewBlockingReasons.length === 0) {
+    return { warnings, blockingReasons, score };
+  }
+
+  return {
+    warnings: unique([
+      ...warnings,
+      ...reviewBlockingReasons.map(
+        (reason) =>
+          `Canonical implementation target is authorized; quality review note: ${reason}`,
+      ),
+    ]),
+    blockingReasons: hardBlockingReasons,
+    score: hardBlockingReasons.length > 0 ? score : Math.max(score, 72),
+  };
+}
+
 function hasHardSafetyPathSignal(rawTask: string, rejectedPaths: string[]) {
   const text = [rawTask, ...rejectedPaths].join(" ").toLowerCase();
 
@@ -906,14 +1041,43 @@ export function evaluateContextSelectionQuality(
     "build",
   ]);
   const implementationIntent = isImplementationIntent(input.rawTask);
+  const reviewOnlyIntent = isReviewOnlyIntent(input.rawTask);
   const docsPrimaryIntent = isDocsPrimaryIntent(input.rawTask, area);
+  const buildPrimaryIntent = area === "build" || requestedArea === "build";
   const testPlanningIntent = isTestPlanningIntent(input.rawTask, area);
   const isCodeTask =
     (codeTaskAreas.has(area) || implementationIntent) && !testPlanningIntent;
+  const requiresEditableTarget =
+    isCodeTask &&
+    !reviewOnlyIntent &&
+    effectiveExecutionMode !== "investigation";
   const hardTaskSafety = detectHardTaskSafetyIssue(input.rawTask);
 
-  const hasEditableCode =
-    selectedFiles.some(isEditableCodeLike) || hasCreateTarget;
+  const selectedUsageByPath = new Map(
+    input.fileSelection.selectedFiles.map((file) => [
+      normalizeForCompare(file.path),
+      file.usage,
+    ]),
+  );
+  const selectedEditablePaths = new Set(
+    input.fileSelection.selectedFiles
+      .filter(
+        (file) =>
+          file.usage === "inspect-and-edit" || file.usage === "create-and-edit",
+      )
+      .map((file) => normalizeForCompare(file.path)),
+  );
+  const selectedEditableTargets = selectedFiles.filter((file) => {
+    const usage = selectedUsageByPath.get(normalizeForCompare(file.path));
+    return (
+      (usage === "inspect-and-edit" || usage === "create-and-edit") &&
+      isEditableProjectTarget(file)
+    );
+  });
+  const hasEditableTarget = selectedEditableTargets.length > 0 || hasCreateTarget;
+  const authorizedTargets =
+    input.fileSelection.diagnostics?.executionContract?.authorization
+      ?.authorizedTargets ?? [];
   const hasUi =
     selectedFiles.some(isUiLike) ||
     createTargets.some((file) =>
@@ -936,10 +1100,6 @@ export function evaluateContextSelectionQuality(
     createTargets.filter((file) =>
       createTargetHasTaskOverlap(file.path, taskTokens),
     ).length;
-  const genericOnly =
-    selectedFiles.length > 0 &&
-    !hasCreateTarget &&
-    selectedFiles.every(isGenericShellOrGlobal);
   const selectionNotes = input.fileSelection.notes.join("\n").toLowerCase();
   const protectedBackendConstraint = hasProtectedBackendConstraint(
     input.rawTask,
@@ -975,12 +1135,23 @@ export function evaluateContextSelectionQuality(
       createTargets.some((file) =>
         explicitMissingPathTokens.includes(normalizeForCompare(file.path)),
       ));
-  const plausibleCodeFileCount =
+  const canonicalLiteralTargetSelected =
+    effectiveExecutionMode === "implementation" &&
+    explicitPathSelected &&
+    hasEditableTarget;
+  const genericOnly =
+    selectedFiles.length > 0 &&
+    !hasCreateTarget &&
+    !canonicalLiteralTargetSelected &&
+    selectedFiles.every(isGenericShellOrGlobal);
+  const plausibleTargetFileCount =
     selectedFiles.filter((file) => {
-      if (!isEditableCodeLike(file)) return false;
+      if (!isEditableProjectTarget(file)) return false;
       if (explicitExistingPathTokens.includes(normalizeForCompare(file.path)))
         return true;
       if (hasTaskOverlap(file, taskTokens)) return true;
+      if (buildPrimaryIntent && isBuildOrConfigLike(file)) return true;
+      if (docsPrimaryIntent && isDocumentationLike(file)) return true;
       if (area === "ui" && isUiLike(file)) return true;
       if (area === "backend" && isBackendLike(file)) return true;
       if (area === "fullstack" && (isUiLike(file) || isBackendLike(file)))
@@ -1035,6 +1206,8 @@ export function evaluateContextSelectionQuality(
 
   const confirmationCandidateCount = input.fileSelection.selectedFiles.filter(
     (file) =>
+      (file.usage === "inspect-and-edit" ||
+        file.usage === "create-and-edit") &&
       /needs confirmation|fallback-ranked candidate|investigation candidate|unconfirmed implementation candidate/i.test(
         `${file.reason}`,
       ),
@@ -1055,32 +1228,25 @@ export function evaluateContextSelectionQuality(
 
   if (hasCreateTarget) {
     score += 24;
-    warnings.push(
-      "Task includes planned create-and-edit file(s). Missing safe in-project paths are allowed because the user explicitly requested creation.",
-    );
   }
 
   if (explicitPathSelected) {
     score += 34;
-    if (!guardedExplicitTargetSelected) {
-      if (
-        hasCreateTarget &&
-        createTargets.some((file) =>
-          explicitMissingPathTokens.includes(normalizeForCompare(file.path)),
-        )
-      ) {
-        warnings.push(
-          "User-mentioned file path was accepted as a planned create target. ContextForge treated it as the strongest signal.",
-        );
-      } else {
-        warnings.push(
-          "User-mentioned file path was found and selected. ContextForge treated it as the strongest signal.",
-        );
-      }
-    }
   }
 
-  if (hasEditableCode) score += 10;
+  if (hasEditableTarget) score += 10;
+  if (
+    buildPrimaryIntent &&
+    selectedEditableTargets.some(isBuildOrConfigLike)
+  ) {
+    score += 12;
+  }
+  if (
+    docsPrimaryIntent &&
+    selectedEditableTargets.some(isDocumentationLike)
+  ) {
+    score += 10;
+  }
   if (
     hasUi &&
     (area === "ui" || area === "fullstack" || requestedArea === "ui")
@@ -1094,17 +1260,18 @@ export function evaluateContextSelectionQuality(
   if (hasOverlappingFile) score += 10;
   if (strongOverlapFileCount > 0)
     score += Math.min(16, strongOverlapFileCount * 5);
-  if (plausibleCodeFileCount > 0)
-    score += Math.min(18, plausibleCodeFileCount * 4);
+  if (plausibleTargetFileCount > 0)
+    score += Math.min(18, plausibleTargetFileCount * 4);
 
   if (docsPrimaryIntent && docsConfigOnly) {
     score += 12;
   }
 
   if (
-    isCodeTask &&
+    requiresEditableTarget &&
     docsConfigOnly &&
     !docsPrimaryIntent &&
+    !buildPrimaryIntent &&
     !explicitPathSelected &&
     !hasCreateTarget
   ) {
@@ -1115,13 +1282,14 @@ export function evaluateContextSelectionQuality(
   }
 
   if (
-    isCodeTask &&
-    !hasEditableCode &&
+    requiresEditableTarget &&
+    !hasEditableTarget &&
     !docsPrimaryIntent &&
+    !buildPrimaryIntent &&
     !hasCreateTarget
   ) {
     blockingReasons.push(
-      "No editable source/style/test file was selected for a code task.",
+      "No editable project target was selected for this implementation task.",
     );
     score -= 35;
   }
@@ -1133,7 +1301,7 @@ export function evaluateContextSelectionQuality(
     !docsPrimaryIntent &&
     !hasCreateTarget
   ) {
-    if (hasEditableCode) {
+    if (hasEditableTarget) {
       warnings.push(getMissingTargetWording("ui").warning);
       score -= 12;
     } else {
@@ -1148,7 +1316,7 @@ export function evaluateContextSelectionQuality(
     !explicitPathSelected &&
     !docsPrimaryIntent
   ) {
-    if (hasEditableCode) {
+    if (hasEditableTarget) {
       warnings.push(getMissingTargetWording("backend").warning);
       score -= 10;
     } else {
@@ -1266,7 +1434,7 @@ export function evaluateContextSelectionQuality(
     !explicitPathSelected &&
     !hasCreateTarget
   ) {
-    if (plausibleCodeFileCount > 0) {
+    if (plausibleTargetFileCount > 0) {
       warnings.push(
         "Selected files do not strongly match the task words, but they have plausible technical roles for this task.",
       );
@@ -1373,36 +1541,46 @@ export function evaluateContextSelectionQuality(
     );
   }
 
-  const result = applyModeToResult({
-    mode,
-    score,
+  const reconciledQuality = reconcileCanonicalImplementationQuality({
+    executionMode: effectiveExecutionMode,
+    authorizedTargets,
+    selectedEditablePaths,
     warnings,
     blockingReasons,
+    score,
+  });
+
+  const result = applyModeToResult({
+    mode,
+    score: reconciledQuality.score,
+    warnings: reconciledQuality.warnings,
+    blockingReasons: reconciledQuality.blockingReasons,
     manualSelectionConfirmed: Boolean(input.manualSelectionConfirmed),
   });
 
   const signals = buildQualitySignals({
-      selectedFiles,
-      score: result.score,
-      warnings: result.warnings,
-      blockingReasons: result.blockingReasons,
-      hasEditableCode,
-      hasOverlappingFile,
-      strongOverlapFileCount,
-      plausibleCodeFileCount,
-      genericOnly,
-      explicitPathSelected,
-      docsConfigOnly,
-      docsPrimaryIntent,
-      isCodeTask,
-      hasBackend,
-      protectedBackendConstraint,
-      createTargetCount,
-      selectionSource,
-      implementationArea: area,
-      semanticGraphEvidenceCount,
-      areaConflict,
-    });
+    selectedFiles,
+    score: result.score,
+    warnings: result.warnings,
+    blockingReasons: result.blockingReasons,
+    hasEditableTarget,
+    hasOverlappingFile,
+    strongOverlapFileCount,
+    plausibleTargetFileCount,
+    genericOnly,
+    explicitPathSelected,
+    docsConfigOnly,
+    docsPrimaryIntent,
+    buildPrimaryIntent,
+    isCodeTask,
+    hasBackend,
+    protectedBackendConstraint,
+    createTargetCount,
+    selectionSource,
+    implementationArea: area,
+    semanticGraphEvidenceCount,
+    areaConflict,
+  });
   if (effectiveExecutionMode === "clarification_required") {
     signals.confidence = Math.min(signals.confidence, 20);
     signals.targetConfidence = Math.min(signals.targetConfidence, 20);

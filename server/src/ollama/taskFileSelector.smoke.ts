@@ -9,14 +9,20 @@ import {
   type ProjectInventoryFile,
 } from "../scanner/projectInventoryScanner.js";
 import { evaluateContextSelectionQuality } from "../selection/contextQuality.js";
+import {
+  classifyFileMentionSemanticRole,
+  resolveExplicitFileMentions,
+} from "../selection/explicitFileMentions.js";
 import { detectHardTaskSafetyIssue } from "../selection/safetyPolicy.js";
 import { buildProjectSemanticGraph } from "../selection/projectSemanticGraph.js";
+import { applyExplicitTargetGuard } from "../selection/explicitTargetGuard.js";
 import type { AppSettings } from "../settings/settingsService.js";
 import type { TaskIntentAnalysis } from "./taskIntentAnalyzer.js";
 import {
   applyTaskClarificationsToUnderstanding,
   buildSelectionTaskText,
 } from "../taskPacks/taskClarifications.js";
+import { groundTaskCurrentState } from "../taskPacks/taskCurrentStateGrounding.js";
 import { selectTaskFiles } from "./taskFileSelector.js";
 
 const testSettings: AppSettings = {
@@ -88,6 +94,28 @@ function inventory(files: ProjectInventoryFile[]): ProjectInventory {
     scannedFiles: files.length,
     truncated: false,
     notes: [],
+  };
+}
+
+function symbolSyntax(
+  declarations: string[],
+  references: string[],
+  imports: NonNullable<ProjectInventoryFile["semanticFacts"]>["symbolSyntax"] extends infer Syntax
+    ? Syntax extends { imports: infer Imports }
+      ? Imports
+      : never
+    : never = [],
+) {
+  return {
+    parser: "js-ts-lexical-v1" as const,
+    declarations,
+    references,
+    imports,
+    exports: declarations,
+    symbols: declarations,
+    moduleSpecifiers: Array.from(
+      new Set(imports.map((binding) => binding.moduleSpecifier)),
+    ),
   };
 }
 
@@ -569,7 +597,7 @@ async function testGeneralHeaderTaskWithBackendConstraintStaysUi() {
   assert.equal(result.selectedFiles[0]?.path, "src/components/Header.tsx");
   assert.equal(
     result.notes.includes(
-      "Selector safety profile: evidence-grounding-gate-v7.",
+      "Selector safety profile: canonical-core-decision-v1.",
     ),
     true,
   );
@@ -797,7 +825,7 @@ async function testHallucinatedHeaderHintsDoNotOverrideSpecificFormTask() {
   );
   assert.equal(
     result.notes.includes(
-      "Selector safety profile: evidence-grounding-gate-v7.",
+      "Selector safety profile: canonical-core-decision-v1.",
     ),
     true,
   );
@@ -3303,8 +3331,12 @@ async function testExactLocalizedTextKeepsTranslationResourceInContext() {
       assert.ok(sidebar);
       assert.equal(sidebar.usage, "inspect-only");
       assert.ok(sidebar.selectionEvidence?.semanticRoles.includes("display"));
-      assert.ok(localization.confidence <= 0.72);
-      assert.ok(localization.reason.includes("needs confirmation"));
+      assert.ok(localization.confidence >= 0.8);
+      assert.equal(localization.reason.includes("needs confirmation"), false);
+      assert.equal(result.diagnostics?.executionContract?.mode, "implementation");
+      assert.deepEqual(result.diagnostics?.executionContract?.confirmedTargets, [
+        "apps/desktop/renderer/src/i18n/index.ts",
+      ]);
       assert.ok(
         result.notes.some((note) =>
           note.includes("localization resource"),
@@ -3312,6 +3344,1725 @@ async function testExactLocalizedTextKeepsTranslationResourceInContext() {
       );
     },
   );
+}
+
+async function testApiContractReusesExistingProducerValue() {
+  const files = [
+    sourceFile("server/src/routes/taskPacks.ts", {
+      role: "api-route",
+      imports: ["../ollama/taskPackGenerationReliability.js"],
+      symbols: ["taskPacksRouter", "generateReliableTaskPack"],
+      textHints: ["Task Pack", "generation", "API", "response", "refinement"],
+      contentPreview:
+        'import { generateReliableTaskPack } from "../ollama/taskPackGenerationReliability.js"; taskPacksRouter.post("/", async (_req, res) => { const generation = await generateReliableTaskPack(); res.json({ ok: true, taskPack }); });',
+      semanticFacts: {
+        declarations: ["taskPacksRouter"],
+        references: ["generateReliableTaskPack", "generation", "taskPack", "response"],
+        assignments: ["generation"],
+        objectProperties: ["ok", "taskPack", "generationDiagnostics"],
+        stateSymbols: [],
+        translationKeys: [],
+        translationEntries: [],
+        routePaths: ["/"],
+      },
+    }),
+    sourceFile("server/src/ollama/taskPackGenerationReliability.ts", {
+      role: "service",
+      exports: ["generateReliableTaskPack", "ReliableTaskPackGenerationResult"],
+      symbols: ["TaskPackGenerationDiagnostics", "ReliableTaskPackGenerationResult"],
+      textHints: ["Task Pack", "generation", "refinement", "cache", "cached"],
+      contentPreview:
+        "export interface ReliableTaskPackGenerationResult { cached: boolean; diagnostics: { cached: boolean }; } export async function generateReliableTaskPack(){ return { cached: true, diagnostics: { cached: true } }; }",
+      semanticFacts: {
+        declarations: [
+          "ReliableTaskPackGenerationResult",
+          "TaskPackGenerationDiagnostics",
+          "generateReliableTaskPack",
+        ],
+        references: ["refinement", "generation", "cache", "cached"],
+        assignments: ["cached"],
+        objectProperties: ["cached", "diagnostics", "content", "mode"],
+        stateSymbols: [],
+        translationKeys: [],
+        translationEntries: [],
+        routePaths: [],
+      },
+    }),
+    sourceFile("server/src/ollama/generationCache.ts", {
+      role: "service",
+      symbols: ["getCachedGeneration", "setCachedGeneration"],
+      textHints: ["generation", "cache", "entry"],
+      contentPreview:
+        "const cache = new Map(); export function getCachedGeneration(key: string) { return cache.get(key); }",
+      semanticFacts: {
+        declarations: ["getCachedGeneration", "setCachedGeneration"],
+        references: ["cache", "generation"],
+        assignments: ["cache"],
+        objectProperties: ["content", "model", "createdAt"],
+        stateSymbols: [],
+        translationKeys: [],
+        translationEntries: [],
+        routePaths: [],
+      },
+    }),
+    sourceFile("apps/desktop/renderer/src/types/index.ts", {
+      role: "types",
+      symbols: ["TaskPack", "TaskPackGenerationDiagnostics"],
+      textHints: ["Task Pack", "generation", "cached", "generationCached"],
+      contentPreview:
+        "export interface TaskPackGenerationDiagnostics { cached: boolean; } export interface TaskPack { generationCached?: boolean; generationRecipe?: unknown; }",
+      semanticFacts: {
+        declarations: ["TaskPack", "TaskPackGenerationDiagnostics"],
+        references: ["generation", "cached"],
+        assignments: [],
+        objectProperties: ["cached", "generationCached", "generationRecipe"],
+        stateSymbols: [],
+        translationKeys: [],
+        translationEntries: [],
+        routePaths: [],
+      },
+    }),
+    sourceFile("apps/desktop/renderer/src/api/client.ts", {
+      role: "client-api",
+      imports: ["../types"],
+      symbols: ["createTaskPack"],
+      textHints: ["Task Pack", "API", "request"],
+      contentPreview:
+        'export async function createTaskPack(){ return request<{ taskPack: TaskPack }>("/task-packs"); }',
+    }),
+    sourceFile("apps/desktop/renderer/src/components/modals/GeneratedTaskPackModal.tsx", {
+      role: "component",
+      symbols: ["GeneratedTaskPackModal"],
+      textHints: ["Task Pack", "cached", "fresh generation"],
+      contentPreview:
+        "export function GeneratedTaskPackModal({ taskPack }) { return <div>{taskPack.generationCached ? 'Cached' : 'Fresh'}</div>; }",
+    }),
+    sourceFile("apps/desktop/renderer/src/components/modals/GlobalSearchModal.tsx", {
+      role: "component",
+      symbols: ["GlobalSearchModal"],
+      textHints: ["Task Pack", "boolean", "search"],
+      contentPreview:
+        "export function GlobalSearchModal(){ return <div>Search task packs</div>; }",
+    }),
+  ];
+
+  await withMockedFetch(
+    [
+      JSON.stringify({
+        selectedFiles: [
+          {
+            path: "server/src/ollama/taskPackGenerationReliability.ts",
+            usage: "inspect-and-edit",
+            reason: "Add isCacheRefined to the TaskPackRefinement schema.",
+            confidence: 0.96,
+          },
+          {
+            path: "apps/desktop/renderer/src/components/modals/GlobalSearchModal.tsx",
+            usage: "inspect-only",
+            reason: "Task Pack consumer.",
+            confidence: 0.74,
+          },
+        ],
+        notes: [
+          "Implementation requires adding isCacheRefined to TaskPackRefinement schema.",
+        ],
+      }),
+    ],
+    async () => {
+      const result = await selectTaskFiles({
+        rawTask:
+          "В API генерации Task Pack добавь булево поле, показывающее, был ли refinement получен из кеша.",
+        taskType: "general",
+        targetTool: "codex",
+        inventory: inventory(files),
+        settings: ollamaTestSettings(),
+        taskIntent: structuredIntent({
+          taskArea: "backend",
+          intentTags: ["backend-flow"],
+          domainTerms: ["generation", "Task Pack", "refinement", "cache"],
+          recommendedSearchTerms: ["cached", "generationCached", "refinement"],
+          fileRoleHints: ["component", "state", "style", "api", "route", "service"],
+          taskUnderstanding: {
+            ...structuredIntent().taskUnderstanding,
+            goal:
+              "Add a boolean field to the Task Pack generation API indicating if refinement was retrieved from cache.",
+            action: "update",
+            requestedChanges: [
+              "Expose whether the existing refinement result came from cache.",
+            ],
+          },
+        }),
+      });
+
+      assert.deepEqual(
+        result.selectedFiles.map((file) => file.path),
+        [
+          "server/src/routes/taskPacks.ts",
+          "server/src/ollama/taskPackGenerationReliability.ts",
+          "apps/desktop/renderer/src/types/index.ts",
+        ],
+      );
+      assert.equal(result.selectedFiles[0]?.usage, "inspect-and-edit");
+      assert.equal(result.selectedFiles[1]?.usage, "inspect-only");
+      assert.equal(result.selectedFiles[2]?.usage, "inspect-only");
+      assert.equal(
+        result.selectedFiles[0]?.selectionEvidence?.ownershipEvidence,
+        "route_graph",
+      );
+      assert.equal(result.diagnostics?.executionMode, "implementation");
+      assert.equal(result.effectiveTaskArea, "backend");
+      assert.deepEqual(result.diagnostics?.requiredLayers, ["backend"]);
+      assert.deepEqual(result.diagnostics?.executionContract?.confirmedTargets, [
+        "server/src/routes/taskPacks.ts",
+      ]);
+      assert.equal(result.diagnostics?.selectionSource, "final-decision");
+      assert.equal(result.source, "deterministic");
+      assert.equal(result.usedFallback, false);
+      assert.equal(
+        result.selectedFiles.some((file) =>
+          /GlobalSearchModal|GeneratedTaskPackModal|generationCache\.ts/u.test(file.path),
+        ),
+        false,
+      );
+      assert.equal(
+        result.notes.some((note) => note.includes("isCacheRefined")),
+        false,
+      );
+      assert.ok(
+        result.notes.some((note) => note.includes("Reuse/expose operation proven")),
+      );
+    },
+  );
+}
+
+async function testBoundedUiChangeSeparatesScopeTargetAndPreserveSurface() {
+  const files = [
+    sourceFile("apps/desktop/renderer/src/components/projects/ProjectCard.tsx", {
+      role: "component",
+      exports: ["ProjectCard"],
+      symbols: ["ProjectCard"],
+      textHints: ["project card", "AGENTS.md", "Generate AGENTS.md"],
+      contentPreview: "export function ProjectCard(){ return <button>AGENTS.md</button>; }",
+    }),
+    sourceFile("apps/desktop/renderer/src/components/projects/ProjectsSection.tsx", {
+      role: "component",
+      imports: ["./ProjectCard"],
+      exports: ["ProjectsSection"],
+      symbols: ["ProjectsSection"],
+      textHints: ["Projects", "ProjectCard"],
+      contentPreview: "import { ProjectCard } from './ProjectCard'; export function ProjectsSection(){ return <ProjectCard />; }",
+    }),
+    sourceFile("apps/desktop/renderer/src/pages/ProjectDetailsPage.tsx", {
+      role: "page",
+      exports: ["ProjectDetailsPage"],
+      symbols: ["ProjectDetailsPage"],
+      textHints: ["project details", "AGENTS.md", "Generate AGENTS.md"],
+      contentPreview: "export function ProjectDetailsPage(){ return <button>AGENTS.md</button>; }",
+    }),
+    sourceFile("apps/desktop/renderer/src/api/client.ts", {
+      role: "client-api",
+      textHints: ["agents generation api"],
+    }),
+    sourceFile("server/src/context/agentsBuilder.ts", {
+      role: "service",
+      textHints: ["AGENTS.md backend generation"],
+    }),
+    sourceFile("AGENTS.md", {
+      kind: "docs",
+      role: "docs",
+      textHints: ["agent instructions"],
+    }),
+  ];
+  const rawTask =
+    "Убери действие Generate AGENTS.md только из карточки проекта на странице Projects. Оставь генерацию AGENTS.md доступной на странице деталей проекта и не меняй backend генерации.";
+  const boundedIntent = structuredIntent({
+    taskArea: "ui",
+    structuredIntent: {
+      schemaVersion: 1,
+      primaryTargets: [
+        {
+          kind: "page",
+          value: "Projects",
+          confidence: 0.9,
+          evidence: "The task names the Projects page as scope.",
+          provenance: "model_proposed",
+        },
+      ],
+      positiveActions: ["Remove Generate AGENTS.md from the project card"],
+      protectedScopes: ["backend generation"],
+      allowedEditScope: "target_with_supporting_context",
+      needsStyles: false,
+      needsBackend: false,
+      ambiguities: [],
+      modelNotes: [],
+    },
+    taskUnderstanding: {
+      ...structuredIntent().taskUnderstanding,
+      goal: "Remove Generate AGENTS.md only from the project card while preserving it on project details.",
+      action: "remove",
+      targetHints: ["ProjectCard", "Projects", "AGENTS.md", "ProjectDetailsPage"],
+      requestedChanges: ["Remove the card action only"],
+      constraints: ["Keep project details action", "Do not change backend generation"],
+      changeDefinition: "bounded",
+    },
+  });
+  const boundedInventory = inventory(files);
+  const result = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: boundedInventory,
+    settings: testSettings,
+    taskIntent: boundedIntent,
+  });
+
+  assert.deepEqual(
+    result.selectedFiles.map((file) => [file.path, file.usage]),
+    [
+      ["apps/desktop/renderer/src/components/projects/ProjectCard.tsx", "inspect-and-edit"],
+      ["apps/desktop/renderer/src/components/projects/ProjectsSection.tsx", "inspect-only"],
+      ["apps/desktop/renderer/src/pages/ProjectDetailsPage.tsx", "inspect-only"],
+    ],
+  );
+  assert.equal(result.selectedFiles.some((file) => /server|api\/client/u.test(file.path)), false);
+  assert.equal(result.diagnostics?.executionMode, "implementation");
+
+  assert.equal(
+    classifyFileMentionSemanticRole(rawTask, "AGENTS.md"),
+    "artifact-reference",
+  );
+  assert.deepEqual(
+    resolveExplicitFileMentions(rawTask, boundedInventory).existingPaths,
+    [],
+    "a generated artifact named inside a UI action must not become an explicit source-file target",
+  );
+
+  const quality = evaluateContextSelectionQuality({
+    rawTask,
+    requestedTaskType: "general",
+    effectiveTaskArea: result.effectiveTaskArea,
+    inventory: boundedInventory,
+    fileSelection: result,
+    taskIntent: boundedIntent,
+  });
+  assert.notEqual(quality.status, "blocked");
+  assert.equal(
+    quality.blockingReasons.some((reason) => reason.includes("explicit file path")),
+    false,
+  );
+
+  assert.equal(
+    classifyFileMentionSemanticRole("Измени AGENTS.md и обнови инструкции.", "AGENTS.md"),
+    "editable-target",
+  );
+  assert.equal(
+    classifyFileMentionSemanticRole("Сгенерируй AGENTS.md для этого проекта.", "AGENTS.md"),
+    "editable-target",
+  );
+  assert.equal(
+    classifyFileMentionSemanticRole(
+      "Обнови apps/desktop/renderer/src/App.tsx. Не меняй server/src/routes/projects.ts.",
+      "server/src/routes/projects.ts",
+    ),
+    "artifact-reference",
+    "a slash path inside a protected clause must not become an editable target",
+  );
+}
+
+async function testCreateMissingBackendEndpointKeepsExplicitDestination() {
+  const explicitPath = "server/src/routes/projectFullTextSearch.ts";
+  const files = [
+    sourceFile("server/src/routes/contextComposer.ts", {
+      role: "api-route",
+      imports: ["express", "zod"],
+      exports: ["contextComposerRouter"],
+      symbols: ["contextComposerRouter", "fileSearchSchema", "query"],
+      textHints: ["context composer file search query"],
+      sizeBytes: 3_664,
+      semanticFacts: {
+        declarations: ["contextComposerRouter", "fileSearchSchema"],
+        references: ["post", "query", "searchContextComposerFiles"],
+        assignments: [],
+        objectProperties: ["query", "limit"],
+        typeFields: [],
+        stateSymbols: [],
+        translationKeys: [],
+        translationEntries: [],
+        routePaths: ["/files"],
+      },
+    }),
+    sourceFile("server/src/routes/integrations.ts", {
+      role: "api-route",
+      imports: ["express", "zod"],
+      exports: ["integrationsRouter"],
+      symbols: ["integrationsRouter", "auth", "status"],
+      textHints: ["integration auth status"],
+      sizeBytes: 3_204,
+      semanticFacts: {
+        declarations: ["integrationsRouter", "auth", "status"],
+        references: ["get", "post", "auth"],
+        assignments: [],
+        objectProperties: ["ok", "status"],
+        typeFields: [],
+        stateSymbols: [],
+        translationKeys: [],
+        translationEntries: [],
+        routePaths: ["/github/status"],
+      },
+    }),
+    sourceFile("server/src/routes/projects.ts", {
+      role: "api-route",
+      imports: ["express", "zod"],
+      exports: ["projectsRouter"],
+      symbols: ["projectsRouter", "projects", "search"],
+      textHints: ["projects route search project list"],
+      sizeBytes: 28_000,
+      semanticFacts: {
+        declarations: ["projectsRouter", "projects"],
+        references: ["get", "projects", "search"],
+        assignments: [],
+        objectProperties: ["projects", "project"],
+        typeFields: [],
+        stateSymbols: [],
+        translationKeys: [],
+        translationEntries: [],
+        routePaths: ["/"],
+      },
+    }),
+    sourceFile("server/src/routes/taskPacks.ts", {
+      role: "api-route",
+      imports: ["express", "zod"],
+      exports: ["taskPacksRouter"],
+      symbols: ["taskPacksRouter", "project", "endpoint", "implementation"],
+      textHints: ["task pack project endpoint query search"],
+      sizeBytes: 64_000,
+      semanticFacts: {
+        declarations: ["taskPacksRouter", "project"],
+        references: ["get", "query", "search", "project"],
+        assignments: [],
+        objectProperties: ["projectId", "task"],
+        typeFields: [],
+        stateSymbols: [],
+        translationKeys: [],
+        translationEntries: [],
+        routePaths: ["/preview"],
+      },
+    }),
+    sourceFile("server/src/routes/search.ts", {
+      role: "api-route",
+      imports: ["express", "zod", "../search/workspaceSearch.js"],
+      exports: ["searchRouter"],
+      symbols: ["searchRouter", "searchQuerySchema", "parsed", "results"],
+      textHints: [
+        "search",
+        "error",
+        "query",
+        "router",
+        "workspace",
+        "parsed",
+        "results",
+        "schema",
+      ],
+      sizeBytes: 910,
+      contentPreview:
+        "export const searchRouter = Router(); const searchQuerySchema = z.object({ q: z.string() }); searchRouter.get('/', async (req, res) => req.query.q);",
+      semanticFacts: {
+        declarations: ["searchRouter", "searchQuerySchema", "parsed", "results"],
+        references: [
+          "Router",
+          "searchWorkspace",
+          "searchRouter",
+          "searchQuerySchema",
+          "get",
+          "req",
+          "res",
+          "query",
+          "q",
+          "results",
+        ],
+        assignments: ["searchRouter", "searchQuerySchema", "parsed", "results"],
+        objectProperties: ["q", "ok", "query", "results", "message", "error"],
+        typeFields: [],
+        stateSymbols: [],
+        translationKeys: [],
+        translationEntries: [],
+        routePaths: [],
+      },
+    }),
+    sourceFile("server/src/index.ts", {
+      role: "server-entry",
+      imports: ["./routes/search"],
+      textHints: ["express route registration"],
+    }),
+    sourceFile("apps/desktop/renderer/src/pages/GlobalSearchPage.tsx", {
+      role: "page",
+      textHints: ["search UI"],
+    }),
+  ];
+  const intent = structuredIntent({
+    taskArea: "backend",
+    fileRoleHints: ["route"],
+    taskUnderstanding: {
+      ...structuredIntent().taskUnderstanding,
+      goal: "Add one backend GET full-text project search endpoint.",
+      action: "create",
+      targetHints: [explicitPath],
+      requestedChanges: [
+        "Accept a query string and return matching projects.",
+        "Реализовать только backend GET endpoint. UI не меня",
+      ],
+      constraints: ["Do not change UI."],
+      changeDefinition: "bounded",
+    },
+    structuredIntent: {
+      schemaVersion: 1,
+      primaryTargets: [{
+        kind: "explicit_file",
+        value: explicitPath,
+        path: explicitPath,
+        confidence: 0.98,
+        evidence: "The user named the new destination path.",
+        provenance: "user_confirmed",
+      }],
+      positiveActions: ["Add a backend GET endpoint"],
+      protectedScopes: ["UI"],
+      allowedEditScope: "explicit_targets_only",
+      needsStyles: false,
+      needsBackend: true,
+      ambiguities: [],
+      modelNotes: [],
+    },
+  });
+
+  const tightReferenceSettings: AppSettings = {
+    ...testSettings,
+    composerFileLimits: {
+      ...testSettings.composerFileLimits,
+      default: 3,
+      backend: 3,
+    },
+  };
+  const result = await selectTaskFiles({
+    rawTask:
+      `В файле ${explicitPath} добавь endpoint для полнотекстового поиска по проектам. ` +
+      "Реализовать только backend GET endpoint: он принимает поисковую строку в query-параметре q и возвращает найденные проекты. UI не менять.",
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory(files),
+    settings: tightReferenceSettings,
+    taskIntent: intent,
+  });
+  assert.equal(result.selectedFiles[0]?.path, explicitPath);
+  assert.equal(result.selectedFiles[0]?.usage, "create-and-edit");
+  assert.equal(
+    result.selectedFiles[0]?.selectionEvidence?.pathValidity,
+    "synthetic",
+  );
+  assert.equal(result.diagnostics?.executionMode, "implementation");
+  assert.equal(
+    result.diagnostics?.taskProfile,
+    "general",
+    "a protected or truncated UI clause must not turn a backend-only create task into a full-stack task",
+  );
+  assert.equal(
+    result.diagnostics?.investigationTrace?.triggered,
+    true,
+    "existing implementation evidence should exercise the investigation trace before the exact create target is finalized",
+  );
+  assert.deepEqual(
+    result.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [explicitPath],
+  );
+  const selectedSearchIndex = result.selectedFiles.findIndex(
+    (file) =>
+      file.path === "server/src/routes/search.ts" &&
+      file.usage === "inspect-only",
+  );
+  assert.ok(
+    selectedSearchIndex > 0 && selectedSearchIndex <= 3,
+    "the focused GET/query search route must survive a tight reference budget ahead of broad same-directory route files",
+  );
+  assert.equal(
+    result.selectedFiles[selectedSearchIndex]?.selectionEvidence?.actionConfidence,
+    "inspect_only",
+    "a same-directory implementation convention retained as inspect-only must not advertise confirmed edit authorization",
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path.includes("renderer")),
+    false,
+  );
+
+  const permuted = await selectTaskFiles({
+    rawTask:
+      `В файле ${explicitPath} добавь endpoint для полнотекстового поиска по проектам. ` +
+      "Реализовать только backend GET endpoint: он принимает поисковую строку в query-параметре q и возвращает найденные проекты. UI не менять.",
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory([...files].reverse()),
+    settings: tightReferenceSettings,
+    taskIntent: intent,
+  });
+  assert.deepEqual(
+    permuted.selectedFiles.map((file) => [file.path, file.usage]),
+    result.selectedFiles.map((file) => [file.path, file.usage]),
+    "create-reference ranking must not depend on inventory order",
+  );
+  assert.deepEqual(
+    permuted.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [explicitPath],
+  );
+}
+
+async function testCreateRouteWithExportDeclarationKeepsMissingTarget() {
+  const rawTask =
+    "Create server/src/routes/projectDiagnostics.ts exporting projectDiagnosticsRouter with GET /:id that returns { id, name, lastScannedAt }. Register it in server/src/index.ts at /api/project-diagnostics. Reuse the existing project storage API. Backend only; do not modify renderer files.";
+  const result = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("server/src/index.ts", {
+        role: "server-entry",
+        textHints: ["express app routes"],
+      }),
+      sourceFile("server/src/routes/projects.ts", {
+        role: "api-route",
+        textHints: ["project storage route"],
+      }),
+      sourceFile("apps/desktop/renderer/src/api/client.ts", {
+        role: "client-api",
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "backend",
+      taskUnderstanding: {
+        ...structuredIntent().taskUnderstanding,
+        goal: "Create and register the project diagnostics route.",
+        action: "create",
+        targetHints: [
+          "server/src/routes/projectDiagnostics.ts",
+          "server/src/index.ts",
+        ],
+        requestedChanges: [
+          "Create the route module and register it in the server entry.",
+        ],
+        constraints: ["Do not modify renderer files."],
+        readiness: "ready",
+        canProceed: true,
+      },
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [],
+        positiveActions: ["Create and register the backend route."],
+        protectedScopes: ["renderer"],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: false,
+        needsBackend: true,
+        ambiguities: [],
+        modelNotes: [],
+      },
+    }),
+  });
+
+  assert.equal(
+    classifyFileMentionSemanticRole(
+      rawTask,
+      "server/src/routes/projectDiagnostics.ts",
+    ),
+    "editable-target",
+  );
+  assert.equal(result.effectiveTaskArea, "backend");
+  assert.equal(result.diagnostics?.executionMode, "implementation");
+  assert.deepEqual(
+    result.selectedFiles.map((file) => [file.path, file.usage]),
+    [
+      ["server/src/routes/projectDiagnostics.ts", "create-and-edit"],
+      ["server/src/index.ts", "inspect-and-edit"],
+      ["server/src/routes/projects.ts", "inspect-only"],
+    ],
+  );
+  assert.deepEqual(
+    [
+      ...(result.diagnostics?.executionContract?.authorization
+        ?.authorizedTargets ?? []),
+    ].sort(),
+    [
+      "server/src/index.ts",
+      "server/src/routes/projectDiagnostics.ts",
+    ],
+  );
+}
+
+async function testExplicitDocumentationTargetBeatsCommandAndCoreKeywords() {
+  const rawTask =
+    "В файле AGENTS.md добавь раздел «Local verification» с командами npm run test:selector и npm run build. Исходный код приложения не меняй.";
+  const intent = structuredIntent({
+    taskArea: "build",
+    fileRoleHints: ["config", "test"],
+    taskUnderstanding: {
+      ...structuredIntent().taskUnderstanding,
+      goal: "Add a Local verification section to AGENTS.md.",
+      action: "update",
+      targetHints: ["AGENTS.md"],
+      requestedChanges: ["Document two local verification commands."],
+      constraints: ["Do not change application source code."],
+      changeDefinition: "bounded",
+    },
+    structuredIntent: {
+      schemaVersion: 1,
+      primaryTargets: [{
+        kind: "explicit_file",
+        value: "AGENTS.md",
+        path: "AGENTS.md",
+        confidence: 0.98,
+        evidence: "The user explicitly named this real project path.",
+        provenance: "user_confirmed",
+      }],
+      positiveActions: [
+        "Add Local verification section",
+        "Include npm run test:selector and npm run build",
+      ],
+      protectedScopes: ["application source code"],
+      allowedEditScope: "explicit_targets_only",
+      needsStyles: false,
+      needsBackend: null,
+      ambiguities: [],
+      modelNotes: [],
+    },
+  });
+  const result = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("AGENTS.md", {
+        kind: "docs",
+        role: "docs",
+        textHints: ["Available Commands"],
+      }),
+      sourceFile("package.json", {
+        kind: "config",
+        role: "config",
+        textHints: ["scripts", "build", "test:selector"],
+      }),
+      sourceFile("server/src/ollama/taskFileSelector.ts", {
+        role: "service",
+        textHints: ["selector"],
+      }),
+      sourceFile("server/src/ollama/taskFileSelector.smoke.ts", {
+        kind: "test",
+        role: "test",
+        textHints: ["selector smoke test"],
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: intent,
+  });
+
+  assert.equal(result.effectiveTaskArea, "docs");
+  assert.deepEqual(
+    result.selectedFiles.map((file) => [file.path, file.usage]),
+    [["AGENTS.md", "inspect-and-edit"]],
+  );
+  assert.deepEqual(result.diagnostics?.requiredLayers, ["docs"]);
+  assert.equal(result.diagnostics?.executionMode, "implementation");
+  assert.deepEqual(
+    result.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    ["AGENTS.md"],
+  );
+}
+
+async function testTypeSymbolRenameUsesDeclarationAndReferenceGraph() {
+  const rawTask =
+    "Переименуй TypeScript-тип WorkspaceSearchResponse в GlobalSearchResponse и обнови все импорты. JSON-контракт API и поведение поиска не меняй.";
+  const intent = structuredIntent({
+    taskArea: "build",
+    taskUnderstanding: {
+      ...structuredIntent().taskUnderstanding,
+      goal: "Rename WorkspaceSearchResponse to GlobalSearchResponse and update its references.",
+      action: "replace",
+      targetHints: ["WorkspaceSearchResponse"],
+      requestedChanges: [
+        "Update all imports referencing the old type name.",
+      ],
+      constraints: ["Preserve the JSON API contract and search behavior."],
+      changeDefinition: "exact",
+      explicitValues: [{
+        kind: "literal",
+        value: "GlobalSearchResponse",
+        exact: true,
+        source: "user",
+      }],
+    },
+    structuredIntent: {
+      schemaVersion: 1,
+      primaryTargets: [{
+        kind: "symbol",
+        value: "WorkspaceSearchResponse",
+        name: "WorkspaceSearchResponse",
+        confidence: 0.95,
+        evidence: "The user explicitly named this symbol.",
+        provenance: "user_confirmed",
+      }],
+      positiveActions: ["Rename the type and update all imports"],
+      protectedScopes: ["JSON API contract", "search behavior"],
+      allowedEditScope: "target_with_supporting_context",
+      needsStyles: false,
+      needsBackend: false,
+      ambiguities: [],
+      modelNotes: [],
+    },
+  });
+  const result = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("apps/desktop/renderer/src/types/index.ts", {
+        role: "types",
+        exports: ["WorkspaceSearchResponse"],
+        symbols: ["WorkspaceSearchResponse"],
+        semanticFacts: {
+          symbolSyntax: symbolSyntax(
+            ["WorkspaceSearchResponse"],
+            ["WorkspaceSearchResponse", "WorkspaceSearchResult"],
+          ),
+          declarations: ["WorkspaceSearchResponse"],
+          references: ["WorkspaceSearchResponse", "WorkspaceSearchResult"],
+          assignments: [], objectProperties: ["results"], typeFields: ["results"],
+          stateSymbols: [], translationKeys: [], translationEntries: [], routePaths: [],
+        },
+      }),
+      sourceFile("apps/desktop/renderer/src/api/client.ts", {
+        role: "client-api",
+        imports: ["../types"],
+        semanticFacts: {
+          symbolSyntax: symbolSyntax(
+            ["searchWorkspace"],
+            ["WorkspaceSearchResponse", "request"],
+            [{
+              moduleSpecifier: "../types",
+              importedName: "WorkspaceSearchResponse",
+              localName: "WorkspaceSearchResponse",
+              kind: "named",
+              typeOnly: true,
+            }],
+          ),
+          declarations: ["searchWorkspace"],
+          references: ["WorkspaceSearchResponse", "request"],
+          assignments: [], objectProperties: [], typeFields: [], stateSymbols: [],
+          translationKeys: [], translationEntries: [], routePaths: [],
+        },
+      }),
+      sourceFile("apps/desktop/renderer/src/pages/TaskPacksPage.tsx", {
+        role: "page",
+        textHints: ["workspace search response"],
+      }),
+      sourceFile("server/src/ollama/taskUnderstanding.smoke.ts", {
+        kind: "test",
+        role: "test",
+        semanticFacts: {
+          symbolSyntax: symbolSyntax([], []),
+          declarations: [], references: ["WorkspaceSearchResponse"], assignments: [],
+          objectProperties: [], typeFields: [], stateSymbols: [], translationKeys: [],
+          translationEntries: [], routePaths: [],
+        },
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: intent,
+  });
+
+  assert.equal(result.diagnostics?.taskProfile, "symbol-rename");
+  assert.equal(result.effectiveTaskArea, "ui");
+  assert.deepEqual(
+    result.selectedFiles.map((file) => [file.path, file.usage]),
+    [
+      ["apps/desktop/renderer/src/types/index.ts", "inspect-and-edit"],
+      ["apps/desktop/renderer/src/api/client.ts", "inspect-and-edit"],
+    ],
+  );
+  assert.deepEqual(result.diagnostics?.requiredLayers, []);
+  assert.equal(result.diagnostics?.executionMode, "implementation");
+  assert.deepEqual(
+    result.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [
+      "apps/desktop/renderer/src/types/index.ts",
+      "apps/desktop/renderer/src/api/client.ts",
+    ],
+  );
+}
+
+
+async function testMissingSymbolRenameSafelyInvestigates() {
+  const rawTask =
+    "Rename TypeScript type MissingSearchResponse to NewSearchResponse and update all imports. Do not change backend behavior.";
+  const result = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("apps/desktop/renderer/src/types/index.ts", {
+        role: "types",
+        exports: ["WorkspaceSearchResponse"],
+        symbols: ["WorkspaceSearchResponse"],
+        semanticFacts: {
+          symbolSyntax: symbolSyntax(
+            ["WorkspaceSearchResponse"],
+            ["WorkspaceSearchResponse"],
+          ),
+          declarations: ["WorkspaceSearchResponse"],
+          references: ["WorkspaceSearchResponse"],
+          assignments: [], objectProperties: [], typeFields: [], stateSymbols: [],
+          translationKeys: [], translationEntries: [], routePaths: [],
+        },
+      }),
+      sourceFile("apps/desktop/renderer/src/api/client.ts", {
+        role: "client-api",
+        imports: ["../types"],
+        semanticFacts: {
+          symbolSyntax: symbolSyntax(
+            [],
+            ["WorkspaceSearchResponse"],
+            [{
+              moduleSpecifier: "../types",
+              importedName: "WorkspaceSearchResponse",
+              localName: "WorkspaceSearchResponse",
+              kind: "named",
+              typeOnly: true,
+            }],
+          ),
+          declarations: [], references: ["WorkspaceSearchResponse"],
+          assignments: [], objectProperties: [], typeFields: [], stateSymbols: [],
+          translationKeys: [], translationEntries: [], routePaths: [],
+        },
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "build",
+      taskUnderstanding: {
+        ...structuredIntent().taskUnderstanding,
+        goal: "Rename MissingSearchResponse to NewSearchResponse.",
+        action: "replace",
+        targetHints: ["MissingSearchResponse"],
+        requestedChanges: ["Update all imports for the renamed type."],
+        constraints: ["Do not change backend behavior."],
+        changeDefinition: "exact",
+        explicitValues: [{
+          kind: "literal",
+          value: "NewSearchResponse",
+          exact: true,
+          source: "user",
+        }],
+      },
+    }),
+  });
+
+  assert.equal(result.diagnostics?.taskProfile, "symbol-rename");
+  assert.equal(result.diagnostics?.executionMode, "investigation");
+  assert.deepEqual(result.selectedFiles, []);
+  assert.deepEqual(
+    result.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [],
+  );
+}
+
+async function testSymbolRenameDestinationCollisionSafelyInvestigates() {
+  const rawTask =
+    "Rename TypeScript type WorkspaceSearchResponse to ContextComposerFileSearchResponse and update all imports. Do not change backend behavior.";
+  const result = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("apps/desktop/renderer/src/types/index.ts", {
+        role: "types",
+        exports: [
+          "WorkspaceSearchResponse",
+          "ContextComposerFileSearchResponse",
+        ],
+        symbols: [
+          "WorkspaceSearchResponse",
+          "ContextComposerFileSearchResponse",
+        ],
+        semanticFacts: {
+          symbolSyntax: symbolSyntax(
+            [
+              "WorkspaceSearchResponse",
+              "ContextComposerFileSearchResponse",
+            ],
+            ["WorkspaceSearchResponse"],
+          ),
+          declarations: [
+            "WorkspaceSearchResponse",
+            "ContextComposerFileSearchResponse",
+          ],
+          references: ["WorkspaceSearchResponse"],
+          assignments: [], objectProperties: [], typeFields: [], stateSymbols: [],
+          translationKeys: [], translationEntries: [], routePaths: [],
+        },
+      }),
+      sourceFile("apps/desktop/renderer/src/api/client.ts", {
+        role: "client-api",
+        imports: ["../types"],
+        semanticFacts: {
+          symbolSyntax: symbolSyntax(
+            [],
+            ["WorkspaceSearchResponse"],
+            [{
+              moduleSpecifier: "../types",
+              importedName: "WorkspaceSearchResponse",
+              localName: "WorkspaceSearchResponse",
+              kind: "named",
+              typeOnly: true,
+            }],
+          ),
+          declarations: [], references: ["WorkspaceSearchResponse"],
+          assignments: [], objectProperties: [], typeFields: [], stateSymbols: [],
+          translationKeys: [], translationEntries: [], routePaths: [],
+        },
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "build",
+      taskUnderstanding: {
+        ...structuredIntent().taskUnderstanding,
+        goal:
+          "Rename WorkspaceSearchResponse to ContextComposerFileSearchResponse.",
+        action: "replace",
+        targetHints: ["WorkspaceSearchResponse"],
+        requestedChanges: ["Update all imports for the renamed type."],
+        constraints: ["Do not change backend behavior."],
+        changeDefinition: "exact",
+        explicitValues: [{
+          kind: "literal",
+          value: "ContextComposerFileSearchResponse",
+          exact: true,
+          source: "user",
+        }],
+      },
+    }),
+  });
+
+  assert.equal(result.diagnostics?.taskProfile, "symbol-rename");
+  assert.equal(result.diagnostics?.executionMode, "investigation");
+  assert.deepEqual(result.selectedFiles, []);
+  assert.deepEqual(
+    result.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [],
+  );
+}
+
+async function testScannedSymbolRenameIgnoresFixtureText() {
+  const root = await fs.mkdtemp(path.join(os.tmpdir(), "contextforge-symbol-scan-"));
+  try {
+    await fs.mkdir(path.join(root, "apps", "desktop", "renderer", "src", "types"), { recursive: true });
+    await fs.mkdir(path.join(root, "apps", "desktop", "renderer", "src", "api"), { recursive: true });
+    await fs.mkdir(path.join(root, "server", "src", "ollama"), { recursive: true });
+    await fs.writeFile(
+      path.join(root, "apps", "desktop", "renderer", "src", "types", "index.ts"),
+      [
+        "export interface WorkspaceSearchResponse {",
+        "  results: string[];",
+        "}",
+      ].join("\n"),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(root, "apps", "desktop", "renderer", "src", "api", "client.ts"),
+      [
+        'import type { WorkspaceSearchResponse } from "../types";',
+        "export function searchWorkspace(): WorkspaceSearchResponse {",
+        "  return { results: [] };",
+        "}",
+      ].join("\n"),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(root, "apps", "desktop", "renderer", "src", "types", "barrel.ts"),
+      'export type { WorkspaceSearchResponse } from "./index";\n',
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(root, "apps", "desktop", "renderer", "src", "api", "barrelClient.ts"),
+      [
+        'import type { WorkspaceSearchResponse } from "../types/barrel";',
+        "export type SearchPayload = WorkspaceSearchResponse;",
+      ].join("\n"),
+      "utf8",
+    );
+    await fs.writeFile(
+      path.join(root, "server", "src", "ollama", "taskFileSelector.smoke.ts"),
+      [
+        'const fixture = "interface WorkspaceSearchResponse { fake: true }";',
+        "// MissingSearchResponse and WorkspaceSearchResponse are scenario text only.",
+        "const prompt = `Rename MissingSearchResponse to NewSearchResponse`;",
+        "export { fixture, prompt };",
+      ].join("\n"),
+      "utf8",
+    );
+
+    const scanned = await scanProjectInventory(root);
+    const renameIntent = structuredIntent({
+      taskArea: "build",
+      taskUnderstanding: {
+        ...structuredIntent().taskUnderstanding,
+        goal: "Rename WorkspaceSearchResponse to GlobalSearchResponse.",
+        action: "replace",
+        targetHints: ["WorkspaceSearchResponse"],
+        requestedChanges: ["Update all imports for the renamed type."],
+        constraints: ["Do not change backend behavior."],
+        changeDefinition: "exact",
+        explicitValues: [{
+          kind: "literal",
+          value: "GlobalSearchResponse",
+          exact: true,
+          source: "user",
+        }],
+      },
+    });
+    const renamed = await selectTaskFiles({
+      rawTask:
+        "Rename TypeScript type WorkspaceSearchResponse to GlobalSearchResponse and update all imports. Do not change backend behavior.",
+      taskType: "general",
+      targetTool: "codex",
+      inventory: scanned,
+      settings: testSettings,
+      taskIntent: renameIntent,
+    });
+
+    assert.equal(renamed.effectiveTaskArea, "ui");
+    assert.equal(renamed.diagnostics?.executionMode, "implementation");
+    assert.deepEqual(
+      new Set(
+        renamed.selectedFiles.map((file) => `${file.path}:${file.usage}`),
+      ),
+      new Set([
+        "apps/desktop/renderer/src/types/index.ts:inspect-and-edit",
+        "apps/desktop/renderer/src/types/barrel.ts:inspect-and-edit",
+        "apps/desktop/renderer/src/api/client.ts:inspect-and-edit",
+        "apps/desktop/renderer/src/api/barrelClient.ts:inspect-and-edit",
+      ]),
+    );
+    assert.deepEqual(
+      new Set(
+        renamed.diagnostics?.executionContract?.authorization
+          ?.authorizedTargets ?? [],
+      ),
+      new Set([
+        "apps/desktop/renderer/src/types/index.ts",
+        "apps/desktop/renderer/src/types/barrel.ts",
+        "apps/desktop/renderer/src/api/client.ts",
+        "apps/desktop/renderer/src/api/barrelClient.ts",
+      ]),
+    );
+    assert.equal(
+      renamed.selectedFiles.some((file) => file.path.includes("taskFileSelector.smoke.ts")),
+      false,
+      "fixture text must not become symbol ownership or edit authorization",
+    );
+
+    const missing = await selectTaskFiles({
+      rawTask:
+        "Rename TypeScript type MissingSearchResponse to NewSearchResponse and update all imports. Do not change backend behavior.",
+      taskType: "general",
+      targetTool: "codex",
+      inventory: scanned,
+      settings: testSettings,
+      taskIntent: structuredIntent({
+        taskArea: "build",
+        taskUnderstanding: {
+          ...structuredIntent().taskUnderstanding,
+          goal: "Rename MissingSearchResponse to NewSearchResponse.",
+          action: "replace",
+          targetHints: ["MissingSearchResponse"],
+          requestedChanges: ["Update all imports for the renamed type."],
+          constraints: ["Do not change backend behavior."],
+          changeDefinition: "exact",
+          explicitValues: [{
+            kind: "literal",
+            value: "NewSearchResponse",
+            exact: true,
+            source: "user",
+          }],
+        },
+      }),
+    });
+    assert.equal(missing.diagnostics?.executionMode, "investigation");
+    assert.deepEqual(missing.selectedFiles, []);
+    assert.deepEqual(
+      missing.diagnostics?.executionContract?.authorization?.authorizedTargets,
+      [],
+    );
+  } finally {
+    await fs.rm(root, { recursive: true, force: true });
+  }
+}
+
+async function testUkrainianExplanatoryEnvCommentKeepsTemplateTarget() {
+  const rawTask =
+    "У .env.example додай коментар над OLLAMA_URL, який пояснює, що це локальний HTTP endpoint Ollama. Значення та runtime configuration не змінюй.";
+  const result = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile(".env.example", {
+        kind: "config",
+        role: "config",
+        textHints: ["OLLAMA_URL", "local endpoint", "example"],
+      }),
+      sourceFile("server/src/config/index.ts", {
+        role: "config",
+        textHints: ["OLLAMA_URL", "runtime configuration"],
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "backend",
+      taskUnderstanding: {
+        ...structuredIntent().taskUnderstanding,
+        goal: "Додати пояснювальний коментар у .env.example.",
+        action: "create",
+        targetHints: [".env.example"],
+        requestedChanges: ["Додати коментар над OLLAMA_URL."],
+        constraints: ["Не змінювати значення та runtime configuration."],
+        changeDefinition: "bounded",
+      },
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [{
+          kind: "explicit_file",
+          value: ".env.example",
+          path: ".env.example",
+          confidence: 1,
+          evidence: "Користувач явно вказав файл.",
+          provenance: "user_confirmed",
+        }],
+        positiveActions: ["Додати пояснювальний коментар."],
+        protectedScopes: ["runtime configuration"],
+        allowedEditScope: "explicit_targets_only",
+        needsStyles: false,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: [],
+      },
+    }),
+  });
+
+  assert.equal(result.effectiveTaskArea, "build");
+  assert.equal(result.diagnostics?.executionMode, "implementation");
+  assert.deepEqual(
+    result.selectedFiles.map((file) => [file.path, file.usage]),
+    [[".env.example", "inspect-and-edit"]],
+  );
+  assert.deepEqual(
+    result.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [".env.example"],
+  );
+}
+
+async function testGroundedPageTargetKeepsEditAuthorization() {
+  const targetPath = "apps/desktop/renderer/src/pages/TaskPacksPage.tsx";
+  const rawTask =
+    "На странице Task Packs добавь сортировку по дате создания: сначала новые или сначала старые. Backend и формат хранения Task Pack не меняй.";
+  const intent = structuredIntent({
+    taskArea: "fullstack",
+    taskUnderstanding: {
+      ...structuredIntent().taskUnderstanding,
+      goal: "Add client-side creation-date sorting to the Task Packs page.",
+      action: "update",
+      targetHints: [targetPath],
+      requestedChanges: ["Implement client-side sorting and add its UI control."],
+      constraints: ["Do not change backend or Task Pack storage."],
+      changeDefinition: "bounded",
+    },
+    structuredIntent: {
+      schemaVersion: 1,
+      primaryTargets: [{
+        kind: "explicit_file",
+        value: targetPath,
+        path: targetPath,
+        confidence: 0.8,
+        evidence: "Model grounded the page path in inventory.",
+        provenance: "inventory_exact",
+      }],
+      positiveActions: ["Implement client-side sorting", "Add a sorting control"],
+      protectedScopes: [],
+      allowedEditScope: "target_with_supporting_context",
+      needsStyles: null,
+      needsBackend: true,
+      ambiguities: [],
+      modelNotes: [],
+    },
+  });
+  const projectInventory = inventory([
+    sourceFile(targetPath, {
+      role: "page",
+      exports: ["TaskPacksPage"],
+      symbols: ["TaskPacksPage"],
+      textHints: ["Task Packs", "createdAt", "sort"],
+    }),
+    sourceFile("apps/desktop/renderer/src/components/taskPacks/TaskPackExportActions.tsx", {
+      role: "component",
+      textHints: ["Task Pack export"],
+    }),
+    sourceFile("server/src/routes/taskPacks.ts", {
+      role: "api-route",
+      textHints: ["Task Packs", "createdAt"],
+    }),
+  ]);
+  const initial = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: projectInventory,
+    settings: testSettings,
+    taskIntent: intent,
+  });
+  const result = applyExplicitTargetGuard({
+    rawTask,
+    inventory: projectInventory,
+    taskIntent: intent,
+    selection: initial,
+  }).selection;
+
+  assert.equal(result.effectiveTaskArea, "ui");
+  assert.equal(result.selectedFiles[0]?.path, targetPath);
+  assert.equal(result.selectedFiles[0]?.usage, "inspect-and-edit");
+  assert.equal(result.selectedFiles.some((file) => file.path.startsWith("server/")), false);
+  assert.equal(result.diagnostics?.executionMode, "implementation");
+  assert.deepEqual(
+    result.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [targetPath],
+  );
+}
+
+async function testLanguageRefreshBugUsesUiAndLocalizationGraph() {
+  const settingsPath = "apps/desktop/renderer/src/pages/SettingsPage.tsx";
+  const i18nPath = "apps/desktop/renderer/src/i18n/index.ts";
+  const rawTask =
+    "Исправь ошибку: после смены языка заголовок страницы Settings обновляется только после перезапуска приложения.";
+  const intent = structuredIntent({
+    taskArea: "docs",
+    taskUnderstanding: {
+      ...structuredIntent().taskUnderstanding,
+      goal: "Fix the Settings page title so it reacts to language changes without restart.",
+      action: "fix",
+      targetHints: [settingsPath],
+      requestedChanges: [rawTask],
+      changeDefinition: "open_ended",
+      readiness: "review",
+      reviewStatus: "pending",
+      confidence: 0.62,
+    },
+    structuredIntent: {
+      schemaVersion: 1,
+      primaryTargets: [{
+        kind: "explicit_file",
+        value: settingsPath,
+        path: settingsPath,
+        confidence: 0.9,
+        evidence: "The model grounded the Settings page path.",
+        provenance: "inventory_exact",
+      }],
+      positiveActions: [rawTask],
+      protectedScopes: [],
+      allowedEditScope: "target_with_supporting_context",
+      needsStyles: false,
+      needsBackend: null,
+      ambiguities: [],
+      modelNotes: [],
+    },
+  });
+  const result = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile(settingsPath, {
+        role: "page",
+        imports: ["../i18n"],
+        exports: ["SettingsPage"],
+        symbols: ["SettingsPage", "useTranslation", "applyAppLanguage"],
+        textHints: ["Settings", "language", "title"],
+        semanticFacts: {
+          declarations: ["SettingsPage"], references: ["useTranslation", "applyAppLanguage", "language"],
+          assignments: [], objectProperties: [], typeFields: [], stateSymbols: [],
+          translationKeys: ["nav.settings"], translationEntries: [], routePaths: [],
+        },
+      }),
+      sourceFile(i18nPath, {
+        role: "config",
+        exports: ["applyAppLanguage"],
+        symbols: ["applyAppLanguage", "resolveAppLanguage"],
+        textHints: ["i18n", "language", "changeLanguage", "nav.settings"],
+        semanticFacts: {
+          declarations: ["applyAppLanguage", "resolveAppLanguage"],
+          references: ["changeLanguage", "language", "settings"], assignments: [],
+          objectProperties: [], typeFields: [], stateSymbols: [],
+          translationKeys: [], translationEntries: [{ key: "nav.settings", value: "Settings" }], routePaths: [],
+        },
+      }),
+      sourceFile("apps/desktop/renderer/README.md", {
+        kind: "docs",
+        role: "docs",
+        textHints: ["application Settings"],
+      }),
+      sourceFile("server/src/routes/settings.ts", {
+        role: "api-route",
+        textHints: ["settings"],
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: intent,
+  });
+
+  assert.equal(result.effectiveTaskArea, "ui");
+  assert.equal(result.diagnostics?.taskProfile, "state-behavior");
+  assert.equal(result.diagnostics?.executionMode, "investigation");
+  assert.equal(result.selectedFiles.some((file) => file.path === settingsPath), true);
+  assert.equal(result.selectedFiles.some((file) => file.path === i18nPath), true);
+  assert.equal(result.selectedFiles.some((file) => file.path.endsWith("README.md")), false);
+  assert.equal(result.selectedFiles.some((file) => file.path.startsWith("server/")), false);
+}
+
+async function testProtectedBackendResponseFlowStaysDynamicAndInvestigative() {
+  const pagePath = "apps/desktop/renderer/src/pages/ProjectDetailsPage.tsx";
+  const parentPath = "apps/desktop/renderer/src/pages/DashboardPage.tsx";
+  const statePath = "apps/desktop/renderer/src/hooks/useDashboardController.ts";
+  const clientPath = "apps/desktop/renderer/src/api/client.ts";
+  const typesPath = "apps/desktop/renderer/src/types/index.ts";
+  const rawTask =
+    "На странице Project Details покажи, был ли последний scan проекта получен из кеша. Используй уже существующие данные ответа rescan, если они есть; не добавляй новый endpoint и не меняй формат хранения проекта.";
+  const intent = structuredIntent({
+    taskArea: "fullstack",
+    taskUnderstanding: {
+      ...structuredIntent().taskUnderstanding,
+      goal: "Display whether the last project scan response came from cache on Project Details.",
+      action: "update",
+      targetHints: [pagePath],
+      requestedChanges: ["Use only existing rescan response data", "Display cache provenance"],
+      constraints: ["Do not add endpoints", "Do not change project storage"],
+      changeDefinition: "bounded",
+      readiness: "ready",
+    },
+    structuredIntent: {
+      schemaVersion: 1,
+      primaryTargets: [],
+      positiveActions: ["Use existing rescan response data", "Display last-scan cache provenance"],
+      protectedScopes: ["Do not add new endpoints", "Do not change project storage format"],
+      allowedEditScope: "target_with_supporting_context",
+      needsStyles: false,
+      needsBackend: true,
+      ambiguities: [],
+      modelNotes: [],
+    },
+  });
+  const facts = (overrides: Partial<NonNullable<ProjectInventoryFile["semanticFacts"]>> = {}) => ({
+    declarations: [], references: [], assignments: [], objectProperties: [], typeFields: [],
+    stateSymbols: [], translationKeys: [], translationEntries: [], routePaths: [], ...overrides,
+  });
+  const flowInventory = inventory([
+    sourceFile(pagePath, {
+      role: "page", imports: ["../types"], exports: ["ProjectDetailsPage"],
+      symbols: ["ProjectDetailsPage"], textHints: ["Project Details", "last scan", "rescan"],
+      semanticFacts: facts({ declarations: ["ProjectDetailsPage"], references: ["Project", "onRescan", "lastScanAt"] }),
+    }),
+    sourceFile(parentPath, {
+      role: "page", imports: ["./ProjectDetailsPage", "../hooks/useDashboardController"],
+      exports: ["DashboardPage"], symbols: ["DashboardPage"],
+      semanticFacts: facts({ declarations: ["DashboardPage"], references: ["ProjectDetailsPage", "useDashboardController", "handleRescanProject"] }),
+    }),
+    sourceFile(statePath, {
+      role: "hook", imports: ["../api/client", "../types"], exports: ["useDashboardController"],
+      symbols: ["useDashboardController", "handleRescanProject"],
+      semanticFacts: facts({ declarations: ["useDashboardController", "handleRescanProject"], references: ["rescanProject", "Project", "setProjects"], assignments: ["projects"], stateSymbols: ["projects"] }),
+    }),
+    sourceFile(clientPath, {
+      role: "client-api", imports: ["../types"], exports: ["rescanProject"], symbols: ["rescanProject"],
+      semanticFacts: facts({ declarations: ["rescanProject"], references: ["Project", "request", "rescan"] }),
+    }),
+    sourceFile(typesPath, {
+      role: "types", exports: ["Project"], symbols: ["Project"],
+      semanticFacts: facts({ declarations: ["Project"], typeFields: ["lastScanAt"] }),
+    }),
+    sourceFile("server/src/routes/projects.ts", {
+      role: "api-route", symbols: ["projectsRouter"],
+      semanticFacts: facts({ references: ["project", "rescan"], routePaths: ["/:id/rescan"] }),
+    }),
+  ]);
+  const initial = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: flowInventory,
+    settings: testSettings,
+    taskIntent: intent,
+  });
+  const result = applyExplicitTargetGuard({
+    rawTask,
+    inventory: flowInventory,
+    taskIntent: intent,
+    selection: initial,
+  }).selection;
+
+  assert.equal(result.effectiveTaskArea, "ui");
+  assert.equal(result.diagnostics?.taskProfile, "state-behavior");
+  assert.equal(result.diagnostics?.executionMode, "investigation");
+  for (const expectedPath of [pagePath, statePath, clientPath, typesPath]) {
+    assert.equal(
+      result.selectedFiles.some((file) => file.path === expectedPath),
+      true,
+      `expected connected response-flow context: ${expectedPath}; selected=${JSON.stringify(result.selectedFiles.map((file) => [file.path, file.usage, file.selectionEvidence?.actionConfidence]))}; diagnostics=${JSON.stringify({ area: result.effectiveTaskArea, profile: result.diagnostics?.taskProfile, mode: result.diagnostics?.executionMode, source: result.diagnostics?.selectionSource, notes: result.notes.slice(0, 8) })}`,
+    );
+  }
+  assert.equal(result.selectedFiles.some((file) => file.path.startsWith("server/")), false);
+  assert.deepEqual(result.diagnostics?.executionContract?.authorization?.authorizedTargets, []);
+}
+
+async function testConditionalSingleFileRemovalUsesInventoryProof() {
+  const targetPath = "apps/desktop/renderer/src/App.backup.txt";
+  const rawTask =
+    `Удали устаревший ${targetPath}, если он не используется. ` +
+    "Рабочий App.tsx и поведение приложения не меняй.";
+  const files = [
+    sourceFile(targetPath, {
+      kind: "unknown",
+      role: "unknown",
+      contentPreview: "old application backup",
+    }),
+    sourceFile("apps/desktop/renderer/src/App.tsx", {
+      role: "app-entry",
+      imports: ["./main"],
+      contentPreview: "export function App(){ return null; }",
+    }),
+    sourceFile("docs/legacy-notes.md", {
+      kind: "docs",
+      role: "docs",
+      semanticFacts: {
+        declarations: [], references: [], assignments: [], objectProperties: [],
+        stateSymbols: [], translationKeys: [], translationEntries: [],
+        stringLiterals: [targetPath], routePaths: [],
+      },
+    }),
+  ];
+  const intent = structuredIntent({
+    taskArea: "ui",
+    taskUnderstanding: {
+      ...structuredIntent().taskUnderstanding,
+      goal: "Conditionally remove one stale file without changing the working app.",
+      action: "remove",
+      targetHints: [targetPath],
+      requestedChanges: ["Remove the exact file only if unused."],
+      constraints: ["Do not change App.tsx or application behavior."],
+      changeDefinition: "bounded",
+    },
+    structuredIntent: {
+      schemaVersion: 1,
+      primaryTargets: [{
+        kind: "explicit_file",
+        value: targetPath,
+        path: targetPath,
+        confidence: 0.99,
+        evidence: "The user named one exact file.",
+        provenance: "user_confirmed",
+      }],
+      positiveActions: ["Remove the exact stale file if unused"],
+      protectedScopes: ["App.tsx", "application behavior"],
+      allowedEditScope: "explicit_targets_only",
+      needsStyles: false,
+      needsBackend: false,
+      ambiguities: [],
+      modelNotes: [],
+    },
+  });
+  const result = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory(files),
+    settings: testSettings,
+    taskIntent: intent,
+  });
+
+  assert.equal(detectHardTaskSafetyIssue(rawTask).blocked, false);
+  assert.deepEqual(
+    result.selectedFiles.map((file) => [file.path, file.usage]),
+    [
+      [targetPath, "inspect-and-edit"],
+      ["apps/desktop/renderer/src/App.tsx", "inspect-only"],
+    ],
+  );
+  assert.equal(result.diagnostics?.executionMode, "implementation");
+  assert.deepEqual(
+    result.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [targetPath],
+  );
+}
+
+async function testConditionalSingleFileRemovalStaysInvestigativeWhenReferenced() {
+  const targetPath = "src/legacy/old-template.txt";
+  const rawTask = `Delete ${targetPath} only if it is unused. Do not change src/App.tsx.`;
+  const files = [
+    sourceFile(targetPath, {
+      kind: "unknown",
+      role: "unknown",
+      contentPreview: "legacy template",
+    }),
+    sourceFile("src/templateRegistry.ts", {
+      role: "service",
+      imports: ["./legacy/old-template.txt"],
+      contentPreview: "const template = './legacy/old-template.txt';",
+      semanticFacts: {
+        declarations: ["template"], references: ["template"], assignments: ["template"],
+        objectProperties: [], stateSymbols: [], translationKeys: [], translationEntries: [],
+        stringLiterals: ["./legacy/old-template.txt"], routePaths: [],
+      },
+    }),
+    sourceFile("src/App.tsx", { role: "app-entry" }),
+  ];
+  const intent = structuredIntent({
+    taskArea: "general",
+    taskUnderstanding: {
+      ...structuredIntent().taskUnderstanding,
+      action: "remove",
+      targetHints: [targetPath],
+      requestedChanges: ["Delete the exact target only if unused."],
+      constraints: ["Do not change src/App.tsx."],
+      changeDefinition: "bounded",
+    },
+  });
+  const result = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory(files),
+    settings: testSettings,
+    taskIntent: intent,
+  });
+
+  assert.equal(result.selectedFiles[0]?.path, targetPath);
+  assert.equal(result.selectedFiles[0]?.usage, "inspect-only");
+  assert.equal(
+    result.selectedFiles.some(
+      (file) => file.path === "src/templateRegistry.ts" && file.usage === "inspect-only",
+    ),
+    true,
+  );
+  assert.equal(result.diagnostics?.executionMode, "investigation");
+  assert.deepEqual(
+    result.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [],
+  );
+}
+
+async function testStructuredShortcutValueUsesCodeGroundedOwner() {
+  const files = [
+    sourceFile("apps/desktop/renderer/src/config/keyboardShortcuts.ts", {
+      kind: "config",
+      role: "config",
+      exports: ["keyboardShortcuts"],
+      symbols: ["keyboardShortcuts"],
+      textHints: ["global search", "keyboard shortcuts", "Ctrl F", "Ctrl Shift P"],
+      semanticFacts: {
+        declarations: ["keyboardShortcuts"],
+        references: [],
+        assignments: [],
+        objectProperties: ["id", "displayKeys", "enabled"],
+        typeFields: [],
+        stateSymbols: [],
+        translationKeys: [],
+        translationEntries: [],
+        structuredEntries: [
+          {
+            values: [
+              { key: "id", value: "globalSearch" },
+              { key: "label", value: "Global Search" },
+              { key: "displayKeys", value: "Ctrl F" },
+              { key: "enabled", value: "true" },
+            ],
+          },
+          {
+            values: [
+              { key: "id", value: "openTaskPacks" },
+              { key: "label", value: "Open Task Packs" },
+              { key: "displayKeys", value: "Ctrl Shift P" },
+              { key: "enabled", value: "false" },
+            ],
+          },
+        ],
+        routePaths: [],
+      },
+      contentPreview: "Global Search Ctrl F Open Task Packs Ctrl Shift P",
+    }),
+    sourceFile("apps/desktop/renderer/src/hooks/useKeyboardShortcuts.ts", {
+      role: "hook",
+      imports: ["../config/keyboardShortcuts"],
+      exports: ["useKeyboardShortcuts"],
+      symbols: ["useKeyboardShortcuts"],
+      textHints: ["keyboard shortcuts"],
+    }),
+    sourceFile("apps/desktop/renderer/src/components/modals/GlobalSearchModal.tsx", {
+      role: "component",
+      imports: ["../../config/keyboardShortcuts"],
+      exports: ["GlobalSearchModal"],
+      symbols: ["GlobalSearchModal"],
+      textHints: ["Global Search"],
+    }),
+    sourceFile("apps/desktop/renderer/src/components/layout/AppHeader.tsx", {
+      role: "layout",
+      exports: ["AppHeader"],
+      symbols: ["AppHeader"],
+      textHints: ["header"],
+    }),
+  ];
+  const rawTask =
+    "Измени горячую клавишу открытия Global Search с Ctrl+K на Ctrl+Shift+P во всём приложении. Остальные сочетания клавиш и поведение поиска не меняй.";
+  const baseIntent = structuredIntent({
+    taskArea: "general",
+    domainTerms: ["Global Search", "shortcut"],
+    recommendedSearchTerms: ["globalSearch", "keyboardShortcuts"],
+    fileRoleHints: ["config", "hook", "component"],
+    taskUnderstanding: {
+      ...structuredIntent().taskUnderstanding,
+      goal: "Change the Global Search shortcut from Ctrl+K to Ctrl+Shift+P.",
+      action: "update",
+      targetHints: ["Global Search", "keyboard shortcut"],
+      requestedChanges: ["Update the shortcut"],
+      constraints: ["Do not change other shortcuts or search behavior"],
+      changeDefinition: "bounded",
+    },
+  });
+  const groundedIntent = groundTaskCurrentState({
+    rawTask,
+    inventory: inventory(files),
+    taskIntent: baseIntent,
+  });
+  assert.equal(groundedIntent.taskUnderstanding.readiness, "review");
+  assert.match(groundedIntent.taskUnderstanding.goal, /Ctrl\+F/u);
+
+  const result = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory(files),
+    settings: testSettings,
+    taskIntent: groundedIntent,
+  });
+  assert.deepEqual(
+    result.selectedFiles.map((file) => [file.path, file.usage]),
+    [
+      ["apps/desktop/renderer/src/config/keyboardShortcuts.ts", "inspect-only"],
+      ["apps/desktop/renderer/src/hooks/useKeyboardShortcuts.ts", "inspect-only"],
+      ["apps/desktop/renderer/src/components/modals/GlobalSearchModal.tsx", "inspect-only"],
+    ],
+  );
+  assert.equal(result.selectedFiles.some((file) => file.path.endsWith("AppHeader.tsx")), false);
+  assert.equal(result.diagnostics?.executionMode, "investigation");
 }
 
 async function testReplacementClarificationDoesNotContaminateSettingsTarget() {
@@ -3403,7 +5154,111 @@ async function testReplacementClarificationDoesNotContaminateSettingsTarget() {
   assert.equal(taskIntent.taskUnderstanding.readiness, "ready");
 }
 
+
+async function testConnectionCheckVariantsKeepExistingBackendReadOnly() {
+  const files = [
+    sourceFile("apps/desktop/renderer/src/pages/SettingsPage.tsx", {
+      role: "page",
+      imports: ["../api/client"],
+      exports: ["SettingsPage"],
+      symbols: ["SettingsPage", "selectedModel"],
+      textHints: ["Settings", "Ollama", "model selection", "connection status"],
+      contentPreview:
+        "export function SettingsPage(){ return <button>Check connection</button>; }",
+    }),
+    sourceFile("apps/desktop/renderer/src/api/client.ts", {
+      role: "client-api",
+      exports: ["getOllamaStatus"],
+      symbols: ["getOllamaStatus", "request"],
+      textHints: ["Ollama", "status API", "connection"],
+      contentPreview:
+        'export function getOllamaStatus(){ return request("/ollama/status"); }',
+    }),
+    sourceFile("server/src/routes/ollama.ts", {
+      role: "api-route",
+      exports: ["ollamaRouter"],
+      symbols: ["ollamaRouter", "status"],
+      textHints: ["Ollama", "status", "route"],
+      contentPreview:
+        'ollamaRouter.get("/status", async (_req, res) => res.json({ ok: true }));',
+    }),
+    sourceFile("server/src/ollama/taskFileSelector.ts", {
+      role: "service",
+      symbols: ["selectTaskFiles"],
+      textHints: ["status", "route", "settings"],
+    }),
+  ];
+
+  const rawTask =
+    "Добавь в Settings кнопку для проверки подключения Ollama рядом с селектором модели. " +
+    "Проверку выполняй через существующий status API без нового backend route.";
+  const misleadingIntent = structuredIntent({
+    taskArea: "fullstack",
+    confidence: 0.95,
+    domainTerms: ["settings", "ollama", "status"],
+    recommendedSearchTerms: ["status API", "ollama"],
+    fileRoleHints: ["component", "api", "route", "service"],
+    structuredIntent: {
+      ...structuredIntent().structuredIntent,
+      positiveActions: ["Add a connection check control and call the status API."],
+      needsBackend: true,
+      protectedScopes: [],
+      allowedEditScope: "target_with_supporting_context",
+    },
+    taskUnderstanding: {
+      ...structuredIntent().taskUnderstanding,
+      goal: "Add an Ollama connection check control.",
+      action: "update",
+      targetHints: ["status API"],
+      requestedChanges: ["Use the existing status API."],
+      changeDefinition: "open_ended",
+      readiness: "review",
+      reviewStatus: "accepted",
+      canProceed: true,
+    },
+  });
+
+  const projectInventory = inventory(files);
+  const initial = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: projectInventory,
+    taskIntent: misleadingIntent,
+    settings: testSettings,
+  });
+  const result = applyExplicitTargetGuard({
+    rawTask,
+    inventory: projectInventory,
+    taskIntent: misleadingIntent,
+    selection: initial,
+  }).selection;
+
+  assert.equal(result.effectiveTaskArea, "ui");
+  assert.equal(result.diagnostics?.executionMode, "implementation");
+  assert.equal(
+    result.selectedFiles[0]?.path,
+    "apps/desktop/renderer/src/pages/SettingsPage.tsx",
+  );
+  assert.equal(result.selectedFiles[0]?.usage, "inspect-and-edit");
+  assert.ok(
+    result.selectedFiles.some(
+      (file) =>
+        file.path === "apps/desktop/renderer/src/api/client.ts" &&
+        file.usage !== "inspect-and-edit",
+    ),
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path.startsWith("server/")),
+    false,
+  );
+  assert.deepEqual(result.diagnostics?.executionContract?.authorization?.authorizedTargets, [
+    "apps/desktop/renderer/src/pages/SettingsPage.tsx",
+  ]);
+}
+
 async function main() {
+  await testConnectionCheckVariantsKeepExistingBackendReadOnly();
   await testReplacementClarificationDoesNotContaminateSettingsTarget();
   await testSemanticPageTargetUnicode();
   await testHeaderTaskDoesNotBecomeRootPageTask();
@@ -3433,6 +5288,19 @@ async function main() {
   await testPackageIntentAddsPackageJsonAndNarrowsHomePage();
   await testCreateMissingExplicitPagePathCreatesPlannedFile();
   await testCreateMissingTeamPageExactPathCreatesPlannedFile();
+  await testCreateMissingBackendEndpointKeepsExplicitDestination();
+  await testCreateRouteWithExportDeclarationKeepsMissingTarget();
+  await testExplicitDocumentationTargetBeatsCommandAndCoreKeywords();
+  await testTypeSymbolRenameUsesDeclarationAndReferenceGraph();
+  await testMissingSymbolRenameSafelyInvestigates();
+  await testSymbolRenameDestinationCollisionSafelyInvestigates();
+  await testScannedSymbolRenameIgnoresFixtureText();
+  await testUkrainianExplanatoryEnvCommentKeepsTemplateTarget();
+  await testGroundedPageTargetKeepsEditAuthorization();
+  await testLanguageRefreshBugUsesUiAndLocalizationGraph();
+  await testProtectedBackendResponseFlowStaysDynamicAndInvestigative();
+  await testConditionalSingleFileRemovalUsesInventoryProof();
+  await testConditionalSingleFileRemovalStaysInvestigativeWhenReferenced();
   await testConditionalCreateOrEditWithoutExplicitTargetRequiresReview();
   await testCreateRouteInfersReactRouterPageAndRouteRegistration();
   await testCreateRouteUsesExistingPageWhenInferredFileExists();
@@ -3455,6 +5323,9 @@ async function main() {
   await testClarificationContractWithholdsImplementationFiles();
   await testInvestigationContractDowngradesGuessedEditTargets();
   await testExactLocalizedTextKeepsTranslationResourceInContext();
+  await testApiContractReusesExistingProducerValue();
+  await testBoundedUiChangeSeparatesScopeTargetAndPreserveSurface();
+  await testStructuredShortcutValueUsesCodeGroundedOwner();
   console.log("taskFileSelector smoke tests passed");
 }
 

@@ -1,0 +1,30 @@
+{
+  "format": "contextforge.validation-manifest",
+  "version": 1,
+  "name": "Project validation suite",
+  "description": "Sequential, read-only validation cases for one selected project.",
+  "defaults": {
+    "taskType": "general",
+    "targetTool": "codex",
+    "acceptReview": true
+  },
+  "tests": [
+    {
+      "id": "CASE-01",
+      "title": "Replace with a real task and expectations",
+      "task": "Describe the coding task exactly as a user would enter it.",
+      "disabled": true,
+      "expect": {
+        "interactionAction": "continue",
+        "qualityStatus": "ready",
+        "selectedPaths": [
+          "path/from/the/selected/project.ts"
+        ],
+        "selectedPathsMode": "contains",
+        "excludedPaths": [
+          "path/that/must/not/be/selected.ts"
+        ]
+      }
+    }
+  ]
+}

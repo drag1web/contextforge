@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import path from "node:path";
 
 import {
+  finalizeTaskFileSelectionWithCanonicalDecision,
   selectTaskFiles,
   type SelectedTaskFile,
   type SelectedTaskFileUsage,
@@ -394,9 +395,9 @@ async function defaultShadowPipeline(
 
 function shadowSelectionFromResult(
   result: ShadowPipelineResult,
-  inventory: ProjectInventory,
-  settings: AppSettings,
+  input: SelectorPipelineInput,
 ): TaskFileSelection {
+  const { inventory, settings } = input;
   const { retrieval, ranking } = result;
   if (ranking.unknownCandidateIds.length > 0) {
     throw new ShadowTechnicalError(
@@ -526,7 +527,7 @@ function shadowSelectionFromResult(
           ),
         );
 
-  return {
+  const rawSelection: TaskFileSelection = {
     selectedFiles,
     rejectedModelPaths: [],
     source: "shadow",
@@ -554,6 +555,19 @@ function shadowSelectionFromResult(
       finalConfidence,
     },
   };
+
+  return finalizeTaskFileSelectionWithCanonicalDecision(
+    rawSelection,
+    {
+      rawTask: input.rawTask,
+      taskType: input.taskType,
+      targetTool: input.targetTool,
+      inventory: input.inventory,
+      taskIntent: input.taskIntent,
+      settings: input.settings,
+    },
+    input.settings,
+  );
 }
 
 function withTimeout<T>(promise: Promise<T>, timeoutMs: number) {
@@ -806,11 +820,7 @@ export async function runSelectorPipeline(
       dependencies.runShadow(input),
       dependencies.shadowTimeoutMs,
     );
-    const selection = shadowSelectionFromResult(
-      raw,
-      input.inventory,
-      input.settings,
-    );
+    const selection = shadowSelectionFromResult(raw, input);
     shadowMs = Math.round(performance.now() - start);
     selection.durationMs = shadowMs;
     return { selection, raw };

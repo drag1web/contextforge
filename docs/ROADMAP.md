@@ -204,6 +204,11 @@ Implementation status: the grounded contract, preflight API, compact confirm/cor
 - [x] Add Automatic, Balanced, and Confirm every task interaction modes in Settings.
 - [x] Keep required missing information non-bypassable in every mode.
 - [x] Show a saved-answer checking state and enforce truthful manual-verification reporting.
+- [x] Add a read-only sequential Validation Lab with portable manifests and diagnostic ZIP export.
+- [x] Reconcile edit targets from repository evidence while keeping supporting files inspect-only.
+- [x] Preserve safe explicit create targets and proof-backed conditional removals.
+- [x] Keep subjective, conflicting, conditional, and unproven bug tasks in investigation mode.
+- [x] Pass the CF-01—CF-15 production-shaped regression manifest without repository-specific runtime rules.
 
 ## Performance stabilization before v0.6.8
 

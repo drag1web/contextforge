@@ -5,6 +5,7 @@ import type { ProjectInventory } from "../scanner/projectInventoryScanner.js";
 import {
   clearTaskUnderstandingSnapshotsForTests,
   createTaskUnderstandingSnapshot,
+  isTaskUnderstandingSnapshotReviewAccepted,
   resolveTaskUnderstandingSnapshot,
 } from "./taskUnderstandingSnapshot.js";
 
@@ -104,6 +105,14 @@ const exact = resolveTaskUnderstandingSnapshot({
 });
 assert.equal(exact.hit, true);
 assert.equal(exact.appendedClarifications.length, 0);
+assert.equal(isTaskUnderstandingSnapshotReviewAccepted(exact, id), true);
+assert.equal(
+  isTaskUnderstandingSnapshotReviewAccepted(
+    exact,
+    "00000000-0000-4000-8000-000000000000",
+  ),
+  false,
+);
 
 const cachedWithoutId = resolveTaskUnderstandingSnapshot({
   snapshotId: undefined,
@@ -252,5 +261,6 @@ const changedTask = resolveTaskUnderstandingSnapshot({
 });
 assert.equal(changedTask.hit, false);
 assert.equal(changedTask.reason, "input_changed");
+assert.equal(isTaskUnderstandingSnapshotReviewAccepted(changedTask, id), false);
 
-console.log("task understanding snapshot smoke passed: 9 scenarios");
+console.log("task understanding snapshot smoke passed: 12 scenarios");

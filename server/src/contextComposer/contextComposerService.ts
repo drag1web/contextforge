@@ -33,8 +33,14 @@ import {
   normalizeTaskClarifications,
   type TaskClarification,
 } from "../taskPacks/taskClarifications.js";
-import { resolveTaskUnderstandingSnapshot } from "../taskPacks/taskUnderstandingSnapshot.js";
+import {
+  buildTaskUnderstandingAnalysisSignature,
+  isTaskUnderstandingSnapshotReviewAccepted,
+  resolveTaskUnderstandingSnapshot,
+} from "../taskPacks/taskUnderstandingSnapshot.js";
 import { applyExplicitTargetGuard } from "../selection/explicitTargetGuard.js";
+import { applyTaskUnderstandingReviewAcceptance } from "../ollama/taskUnderstanding.js";
+import { groundTaskCurrentState } from "../taskPacks/taskCurrentStateGrounding.js";
 
 interface ProjectReadinessReport {
   issues: string[];
@@ -415,6 +421,7 @@ export async function buildContextComposerPreview(input: {
   targetTool: string;
   clarifications?: TaskClarification[];
   understandingSnapshotId?: string;
+  reviewedUnderstandingSnapshotId?: string;
 }): Promise<ContextComposerPreview> {
   const project = await getProjectById(input.projectId);
 
@@ -424,6 +431,7 @@ export async function buildContextComposerPreview(input: {
 
   const inventory = await scanProjectInventory(project.localPath);
   const settings = await getAppSettings();
+  const analysisSignature = buildTaskUnderstandingAnalysisSignature(settings);
   const clarifications = normalizeTaskClarifications(input.clarifications);
   const selectionTask = buildSelectionTaskText(input.rawTask, clarifications);
 
@@ -433,6 +441,7 @@ export async function buildContextComposerPreview(input: {
     rawTask: input.rawTask,
     taskType: input.taskType,
     targetTool: input.targetTool,
+    analysisSignature,
     clarifications,
     inventory,
   });
@@ -451,6 +460,21 @@ export async function buildContextComposerPreview(input: {
     taskUnderstanding: applyTaskClarificationsToUnderstanding(
       analyzedTaskIntent.taskUnderstanding,
       clarifications,
+    ),
+  };
+  taskIntent = groundTaskCurrentState({
+    rawTask: selectionTask,
+    inventory,
+    taskIntent,
+  });
+  taskIntent = {
+    ...taskIntent,
+    taskUnderstanding: applyTaskUnderstandingReviewAcceptance(
+      taskIntent.taskUnderstanding,
+      isTaskUnderstandingSnapshotReviewAccepted(
+        snapshotResolution,
+        input.reviewedUnderstandingSnapshotId,
+      ),
     ),
   };
 

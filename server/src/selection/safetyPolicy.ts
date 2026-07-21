@@ -1,3 +1,5 @@
+import { extractClassifiedFileMentions } from "./explicitFileMentions.js";
+
 function normalizePath(value: string) {
   return value.replace(/\\/g, "/").trim();
 }
@@ -69,9 +71,12 @@ const SECRET_PATH_PATTERNS = [
   /\b[a-z0-9_.-]+\.(?:pem|key|p12|pfx)\b/i,
 ];
 
+const SAFE_SECRET_EXAMPLE_PATH_PATTERN =
+  /(^|[\s"'`([{])(?:\.env\.(?:example|sample|template)|env\.example|example\.env|sample\.env)(?=$|[\s"'`)\]},;:!?])/giu;
+
 const SECRET_WORD_PATTERNS = [
   /\b(?:secret|secrets|token|tokens|api[-_\s]?key|private[-_\s]?key|password|credentials|client[-_\s]?secret|database_url)\b/i,
-  /(?:\u0441\u0435\u043a\u0440\u0435\u0442|\u0441\u0435\u043a\u0440\u0435\u0442\u044b|\u0442\u043e\u043a\u0435\u043d|\u0442\u043e\u043a\u0435\u043d\u044b|\u043a\u043b\u044e\u0447|\u043a\u043b\u044e\u0447\u0438|\u043f\u0430\u0440\u043e\u043b|\u043f\u0430\u0440\u043e\u043b\u0438|\u0443\u0447\u0435\u0442\u043d|\u0443\u0447\u0451\u0442\u043d)/i,
+  /(?:^|[^\p{L}\p{N}_])(?:секрет[\p{L}\p{N}_-]*|токен[\p{L}\p{N}_-]*|ключ(?:и|а|ей|ом|у|ами|ах)?|парол[\p{L}\p{N}_-]*|уч[её]тн[\p{L}\p{N}_-]*)(?=$|[^\p{L}\p{N}_])/iu,
 ];
 
 const SECRET_EXFILTRATION_PATTERNS = [
@@ -117,26 +122,33 @@ function splitSafetyClauses(text: string) {
 
 function asksToExposeSecretContent(text: string) {
   return splitSafetyClauses(text).some((clause) => {
+    const secretComparableClause = clause.replace(
+      SAFE_SECRET_EXAMPLE_PATH_PATTERN,
+      "$1safe-env-example",
+    );
     const mentionsSecret =
-      containsAny(clause, SECRET_PATH_PATTERNS) ||
-      containsAny(clause, SECRET_WORD_PATTERNS);
+      containsAny(secretComparableClause, SECRET_PATH_PATTERNS) ||
+      containsAny(secretComparableClause, SECRET_WORD_PATTERNS);
 
     if (!mentionsSecret) return false;
-    if (containsAny(clause, NEGATED_SECRET_CONSTRAINT_PATTERNS)) return false;
+    if (containsAny(secretComparableClause, NEGATED_SECRET_CONSTRAINT_PATTERNS))
+      return false;
     if (
-      containsAny(clause, SECRET_SAFETY_VALIDATION_PATTERNS) &&
-      !containsAny(clause, SECRET_PATH_PATTERNS)
+      containsAny(secretComparableClause, SECRET_SAFETY_VALIDATION_PATTERNS) &&
+      !containsAny(secretComparableClause, SECRET_PATH_PATTERNS)
     ) return false;
     if (
-      containsAny(clause, AUTH_TOKEN_BEHAVIOR_PATTERNS) &&
-      !containsAny(clause, SECRET_PATH_PATTERNS) &&
-      !/\b(?:show|print|dump|copy|paste|send|expose|leak)\b/i.test(clause)
+      containsAny(secretComparableClause, AUTH_TOKEN_BEHAVIOR_PATTERNS) &&
+      !containsAny(secretComparableClause, SECRET_PATH_PATTERNS) &&
+      !/\b(?:show|print|dump|copy|paste|send|expose|leak)\b/i.test(
+        secretComparableClause,
+      )
     ) return false;
 
     return (
-      containsAny(clause, SECRET_EXFILTRATION_PATTERNS) ||
-      containsAny(clause, SECRET_ACTION_PATTERNS) ||
-      containsAny(clause, TASK_PACK_PATTERNS)
+      containsAny(secretComparableClause, SECRET_EXFILTRATION_PATTERNS) ||
+      containsAny(secretComparableClause, SECRET_ACTION_PATTERNS) ||
+      containsAny(secretComparableClause, TASK_PACK_PATTERNS)
     );
   });
 }
@@ -162,6 +174,39 @@ const DESTRUCTIVE_PATTERNS = [
   /(?:\u0443\u0434\u0430\u043b\u0438|\u0441\u043e\u0442\u0440\u0438|\u0443\u043d\u0438\u0447\u0442\u043e\u0436)[^.!?\n]{0,80}\b(?:project|repo|repository|workspace|server|backend|frontend|source|src|files?|folders?|directories)\b/i,
   /\b(?:delete|remove|wipe|destroy)\b[^.!?\n]{0,80}(?:\u043f\u0440\u043e\u0435\u043a\u0442|\u0440\u0435\u043f\u043e\u0437\u0438\u0442\u043e\u0440|\u0441\u0435\u0440\u0432\u0435\u0440|\u0431\u044d\u043a\u0435\u043d\u0434|\u0444\u0440\u043e\u043d\u0442\u0435\u043d\u0434|\u0444\u0430\u0439\u043b|\u043f\u0430\u043f\u043a|\u0434\u0438\u0440\u0435\u043a\u0442\u043e\u0440)/i,
 ];
+
+const DELETE_ACTION_PATTERN =
+  /\b(?:delete|remove|wipe|destroy)\b|(?:удал(?:и|ить|яй|ять)|убер(?:и|ать)|сотр(?:и|еть)|уничтож(?:ь|ить))/iu;
+
+const BROAD_DELETE_SCOPE_PATTERN =
+  /(?:\b(?:delete|remove|wipe|destroy)\b|(?:удал|убер|сотр|уничтож))[^{.!?\n}]{0,100}(?:\b(?:all|everything|project|repo|repository|workspace|server|backend|frontend|source|src|files?|folders?|directories)\b|(?:все|всё|целиком|полностью|проект|репозитор|сервер|бэкенд|бекенд|фронтенд|исходник|файл(?:ы|ов)?|папк|директор))/iu;
+
+function escapeRegExp(value: string) {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * A single user-named file is a bounded target, not a project-wide wipe. The
+ * inventory/selection layers still have to prove that the path is real and
+ * safe; this function only prevents the broad destructive text guard from
+ * misclassifying a narrow deletion request because the path contains `src`.
+ */
+function isBoundedSingleFileDeletion(rawTask: string) {
+  if (!DELETE_ACTION_PATTERN.test(rawTask)) return false;
+  if (/\brm\s+-rf\b|\bdel\s+\/[sq]\b|\brmdir\s+\/s\b|[*?{}]/iu.test(rawTask))
+    return false;
+
+  const targets = extractClassifiedFileMentions(rawTask).filter(
+    (mention) => mention.role !== "artifact-reference",
+  );
+  if (targets.length !== 1) return false;
+
+  const scrubbed = rawTask.replace(
+    new RegExp(escapeRegExp(targets[0]!.path), "giu"),
+    " <target> ",
+  );
+  return !BROAD_DELETE_SCOPE_PATTERN.test(scrubbed);
+}
 
 const PROTECTED_GENERATED_PATH_PATTERNS = [
   /(?:^|[\s"'`([{])(?:node_modules|\.next|dist|build|coverage|out)[/\\][^\s"'`)\]},;:!?]+/i,
@@ -193,6 +238,8 @@ export function detectHardTaskSafetyIssue(rawTask: string): HardTaskSafetyIssue 
     containsAny(text, PROTECTED_PATH_ACTION_PATTERNS) &&
     !containsAny(text, DOCUMENTATION_CONTEXT_PATTERNS);
   const asksToExposeSecret = asksToExposeSecretContent(text);
+  const destructiveMatch = containsAny(text, DESTRUCTIVE_PATTERNS);
+  const boundedSingleFileDeletion = isBoundedSingleFileDeletion(rawTask);
 
   if (asksToExposeSecret) {
     reasons.push(
@@ -208,12 +255,12 @@ export function detectHardTaskSafetyIssue(rawTask: string): HardTaskSafetyIssue 
 
   if (
     containsAny(text, PROMPT_INJECTION_PATTERNS) &&
-    (containsAny(text, DESTRUCTIVE_PATTERNS) || asksToExposeSecret)
+    (destructiveMatch || asksToExposeSecret)
   ) {
     reasons.push(
       "Prompt-injection request was blocked because it tries to override safety instructions while asking for destructive or secret-related behavior.",
     );
-  } else if (containsAny(text, DESTRUCTIVE_PATTERNS)) {
+  } else if (destructiveMatch && !boundedSingleFileDeletion) {
     reasons.push(
       "Destructive project-wide file operation was blocked. ContextForge will not generate context for deleting or wiping broad project contents.",
     );

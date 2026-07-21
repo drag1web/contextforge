@@ -2,6 +2,11 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import type { Dirent } from "node:fs";
 
+import {
+    analyzeJavaScriptTypeScriptSymbols,
+    type SourceSymbolSyntaxFacts
+} from "./sourceSymbolSyntax.js";
+
 export type ProjectInventoryFileKind =
     | "source"
     | "style"
@@ -38,15 +43,24 @@ export type ProjectInventoryFileRole =
     | "runtime"
     | "unknown";
 
+export interface ProjectInventoryStructuredEntry {
+    values: Array<{ key: string; value: string }>;
+}
+
 export interface ProjectInventorySemanticFacts {
     declarations: string[];
     references: string[];
     assignments: string[];
     objectProperties: string[];
+    typeFields?: string[];
     stateSymbols: string[];
     translationKeys: string[];
     translationEntries: Array<{ key: string; value: string }>;
+    stringLiterals?: string[];
+    structuredEntries?: ProjectInventoryStructuredEntry[];
     routePaths: string[];
+    /** Exact JS/TS lexical syntax evidence used only by canonical symbol ownership. */
+    symbolSyntax?: SourceSymbolSyntaxFacts;
 }
 
 export interface ProjectInventoryFile {
@@ -124,6 +138,8 @@ const TEXT_EXTENSIONS = new Set([
     ".jsx",
     ".mjs",
     ".cjs",
+    ".mts",
+    ".cts",
     ".css",
     ".scss",
     ".sass",
@@ -153,6 +169,8 @@ const SOURCE_EXTENSIONS = new Set([
     ".jsx",
     ".mjs",
     ".cjs",
+    ".mts",
+    ".cts",
     ".vue",
     ".svelte",
     ".py",
@@ -329,7 +347,12 @@ function getFileKind(relativePath: string): ProjectInventoryFileKind {
         return "test";
     }
 
-    if (DOC_FILE_NAMES.has(fileName) || normalized.includes("/docs/")) return "docs";
+    if (
+        DOC_FILE_NAMES.has(fileName) ||
+        normalized.includes("/docs/") ||
+        extension === ".md" ||
+        extension === ".mdx"
+    ) return "docs";
     if (isConfigFileName(fileName)) return "config";
     if (STYLE_EXTENSIONS.has(extension)) return "style";
     if (SOURCE_EXTENSIONS.has(extension)) return "source";
@@ -615,11 +638,66 @@ const CODE_IDENTIFIER_STOP_WORDS = new Set([
     "yield"
 ]);
 
+function extractTypeFields(content: string, limit = 1000) {
+    const fields: string[] = [];
+    const blocks = [
+        ...content.matchAll(/\b(?:export\s+)?interface\s+[A-Za-z_$][A-Za-z0-9_$]*(?:\s+extends\s+[^\{]+)?\s*\{([\s\S]*?)\n\}/g),
+        ...content.matchAll(/\b(?:export\s+)?type\s+[A-Za-z_$][A-Za-z0-9_$]*(?:\s*<[^>]*>)?\s*=\s*\{([\s\S]*?)\n\}\s*;?/g),
+    ];
+
+    for (const block of blocks) {
+        const body = block[1] ?? "";
+        for (const match of body.matchAll(/^\s*(?:readonly\s+)?([A-Za-z_$][A-Za-z0-9_$]*)\??\s*:/gm)) {
+            const field = match[1]?.trim();
+            if (field) fields.push(field);
+            if (fields.length >= limit) break;
+        }
+        if (fields.length >= limit) break;
+    }
+
+    return getUniqueStrings(fields, limit);
+}
+
+
+function extractStructuredEntries(content: string, limit = 160) {
+    const entries: ProjectInventoryStructuredEntry[] = [];
+    const objectPattern = /\{([\s\S]{0,1400}?)\}/g;
+    const scalarPropertyPattern = /(?:^|[,;]\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*:\s*(?:["'`]([^"'`\n]{1,220})["'`]|(true|false|-?\d+(?:\.\d+)?))/gm;
+
+    for (const objectMatch of content.matchAll(objectPattern)) {
+        const body = objectMatch[1] ?? "";
+        const values: Array<{ key: string; value: string }> = [];
+        for (const propertyMatch of body.matchAll(scalarPropertyPattern)) {
+            const key = propertyMatch[1]?.trim();
+            const value = (propertyMatch[2] ?? propertyMatch[3])?.trim();
+            if (!key || !value) continue;
+            values.push({ key, value });
+            if (values.length >= 24) break;
+        }
+
+        if (values.length < 2) continue;
+        const identityKeys = new Set([
+            "id", "name", "label", "title", "action", "type", "kind", "key",
+        ]);
+        if (!values.some((entry) => identityKeys.has(entry.key.toLowerCase()))) continue;
+
+        entries.push({ values });
+        if (entries.length >= limit) break;
+    }
+
+    return entries;
+}
+
 function extractSemanticFacts(
     content: string,
     declarations: string[],
     targetedContent = content,
 ): ProjectInventorySemanticFacts {
+    const completeDeclarations = extractMatches(
+        targetedContent,
+        /\b(?:export\s+)?(?:declare\s+)?(?:abstract\s+)?(?:async\s+)?(?:function|class|const|let|var|interface|type|enum|namespace)\s+([A-Za-z_$][A-Za-z0-9_$]*)/g,
+        600,
+    );
     const references = extractMatches(
         content,
         /\b([A-Za-z_$][A-Za-z0-9_$]{2,})\b/g,
@@ -633,6 +711,7 @@ function extractSemanticFacts(
         ...extractMatches(content, /(?:^|[{,]\s*)([A-Za-z_$][A-Za-z0-9_$]*)\s*:/gm, 240),
         ...extractMatches(content, /["'`]([A-Za-z_$][A-Za-z0-9_$]*)["'`]\s*:/g, 120),
     ], 280);
+    const typeFields = extractTypeFields(targetedContent, 1000);
     const stateSymbols = getUniqueStrings([
         ...extractMatches(content, /\[\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*set[A-Z][A-Za-z0-9_$]*\s*\]\s*=\s*(?:React\.)?useState\b/g, 80),
         ...extractMatches(content, /\[\s*([A-Za-z_$][A-Za-z0-9_$]*)\s*,\s*[A-Za-z_$][A-Za-z0-9_$]*\s*\]\s*=\s*(?:React\.)?useReducer\b/g, 40),
@@ -643,19 +722,28 @@ function extractSemanticFacts(
         ...extractMatches(content, /\b(?:t|translate|i18n\.t)\s*\(\s*["'`]([^"'`]+)["'`]/g, 120),
     ], 180);
     const translationEntries = extractTranslationEntries(targetedContent, 1000);
+    const stringLiterals = getUniqueStrings([
+        ...extractMatches(targetedContent, /["'`]([^"'`\n]{2,220})["'`]/g, 1200),
+        ...extractMatches(targetedContent, />\s*([^<>{}\n]{2,220}?)\s*</g, 400),
+        ...extractMatches(targetedContent, /\b([A-Z][A-Z0-9_-]*(?:\.[A-Za-z0-9_-]+)+)\b/g, 240),
+    ], 1000);
+    const structuredEntries = extractStructuredEntries(targetedContent, 160);
     const routePaths = getUniqueStrings([
         ...extractMatches(content, /\b(?:router|app)\.(?:get|post|put|patch|delete|use)\s*\(\s*["'`]([^"'`]+)["'`]/gi, 80),
         ...extractMatches(content, /\b(?:path|routePath)\s*:\s*["'`]([^"'`]+)["'`]/gi, 80),
     ], 120);
 
     return {
-        declarations: getUniqueStrings(declarations, 80),
+        declarations: getUniqueStrings([...declarations, ...completeDeclarations], 600),
         references,
         assignments,
         objectProperties,
+        typeFields,
         stateSymbols,
         translationKeys,
         translationEntries,
+        stringLiterals,
+        structuredEntries,
         routePaths,
     };
 }
@@ -682,11 +770,13 @@ async function analyzeTextFile(absolutePath: string, relativePath: string, sizeB
         const content = sizeBytes > MAX_ANALYZED_TEXT_BYTES
             ? buildBoundedAnalysisContent(fullContent)
             : fullContent;
+        const extension = getExtension(path.basename(relativePath));
+        const syntaxAnalysis = analyzeJavaScriptTypeScriptSymbols(fullContent, extension);
         const imports = getUniqueStrings([
-            ...extractMatches(content, /import[\s\S]{0,120}?from\s+["']([^"']+)["']/g, 24),
-            ...extractMatches(content, /import\s*\(\s*["']([^"']+)["']\s*\)/g, 12),
-            ...extractMatches(content, /require\s*\(\s*["']([^"']+)["']\s*\)/g, 12)
-        ], 32);
+            ...extractMatches(content, /import\s+(?:type\s+)?[\s\S]{0,4000}?\s+from\s+["']([^"']+)["']/g, 96),
+            ...extractMatches(content, /import\s*\(\s*["']([^"']+)["']\s*\)/g, 32),
+            ...extractMatches(content, /require\s*\(\s*["']([^"']+)["']\s*\)/g, 32)
+        ], 128);
         const exports = getUniqueStrings([
             ...extractMatches(content, /export\s+(?:default\s+)?(?:async\s+)?(?:function|class|const|let|var|interface|type|enum)\s+([A-Za-z0-9_$]+)/g, 24),
             ...extractMatches(content, /export\s*\{([^}]+)\}/g, 12)
@@ -714,7 +804,10 @@ async function analyzeTextFile(absolutePath: string, relativePath: string, sizeB
             exports,
             symbols,
             textHints,
-            semanticFacts: extractSemanticFacts(content, [...exports, ...symbols], fullContent),
+            semanticFacts: {
+                ...extractSemanticFacts(content, [...exports, ...symbols], fullContent),
+                symbolSyntax: syntaxAnalysis?.facts,
+            },
             contentPreview: getContentPreview(content)
         };
     } catch {

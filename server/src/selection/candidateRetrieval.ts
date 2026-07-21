@@ -14,6 +14,7 @@ import {
   type SemanticGraphEdgeKind,
 } from "./projectSemanticGraph.js";
 import { detectHardTaskSafetyIssue, isSecretLikePath } from "./safetyPolicy.js";
+import { isFileExclusionConstraint } from "./negativeConstraintSemantics.js";
 import {
   resolveRepositorySemanticEvidence,
   type FileSelectionEvidence,
@@ -185,6 +186,9 @@ function expandTechnicalToken(token: string) {
   if (/^сводн/u.test(token)) expanded.push("summary", "status");
   if (/^библиотек/u.test(token)) expanded.push("library");
   if (/^сортир/u.test(token)) expanded.push("sort", "sorting");
+  if (/^карточ/u.test(token)) expanded.push("card", "cards");
+  if (/^заказ/u.test(token)) expanded.push("order", "orders");
+  if (/^сохран/u.test(token)) expanded.push("save", "persist", "persistence", "storage");
   if (/^расч[её]т/u.test(token)) expanded.push("calculation", "calculate", "calculator");
   if (/^нулев/u.test(token)) expanded.push("zero", "invalid");
   if (/^отриц/u.test(token)) expanded.push("negative", "invalid");
@@ -264,8 +268,11 @@ export function inferRetrievalArea(rawTask: string, requestedTaskType: string): 
   const backendIntent = matches(text, [/\b(?:endpoint|backend|server|route|service|repository|storage|database|schema|api)\b/i, /(?:эндпоинт|бэкенд|бекенд|сервер|роут|сервис|хранилищ|репозитор|база|схема|апи)/iu]);
   const backendProtected = matches(text, [
     /(?:do not touch|don't change|keep)\s+(?:the\s+)?(?:backend|server|api)\b/i,
+    /(?:without|avoid)\s+(?:changing|modifying|touching)\s+(?:the\s+)?(?:backend|server|api)(?:\s+behavior)?\b/i,
+    /\b(?:backend|server|api)(?:\s+behavior)?\b[^.!?]{0,32}\b(?:must remain|should remain|stays?|remain|unchanged|untouched)\b/i,
     /\b(?:backend|server|api)(?:\s*[/,&+]\s*(?:backend|server|api))*\b[^.!?]{0,24}\b(?:unchanged|untouched|do not touch|don't change)\b/i,
     /(?:не трогай|не меняй|не изменяй)\s+(?:бэкенд|бекенд|сервер|апи|api)\b/iu,
+    /без\s+(?:изменени\w*|правок)\s+(?:в\s+)?(?:бэкенд\w*|бекенд\w*|сервер\w*|апи|api)(?:\s+поведени\w*)?/iu,
     /(?:бэкенд|бекенд|backend|сервер|server|апи|api)(?:\s*[/,&+]\s*(?:бэкенд|бекенд|backend|сервер|server|апи|api))*\b[^.!?]{0,24}(?:не трогай|не меняй|не изменяй|без изменений)/iu,
   ]);
   const frontendProtected = matches(text, [
@@ -724,7 +731,10 @@ export function retrieveCandidates(input: CandidateRetrievalInput): CandidateRet
     const docsSupport = area === "docs" && isDocumentationSupportFile(file);
     const roleWeight = roleScore(file, area, coreTask);
     const codeEvidence = semanticEvidence.byPath.get(pathValue);
-    const lexicalNegativeConflicts = negativeConstraintConflictsForFile(file, semanticEvidence.negativeConstraints);
+    const lexicalNegativeConflicts = negativeConstraintConflictsForFile(
+      file,
+      semanticEvidence.negativeConstraints.filter(isFileExclusionConstraint),
+    );
     const negativeConstraintConflicts = [
       ...(codeEvidence?.negativeConstraintConflicts ?? []),
       ...lexicalNegativeConflicts,

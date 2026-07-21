@@ -504,6 +504,7 @@ export async function createTaskPack(input: {
   clarifications?: import("../types").TaskClarification[];
   performanceSessionId?: string;
   understandingSnapshotId?: string;
+  reviewedUnderstandingSnapshotId?: string;
 
   templateId?: string;
   ruleProfileId?: string;
@@ -621,6 +622,7 @@ export async function createContextComposerPreview(input: {
   targetTool: string;
   clarifications?: import("../types").TaskClarification[];
   understandingSnapshotId?: string;
+  reviewedUnderstandingSnapshotId?: string;
 }): Promise<ContextComposerPreview> {
   const data = await request<{
     ok: true;

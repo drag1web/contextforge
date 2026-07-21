@@ -233,6 +233,26 @@ async function run() {
 
   {
     const parsed = parseTaskPackRefinement(
+      JSON.stringify({
+        implementationGuidance: ["Inspect the real owner."],
+        constraints: [],
+        acceptanceCriteria: ["The owner is grounded."],
+        verificationSteps: ["Run the relevant smoke test."],
+        finalResponseRequirements: {
+          requirements: "List changed files and report verification results.",
+        },
+      }),
+    );
+    assert.ok(parsed.refinement);
+    assert.equal(parsed.parseStage, "local-repair");
+    assert.deepEqual(parsed.refinement.finalResponseRequirements, [
+      "List changed files and report verification results.",
+    ]);
+    scenarios += 1;
+  }
+
+  {
+    const parsed = parseTaskPackRefinement(
       '{"implementationGuidance":["unfinished]',
     );
     assert.equal(parsed.refinement, null);
@@ -973,19 +993,27 @@ export function AppHeader() { return <header><h2>{title}</h2><Button>Add project
       '{"implementationGuidance":["unfinished]',
       JSON.stringify(VALID_REFINEMENT),
     ];
+    const prompts: string[] = [];
     const result = await generateReliableTaskPack({
       ...promptInput({ rawTask: "retry-success" }),
       fallbackContent: TEMPLATE,
       bypassCache: true,
       dependencies: {
         getSettings: async () => settings(),
-        generate: async () => aiResult(responses.shift() ?? ""),
+        generate: async (input) => {
+          prompts.push(input.prompt);
+          return aiResult(responses.shift() ?? "");
+        },
       },
     });
     assert.equal(result.mode, "ollama");
     assert.equal(result.diagnostics.status, "retried");
     assert.equal(result.diagnostics.attempts.length, 2);
     assert.ok(result.message.includes("controlled retry"));
+    assert.equal(prompts.length, 2);
+    assert.ok(prompts[1]!.length < prompts[0]!.length);
+    assert.match(prompts[1]!, /Every field must be an array of strings/u);
+    assert.match(prompts[1]!, /previous response was truncated/iu);
     scenarios += 1;
   }
 

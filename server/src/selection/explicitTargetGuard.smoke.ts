@@ -5,6 +5,7 @@ import type { TaskFileSelection } from "../ollama/taskFileSelector.js";
 import type { ProjectInventory } from "../scanner/projectInventoryScanner.js";
 import {
   applyExplicitTargetGuard,
+  extractExplicitNamedTargets,
   resolveExplicitTargetFastPath,
 } from "./explicitTargetGuard.js";
 import { evaluateContextSelectionQuality } from "./contextQuality.js";
@@ -167,6 +168,67 @@ const wrongSelection: TaskFileSelection = {
   effectiveTaskArea: "ui",
   assetMode: "none",
 };
+
+const connectionCheckSurfaceVariants = [
+  "В Settings добавь кнопку проверки подключения Ollama рядом с выбором модели. Используй существующий API проверки статуса и не создавай новый backend route.",
+  "На странице Settings рядом с выбором модели добавь кнопку проверки подключения Ollama. Используй существующий API проверки статуса, новый backend route не создавай.",
+  "Добавь в Settings кнопку для проверки подключения Ollama рядом с селектором модели. Проверку выполняй через существующий status API без нового backend route.",
+  "В разделе Settings сделай кнопку проверки соединения с Ollama возле выбора модели. Подключи существующий API статуса и не добавляй отдельный backend route.",
+  "Рядом с выбором модели на странице Settings добавь действие-кнопку для проверки доступности Ollama. Используй текущий API статуса; backend route создавать не нужно.",
+];
+
+for (const rawTask of connectionCheckSurfaceVariants) {
+  const extractedTargets = extractExplicitNamedTargets(rawTask);
+  assert.ok(
+    extractedTargets.some(
+      (target) =>
+        (target.kind === "page" || target.kind === "section") &&
+        target.value === "Settings",
+    ),
+    `Settings surface must be grounded from: ${rawTask}`,
+  );
+  assert.equal(
+    extractedTargets.some((target) =>
+      /^(?:не\s+(?:созда|добав)|(?:созда|добав)\p{L}*\s+не\s+нужно)/iu.test(
+        target.value,
+      ),
+    ),
+    false,
+  );
+
+  const guardedConnectionCheck = applyExplicitTargetGuard({
+    rawTask,
+    inventory,
+    taskIntent: {
+      ...taskIntent,
+      taskArea: "fullstack",
+      structuredIntent: {
+        ...taskIntent.structuredIntent,
+        needsBackend: true,
+        protectedScopes: [],
+      },
+      taskUnderstanding: {
+        ...taskIntent.taskUnderstanding,
+        goal: "Add a connection-check control to Settings.",
+        action: "update",
+        targetHints: ["status API"],
+        requestedChanges: ["Use the existing status API."],
+        changeDefinition: "open_ended",
+        explicitValues: [],
+        readiness: "review",
+        canProceed: true,
+      },
+    },
+    selection: wrongSelection,
+  });
+
+  assert.equal(guardedConnectionCheck.status, "matched");
+  assert.equal(
+    guardedConnectionCheck.selection.selectedFiles[0]?.path,
+    "apps/renderer/src/pages/SettingsPage.tsx",
+  );
+  assert.equal(guardedConnectionCheck.taskIntent.taskArea, "ui");
+}
 
 const settings = {
   ollamaUrl: "http://127.0.0.1:11434",
@@ -513,6 +575,173 @@ assert.ok(
   ),
 );
 
+const sectionScopeInventory: ProjectInventory = {
+  ...inventory,
+  totalFiles: inventory.totalFiles + 2,
+  scannedFiles: inventory.scannedFiles + 2,
+  files: [
+    ...inventory.files,
+    {
+      path: "server/src/routes/projects.ts",
+      name: "projects.ts",
+      extension: ".ts",
+      kind: "source",
+      role: "api-route",
+      routePath: "/projects",
+      imports: [],
+      exports: ["projectsRouter"],
+      symbols: ["projectsRouter"],
+      textHints: ["projects"],
+      contentPreview: "export const projectsRouter = Router();",
+      sizeBytes: 1200,
+      depth: 3,
+      canReadText: true,
+      isLikelyGenerated: false,
+    },
+    {
+      path: "apps/renderer/src/components/projects/ProjectsSection.tsx",
+      name: "ProjectsSection.tsx",
+      extension: ".tsx",
+      kind: "source",
+      role: "component",
+      imports: ["../../i18n"],
+      exports: ["ProjectsSection"],
+      symbols: ["ProjectsSection", "noProjects"],
+      textHints: ["projects", "empty state"],
+      contentPreview: "export function ProjectsSection(){ return t('projectsPage.noProjects'); }",
+      sizeBytes: 1600,
+      depth: 5,
+      canReadText: true,
+      isLikelyGenerated: false,
+    },
+  ],
+};
+const sectionScopeGuard = applyExplicitTargetGuard({
+  rawTask: "В разделе Projects замени текст пустого состояния «No projects yet» на «Проектов пока нет».",
+  inventory: sectionScopeInventory,
+  taskIntent: {
+    ...taskIntent,
+    taskUnderstanding: {
+      ...taskIntent.taskUnderstanding,
+      targetHints: ["Projects"],
+    },
+    structuredIntent: {
+      ...taskIntent.structuredIntent,
+      primaryTargets: [
+        {
+          kind: "entity",
+          value: "Projects",
+          confidence: 0.95,
+          evidence: "Named UI section.",
+          provenance: "model_proposed",
+        },
+      ],
+    },
+  },
+  selection: wrongSelection,
+});
+assert.equal(
+  sectionScopeGuard.status,
+  "not-applicable",
+  "a UI section label must not become an authoritative same-stem file target",
+);
+assert.equal(
+  sectionScopeGuard.selection.selectedFiles[0]?.path,
+  wrongSelection.selectedFiles[0]?.path,
+);
+
+const nestedPageScopeInventory: ProjectInventory = {
+  rootPath: "<fixture>",
+  totalFiles: 3,
+  scannedFiles: 3,
+  truncated: false,
+  notes: [],
+  files: [
+    {
+      path: "apps/renderer/src/components/projects/ProjectsSection.tsx",
+      name: "ProjectsSection.tsx",
+      extension: ".tsx",
+      kind: "source",
+      role: "component",
+      imports: ["./ProjectCard"],
+      exports: ["ProjectsSection"],
+      symbols: ["ProjectsSection"],
+      textHints: ["projects", "project card"],
+      sizeBytes: 1200,
+      depth: 5,
+      canReadText: true,
+      isLikelyGenerated: false,
+    },
+    {
+      path: "apps/renderer/src/components/projects/ProjectCard.tsx",
+      name: "ProjectCard.tsx",
+      extension: ".tsx",
+      kind: "source",
+      role: "component",
+      imports: [],
+      exports: ["ProjectCard"],
+      symbols: ["ProjectCard"],
+      textHints: ["project card", "AGENTS.md"],
+      sizeBytes: 1200,
+      depth: 5,
+      canReadText: true,
+      isLikelyGenerated: false,
+    },
+    {
+      path: "apps/renderer/src/pages/ProjectDetailsPage.tsx",
+      name: "ProjectDetailsPage.tsx",
+      extension: ".tsx",
+      kind: "source",
+      role: "page",
+      imports: [],
+      exports: ["ProjectDetailsPage"],
+      symbols: ["ProjectDetailsPage"],
+      textHints: ["project details", "AGENTS.md"],
+      sizeBytes: 1200,
+      depth: 4,
+      canReadText: true,
+      isLikelyGenerated: false,
+    },
+  ],
+};
+const nestedPageScopeSelection: TaskFileSelection = {
+  ...wrongSelection,
+  selectedFiles: [
+    {
+      path: "apps/renderer/src/components/projects/ProjectCard.tsx",
+      kind: "source",
+      usage: "inspect-and-edit",
+      reason: "Nested card action owner.",
+      confidence: 0.9,
+    },
+  ],
+};
+const nestedPageScopeGuard = applyExplicitTargetGuard({
+  rawTask:
+    "Убери действие Generate AGENTS.md только из карточки проекта на странице Projects. Оставь генерацию на странице деталей проекта.",
+  inventory: nestedPageScopeInventory,
+  taskIntent: {
+    ...taskIntent,
+    taskUnderstanding: {
+      ...taskIntent.taskUnderstanding,
+      action: "remove",
+      changeDefinition: "bounded",
+      targetHints: ["Projects", "ProjectCard", "AGENTS.md"],
+      explicitValues: [],
+    },
+  },
+  selection: nestedPageScopeSelection,
+});
+assert.equal(
+  nestedPageScopeGuard.status,
+  "not-applicable",
+  "a named page must remain scope-only when the task names a nested UI action/card target",
+);
+assert.equal(
+  nestedPageScopeGuard.selection.selectedFiles[0]?.path,
+  "apps/renderer/src/components/projects/ProjectCard.tsx",
+);
+
 const noTarget = applyExplicitTargetGuard({
   rawTask: "Improve the UI a little",
   inventory,
@@ -521,4 +750,4 @@ const noTarget = applyExplicitTargetGuard({
 });
 assert.equal(noTarget.status, "not-applicable");
 
-console.log("explicit target guard smoke passed: 9 scenarios");
+console.log("explicit target guard smoke passed: 11 scenarios");

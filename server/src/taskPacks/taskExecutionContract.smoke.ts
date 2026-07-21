@@ -15,6 +15,8 @@ const projectTree = [
   "server/src/performance/performanceTrace.ts",
   "server/src/taskPacks/taskUnderstandingSnapshot.ts",
   "server/src/performance/performanceTrace.smoke.ts",
+  "apps/desktop/renderer/src/lib/score.ts",
+  "apps/desktop/renderer/src/hooks/useDashboardController.ts",
 ];
 
 function understanding(
@@ -101,6 +103,108 @@ function run() {
     assert.ok(contract.requiredLayers.includes("client-api"));
     assert.ok(contract.requiredLayers.includes("ui"));
     assert.equal(contract.requiresLayerCoverage, true);
+    scenarios += 1;
+  }
+
+  {
+    const contract = buildTaskExecutionContract({
+      rawTask: "В разделе проектов замени текст пустого состояния «No projects yet» на «Проектов пока нет».",
+      projectTree,
+      taskArea: "general",
+      understanding: understanding({
+        goal: "Replace the projects empty-state text.",
+        action: "replace",
+        requestedChanges: ["Replace the exact empty-state text."],
+        changeDefinition: "exact",
+        explicitValues: [
+          { kind: "text", value: "No projects yet", exact: true, source: "user" },
+          { kind: "text", value: "Проектов пока нет", exact: true, source: "user" },
+        ],
+      }),
+      structuredIntent: null,
+      fileRoleHints: ["state", "component"],
+    });
+
+    assert.deepEqual(
+      contract.requiredLayers,
+      [],
+      "an exact empty-state text replacement must not force a state layer",
+    );
+    assert.equal(contract.mode, "implementation");
+    scenarios += 1;
+  }
+
+  {
+    const contract = buildTaskExecutionContract({
+      rawTask: "В API генерации Task Pack добавь булево поле, показывающее, был ли refinement получен из кеша.",
+      projectTree,
+      taskArea: "backend",
+      understanding: understanding({
+        goal: "Add a boolean API field indicating whether refinement came from cache.",
+        action: "update",
+        requestedChanges: [
+          "Expose cache provenance in the Task Pack generation API response.",
+        ],
+      }),
+      structuredIntent: null,
+      fileRoleHints: ["component", "state", "style", "api", "route", "service"],
+    });
+
+    assert.deepEqual(
+      contract.requiredLayers,
+      ["backend"],
+      "cache provenance in an API response must not force UI/controller state",
+    );
+    assert.equal(contract.mode, "implementation");
+    assert.ok(
+      contract.forbiddenAssumptions.some((value) =>
+        value.includes("equivalent producer value already exists"),
+      ),
+    );
+    scenarios += 1;
+  }
+
+  {
+    const contract = buildTaskExecutionContract({
+      rawTask: "В разделе Projects замени текст пустого состояния.",
+      projectTree: [
+        ...projectTree,
+        "server/src/routes/projects.ts",
+        "apps/desktop/renderer/src/components/projects/ProjectsSection.tsx",
+      ],
+      taskArea: "general",
+      understanding: understanding({
+        targetHints: ["server/src/routes/projects.ts"],
+      }),
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [
+          {
+            kind: "entity",
+            value: "Projects",
+            path: "server/src/routes/projects.ts",
+            confidence: 0.9,
+            evidence: "Model inferred a section target.",
+            provenance: "model_proposed",
+          },
+        ],
+        positiveActions: [],
+        protectedScopes: [],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: false,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: [],
+      },
+      fileRoleHints: ["component"],
+    });
+
+    assert.equal(
+      contract.confirmedTargets.includes("server/src/routes/projects.ts"),
+      false,
+      "a UI section label must not user-confirm a same-stem backend file",
+    );
+    assert.ok(contract.proposedTargets.includes("server/src/routes/projects.ts"));
     scenarios += 1;
   }
 
@@ -238,6 +342,411 @@ function run() {
       ),
     );
     scenarios += 1;
+  }
+
+  {
+    const base = buildTaskExecutionContract({
+      rawTask: "Add a boolean cache provenance field to the Task Pack API response.",
+      projectTree,
+      taskArea: "backend",
+      understanding: understanding(),
+      structuredIntent: null,
+      fileRoleHints: ["api", "route", "service"],
+    });
+    const gated = applySelectionEvidenceGate({
+      contract: base,
+      selectedFiles: [
+        {
+          path: "server/src/routes/taskPacks.ts",
+          usage: "inspect-and-edit",
+          evidenceLevel: "graph_supported",
+          selectionEvidence: {
+            targetSource: "user_text",
+            pathValidity: "inventory_exact",
+            ownershipEvidence: "route_graph",
+            actionConfidence: "inspect_then_edit",
+            semanticRoles: ["route", "contract"],
+            symbols: ["generationCached", "cached"],
+            chain: [],
+            negativeConstraintConflicts: [],
+            reason: "The route imports the producer and owns the API response.",
+          },
+        },
+      ],
+      existingImplementationRequiresReview: true,
+      existingImplementationCandidates: [
+        "server/src/ollama/taskPackGenerationReliability.ts",
+      ],
+    });
+
+    assert.equal(gated.mode, "implementation");
+    assert.equal(gated.implementationGateReasons.length, 0);
+    assert.deepEqual(gated.confirmedTargets, ["server/src/routes/taskPacks.ts"]);
+    scenarios += 1;
+  }
+
+
+  {
+    const rawTask =
+      "Исправь ошибку, из-за которой после повторного сканирования проекта карточка показывает старый readiness score.";
+    const base = buildTaskExecutionContract({
+      rawTask,
+      projectTree,
+      taskArea: "bugfix",
+      understanding: understanding(),
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [
+          {
+            kind: "explicit_file",
+            value: "apps/desktop/renderer/src/lib/score.ts",
+            path: "apps/desktop/renderer/src/lib/score.ts",
+            confidence: 0.9,
+            evidence: "Model proposed a path from the word score.",
+            provenance: "user_confirmed",
+          },
+        ],
+        positiveActions: [],
+        protectedScopes: [],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: null,
+        needsBackend: null,
+        ambiguities: [],
+        modelNotes: [],
+      },
+      fileRoleHints: ["component", "state"],
+    });
+
+    assert.equal(base.confirmedTargets.length, 0);
+    assert.equal(base.targetEvidence[0]?.evidenceLevel, "inventory_exact");
+    assert.equal(base.targetEvidence[0]?.confirmedForImplementation, false);
+
+    const staleContract = {
+      ...base,
+      confirmedTargets: ["apps/desktop/renderer/src/lib/score.ts"],
+      targetEvidence: [
+        {
+          target: "apps/desktop/renderer/src/lib/score.ts",
+          path: "apps/desktop/renderer/src/lib/score.ts",
+          evidenceLevel: "user_confirmed" as const,
+          confirmedForImplementation: true,
+          reason: "Stale model provenance.",
+        },
+      ],
+    };
+    const gated = applySelectionEvidenceGate({
+      contract: staleContract,
+      rawTask,
+      selectedFiles: [
+        {
+          path: "apps/desktop/renderer/src/hooks/useDashboardController.ts",
+          usage: "inspect-only",
+          evidenceLevel: "graph_supported",
+        },
+      ],
+    });
+
+    assert.equal(gated.confirmedTargets.length, 0);
+    assert.ok(
+      !gated.implementationGateReasons.some((reason) =>
+        reason.includes("Final selection omitted confirmed target"),
+      ),
+    );
+    assert.ok(
+      !gated.targetEvidence.some((target) =>
+        target.path === "apps/desktop/renderer/src/lib/score.ts",
+      ),
+    );
+    scenarios += 1;
+  }
+
+  {
+    const rawTask = "Сделай карточки проектов удобнее и современнее.";
+    const base = buildTaskExecutionContract({
+      rawTask,
+      projectTree: [
+        ...projectTree,
+        "apps/desktop/renderer/src/components/projects/ProjectCard.tsx",
+      ],
+      taskArea: "ui",
+      understanding: understanding({
+        action: "update",
+        readiness: "review",
+        reviewStatus: "accepted",
+        interpretationRisk: "subjective",
+        changeDefinition: "open_ended",
+      }),
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [
+          {
+            kind: "component",
+            value: "ProjectCard",
+            path: "apps/desktop/renderer/src/components/projects/ProjectCard.tsx",
+            confidence: 0.86,
+            evidence: "Repository symbol match.",
+            provenance: "graph_supported",
+          },
+        ],
+        positiveActions: [],
+        protectedScopes: [],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: true,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: [],
+      },
+      fileRoleHints: ["component"],
+    });
+    const gated = applySelectionEvidenceGate({
+      contract: base,
+      rawTask,
+      selectedFiles: [
+        {
+          path: "apps/desktop/renderer/src/components/projects/ProjectCard.tsx",
+          usage: "inspect-and-edit",
+          evidenceLevel: "graph_supported",
+          selectionEvidence: {
+            targetSource: "user_text",
+            pathValidity: "inventory_exact",
+            ownershipEvidence: "symbol_exact",
+            actionConfidence: "confirmed_edit",
+            semanticRoles: ["display"],
+            symbols: ["ProjectCard"],
+            chain: [],
+            negativeConstraintConflicts: [],
+            reason: "The symbol owns the rendered card.",
+          },
+        },
+      ],
+    });
+
+    assert.equal(gated.authorization?.intentAccepted, true);
+    assert.equal(gated.authorization?.scopeConfirmed, false);
+    assert.equal(gated.mode, "investigation");
+    assert.equal(gated.allowImplementationGuidance, false);
+    assert.equal(gated.confirmedTargets.length, 0);
+    assert.ok(
+      gated.implementationGateReasons.some((reason) =>
+        reason.includes("Open-ended task scope is not confirmed"),
+      ),
+    );
+    scenarios += 1;
+  }
+
+  {
+    const rawTask = "Update the project status card behavior.";
+    const targetPath =
+      "apps/desktop/renderer/src/components/projects/ProjectCard.tsx";
+    const selectedFiles = [
+      {
+        path: targetPath,
+        usage: "inspect-and-edit",
+        evidenceLevel: "graph_supported" as const,
+        selectionEvidence: {
+          targetSource: "user_text" as const,
+          pathValidity: "inventory_exact" as const,
+          ownershipEvidence: "symbol_exact" as const,
+          actionConfidence: "confirmed_edit" as const,
+          semanticRoles: ["display" as const],
+          symbols: ["ProjectCard"],
+          chain: [],
+          negativeConstraintConflicts: [],
+          reason: "The symbol owns the requested card behavior.",
+        },
+      },
+    ];
+    const pending = buildTaskExecutionContract({
+      rawTask,
+      projectTree: [...projectTree, targetPath],
+      taskArea: "ui",
+      understanding: understanding({
+        readiness: "review",
+        reviewStatus: "pending",
+      }),
+      structuredIntent: null,
+      fileRoleHints: ["component"],
+    });
+    const pendingGated = applySelectionEvidenceGate({
+      contract: pending,
+      rawTask,
+      selectedFiles,
+    });
+    assert.equal(pendingGated.mode, "investigation");
+    assert.deepEqual(pendingGated.authorization?.authorizedTargets, []);
+
+    const accepted = buildTaskExecutionContract({
+      rawTask,
+      projectTree: [...projectTree, targetPath],
+      taskArea: "ui",
+      understanding: understanding({
+        readiness: "review",
+        reviewStatus: "accepted",
+      }),
+      structuredIntent: null,
+      fileRoleHints: ["component"],
+    });
+    const acceptedGated = applySelectionEvidenceGate({
+      contract: accepted,
+      rawTask,
+      selectedFiles,
+    });
+    assert.equal(acceptedGated.mode, "implementation");
+    assert.deepEqual(acceptedGated.confirmedTargets, [targetPath]);
+    assert.deepEqual(acceptedGated.authorization?.authorizedTargets, [targetPath]);
+    scenarios += 1;
+  }
+
+  {
+    const rawTask =
+      "В файле AGENTS.md добавь раздел Local verification с командами npm run test:selector и npm run build. Исходный код приложения не меняй.";
+    const contract = buildTaskExecutionContract({
+      rawTask,
+      projectTree: [...projectTree, "AGENTS.md"],
+      taskArea: "build",
+      understanding: understanding({
+        targetHints: ["AGENTS.md"],
+        constraints: ["Do not change application source code."],
+      }),
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [{
+          kind: "explicit_file",
+          value: "AGENTS.md",
+          path: "AGENTS.md",
+          confidence: 0.99,
+          evidence: "Explicit real file path.",
+          provenance: "user_confirmed",
+        }],
+        positiveActions: ["Add Local verification documentation"],
+        protectedScopes: ["application source code"],
+        allowedEditScope: "explicit_targets_only",
+        needsStyles: false,
+        needsBackend: null,
+        ambiguities: [],
+        modelNotes: [],
+      },
+      fileRoleHints: ["config", "test"],
+    });
+
+    assert.deepEqual(contract.requiredLayers, ["docs"]);
+    assert.deepEqual(contract.confirmedTargets, ["AGENTS.md"]);
+    scenarios += 1;
+  }
+
+  {
+    const targetPath = "apps/desktop/renderer/src/App.backup.txt";
+    const rawTask =
+      `Удали устаревший ${targetPath}, если он не используется. ` +
+      "Рабочий App.tsx и поведение приложения не меняй.";
+    const contract = buildTaskExecutionContract({
+      rawTask,
+      projectTree: [targetPath, "apps/desktop/renderer/src/App.tsx"],
+      taskArea: "ui",
+      understanding: understanding({
+        action: "remove",
+        targetHints: [targetPath],
+        constraints: ["Do not change App.tsx or application behavior."],
+      }),
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [{
+          kind: "explicit_file",
+          value: targetPath,
+          path: targetPath,
+          confidence: 0.99,
+          evidence: "The user named one exact file.",
+          provenance: "user_confirmed",
+        }],
+        positiveActions: ["Remove the exact stale file if unused"],
+        protectedScopes: ["App.tsx", "application behavior"],
+        allowedEditScope: "explicit_targets_only",
+        needsStyles: false,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: [],
+      },
+      fileRoleHints: [],
+    });
+
+    assert.deepEqual(contract.confirmedTargets, [targetPath]);
+    assert.equal(
+      contract.forbiddenAssumptions.some((value) =>
+        value.includes(`Protected scope: ${targetPath}`),
+      ),
+      false,
+    );
+    scenarios += 1;
+  }
+
+  {
+    const base = buildTaskExecutionContract({
+      rawTask: "Sort saved items by creation date, newest first.",
+      projectTree,
+      taskArea: "general",
+      understanding: understanding(),
+      structuredIntent: null,
+      fileRoleHints: [],
+    });
+    const gated = applySelectionEvidenceGate({
+      contract: base,
+      rawTask: "Sort saved items by creation date, newest first.",
+      selectedFiles: [],
+    });
+
+    assert.equal(gated.mode, "investigation");
+    assert.equal(gated.allowImplementationGuidance, false);
+    assert.ok(
+      gated.implementationGateReasons.some((reason) =>
+        reason.includes("No implementation target is confirmed"),
+      ),
+    );
+    scenarios += 1;
+  }
+
+  {
+    const tasks = [
+      "В Settings добавь кнопку проверки подключения. Используй существующий API и не создавай новый backend route.",
+      "На странице Settings добавь кнопку проверки. Новый backend route не создавай.",
+      "Добавь в Settings кнопку проверки через существующий status API без нового backend route.",
+      "В разделе Settings сделай кнопку проверки и не добавляй отдельный backend route.",
+      "На странице Settings добавь кнопку проверки; backend route создавать не нужно.",
+    ];
+    for (const rawTask of tasks) {
+      const contract = buildTaskExecutionContract({
+        rawTask,
+        projectTree,
+        taskArea: "fullstack",
+        understanding: understanding({
+          readiness: "review",
+          reviewStatus: "accepted",
+          changeDefinition: "open_ended",
+          targetHints: [
+            "apps/desktop/renderer/src/pages/SettingsPage.tsx",
+          ],
+        }),
+        structuredIntent: {
+          schemaVersion: 1,
+          primaryTargets: [],
+          positiveActions: ["Add a UI connection-check control."],
+          protectedScopes: [],
+          allowedEditScope: "target_with_supporting_context",
+          needsStyles: null,
+          needsBackend: true,
+          ambiguities: [],
+          modelNotes: [],
+        },
+        fileRoleHints: ["page", "client-api", "route"],
+      });
+
+      assert.equal(
+        contract.requiredLayers.includes("backend"),
+        false,
+        `backend must stay protected for: ${rawTask}`,
+      );
+      assert.equal(contract.requiredLayers.includes("ui"), true);
+      scenarios += 1;
+    }
   }
 
   console.log(`task execution contract smoke passed: ${scenarios} scenarios`);

@@ -310,7 +310,7 @@ function configMatchesBuildTask(candidate: RetrievedCandidate, rawTask: string) 
   if (stemValue.length >= 4 && task.includes(stemValue)) return true;
   if (/^(?:robots|sitemap)/.test(name) && /\b(?:robots|sitemap|seo)\b|(?:робот|карта сайта|сео)/iu.test(task)) return true;
   if (/^(?:vite|webpack|rollup)/.test(name) && /\b(?:web|bundle|frontend|client|vite|webpack|rollup)\b|(?:веб|бандл|фронтенд|клиент)/iu.test(task)) return true;
-  if (/tsconfig/.test(name) && /\b(?:typescript|type script|server|web|build)\b|(?:тайпскрипт|сервер|сборк)/iu.test(task)) return true;
+  if (/tsconfig/.test(name) && /\b(?:typescript|type script|compiler|compile|paths?|aliases?)\b|(?:тайпскрипт|компилят|пут(?:ь|и|ей)|алиас)/iu.test(task)) return true;
   if (/^next\.config/.test(name) && /\b(?:next|deploy|production|seo|base url)\b|(?:деплой|продакш|сео|базов.*url)/iu.test(task)) return true;
   if (name === "package.json" && /\b(?:build|production|scripts?|run commands?|workspace|monorepo)\b|(?:сборк|продакш|скрипт|команд|монореп)/iu.test(task)) {
     return pathValue.split("/").length <= 2;
