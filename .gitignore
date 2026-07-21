@@ -47,3 +47,9 @@ reports/selector-inventory-snapshot*.json
 server/reports/selector-inventory-snapshot*.json
 reports/selector-regression*/
 server/reports/selector-regression*/
+
+# Local ContextForge databases and database backups
+server/data/*.sqlite*
+server/data/**/*.sqlite*
+server/data/*.db*
+server/data/**/*.db*
