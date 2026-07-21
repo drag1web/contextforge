@@ -1,0 +1,13 @@
+package.json
+server/package.json
+server/src/contextComposer/contextComposerService.ts
+server/src/ollama/taskFileSelector.ts
+server/src/routes/taskPacks.ts
+server/src/selection/canonicalCoreDecision.smoke.ts
+server/src/selection/explicitTargetGuard.ts
+server/src/selection/finalSelectionDecision.ts
+server/src/selection/symbolRename.ts
+server/src/selection/executionAuthorizationAuthority.ts
+server/src/selection/executionAuthorizationAuthority.smoke.ts
+server/src/taskPacks/taskExecutionContract.ts
+server/src/taskPacks/taskExecutionContract.smoke.ts

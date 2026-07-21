@@ -25,7 +25,8 @@
     "test:canonical-core": "tsx src/selection/canonicalCoreDecision.smoke.ts",
     "test:context-quality": "tsx src/selection/contextQuality.smoke.ts",
     "test:symbol-syntax": "tsx src/scanner/sourceSymbolSyntax.smoke.ts",
-    "test:support-grounding": "tsx src/selection/supportingContextGrounding.smoke.ts"
+    "test:support-grounding": "tsx src/selection/supportingContextGrounding.smoke.ts",
+    "test:authorization-authority": "tsx src/selection/executionAuthorizationAuthority.smoke.ts"
   },
   "dependencies": {
     "@types/sql.js": "^1.4.11",

@@ -39,6 +39,7 @@ import {
   resolveTaskUnderstandingSnapshot,
 } from "../taskPacks/taskUnderstandingSnapshot.js";
 import { applyExplicitTargetGuard } from "../selection/explicitTargetGuard.js";
+import { enforceExecutionAuthorizationAuthority } from "../selection/executionAuthorizationAuthority.js";
 import { applyTaskUnderstandingReviewAcceptance } from "../ollama/taskUnderstanding.js";
 import { groundTaskCurrentState } from "../taskPacks/taskCurrentStateGrounding.js";
 
@@ -494,17 +495,12 @@ export async function buildContextComposerPreview(input: {
     selection: pipeline.selection,
   });
   taskIntent = explicitTargetGuard.taskIntent;
-  const fileSelection = explicitTargetGuard.selection;
-
-  const selectedFiles = buildFileReferences({
-    inventory,
-    fileSelection
-  });
+  const initialFileSelection = explicitTargetGuard.selection;
 
   const effectiveTaskArea = getEffectiveTaskArea({
     taskType: input.taskType,
     taskIntent,
-    fileSelection
+    fileSelection: initialFileSelection
   });
 
   const selectionQuality = evaluateContextSelectionQuality({
@@ -512,9 +508,16 @@ export async function buildContextComposerPreview(input: {
     requestedTaskType: input.taskType,
     effectiveTaskArea,
     inventory,
-    fileSelection,
+    fileSelection: initialFileSelection,
     manualSelectionConfirmed: false,
     contextQualityMode: settings.contextQualityMode
+  });
+  const authoritativeFileSelection = enforceExecutionAuthorizationAuthority({
+    rawTask: selectionTask,
+    taskIntent,
+    fileSelection: initialFileSelection,
+    qualityStatus: selectionQuality.status,
+    qualityBlockingReasons: selectionQuality.blockingReasons,
   });
   const selectionConfidence = selectionQuality.signals.confidence / 100;
   const taskIntentForPreview = {
@@ -522,13 +525,17 @@ export async function buildContextComposerPreview(input: {
     confidence: selectionConfidence
   };
   const fileSelectionForPreview: TaskFileSelection = {
-    ...fileSelection,
+    ...authoritativeFileSelection,
     diagnostics: {
-      ...fileSelection.diagnostics,
+      ...authoritativeFileSelection.diagnostics,
       modelConfidence: taskIntent.confidence,
       finalConfidence: selectionConfidence
     } as TaskFileSelection["diagnostics"]
   };
+  const selectedFiles = buildFileReferences({
+    inventory,
+    fileSelection: fileSelectionForPreview
+  });
   const selectorDiagnostics = finalizeSelectorDiagnostics(
     pipeline.diagnostics,
     selectionQuality,
@@ -555,7 +562,7 @@ export async function buildContextComposerPreview(input: {
   const snippets = await buildSnippets({
     projectRoot: project.localPath,
     inventory,
-    fileSelection
+    fileSelection: fileSelectionForPreview
   });
 
   return {
@@ -591,7 +598,7 @@ export async function buildContextComposerPreview(input: {
     notes: buildComposerNotes({
       inventory,
       taskIntent,
-      fileSelection,
+      fileSelection: fileSelectionForPreview,
       selectionQuality,
       selectedFiles,
       suggestedFileGroups,

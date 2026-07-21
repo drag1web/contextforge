@@ -1222,6 +1222,7 @@ function refreshGuardedExecutionContract(input: {
     contract: base,
     rawTask: input.rawTask,
     selectedFiles: input.selection.selectedFiles,
+    inventoryFiles: input.inventory.files,
     missingRequiredLayers,
     existingImplementationCandidates:
       input.selection.diagnostics?.existingImplementationCandidates ?? [],

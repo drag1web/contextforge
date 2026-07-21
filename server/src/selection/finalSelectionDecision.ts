@@ -3273,8 +3273,12 @@ function literalUiSurfaceScore(
 ) {
   if (!isUiFile(file)) return 0;
   const raw = normalizeIdentifier(rawTask);
-  const rawCanonical = canonicalIdentifier(rawTask);
   const names = uiSurfaceNames(file);
+  const taskContainsSurfaceName = (name: string) => {
+    const normalizedName = normalizeIdentifier(name);
+    if (!normalizedName) return false;
+    return (` ${raw} `).includes(` ${normalizedName} `);
+  };
   const fullStem = normalizeIdentifier(file.name.replace(/\.[^.]+$/u, ""));
   const fullCanonical = canonicalIdentifier(fullStem);
   const pageContext =
@@ -3283,19 +3287,32 @@ function literalUiSurfaceScore(
     /\b(?:component|modal|card|section|panel|button|control)\b|(?:компонент|модал|карточк|секци|раздел|панел|кнопк|элемент\w*\s+управлен)/iu.test(
       rawTask,
     );
-  const primaryPaths = new Set(
+  const trustedPrimaryPaths = new Set(
     (taskIntent?.structuredIntent.primaryTargets ?? [])
+      .filter(
+        (target) =>
+          Boolean(target.path) &&
+          ["user_confirmed", "inventory_exact"].includes(
+            target.provenance ?? "",
+          ) &&
+          (normalizePath(rawTask).includes(normalizePath(target.path!)) ||
+            taskContainsSurfaceName(
+              target.name ??
+                target.value ??
+                (target.path!.split("/").pop() ?? target.path!),
+            )),
+      )
       .map((target) => normalizePath(target.path ?? ""))
       .filter(Boolean),
   );
-  const isPrimaryPath = primaryPaths.has(normalizePath(file.path));
+  const isPrimaryPath = trustedPrimaryPaths.has(normalizePath(file.path));
   let score = 0;
-  if (fullCanonical.length >= 6 && rawCanonical.includes(fullCanonical)) {
+  if (fullCanonical.length >= 6 && taskContainsSurfaceName(fullStem)) {
     score += 900;
   }
   for (const name of names) {
     const canonical = canonicalIdentifier(name);
-    if (canonical.length < 5 || !rawCanonical.includes(canonical)) continue;
+    if (canonical.length < 5 || !taskContainsSurfaceName(name)) continue;
     const hasSurfaceSuffix = /\s(?:page|screen|view|modal|card|section|panel)$/u.test(
       fullStem,
     );
@@ -4659,10 +4676,11 @@ function resolveLiteralFileTargetSelection(input: {
   if (!taskRequestsConcreteFileMutation(input.rawTask, input.taskIntent))
     return null;
 
-  const classified = extractClassifiedFileMentions(input.rawTask).filter(
+  const allClassified = extractClassifiedFileMentions(input.rawTask);
+  const editableClassified = allClassified.filter(
     (mention) => mention.role !== "artifact-reference",
   );
-  if (classified.length === 0) return null;
+  if (editableClassified.length === 0) return null;
 
   const resolution = resolveExplicitFileMentions(
     input.rawTask,
@@ -4672,8 +4690,49 @@ function resolveLiteralFileTargetSelection(input: {
     input.inventory.files.map((file) => [normalizePath(file.path), file]),
   );
   const classifiedByPath = new Map(
-    classified.map((mention) => [normalizePath(mention.path), mention]),
+    allClassified.map((mention) => [normalizePath(mention.path), mention]),
   );
+  const protectedScopeMentionKeys = new Set(
+    [
+      ...allClassified.filter(
+        (mention) => mention.role === "artifact-reference",
+      ),
+      ...(input.taskIntent?.structuredIntent.protectedScopes ?? []).flatMap(
+        (scope) => extractClassifiedFileMentions(scope),
+      ),
+    ].map((mention) => normalizePath(mention.path)),
+  );
+  const protectedTargetKeys = new Set<string>();
+
+  for (const protectedMentionKey of protectedScopeMentionKeys) {
+    const basename = protectedMentionKey.split("/").pop() ?? protectedMentionKey;
+    const candidates = input.inventory.files.filter((file) => {
+      const candidate = normalizePath(file.path);
+      return (
+        candidate === protectedMentionKey ||
+        candidate.endsWith(`/${protectedMentionKey}`) ||
+        (!protectedMentionKey.includes("/") &&
+          (candidate.split("/").pop() ?? candidate) === basename)
+      );
+    });
+    if (candidates.length === 1) {
+      protectedTargetKeys.add(normalizePath(candidates[0]!.path));
+    }
+  }
+
+  for (const mention of resolution.mentions) {
+    const mentionKey = normalizePath(mention.raw);
+    const normalizedMentionKey = normalizePath(mention.normalized);
+    const semanticMention =
+      classifiedByPath.get(mentionKey) ??
+      classifiedByPath.get(normalizedMentionKey);
+    const isProtected =
+      semanticMention?.role === "artifact-reference" ||
+      protectedScopeMentionKeys.has(mentionKey) ||
+      protectedScopeMentionKeys.has(normalizedMentionKey);
+    if (!isProtected || !mention.matchedPath) continue;
+    protectedTargetKeys.add(normalizePath(mention.matchedPath));
+  }
   const createRequested = taskRequestsFileCreation(
     input.rawTask,
     input.taskIntent,
@@ -4694,7 +4753,7 @@ function resolveLiteralFileTargetSelection(input: {
       : undefined;
     const targetPath = existing?.path ?? mention.normalized;
     const targetKey = normalizePath(targetPath);
-    if (targetKeys.has(targetKey)) continue;
+    if (targetKeys.has(targetKey) || protectedTargetKeys.has(targetKey)) continue;
 
     const plannedCreate =
       !existing && createRequested && isSafeExplicitRelativePath(targetPath);
@@ -4740,13 +4799,74 @@ function resolveLiteralFileTargetSelection(input: {
         normalizePath(target.path).split("/").slice(0, -1).join("/"),
       ),
   );
-  const supportBudget = Math.max(0, input.maxFiles - exactTargets.length);
+  const effectiveMaxFiles = Math.min(
+    12,
+    Math.max(input.maxFiles, exactTargets.length + protectedTargetKeys.size),
+  );
+  const supportBudget = Math.max(0, effectiveMaxFiles - exactTargets.length);
+  const explicitProtectedReferences: SelectedTaskFile[] = Array.from(
+    protectedTargetKeys,
+  )
+    .map((key) => inventoryByPath.get(key))
+    .filter((file): file is ProjectInventoryFile => Boolean(file))
+    .slice(0, supportBudget)
+    .map((file) => {
+      const relatedPath = exactTargets[0]?.path;
+      const reason =
+        "The user explicitly constrained this existing project file to reference-only use.";
+      const evidence: FileSelectionEvidence = {
+        targetSource: "user_text",
+        pathValidity: "inventory_exact",
+        ownershipEvidence: "content_supported",
+        actionConfidence: "inspect_only",
+        semanticRoles: [file.role === "api-route" ? "route" : "reference"],
+        symbols: uniqueStrings(
+          [file.name, ...(file.exports ?? []), ...(file.symbols ?? [])],
+          8,
+        ),
+        chain: relatedPath
+          ? [
+              {
+                symbol:
+                  file.exports?.[0] ??
+                  file.symbols?.[0] ??
+                  file.name.replace(/\.[^.]+$/u, ""),
+                role: "reference",
+                path: file.path,
+                relatedPath,
+                evidence: "content_supported",
+                relation: "identifier_reference",
+              },
+            ]
+          : [],
+        negativeConstraintConflicts: [
+          "Explicit user reference-only/protected-file constraint.",
+        ],
+        reason,
+      };
+      return {
+        path: file.path,
+        kind: file.kind,
+        usage: "inspect-only" as const,
+        reason,
+        confidence: 0.99,
+        evidenceLevel: "user_confirmed" as const,
+        selectionEvidence: evidence,
+      };
+    });
+  const groundedSupportBudget =
+    explicitProtectedReferences.length > 0
+      ? 0
+      : Math.max(0, supportBudget - explicitProtectedReferences.length);
   const explicitlyRequestedSupport = resolveGroundedSupportingContext({
     rawTask: input.rawTask,
     inventory: input.inventory,
     targetPaths: exactTargets.map((target) => target.path),
-    excludedPaths: exactTargets.map((target) => target.path),
-    maxFiles: Math.min(1, supportBudget),
+    excludedPaths: [
+      ...exactTargets.map((target) => target.path),
+      ...explicitProtectedReferences.map((file) => file.path),
+    ],
+    maxFiles: groundedSupportBudget,
   }).map((candidate) => {
     const relatedPath = exactTargets.find((target) =>
       normalizePath(target.path)
@@ -4793,10 +4913,12 @@ function resolveLiteralFileTargetSelection(input: {
     };
   });
   const requestedSupportKeys = new Set(
-    explicitlyRequestedSupport.map((file) => normalizePath(file.path)),
+    [...explicitProtectedReferences, ...explicitlyRequestedSupport].map((file) =>
+      normalizePath(file.path),
+    ),
   );
   const requestedSupportRoles = new Set(
-    explicitlyRequestedSupport
+    [...explicitProtectedReferences, ...explicitlyRequestedSupport]
       .map((file) => inventoryByPath.get(normalizePath(file.path))?.role)
       .filter((role): role is ProjectInventoryFile["role"] => Boolean(role)),
   );
@@ -4825,7 +4947,12 @@ function resolveLiteralFileTargetSelection(input: {
       0,
       Math.min(
         2,
-        Math.max(0, supportBudget - explicitlyRequestedSupport.length),
+        Math.max(
+          0,
+          supportBudget -
+            explicitProtectedReferences.length -
+            explicitlyRequestedSupport.length,
+        ),
       ),
     )
     .map((file) => ({
@@ -4843,10 +4970,11 @@ function resolveLiteralFileTargetSelection(input: {
             }
           : file.selectionEvidence,
     }));
-  const supporting = [...explicitlyRequestedSupport, ...nearbySupporting].slice(
-    0,
-    supportBudget,
-  );
+  const supporting = [
+    ...explicitProtectedReferences,
+    ...explicitlyRequestedSupport,
+    ...nearbySupporting,
+  ].slice(0, supportBudget);
 
   const requiredLayersOverride = uniqueStrings(
     exactTargets
@@ -4860,7 +4988,7 @@ function resolveLiteralFileTargetSelection(input: {
   ) as TaskExecutionLayer[];
 
   return {
-    selectedFiles: [...exactTargets, ...supporting].slice(0, input.maxFiles),
+    selectedFiles: [...exactTargets, ...supporting].slice(0, effectiveMaxFiles),
     profile: input.profile,
     deterministicImplementationReady: true,
     canonicalSelectionApplied: true,
@@ -4870,9 +4998,12 @@ function resolveLiteralFileTargetSelection(input: {
       supporting.length > 0
         ? `Retained ${supporting.length} non-conflicting file(s) as inspect-only supporting context.`
         : "No ungrounded supporting file was retained beside the literal target(s).",
+      explicitProtectedReferences.length > 0
+        ? `Preserved ${explicitProtectedReferences.length} explicitly protected/reference-only file(s) as immutable inspect-only evidence.`
+        : "No explicit protected file reference required immutable inspect-only evidence.",
       explicitlyRequestedSupport.length > 0
-        ? `Grounded ${explicitlyRequestedSupport.length} user-requested existing provider/reference file(s) without expanding edit authorization.`
-        : "No explicit reuse-existing-context directive required additional provider evidence.",
+        ? `Grounded ${explicitlyRequestedSupport.length} additional user-requested existing provider/reference file(s) without expanding edit authorization.`
+        : "No additional reuse-existing-context directive required provider evidence.",
     ],
   };
 }

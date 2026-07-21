@@ -78,6 +78,7 @@ import {
   applyExplicitTargetGuard,
   resolveExplicitTargetFastPath,
 } from "../selection/explicitTargetGuard.js";
+import { enforceExecutionAuthorizationAuthority } from "../selection/executionAuthorizationAuthority.js";
 import {
   buildTaskUnderstandingAnalysisSignature,
   createTaskUnderstandingSnapshot,
@@ -987,6 +988,7 @@ function buildEffectiveExecutionContract({
     contract: base,
     rawTask,
     selectedFiles: fileSelection.selectedFiles,
+    inventoryFiles: inventory.files,
     missingRequiredLayers:
       fileSelection.diagnostics?.missingRequiredLayers ?? [],
     existingImplementationCandidates:
@@ -2170,7 +2172,7 @@ taskPacksRouter.post("/", async (req, res) => {
             ? automaticFileSelection.effectiveTaskArea
             : taskIntent.taskArea;
 
-        const fileSelection = await measurePerformanceStage(
+        const initialFileSelection = await measurePerformanceStage(
           "selection_resolution",
           "Resolve final file selection",
           () =>
@@ -2185,11 +2187,6 @@ taskPacksRouter.post("/", async (req, res) => {
               : automaticFileSelection,
         );
 
-        const fileReferences = buildFileReferences({
-          inventory,
-          fileSelection,
-        });
-
         const selectionQuality = await measurePerformanceStage(
           "selection_quality",
           "Evaluate context quality",
@@ -2199,12 +2196,23 @@ taskPacksRouter.post("/", async (req, res) => {
               requestedTaskType: parsed.data.taskType,
               effectiveTaskArea: effectiveSelectionArea,
               inventory,
-              fileSelection,
+              fileSelection: initialFileSelection,
               manualSelectionConfirmed: manualSelectionRequested,
               contextQualityMode: settings.contextQualityMode,
               taskIntent,
             }),
         );
+        const fileSelection = enforceExecutionAuthorizationAuthority({
+          rawTask: selectionTask,
+          taskIntent,
+          fileSelection: initialFileSelection,
+          qualityStatus: selectionQuality.status,
+          qualityBlockingReasons: selectionQuality.blockingReasons,
+        });
+        const fileReferences = buildFileReferences({
+          inventory,
+          fileSelection,
+        });
         const selectorDiagnostics = finalizeSelectorDiagnostics(
           selectorPipeline.diagnostics,
           selectionQuality,

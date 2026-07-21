@@ -6570,8 +6570,15 @@ function finalizeSelectedFilesForSafety(
         : "Conditional single-file removal remains investigation-only because the unused predicate is not proven.",
     );
   } else if (createPlan.targets.length > 0) {
+    const immutableProtectedReferences = selection.selectedFiles.filter(
+      (file) =>
+        file.evidenceLevel === "user_confirmed" &&
+        file.usage === "inspect-only" &&
+        Boolean(file.selectionEvidence?.negativeConstraintConflicts.length),
+    );
     selectedFiles = dedupeSelectedFilesByPath([
       ...createPlan.targets,
+      ...immutableProtectedReferences,
       ...getCreateTargetReferenceFiles(
         input,
         createPlan.targets,
@@ -13793,6 +13800,7 @@ function applyExecutionContractSelectionPolicy(
     contract: baseContract,
     rawTask: input.rawTask,
     selectedFiles: evidenceFiles,
+    inventoryFiles: input.inventory.files,
     missingRequiredLayers,
     existingImplementationCandidates,
     existingImplementationRequiresReview,
@@ -13936,6 +13944,7 @@ function applyExecutionContractSelectionPolicy(
     contract: decisionBaseContract,
     rawTask: input.rawTask,
     selectedFiles: decisionFiles,
+    inventoryFiles: input.inventory.files,
     missingRequiredLayers: tracedMissingRequiredLayers,
     existingImplementationCandidates,
     existingImplementationRequiresReview,
@@ -14028,7 +14037,10 @@ function applyExecutionContractSelectionPolicy(
         (isBackendLeaningPath(file.path) || isClientApiBridgePath(file.path)) &&
         file.selectionEvidence?.negativeConstraintConflicts.length
       ) {
-        return false;
+        return (
+          file.usage === "inspect-only" &&
+          file.evidenceLevel === "user_confirmed"
+        );
       }
       if (!investigationTrace?.triggered) return true;
       const traceEvidence =

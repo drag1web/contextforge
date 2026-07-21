@@ -15,11 +15,11 @@ export function extractSymbolRenameIntent(
 ): SymbolRenameIntent | null {
   const patterns = [
     new RegExp(
-      String.raw`\brename\s+(?:the\s+)?(?:(?:typescript|ts)\s*[- ]?\s*)?(?:(?:type|interface|class|enum|symbol)\s+)?(${IDENTIFIER})\s+(?:to|as)\s+(${IDENTIFIER})\b`,
+      String.raw`\brename\s+(?:the\s+)?(?:(?:exported|public)\s+)?(?:(?:typescript|ts)\s*[- ]?\s*)?(?:(?:type|interface|class|enum|symbol)\s+)?(${IDENTIFIER})\s+(?:to|as)\s+(${IDENTIFIER})\b`,
       "iu",
     ),
     new RegExp(
-      String.raw`(?:^|[^\p{L}\p{N}_])переимен(?:уй|овать)\s+(?:(?:typescript|ts)\s*[- ]?\s*)?(?:(?:тип|интерфейс|класс|enum|символ)\s+)?(${IDENTIFIER})\s+в\s+(${IDENTIFIER})\b`,
+      String.raw`(?:^|[^\p{L}\p{N}_])переимен(?:уй|овать)\s+(?:(?:экспортируем\p{L}*|публичн\p{L}*)\s+)?(?:(?:typescript|ts)\s*[- ]?\s*)?(?:(?:тип|интерфейс|класс|enum|символ)\s+)?(${IDENTIFIER})\s+в\s+(${IDENTIFIER})\b`,
       "iu",
     ),
   ];

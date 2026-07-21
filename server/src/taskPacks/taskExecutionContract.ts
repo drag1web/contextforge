@@ -17,6 +17,10 @@ import type {
   SelectionPathValidity,
   SelectionTargetSource,
 } from "../selection/repositorySemanticIndex.js";
+import type {
+  ProjectInventoryFileKind,
+  ProjectInventoryFileRole,
+} from "../scanner/projectInventoryScanner.js";
 
 export type TaskExecutionLayer =
   | "ui"
@@ -467,6 +471,33 @@ function inferRequiredLayers({
     .join(" ")
     .toLowerCase();
   const protectedLayers = new Set<TaskExecutionLayer>();
+  const explicitProtectedScopeText = (
+    structuredIntent?.protectedScopes ?? []
+  )
+    .join(" ")
+    .toLowerCase();
+  if (
+    /(?:\b(?:backend|server|api|endpoint|route)\b|сервер|бэк|бекенд|бэкенд|апи|эндпоинт|маршрут)/iu.test(
+      explicitProtectedScopeText,
+    )
+  ) {
+    protectedLayers.add("backend");
+  }
+  if (
+    /(?:\b(?:database|storage|repository|schema|persistence|db)\b|баз\w*\s+данн|хранилищ|репозитор|схем)/iu.test(
+      explicitProtectedScopeText,
+    )
+  ) {
+    protectedLayers.add("storage");
+  }
+  if (
+    /(?:\b(?:frontend|ui|client|renderer)\b|фронт|интерфейс|клиент|рендерер)/iu.test(
+      explicitProtectedScopeText,
+    )
+  ) {
+    protectedLayers.add("ui");
+    protectedLayers.add("client-api");
+  }
   if (
     /(?:\bbackend\b|server|api|endpoint|route|сервер|бэк|бекенд|бэкенд|эндпоинт|маршрут)[^.!?\n]{0,80}(?:не\s+(?:добавляй|добавлять|создавай|создавать|трогай|трогать|меняй|менять|изменяй|изменять|редактируй|редактировать)|do not|don't|dont|without)/iu.test(
       protectedText,
@@ -657,35 +688,73 @@ function inferRequiredLayers({
   return layers.filter((layer) => !protectedLayers.has(layer));
 }
 
-function pathMatchesLayer(pathValue: string, layer: TaskExecutionLayer) {
+function pathMatchesLayer(
+  pathValue: string,
+  layer: TaskExecutionLayer,
+  file?: { kind: ProjectInventoryFileKind; role: ProjectInventoryFileRole },
+  evidence?: FileSelectionEvidence,
+) {
   const pathText = normalizeForCompare(pathValue);
-  if (layer === "ui")
+  const role = file?.role;
+  const kind = file?.kind;
+  const semanticRoles = new Set(evidence?.semanticRoles ?? []);
+
+  // Parser/scanner metadata and semantic evidence outrank directory naming.
+  // Cross-project repositories frequently place server entries at src/server.ts,
+  // client contracts at client/src/api.ts, or Next routes under app/api.
+  if (layer === "ui") {
+    if (semanticRoles.has("display")) return true;
+    if (["app-entry", "page", "layout", "component", "ui-component"].includes(role ?? "")) {
+      return role !== "api-route" && role !== "client-api";
+    }
     return (
-      /(?:\/pages?\/|\/components?\/|\/renderer\/)/u.test(pathText) &&
-      !/(?:\/api\/|client\.ts$)/u.test(pathText)
+      /\.(?:tsx|jsx|vue|svelte)$/u.test(pathText) &&
+      !/(?:^|\/)api(?:\/|\.)|(?:^|\/)(?:server|backend)(?:\/|$)/u.test(pathText)
     );
-  if (layer === "client-api")
+  }
+  if (layer === "client-api") {
+    if (role === "client-api") return true;
     return (
-      /(?:\/api\/|api\/client|client\.ts$)/u.test(pathText) &&
-      /(?:renderer|frontend|client|apps\/desktop)/u.test(pathText)
+      /(?:^|\/)(?:client|frontend|renderer)(?:\/|$)/u.test(pathText) &&
+      /(?:^|\/)api\.(?:ts|tsx|js|jsx)$/u.test(pathText)
+    ) || /api\/client|client\.(?:ts|tsx|js|jsx)$/u.test(pathText);
+  }
+  if (layer === "backend") {
+    if (semanticRoles.has("route")) return true;
+    if (["api-route", "server-entry", "service"].includes(role ?? "")) return true;
+    return (
+      /(?:^|\/)(?:server|backend)(?:\/|$)/u.test(pathText) ||
+      /(?:^|\/)src\/server\.(?:ts|tsx|js|jsx|mjs|cjs)$/u.test(pathText) ||
+      /(?:^|\/)app\/api\/.+\/route\.(?:ts|tsx|js|jsx)$/u.test(pathText)
     );
-  if (layer === "backend")
-    return /(?:^|\/)(?:server|backend)(?:\/|$)/u.test(pathText);
-  if (layer === "state")
-    return /(?:\/hooks?\/|\/stores?\/|\/state\/|controller|reducer|cache|session)/u.test(
+  }
+  if (layer === "state") {
+    if (semanticRoles.has("state-owner")) return true;
+    if (["store", "hook"].includes(role ?? "")) return true;
+    return /(?:\/hooks?\/|\/stores?\/|\/state\/|controller|reducer|cache|session|context)/u.test(
       pathText,
     );
-  if (layer === "storage")
-    return /(?:\/storage\/|\/db\/|\/database\/|\/repositories?\/|schema|migration)/u.test(
+  }
+  if (layer === "storage") {
+    if (semanticRoles.has("storage")) return true;
+    if (["repository", "db-schema"].includes(role ?? "")) return true;
+    return /(?:\/storage\/|\/db\/|\/database\/|\/repositories?\/|(?:^|\/)storage\.(?:ts|tsx|js|jsx)$|schema|migration)/u.test(
       pathText,
     );
-  if (layer === "tests")
+  }
+  if (layer === "tests") {
+    if (kind === "test" || role === "test") return true;
     return /(?:test|spec|smoke|replay|fixture)/u.test(pathText);
-  if (layer === "config")
+  }
+  if (layer === "config") {
+    if (kind === "config" || role === "config") return true;
     return /(?:package\.json|tsconfig|jsconfig|vite|webpack|rollup|eslint|prettier|tailwind|postcss|docker-compose|dockerfile|makefile|(?:^|\/)\.env(?:\.|$)|\.ya?ml$|\.toml$|config)/u.test(
       pathText,
     );
-  if (layer === "docs") return /(?:\.md$|\/docs\/|readme)/u.test(pathText);
+  }
+  if (layer === "docs") {
+    return kind === "docs" || role === "docs" || /(?:\.md$|\/docs\/|readme)/u.test(pathText);
+  }
   return false;
 }
 
@@ -758,8 +827,20 @@ function evidenceConfirmsLayer(
     selectionEvidence?: FileSelectionEvidence;
   },
   layer: TaskExecutionLayer,
+  inventoryFile?: {
+    kind: ProjectInventoryFileKind;
+    role: ProjectInventoryFileRole;
+  },
 ) {
-  if (!pathMatchesLayer(file.path, layer)) return false;
+  if (
+    !pathMatchesLayer(
+      file.path,
+      layer,
+      inventoryFile,
+      file.selectionEvidence,
+    )
+  )
+    return false;
   if (file.evidenceLevel === "user_confirmed") return true;
   const evidence = file.selectionEvidence;
   const groundedInspectOnlySupport =
@@ -971,6 +1052,11 @@ export function applySelectionEvidenceGate(input: {
   missingRequiredLayers?: TaskExecutionLayer[];
   existingImplementationCandidates?: string[];
   existingImplementationRequiresReview?: boolean;
+  inventoryFiles?: Array<{
+    path: string;
+    kind: ProjectInventoryFileKind;
+    role: ProjectInventoryFileRole;
+  }>;
 }): TaskExecutionContract {
   const selectionGroundsReviewedScope = Boolean(
     input.contract.authorization?.intentAccepted &&
@@ -997,6 +1083,12 @@ export function applySelectionEvidenceGate(input: {
     : true;
   const selectedPaths = new Set(
     input.selectedFiles.map((file) => normalizeForCompare(file.path)),
+  );
+  const inventoryByPath = new Map(
+    (input.inventoryFiles ?? []).map((file) => [
+      normalizeForCompare(file.path),
+      file,
+    ]),
   );
   const normalizedContractTargetEvidence = input.contract.targetEvidence.map(
     (target) => {
@@ -1051,10 +1143,23 @@ export function applySelectionEvidenceGate(input: {
     (target) => !selectedPaths.has(normalizeForCompare(target)),
   );
   const candidateLayerCoverage = input.contract.requiredLayers.filter((layer) =>
-    input.selectedFiles.some((file) => pathMatchesLayer(file.path, layer)),
+    input.selectedFiles.some((file) =>
+      pathMatchesLayer(
+        file.path,
+        layer,
+        inventoryByPath.get(normalizeForCompare(file.path)),
+        file.selectionEvidence,
+      ),
+    ),
   );
   const confirmedLayerCoverage = input.contract.requiredLayers.filter((layer) =>
-    input.selectedFiles.some((file) => evidenceConfirmsLayer(file, layer)),
+    input.selectedFiles.some((file) =>
+      evidenceConfirmsLayer(
+        file,
+        layer,
+        inventoryByPath.get(normalizeForCompare(file.path)),
+      ),
+    ),
   );
   const missingConfirmedLayers = input.contract.requiredLayers.filter(
     (layer) => !confirmedLayerCoverage.includes(layer),

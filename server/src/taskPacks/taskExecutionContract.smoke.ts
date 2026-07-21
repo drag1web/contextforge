@@ -749,6 +749,38 @@ function run() {
     }
   }
 
+  {
+    const contract = buildTaskExecutionContract({
+      rawTask:
+        "Add a pairing helper to the connected devices screen. Keep the backend pairing API unchanged.",
+      projectTree: [
+        ...projectTree,
+        "src/pages/DevicesPage.tsx",
+        "src/app/api/pairing/route.ts",
+      ],
+      taskArea: "fullstack",
+      understanding: understanding({
+        targetHints: ["src/pages/DevicesPage.tsx"],
+      }),
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [],
+        positiveActions: ["Add a UI pairing helper."],
+        protectedScopes: ["backend pairing api"],
+        allowedEditScope: "target_with_supporting_context",
+        needsStyles: false,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: [],
+      },
+      fileRoleHints: ["page", "api", "route"],
+    });
+
+    assert.equal(contract.requiredLayers.includes("backend"), false);
+    assert.equal(contract.requiredLayers.includes("ui"), true);
+    scenarios += 1;
+  }
+
   console.log(`task execution contract smoke passed: ${scenarios} scenarios`);
 }
 

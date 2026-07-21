@@ -705,6 +705,186 @@ async function testModelProposalIsNotUserConfirmation() {
   );
 }
 
+
+async function testGroupedReferenceOnlyProvidersRemainInspectOnly() {
+  const createTarget = "src/app/runSummary.ts";
+  const registrationTarget = "src/server.ts";
+  const providerOne = "src/db/queries.ts";
+  const providerTwo = "src/db/database.ts";
+  const selection = await run({
+    rawTask:
+      `Create ${createTarget} exporting buildRunSummary and add GET /api/runs/:id/summary in ${registrationTarget}. ` +
+      `Use ${providerOne} and ${providerTwo} only as reference providers; do not modify those provider files.`,
+    files: [
+      file(registrationTarget, {
+        role: "server-entry",
+        exports: ["app"],
+        symbols: ["app"],
+      }),
+      file(providerOne, {
+        role: "repository",
+        exports: ["getRunResults"],
+        symbols: ["getRunResults"],
+      }),
+      file(providerTwo, {
+        role: "db-schema",
+        exports: ["initDatabase"],
+        symbols: ["initDatabase"],
+      }),
+    ],
+    taskIntent: intent({
+      taskArea: "backend",
+      taskUnderstanding: {
+        ...intent().taskUnderstanding,
+        action: "create",
+        targetHints: [
+          createTarget,
+          registrationTarget,
+          providerOne,
+          providerTwo,
+        ],
+        requestedChanges: [
+          `Create ${createTarget}`,
+          `Update ${registrationTarget}`,
+        ],
+      },
+      structuredIntent: {
+        ...intent().structuredIntent,
+        allowedEditScope: "explicit_targets_only",
+        protectedScopes: [
+          `${providerOne} (reference only)`,
+          `${providerTwo} (reference only)`,
+        ],
+        needsBackend: true,
+      },
+    }),
+  });
+
+  assert.equal(selection.diagnostics?.executionContract?.mode, "implementation");
+  assert.equal(
+    selection.selectedFiles.find((selected) => selected.path === providerOne)
+      ?.usage,
+    "inspect-only",
+  );
+  assert.equal(
+    selection.selectedFiles.find((selected) => selected.path === providerTwo)
+      ?.usage,
+    "inspect-only",
+  );
+  assert.deepEqual(
+    [...(selection.diagnostics?.executionContract?.authorization?.authorizedTargets ?? [])].sort(),
+    [createTarget, registrationTarget].sort(),
+  );
+}
+
+async function testExportedTypeRenameDestinationConflictIsInvestigation() {
+  const owner = "client/src/api.ts";
+  const selection = await run({
+    rawTask:
+      "Rename the exported TypeScript type User to RunRow and update every import and usage.",
+    files: [
+      file(owner, {
+        role: "client-api",
+        exports: ["User", "RunRow"],
+        symbols: ["User", "RunRow"],
+        semanticFacts: {
+          declarations: ["User", "RunRow"],
+          references: [],
+          assignments: [],
+          objectProperties: [],
+          stateSymbols: [],
+          translationKeys: [],
+          translationEntries: [],
+          routePaths: [],
+          symbolSyntax: {
+            parser: "js-ts-lexical-v1",
+            declarations: ["User", "RunRow"],
+            references: ["User", "RunRow"],
+            imports: [],
+            exports: ["User", "RunRow"],
+            symbols: ["User", "RunRow"],
+            moduleSpecifiers: [],
+          },
+        },
+      }),
+    ],
+    taskIntent: intent({
+      taskArea: "ui",
+      taskUnderstanding: {
+        ...intent().taskUnderstanding,
+        action: "refactor",
+        targetHints: ["User", "RunRow"],
+      },
+    }),
+  });
+
+  assert.equal(selection.diagnostics?.executionContract?.mode, "investigation");
+  assert.deepEqual(
+    selection.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [],
+  );
+  assert.equal(selection.selectedFiles.length, 0);
+}
+
+async function testUntrustedSameStemUiProposalCannotBecomeEditable() {
+  const realSurface = "src/pages/DevicesPage.tsx";
+  const hallucinatedSurface = "src/pages/ConnectPage.tsx";
+  const selection = await run({
+    rawTask:
+      "On the connected devices pairing code screen, clarify the helper text. Do not change backend behavior.",
+    files: [
+      file(realSurface, {
+        role: "page",
+        exports: ["DevicesPage"],
+        symbols: ["DevicesPage"],
+        textHints: ["connected devices", "pairing code", "helper text"],
+      }),
+      file(hallucinatedSurface, {
+        role: "page",
+        exports: ["ConnectPage"],
+        symbols: ["ConnectPage"],
+        textHints: ["connect account"],
+      }),
+    ],
+    taskIntent: intent({
+      taskArea: "ui",
+      taskUnderstanding: {
+        ...intent().taskUnderstanding,
+        goal: "Clarify helper text on the connected devices pairing screen.",
+        action: "update",
+        changeDefinition: "bounded",
+      },
+      structuredIntent: {
+        ...intent().structuredIntent,
+        primaryTargets: [
+          {
+            kind: "component",
+            value: "ConnectPage",
+            path: hallucinatedSurface,
+            confidence: 0.91,
+            evidence: "Model inferred a same-stem page from the word connected.",
+            provenance: "model_proposed",
+          },
+        ],
+        protectedScopes: ["backend"],
+        needsBackend: false,
+      },
+    }),
+  });
+
+  assert.equal(
+    selection.diagnostics?.executionContract?.authorization?.authorizedTargets.includes(
+      hallucinatedSurface,
+    ),
+    false,
+  );
+  assert.notEqual(
+    selection.selectedFiles.find((selected) => selected.path === hallucinatedSurface)
+      ?.usage,
+    "inspect-and-edit",
+  );
+}
+
 async function main() {
   await testLiteralExistingTarget();
   await testMissingCreateTarget();
@@ -716,7 +896,10 @@ async function main() {
   await testExplicitReferenceOnlyPathCannotBeAuthorized();
   await testUiApiClientOutranksConsumerPages();
   await testModelProposalIsNotUserConfirmation();
-  console.log("canonical core decision smoke passed: 10 scenarios");
+  await testGroupedReferenceOnlyProvidersRemainInspectOnly();
+  await testExportedTypeRenameDestinationConflictIsInvestigation();
+  await testUntrustedSameStemUiProposalCannotBecomeEditable();
+  console.log("canonical core decision smoke passed: 13 scenarios");
 }
 
 main().catch((error) => {
