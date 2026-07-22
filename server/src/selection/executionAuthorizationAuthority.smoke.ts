@@ -280,4 +280,56 @@ function authorized(result: TaskFileSelection) {
   assert.ok(result.rejectedModelPaths.includes(missing));
 }
 
-console.log("Execution authorization authority smoke passed (9 scenarios).");
+
+
+{
+  const created = "client/src/components/AuditRunNote.tsx";
+  const consumer = "client/src/pages/RunDetails.tsx";
+  const reference = "client/src/api.ts";
+  const result = enforceExecutionAuthorizationAuthority({
+    rawTask:
+      `Create ${created} and render it in ${consumer}. ` +
+      `Use ${reference} only as a type/API reference; do not modify backend files.`,
+    fileSelection: selection(
+      [
+        selected(created, "create-and-edit"),
+        selected(consumer),
+        selected(reference),
+      ],
+      contract("implementation", [created, consumer, reference]),
+    ),
+    qualityStatus: "ready",
+  });
+  assert.equal(
+    result.selectedFiles.find((file) => file.path === reference)?.usage,
+    "inspect-only",
+  );
+  assert.deepEqual(authorized(result), [created, consumer]);
+}
+
+{
+  const created = "src/components/sections/CompanyOfficeNote.tsx";
+  const consumer = "src/app/(site)/page.tsx";
+  const reference = "src/content/company.ts";
+  const result = enforceExecutionAuthorizationAuthority({
+    rawTask:
+      `Create ${created} and render it on ${consumer}. ` +
+      `Use ${reference} only as a source of facts; do not modify it.`,
+    fileSelection: selection(
+      [
+        selected(created, "create-and-edit"),
+        selected(consumer),
+        selected(reference),
+      ],
+      contract("implementation", [created, consumer, reference]),
+    ),
+    qualityStatus: "ready",
+  });
+  assert.equal(
+    result.selectedFiles.find((file) => file.path === reference)?.usage,
+    "inspect-only",
+  );
+  assert.deepEqual(authorized(result), [created, consumer]);
+}
+
+console.log("Execution authorization authority smoke passed (11 scenarios).");

@@ -87,7 +87,7 @@ function isProcessArtifactContext(before: string, after: string) {
 
 function isProtectedReferenceContext(before: string, after: string) {
   const protection = String.raw`(?:do\s+not|don't|dont|without\s+(?:changing|editing|modifying|touching)|keep|leave|preserve|retain|не\s+(?:меняй|менять|трогай|трогать|редактируй|редактировать|изменяй|изменять)|оставь|оставить|сохрани|сохранить)`;
-  const qualifiedEnglishReference = String.raw`(?:(?:(?:a|an)\s+)?(?:[A-Za-z][A-Za-z0-9_-]*\s+){0,3}reference(?:\s+provider)?s?|(?:sources?|source)\s+of\s+(?:facts?|truth)|facts?\s+source)`;
+  const qualifiedEnglishReference = String.raw`(?:(?:(?:a|an|the)\s+)?(?:[A-Za-z][A-Za-z0-9_+./-]*\s+){0,4}reference(?:\s+provider)?s?|(?:(?:a|an|the)\s+)?(?:sources?|source)\s+of\s+(?:facts?|truth)|(?:(?:a|an|the)\s+)?facts?\s+source)`;
   const sourceOfFactsReference = String.raw`(?:(?:sources?|source)\s+of\s+(?:facts?|truth)|facts?\s+source|источник\p{L}*\s+факт\p{L}*|джерел\p{L}*\s+факт\p{L}*)`;
   const referenceOnly = String.raw`(?:reference(?:\s+provider)?s?\s+only|only\s+as\s+${qualifiedEnglishReference}|as\s+${qualifiedEnglishReference}\s+only|for\s+${qualifiedEnglishReference}\s+only|(?:use|treat|keep)\s+(?:them|these|those|the\s+files?|the\s+components?)?[^.!?\n—]{0,90}\s+as\s+${qualifiedEnglishReference}|${sourceOfFactsReference}\s+only|read[-\s]?only|только\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*)|лишь\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*)|лише\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*|джерел\p{L}*\s+факт\p{L}*)|тільки\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*|джерел\p{L}*\s+факт\p{L}*))`;
   const pathToken = String.raw`(?:['"\x60])?(?:[A-Za-z]:)?(?:[A-Za-z0-9_.@()\[\]{}+~$!#%&=,'^-]+[\\/])*[A-Za-z0-9_.@()\[\]{}+~$!#%&=,'^-]+\.(?:${FILE_EXTENSION_PATTERN})(?:['"\x60])?`;
@@ -118,7 +118,7 @@ function isProtectedReferenceContext(before: string, after: string) {
 
 function isProtectedBeforeContext(before: string) {
   const protection = String.raw`(?:do\s+not|don't|dont|without\s+(?:changing|editing|modifying|touching)|keep|leave|preserve|retain|не\s+(?:меняй|менять|трогай|трогать|редактируй|редактировать|изменяй|изменять)|оставь|оставить|сохрани|сохранить)`;
-  const qualifiedEnglishReference = String.raw`(?:(?:(?:a|an)\s+)?(?:[A-Za-z][A-Za-z0-9_-]*\s+){0,3}reference(?:\s+provider)?s?|(?:sources?|source)\s+of\s+(?:facts?|truth)|facts?\s+source)`;
+  const qualifiedEnglishReference = String.raw`(?:(?:(?:a|an|the)\s+)?(?:[A-Za-z][A-Za-z0-9_+./-]*\s+){0,4}reference(?:\s+provider)?s?|(?:(?:a|an|the)\s+)?(?:sources?|source)\s+of\s+(?:facts?|truth)|(?:(?:a|an|the)\s+)?facts?\s+source)`;
   const sourceOfFactsReference = String.raw`(?:(?:sources?|source)\s+of\s+(?:facts?|truth)|facts?\s+source|источник\p{L}*\s+факт\p{L}*|джерел\p{L}*\s+факт\p{L}*)`;
   const referenceOnly = String.raw`(?:reference(?:\s+provider)?s?\s+only|only\s+as\s+${qualifiedEnglishReference}|as\s+${qualifiedEnglishReference}\s+only|for\s+${qualifiedEnglishReference}\s+only|(?:use|treat|keep)\s+(?:them|these|those|the\s+files?|the\s+components?)?[^.!?\n—]{0,90}\s+as\s+${qualifiedEnglishReference}|${sourceOfFactsReference}\s+only|read[-\s]?only|только\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*)|лишь\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*)|лише\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*|джерел\p{L}*\s+факт\p{L}*)|тільки\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*|джерел\p{L}*\s+факт\p{L}*))`;
   return (
@@ -135,7 +135,7 @@ function isGroupedReferenceOnlyMention(rawTask: string, rawMention: string) {
     `(?:${escapeRegExp(normalizedMention).replace(/\//g, String.raw`[\\/]`)}|${escapeRegExp(fileName)})`,
     "giu",
   );
-  const cue = /(?:only\s+as\s+(?:(?:[A-Za-z][A-Za-z0-9_-]*\s+){0,3}reference(?:\s+provider)?s?|sources?\s+of\s+(?:facts?|truth))|as\s+(?:(?:[A-Za-z][A-Za-z0-9_-]*\s+){0,3}reference(?:\s+provider)?s?|sources?\s+of\s+(?:facts?|truth))(?:\s+only)?|reference(?:\s+provider)?s?\s+only|read[-\s]?only|только\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*)|лишь\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*))/giu;
+  const cue = /(?:only\s+as\s+(?:(?:(?:a|an|the)\s+)?(?:[A-Za-z][A-Za-z0-9_+./-]*\s+){0,4}reference(?:\s+provider)?s?|(?:(?:a|an|the)\s+)?sources?\s+of\s+(?:facts?|truth))|as\s+(?:(?:(?:a|an|the)\s+)?(?:[A-Za-z][A-Za-z0-9_+./-]*\s+){0,4}reference(?:\s+provider)?s?|(?:(?:a|an|the)\s+)?sources?\s+of\s+(?:facts?|truth))(?:\s+only)?|reference(?:\s+provider)?s?\s+only|read[-\s]?only|только\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*)|лишь\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*))/giu;
 
   for (const match of rawTask.matchAll(occurrence)) {
     const absoluteStart = match.index ?? 0;

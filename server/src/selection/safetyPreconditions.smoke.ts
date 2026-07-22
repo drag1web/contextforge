@@ -328,6 +328,49 @@ function authorized(result: TaskFileSelection) {
   assert.deepEqual(authorized(result), ["src/feature.ts"]);
 }
 
+
+// Mixed create/render/reference role precedence (4)
+{
+  const task =
+    "Create client/src/components/AuditRunNote.tsx and render it in client/src/pages/RunDetails.tsx. Use client/src/api.ts only as a type/API reference; do not modify backend files.";
+  assert.equal(mentionRole(task, "client/src/api.ts"), "artifact-reference");
+  assert.notEqual(
+    mentionRole(task, "client/src/pages/RunDetails.tsx"),
+    "artifact-reference",
+  );
+}
+
+{
+  const task =
+    "Create src/components/sections/CompanyOfficeNote.tsx and render it on src/app/(site)/page.tsx. Use src/content/company.ts only as a source of facts; do not modify it.";
+  assert.equal(
+    mentionRole(task, "src/content/company.ts"),
+    "artifact-reference",
+  );
+  assert.notEqual(
+    mentionRole(task, "src/app/(site)/page.tsx"),
+    "artifact-reference",
+  );
+}
+
+{
+  const task =
+    "Create src/widgets/StatusCard.tsx and mount it in src/pages/StatusPage.tsx. Use src/contracts/status.ts only as an API-contract reference.";
+  assert.equal(
+    mentionRole(task, "src/contracts/status.ts"),
+    "artifact-reference",
+  );
+}
+
+{
+  const task =
+    "Create src/widgets/StatusCard.tsx and mount it in src/pages/StatusPage.tsx. Use src/contracts/status.ts as a source of truth only.";
+  assert.equal(
+    mentionRole(task, "src/contracts/status.ts"),
+    "artifact-reference",
+  );
+}
+
 // Prompt-injection + destructive action (4)
 {
   assert.equal(
@@ -365,4 +408,4 @@ function authorized(result: TaskFileSelection) {
   );
 }
 
-console.log("Safety preconditions smoke passed (18 scenarios).");
+console.log("Safety preconditions smoke passed (22 scenarios).");
