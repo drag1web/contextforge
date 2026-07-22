@@ -5,6 +5,7 @@ import type {
   TaskFileSelection,
 } from "../ollama/taskFileSelector.js";
 import type { TaskExecutionContract } from "../taskPacks/taskExecutionContract.js";
+import type { ProjectInventory } from "../scanner/projectInventoryScanner.js";
 import {
   extractClassifiedFileMentions,
   isExplicitFileCreationForbidden,
@@ -110,6 +111,31 @@ function selection(files: SelectedTaskFile[]): TaskFileSelection {
   };
 }
 
+
+function inventory(paths: string[]): ProjectInventory {
+  return {
+    rootPath: "/fixture",
+    files: paths.map((filePath) => ({
+      path: filePath,
+      name: filePath.split("/").pop() ?? filePath,
+      extension: filePath.includes(".") ? `.${filePath.split(".").pop()}` : "",
+      kind: "source",
+      role: filePath.includes("/pages/") ? "page" : "component",
+      imports: [],
+      exports: [],
+      symbols: [],
+      textHints: [],
+      sizeBytes: 1,
+      depth: filePath.split("/").length - 1,
+      canReadText: true,
+      isLikelyGenerated: false,
+    })),
+    totalFiles: paths.length,
+    scannedFiles: paths.length,
+    truncated: false,
+    notes: [],
+  };
+}
 function authorized(result: TaskFileSelection) {
   return (
     result.diagnostics?.executionContract?.authorization?.authorizedTargets ?? []
@@ -215,6 +241,51 @@ function authorized(result: TaskFileSelection) {
   assert.equal(result.diagnostics?.executionContract?.mode, "investigation");
 }
 
+// Inventory-backed forbidden-substitution authority (2)
+{
+  const task =
+    "In src/components/settings/MissingCloudPanel.tsx change the status label to ‘Connected’. Do not create the file and do not edit a similar settings component.";
+  const result = enforceExecutionAuthorizationAuthority({
+    rawTask: task,
+    inventory: inventory([
+      "src/components/layout/Sidebar.tsx",
+      "src/components/settings/SettingsPage.tsx",
+    ]),
+    fileSelection: selection([selected("src/components/layout/Sidebar.tsx")]),
+    qualityStatus: "ready",
+  });
+  assert.deepEqual(authorized(result), []);
+  assert.deepEqual(result.selectedFiles, []);
+  assert.equal(result.diagnostics?.executionContract?.mode, "investigation");
+  assert.ok(
+    result.rejectedModelPaths.includes(
+      "src/components/settings/MissingCloudPanel.tsx",
+    ),
+  );
+}
+
+{
+  const task =
+    "In client/src/pages/MissingAuditDashboard.tsx change the title to ‘Audit dashboard’. Do not create the file and do not modify a similar page.";
+  const result = enforceExecutionAuthorizationAuthority({
+    rawTask: task,
+    inventory: inventory([
+      "client/src/pages/Dashboard.tsx",
+      "client/src/pages/Runs.tsx",
+    ]),
+    fileSelection: selection([selected("client/src/pages/Dashboard.tsx")]),
+    qualityStatus: "ready",
+  });
+  assert.deepEqual(authorized(result), []);
+  assert.deepEqual(result.selectedFiles, []);
+  assert.equal(result.diagnostics?.executionContract?.mode, "investigation");
+  assert.ok(
+    result.rejectedModelPaths.includes(
+      "client/src/pages/MissingAuditDashboard.tsx",
+    ),
+  );
+}
+
 // Atomic grouped negative constraints (4)
 {
   const task =
@@ -294,4 +365,4 @@ function authorized(result: TaskFileSelection) {
   );
 }
 
-console.log("Safety preconditions smoke passed (16 scenarios).");
+console.log("Safety preconditions smoke passed (18 scenarios).");

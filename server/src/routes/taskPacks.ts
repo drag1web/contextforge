@@ -2204,6 +2204,7 @@ taskPacksRouter.post("/", async (req, res) => {
         );
         const fileSelection = enforceExecutionAuthorizationAuthority({
           rawTask: selectionTask,
+          inventory,
           taskIntent,
           fileSelection: initialFileSelection,
           qualityStatus: selectionQuality.status,

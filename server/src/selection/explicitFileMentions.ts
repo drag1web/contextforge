@@ -297,6 +297,22 @@ export function isExplicitFileCreationForbidden(
   );
 }
 
+
+/**
+ * Resolves explicit paths that are absent from the real inventory and whose
+ * creation the user explicitly forbade. This precondition is intentionally
+ * inventory-backed so a model-selected existing file cannot silently replace
+ * the missing named target.
+ */
+export function resolveCreationForbiddenMissingPaths(
+  rawTask: string,
+  inventory: ProjectInventory,
+) {
+  return resolveExplicitFileMentions(rawTask, inventory).missingPaths.filter(
+    (pathValue) => isExplicitFileCreationForbidden(rawTask, pathValue),
+  );
+}
+
 function normalizePath(value: string) {
   return value
     .replace(/\\/g, "/")

@@ -5,6 +5,7 @@ import type {
   TaskFileSelection,
 } from "../ollama/taskFileSelector.js";
 import type { TaskExecutionContract } from "../taskPacks/taskExecutionContract.js";
+import type { ProjectInventory } from "../scanner/projectInventoryScanner.js";
 import { enforceExecutionAuthorizationAuthority } from "./executionAuthorizationAuthority.js";
 
 function selected(
@@ -100,6 +101,31 @@ function selection(
       executionMode: executionContract.mode,
       executionContract,
     },
+  };
+}
+
+function inventory(paths: string[]): ProjectInventory {
+  return {
+    rootPath: "/fixture",
+    files: paths.map((filePath) => ({
+      path: filePath,
+      name: filePath.split("/").pop() ?? filePath,
+      extension: ".tsx",
+      kind: "source",
+      role: filePath.includes("/pages/") ? "page" : "component",
+      imports: [],
+      exports: [],
+      symbols: [],
+      textHints: [],
+      sizeBytes: 1,
+      depth: filePath.split("/").length - 1,
+      canReadText: true,
+      isLikelyGenerated: false,
+    })),
+    totalFiles: paths.length,
+    scannedFiles: paths.length,
+    truncated: false,
+    notes: [],
   };
 }
 
@@ -213,4 +239,45 @@ function authorized(result: TaskFileSelection) {
   assert.deepEqual(authorized(result), []);
 }
 
-console.log("Execution authorization authority smoke passed (7 scenarios).");
+
+{
+  const missing = "src/components/settings/MissingCloudPanel.tsx";
+  const substitute = "src/components/layout/Sidebar.tsx";
+  const result = enforceExecutionAuthorizationAuthority({
+    rawTask:
+      `In ${missing} change the status label. ` +
+      "Do not create the file and do not edit a similar settings component.",
+    inventory: inventory([substitute, "src/components/settings/SettingsPage.tsx"]),
+    fileSelection: selection(
+      [selected(substitute)],
+      contract("implementation", [substitute]),
+    ),
+    qualityStatus: "ready",
+  });
+  assert.deepEqual(result.selectedFiles, []);
+  assert.equal(result.diagnostics?.executionContract?.mode, "investigation");
+  assert.deepEqual(authorized(result), []);
+  assert.ok(result.rejectedModelPaths.includes(missing));
+}
+
+{
+  const missing = "client/src/pages/MissingAuditDashboard.tsx";
+  const substitute = "client/src/pages/Dashboard.tsx";
+  const result = enforceExecutionAuthorizationAuthority({
+    rawTask:
+      `In ${missing} change the title. ` +
+      "Do not create the file and do not modify a similar page.",
+    inventory: inventory([substitute, "client/src/pages/Runs.tsx"]),
+    fileSelection: selection(
+      [selected(substitute)],
+      contract("implementation", [substitute]),
+    ),
+    qualityStatus: "ready",
+  });
+  assert.deepEqual(result.selectedFiles, []);
+  assert.equal(result.diagnostics?.executionContract?.mode, "investigation");
+  assert.deepEqual(authorized(result), []);
+  assert.ok(result.rejectedModelPaths.includes(missing));
+}
+
+console.log("Execution authorization authority smoke passed (9 scenarios).");

@@ -514,6 +514,7 @@ export async function buildContextComposerPreview(input: {
   });
   const authoritativeFileSelection = enforceExecutionAuthorizationAuthority({
     rawTask: selectionTask,
+    inventory,
     taskIntent,
     fileSelection: initialFileSelection,
     qualityStatus: selectionQuality.status,

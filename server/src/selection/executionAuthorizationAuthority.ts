@@ -7,10 +7,12 @@ import type {
   TaskExecutionAuthorization,
   TaskExecutionContract,
 } from "../taskPacks/taskExecutionContract.js";
+import type { ProjectInventory } from "../scanner/projectInventoryScanner.js";
 import type { ContextSelectionQualityStatus } from "./contextQuality.js";
 import {
   extractClassifiedFileMentions,
   isExplicitFileCreationForbidden,
+  resolveCreationForbiddenMissingPaths,
 } from "./explicitFileMentions.js";
 import { detectHardTaskSafetyIssue, isSecretLikePath } from "./safetyPolicy.js";
 
@@ -163,6 +165,7 @@ function revokeImplementation(
 
 export interface ExecutionAuthorizationAuthorityInput {
   rawTask: string;
+  inventory?: ProjectInventory;
   taskIntent?: TaskIntentAnalysis;
   fileSelection: TaskFileSelection;
   qualityStatus: ContextSelectionQualityStatus;
@@ -249,6 +252,39 @@ export function enforceExecutionAuthorizationAuthority(
       diagnostics: {
         ...existingDiagnostics,
         selectionSource: "blocked",
+        executionMode: "investigation",
+        implementationGateReasons: contract.implementationGateReasons,
+        executionContract: contract,
+      },
+    };
+  }
+
+  const creationForbiddenMissingPaths = input.inventory
+    ? resolveCreationForbiddenMissingPaths(input.rawTask, input.inventory)
+    : [];
+
+  if (creationForbiddenMissingPaths.length > 0) {
+    const reasons = uniqueStrings([
+      "The explicitly named target is missing from the real project inventory.",
+      "The user explicitly forbade creating the missing target, so no existing fallback or similar file may be substituted.",
+      `Creation-forbidden missing path(s): ${creationForbiddenMissingPaths.join(", ")}.`,
+    ]);
+    const contract = revokeImplementation(existingContract, [], reasons, false);
+    return {
+      ...input.fileSelection,
+      selectedFiles: [],
+      rejectedModelPaths: uniqueStrings([
+        ...input.fileSelection.rejectedModelPaths,
+        ...creationForbiddenMissingPaths,
+      ]),
+      notes: uniqueStrings([
+        ...input.fileSelection.notes,
+        ...authorityNotes,
+        ...reasons,
+      ]),
+      diagnostics: {
+        ...existingDiagnostics,
+        selectionSource: "manual-review",
         executionMode: "investigation",
         implementationGateReasons: contract.implementationGateReasons,
         executionContract: contract,
