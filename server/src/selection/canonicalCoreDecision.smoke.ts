@@ -908,7 +908,10 @@ async function testExportedTypeRenameDestinationConflictIsInvestigation() {
     selection.diagnostics?.executionContract?.authorization?.authorizedTargets,
     [],
   );
-  assert.equal(selection.selectedFiles.length, 0);
+  assert.deepEqual(
+    selection.selectedFiles.map((file) => [file.path, file.usage]),
+    [[owner, "inspect-only"]],
+  );
 }
 
 async function testExportedTypeRenameWithOwnerPathChecksDestinationFirst() {
@@ -970,7 +973,86 @@ async function testExportedTypeRenameWithOwnerPathChecksDestinationFirst() {
     selection.diagnostics?.executionContract?.authorization?.authorizedTargets,
     [],
   );
-  assert.equal(selection.selectedFiles.length, 0);
+  assert.deepEqual(
+    selection.selectedFiles.map((file) => [file.path, file.usage]),
+    [[owner, "inspect-only"]],
+  );
+  assert.equal(
+    selection.selectedFiles.some((file) => file.path === unrelated),
+    false,
+  );
+}
+
+async function testQualifiedConsumerReferenceIsRecoveredFromRawTask() {
+  const target = "src/lib/translationsExtra.ts";
+  const consumer = "src/components/game/GameDetailsPage.tsx";
+  const selection = await run({
+    rawTask:
+      `Change the exact status translation only in ${target}. ` +
+      `Use ${consumer} only as a consumer reference and do not modify that component.`,
+    files: [
+      file(target, {
+        role: "utility",
+        exports: ["enExtra", "ruExtra"],
+        symbols: ["enExtra", "ruExtra"],
+      }),
+      file(consumer, {
+        role: "page",
+        exports: ["GameDetailsPage"],
+        symbols: ["GameDetailsPage"],
+      }),
+    ],
+    taskIntent: intent({
+      taskArea: "ui",
+      taskUnderstanding: {
+        ...intent().taskUnderstanding,
+        action: "update",
+        targetHints: [target, consumer],
+        requestedChanges: ["Change the exact status translation"],
+        changeDefinition: "exact",
+      },
+      structuredIntent: {
+        ...intent().structuredIntent,
+        // Simulate the observed upstream variance: the model promoted both
+        // mentioned paths and omitted protectedScopes. Raw wording must still
+        // be the monotonic authority over the consumer reference.
+        primaryTargets: [
+          {
+            kind: "explicit_file",
+            value: target,
+            path: target,
+            confidence: 0.98,
+            evidence: "The user explicitly mentioned this real project path.",
+            provenance: "user_confirmed",
+          },
+          {
+            kind: "explicit_file",
+            value: consumer,
+            path: consumer,
+            confidence: 0.98,
+            evidence: "The user explicitly mentioned this real project path.",
+            provenance: "user_confirmed",
+          },
+        ],
+        protectedScopes: [],
+        allowedEditScope: "explicit_targets_only",
+      },
+    }),
+  });
+
+  assert.equal(selection.diagnostics?.executionContract?.mode, "implementation");
+  assert.equal(
+    selection.selectedFiles.find((selected) => selected.path === target)?.usage,
+    "inspect-and-edit",
+  );
+  assert.equal(
+    selection.selectedFiles.find((selected) => selected.path === consumer)?.usage,
+    "inspect-only",
+  );
+  assert.deepEqual(
+    selection.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [target],
+  );
 }
 
 async function testUntrustedSameStemUiProposalCannotBecomeEditable() {
@@ -1047,8 +1129,9 @@ async function main() {
   await testGroupedReferenceOnlyProvidersAreRecoveredFromRawTask();
   await testExportedTypeRenameDestinationConflictIsInvestigation();
   await testExportedTypeRenameWithOwnerPathChecksDestinationFirst();
+  await testQualifiedConsumerReferenceIsRecoveredFromRawTask();
   await testUntrustedSameStemUiProposalCannotBecomeEditable();
-  console.log("canonical core decision smoke passed: 15 scenarios");
+  console.log("canonical core decision smoke passed: 16 scenarios");
 }
 
 main().catch((error) => {

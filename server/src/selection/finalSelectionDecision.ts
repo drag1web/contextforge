@@ -4317,8 +4317,44 @@ function resolveSymbolRenameSelection(input: {
     parserBackedSymbolDeclarations(file).includes(rename.to),
   );
   if (destinationFiles.length > 0) {
+    const sourceOwners = declarationFiles
+      .slice(0, Math.min(input.maxFiles, input.profile.maxPrimaryFiles))
+      .map((file): SelectedTaskFile => {
+        const evidence: FileSelectionEvidence = {
+          targetSource: "user_text",
+          pathValidity: "inventory_exact",
+          ownershipEvidence: "symbol_exact",
+          actionConfidence: "inspect_only",
+          semanticRoles: ["contract", "reference"],
+          symbols: [rename.from, rename.to],
+          chain: [
+            {
+              symbol: rename.from,
+              role: "contract",
+              path: file.path,
+              evidence: "symbol_exact",
+              relation: "same_file",
+            },
+          ],
+          negativeConstraintConflicts: [],
+          reason: `This real file contains the parser-backed source declaration ${rename.from}. It is retained only as evidence because destination ${rename.to} already exists.`,
+        };
+        return {
+          path: file.path,
+          kind: file.kind,
+          usage: "inspect-only",
+          reason: evidence.reason,
+          confidence: 0.97,
+          evidenceLevel: "user_confirmed",
+          selectionEvidence: evidence,
+        };
+      });
+    const destinationPaths = uniqueStrings(
+      destinationFiles.map((file) => file.path),
+      8,
+    );
     return {
-      selectedFiles: [],
+      selectedFiles: sourceOwners,
       profile: input.profile,
       deterministicImplementationReady: false,
       forceInvestigation: true,
@@ -4326,6 +4362,8 @@ function resolveSymbolRenameSelection(input: {
       requiredLayersOverride: requiredLayers,
       notes: [
         `Parser-backed symbol proof found an existing declaration for destination ${rename.to}.`,
+        `Destination declaration evidence: ${destinationPaths.join(", ")}.`,
+        `Retained ${sourceOwners.length} parser-backed source owner(s) for ${rename.from} as inspect-only evidence.`,
         "The rename remains investigative because authorizing it could create a declaration or import collision.",
       ],
     };

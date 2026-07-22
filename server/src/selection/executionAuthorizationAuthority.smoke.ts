@@ -182,6 +182,26 @@ function authorized(result: TaskFileSelection) {
 }
 
 {
+  const target = "src/lib/translationsExtra.ts";
+  const consumer = "src/components/game/GameDetailsPage.tsx";
+  const result = enforceExecutionAuthorizationAuthority({
+    rawTask:
+      `Change the exact status translation only in ${target}. ` +
+      `Use ${consumer} only as a consumer reference and do not modify that component.`,
+    fileSelection: selection(
+      [selected(target), selected(consumer)],
+      contract("implementation", [target, consumer]),
+    ),
+    qualityStatus: "ready",
+  });
+  assert.equal(
+    result.selectedFiles.find((file) => file.path === consumer)?.usage,
+    "inspect-only",
+  );
+  assert.deepEqual(authorized(result), [target]);
+}
+
+{
   const staleInvestigation = contract("investigation", ["src/App.tsx"]);
   const result = enforceExecutionAuthorizationAuthority({
     rawTask: "Investigate src/App.tsx without changing code.",
@@ -193,4 +213,4 @@ function authorized(result: TaskFileSelection) {
   assert.deepEqual(authorized(result), []);
 }
 
-console.log("Execution authorization authority smoke passed (6 scenarios).");
+console.log("Execution authorization authority smoke passed (7 scenarios).");

@@ -87,7 +87,8 @@ function isProcessArtifactContext(before: string, after: string) {
 
 function isProtectedReferenceContext(before: string, after: string) {
   const protection = String.raw`(?:do\s+not|don't|dont|without\s+(?:changing|editing|modifying|touching)|keep|leave|preserve|retain|не\s+(?:меняй|менять|трогай|трогать|редактируй|редактировать|изменяй|изменять)|оставь|оставить|сохрани|сохранить)`;
-  const referenceOnly = String.raw`(?:reference(?:\s+provider)?s?\s+only|only\s+as\s+(?:a\s+)?reference(?:\s+provider)?s?|as\s+reference(?:\s+provider)?s?\s+only|for\s+reference\s+only|read[-\s]?only|только\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*)|лишь\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*)|лише\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*)|тільки\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*))`;
+  const qualifiedEnglishReference = String.raw`(?:(?:a|an)\s+)?(?:[A-Za-z][A-Za-z0-9_-]*\s+){0,2}reference(?:\s+provider)?s?`;
+  const referenceOnly = String.raw`(?:reference(?:\s+provider)?s?\s+only|only\s+as\s+${qualifiedEnglishReference}|as\s+${qualifiedEnglishReference}\s+only|for\s+${qualifiedEnglishReference}\s+only|read[-\s]?only|только\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*)|лишь\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*)|лише\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*)|тільки\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*))`;
   const pathToken = String.raw`(?:['"\x60])?(?:[A-Za-z]:)?(?:[A-Za-z0-9_.@()\[\]{}+~$!#%&=,'^-]+[\\/])*[A-Za-z0-9_.@()\[\]{}+~$!#%&=,'^-]+\.(?:${FILE_EXTENSION_PATTERN})(?:['"\x60])?`;
   const protectedBefore = new RegExp(`${protection}[^.!?\\n—]{0,120}$`, "iu");
   const protectedAfter = new RegExp(`^[^.!?\\n—]{0,140}${protection}`, "iu");
@@ -116,7 +117,8 @@ function isProtectedReferenceContext(before: string, after: string) {
 
 function isProtectedBeforeContext(before: string) {
   const protection = String.raw`(?:do\s+not|don't|dont|without\s+(?:changing|editing|modifying|touching)|keep|leave|preserve|retain|не\s+(?:меняй|менять|трогай|трогать|редактируй|редактировать|изменяй|изменять)|оставь|оставить|сохрани|сохранить)`;
-  const referenceOnly = String.raw`(?:reference(?:\s+provider)?s?\s+only|only\s+as\s+(?:a\s+)?reference(?:\s+provider)?s?|as\s+reference(?:\s+provider)?s?\s+only|for\s+reference\s+only|read[-\s]?only|только\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*)|лишь\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*)|лише\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*)|тільки\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*))`;
+  const qualifiedEnglishReference = String.raw`(?:(?:a|an)\s+)?(?:[A-Za-z][A-Za-z0-9_-]*\s+){0,2}reference(?:\s+provider)?s?`;
+  const referenceOnly = String.raw`(?:reference(?:\s+provider)?s?\s+only|only\s+as\s+${qualifiedEnglishReference}|as\s+${qualifiedEnglishReference}\s+only|for\s+${qualifiedEnglishReference}\s+only|read[-\s]?only|только\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*)|лишь\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*)|лише\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*)|тільки\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*))`;
   return (
     new RegExp(`${protection}[^.!?\\n—]{0,120}$`, "iu").test(before) ||
     new RegExp(`${referenceOnly}[^.!?\\n—]{0,90}$`, "iu").test(before)

@@ -1,0 +1,5 @@
+PATCH_NOTES_UNIVERSAL_AUTHORIZATION_AUTHORITY_A2.md
+PATCH_FILE_LIST_A2.txt
+server/src/ollama/taskFileSelector.smoke.ts
+server/src/selection/canonicalCoreDecision.smoke.ts
+server/src/selection/finalSelectionDecision.ts

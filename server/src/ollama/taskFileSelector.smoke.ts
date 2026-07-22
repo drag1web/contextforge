@@ -3688,6 +3688,25 @@ async function testBoundedUiChangeSeparatesScopeTargetAndPreserveSurface() {
     "editable-target",
     "a separate create target before a protected reference must not be downgraded",
   );
+  const qualifiedConsumerReferenceTask =
+    "Change the exact status translation only in src/lib/translationsExtra.ts. " +
+    "Use src/components/game/GameDetailsPage.tsx only as a consumer reference and do not modify that component.";
+  assert.equal(
+    classifyFileMentionSemanticRole(
+      qualifiedConsumerReferenceTask,
+      "src/components/game/GameDetailsPage.tsx",
+    ),
+    "artifact-reference",
+    "a role-qualified consumer reference must remain protected directly from raw user wording",
+  );
+  assert.equal(
+    classifyFileMentionSemanticRole(
+      qualifiedConsumerReferenceTask,
+      "src/lib/translationsExtra.ts",
+    ),
+    "editable-target",
+    "the exact mutation owner must remain editable beside a protected consumer reference",
+  );
 }
 
 async function testCreateMissingBackendEndpointKeepsExplicitDestination() {
@@ -4370,7 +4389,79 @@ async function testSymbolRenameDestinationCollisionSafelyInvestigates() {
 
   assert.equal(result.diagnostics?.taskProfile, "symbol-rename");
   assert.equal(result.diagnostics?.executionMode, "investigation");
-  assert.deepEqual(result.selectedFiles, []);
+  assert.deepEqual(
+    result.selectedFiles.map((file) => [file.path, file.usage]),
+    [["apps/desktop/renderer/src/types/index.ts", "inspect-only"]],
+  );
+  assert.deepEqual(
+    result.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [],
+  );
+}
+
+
+async function testNamedOwnerDestinationCollisionRetainsOnlySourceEvidence() {
+  const owner = "client/src/api.ts";
+  const unrelated = "client/src/pages/Imports.tsx";
+  const rawTask =
+    `Rename the exported TypeScript type User in ${owner} to RunRow and ` +
+    "update all imports and usages without changing any other declaration.";
+  const result = await selectTaskFiles({
+    rawTask,
+    taskType: "general",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile(owner, {
+        role: "client-api",
+        exports: ["User", "RunRow"],
+        symbols: ["User", "RunRow"],
+        semanticFacts: {
+          symbolSyntax: symbolSyntax(
+            ["User", "RunRow"],
+            ["User", "RunRow"],
+          ),
+          declarations: ["User", "RunRow"],
+          references: ["User", "RunRow"],
+          assignments: [], objectProperties: [], typeFields: [], stateSymbols: [],
+          translationKeys: [], translationEntries: [], routePaths: [],
+        },
+      }),
+      sourceFile(unrelated, {
+        role: "page",
+        exports: ["Imports"],
+        symbols: ["Imports", "RunRow"],
+        textHints: ["imports", "runs", "rows"],
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "build",
+      taskUnderstanding: {
+        ...structuredIntent().taskUnderstanding,
+        goal: "Rename User to RunRow in client/src/api.ts.",
+        action: "replace",
+        targetHints: [owner, "User", "RunRow"],
+        requestedChanges: ["Update all imports and usages."],
+        constraints: ["Do not change any other declaration."],
+        changeDefinition: "exact",
+      },
+      structuredIntent: {
+        ...structuredIntent().structuredIntent,
+        primaryTargets: [],
+      },
+    }),
+  });
+
+  assert.equal(result.diagnostics?.taskProfile, "symbol-rename");
+  assert.equal(result.diagnostics?.executionMode, "investigation");
+  assert.deepEqual(
+    result.selectedFiles.map((file) => [file.path, file.usage]),
+    [[owner, "inspect-only"]],
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.path === unrelated),
+    false,
+  );
   assert.deepEqual(
     result.diagnostics?.executionContract?.authorization?.authorizedTargets,
     [],
@@ -5315,6 +5406,7 @@ async function main() {
   await testTypeSymbolRenameUsesDeclarationAndReferenceGraph();
   await testMissingSymbolRenameSafelyInvestigates();
   await testSymbolRenameDestinationCollisionSafelyInvestigates();
+  await testNamedOwnerDestinationCollisionRetainsOnlySourceEvidence();
   await testScannedSymbolRenameIgnoresFixtureText();
   await testUkrainianExplanatoryEnvCommentKeepsTemplateTarget();
   await testGroundedPageTargetKeepsEditAuthorization();
