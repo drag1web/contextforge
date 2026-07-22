@@ -10,6 +10,7 @@ import {
 } from "../performance/performanceTrace.js";
 import {
   extractClassifiedFileMentions,
+  isExplicitFileCreationForbidden,
   resolveExplicitFileMentions,
 } from "../selection/explicitFileMentions.js";
 import { buildProjectSemanticGraph } from "../selection/projectSemanticGraph.js";
@@ -2017,11 +2018,14 @@ function hasPrimaryDocsIntent(input: SelectTaskFilesInput) {
     "update",
     "edit",
     "write",
+    "rewrite",
+    "revise",
     "add",
     "create",
     "\u043e\u0431\u043d\u043e\u0432",
     "\u0434\u043e\u0431\u0430\u0432",
     "\u043d\u0430\u043f\u0438\u0448",
+    "\u043f\u0435\u0440\u0435\u043f\u0438\u0448",
     "\u043e\u043f\u0438\u0448",
     "\u0441\u043e\u0437\u0434",
   ]);
@@ -6106,6 +6110,7 @@ function addCreatePathMentionToPlan({
   const normalized = sanitizeCreatePathMention(pathValue);
   if (!normalized) return;
   if (findInventoryFile(input.inventory, normalized)) return;
+  if (isExplicitFileCreationForbidden(input.rawTask, normalized)) return;
   if (!isSafePlannedCreatePath(normalized)) {
     unsafePaths.push(pathValue);
     return;
@@ -11036,6 +11041,34 @@ function buildFallbackSelection(
           "Selected task type is UI, but backend/API mutation was requested.",
         ...constraints.notes,
       ],
+    };
+  }
+
+  const creationForbiddenMissingPaths = tokenContext.explicitMissingPaths.filter(
+    (pathValue) => isExplicitFileCreationForbidden(input.rawTask, pathValue),
+  );
+  if (creationForbiddenMissingPaths.length > 0) {
+    return {
+      selectedFiles: [],
+      rejectedModelPaths: creationForbiddenMissingPaths,
+      source: "fallback",
+      usedFallback: true,
+      durationMs: getDurationMs(startedAt),
+      effectiveTaskArea,
+      assetMode,
+      conflictNote,
+      notes: [
+        "Fallback file selection was used.",
+        "The user explicitly forbade creating the missing named path, so ContextForge stopped before synthesizing or substituting any target.",
+        `Creation-forbidden missing path(s): ${creationForbiddenMissingPaths.slice(0, 6).join(", ")}.`,
+        `Effective task area: ${effectiveTaskArea}.`,
+        `Asset mode: ${assetMode}.`,
+        conflictNote ?? "No task type conflict detected.",
+        ...constraints.notes,
+      ],
+      diagnostics: {
+        selectionSource: "manual-review",
+      } as TaskFileSelection["diagnostics"],
     };
   }
 

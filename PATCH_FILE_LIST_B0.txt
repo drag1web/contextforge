@@ -1,0 +1,10 @@
+package.json
+server/package.json
+server/src/ollama/taskFileSelector.ts
+server/src/selection/executionAuthorizationAuthority.ts
+server/src/selection/explicitFileMentions.ts
+server/src/selection/finalSelectionDecision.ts
+server/src/selection/safetyPolicy.ts
+server/src/selection/safetyPreconditions.smoke.ts
+PATCH_NOTES_PATCH_B0_SAFETY_PRECONDITIONS.md
+PATCH_FILE_LIST_B0.txt

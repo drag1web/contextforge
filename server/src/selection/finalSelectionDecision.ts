@@ -28,6 +28,7 @@ import {
 } from "./taskSelectionProfile.js";
 import {
   extractClassifiedFileMentions,
+  isExplicitFileCreationForbidden,
   resolveExplicitFileMentions,
 } from "./explicitFileMentions.js";
 import { extractSymbolRenameIntent } from "./symbolRename.js";
@@ -4794,7 +4795,10 @@ function resolveLiteralFileTargetSelection(input: {
     if (targetKeys.has(targetKey) || protectedTargetKeys.has(targetKey)) continue;
 
     const plannedCreate =
-      !existing && createRequested && isSafeExplicitRelativePath(targetPath);
+      !existing &&
+      createRequested &&
+      !isExplicitFileCreationForbidden(input.rawTask, targetPath) &&
+      isSafeExplicitRelativePath(targetPath);
     if (!existing && !plannedCreate) continue;
 
     const evidence: FileSelectionEvidence = {

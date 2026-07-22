@@ -159,9 +159,18 @@ const TASK_PACK_PATTERNS = [
 ];
 
 const PROMPT_INJECTION_PATTERNS = [
-  /\bignore\s+(?:all\s+)?(?:previous|prior|system|developer)\s+instructions\b/i,
-  /\bdisregard\s+(?:all\s+)?(?:previous|prior|system|developer)\s+instructions\b/i,
-  /(?:\u0438\u0433\u043d\u043e\u0440\u0438\u0440\u0443\u0439|\u0437\u0430\u0431\u0443\u0434\u044c)[^.!?\n]{0,80}(?:\u043f\u0440\u0435\u0434\u044b\u0434\u0443\u0449|\u0441\u0438\u0441\u0442\u0435\u043c\u043d|\u0438\u043d\u0441\u0442\u0440\u0443\u043a\u0446)/i,
+  /\bignore\s+(?:all\s+)?(?:previous|prior|system|developer|user(?:'s)?)\s+instructions\b/i,
+  /\bdisregard\s+(?:all\s+)?(?:previous|prior|system|developer|user(?:'s)?)\s+instructions\b/i,
+  /\b(?:follow|obey|execute|apply)\s+(?:any|all|the)\s+instructions?\s+(?:found|written|inside|in|from)\s+(?:the\s+)?(?:readme|docs?|documentation|repository|repo|code|comments?|files?)\b/i,
+  /\beven\s+if\s+(?:it|they|the\s+file|the\s+readme)\s+(?:says?|tells?\s+you)\s+to\s+ignore\b/i,
+  /(?:\u0438\u0433\u043d\u043e\u0440\u0438\u0440\u0443\u0439|\u0437\u0430\u0431\u0443\u0434\u044c)[^.!?\n]{0,80}(?:\u043f\u0440\u0435\u0434\u044b\u0434\u0443\u0449|\u0441\u0438\u0441\u0442\u0435\u043c\u043d|\u043f\u043e\u043b\u044c\u0437\u043e\u0432\u0430\u0442\u0435\u043b|\u0438\u043d\u0441\u0442\u0440\u0443\u043a\u0446)/i,
+  /(?:\u0441\u043b\u0435\u0434\u0443\u0439|\u0432\u044b\u043f\u043e\u043b\u043d\u0438|\u043f\u0440\u0438\u043c\u0435\u043d\u0438)[^.!?\n]{0,100}(?:\u043b\u044e\u0431\u044b\u0435|\u0432\u0441\u0435|\u0432\u0441\u0435\u043c)\s+\u0438\u043d\u0441\u0442\u0440\u0443\u043a\u0446[^.!?\n]{0,80}(?:readme|\u0440\u0438\u0434\u043c\u0438|\u0434\u043e\u043a\u0443\u043c\u0435\u043d\u0442|\u0440\u0435\u043f\u043e\u0437\u0438\u0442\u043e\u0440|\u0444\u0430\u0439\u043b)/i,
+];
+
+const PROMPT_INJECTION_SAFETY_VALIDATION_PATTERNS = [
+  /\b(?:detect|prevent|block|test|validate|sanitize|redact)\b[^.!?\n]{0,100}\bprompt[-\s]?injection\b/i,
+  /\bprompt[-\s]?injection\b[^.!?\n]{0,100}\b(?:detect|prevent|block|test|validate|sanitize|redact)\b/i,
+  /(?:\u043f\u0440\u043e\u043c\u043f\u0442[-\s]?\u0438\u043d\u044a\u0435\u043a\u0446|prompt[-\s]?injection)[^.!?\n]{0,100}(?:\u043f\u0440\u043e\u0432\u0435\u0440|\u0442\u0435\u0441\u0442|\u0431\u043b\u043e\u043a\u0438\u0440|\u0437\u0430\u0449\u0438\u0442)/iu,
 ];
 
 const DESTRUCTIVE_PATTERNS = [
@@ -239,6 +248,10 @@ export function detectHardTaskSafetyIssue(rawTask: string): HardTaskSafetyIssue 
     !containsAny(text, DOCUMENTATION_CONTEXT_PATTERNS);
   const asksToExposeSecret = asksToExposeSecretContent(text);
   const destructiveMatch = containsAny(text, DESTRUCTIVE_PATTERNS);
+  const destructiveActionMatch = DELETE_ACTION_PATTERN.test(text);
+  const promptInjectionMatch =
+    containsAny(text, PROMPT_INJECTION_PATTERNS) &&
+    !containsAny(text, PROMPT_INJECTION_SAFETY_VALIDATION_PATTERNS);
   const boundedSingleFileDeletion = isBoundedSingleFileDeletion(rawTask);
 
   if (asksToExposeSecret) {
@@ -254,8 +267,8 @@ export function detectHardTaskSafetyIssue(rawTask: string): HardTaskSafetyIssue 
   }
 
   if (
-    containsAny(text, PROMPT_INJECTION_PATTERNS) &&
-    (destructiveMatch || asksToExposeSecret)
+    promptInjectionMatch &&
+    (destructiveActionMatch || asksToExposeSecret || asksForProtectedGeneratedPath)
   ) {
     reasons.push(
       "Prompt-injection request was blocked because it tries to override safety instructions while asking for destructive or secret-related behavior.",

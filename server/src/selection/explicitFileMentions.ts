@@ -54,7 +54,7 @@ function getMentionContexts(rawTask: string, rawMention: string) {
       const end = start + matched.length;
       contexts.push({
         before: rawTask.slice(Math.max(0, start - 180), start),
-        after: rawTask.slice(end, Math.min(rawTask.length, end + 120)),
+        after: rawTask.slice(end, Math.min(rawTask.length, end + 240)),
       });
     }
     return contexts;
@@ -87,8 +87,9 @@ function isProcessArtifactContext(before: string, after: string) {
 
 function isProtectedReferenceContext(before: string, after: string) {
   const protection = String.raw`(?:do\s+not|don't|dont|without\s+(?:changing|editing|modifying|touching)|keep|leave|preserve|retain|не\s+(?:меняй|менять|трогай|трогать|редактируй|редактировать|изменяй|изменять)|оставь|оставить|сохрани|сохранить)`;
-  const qualifiedEnglishReference = String.raw`(?:(?:a|an)\s+)?(?:[A-Za-z][A-Za-z0-9_-]*\s+){0,2}reference(?:\s+provider)?s?`;
-  const referenceOnly = String.raw`(?:reference(?:\s+provider)?s?\s+only|only\s+as\s+${qualifiedEnglishReference}|as\s+${qualifiedEnglishReference}\s+only|for\s+${qualifiedEnglishReference}\s+only|read[-\s]?only|только\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*)|лишь\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*)|лише\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*)|тільки\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*))`;
+  const qualifiedEnglishReference = String.raw`(?:(?:(?:a|an)\s+)?(?:[A-Za-z][A-Za-z0-9_-]*\s+){0,3}reference(?:\s+provider)?s?|(?:sources?|source)\s+of\s+(?:facts?|truth)|facts?\s+source)`;
+  const sourceOfFactsReference = String.raw`(?:(?:sources?|source)\s+of\s+(?:facts?|truth)|facts?\s+source|источник\p{L}*\s+факт\p{L}*|джерел\p{L}*\s+факт\p{L}*)`;
+  const referenceOnly = String.raw`(?:reference(?:\s+provider)?s?\s+only|only\s+as\s+${qualifiedEnglishReference}|as\s+${qualifiedEnglishReference}\s+only|for\s+${qualifiedEnglishReference}\s+only|(?:use|treat|keep)\s+(?:them|these|those|the\s+files?|the\s+components?)?[^.!?\n—]{0,90}\s+as\s+${qualifiedEnglishReference}|${sourceOfFactsReference}\s+only|read[-\s]?only|только\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*)|лишь\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*)|лише\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*|джерел\p{L}*\s+факт\p{L}*)|тільки\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*|джерел\p{L}*\s+факт\p{L}*))`;
   const pathToken = String.raw`(?:['"\x60])?(?:[A-Za-z]:)?(?:[A-Za-z0-9_.@()\[\]{}+~$!#%&=,'^-]+[\\/])*[A-Za-z0-9_.@()\[\]{}+~$!#%&=,'^-]+\.(?:${FILE_EXTENSION_PATTERN})(?:['"\x60])?`;
   const protectedBefore = new RegExp(`${protection}[^.!?\\n—]{0,120}$`, "iu");
   const protectedAfter = new RegExp(`^[^.!?\\n—]{0,140}${protection}`, "iu");
@@ -117,12 +118,70 @@ function isProtectedReferenceContext(before: string, after: string) {
 
 function isProtectedBeforeContext(before: string) {
   const protection = String.raw`(?:do\s+not|don't|dont|without\s+(?:changing|editing|modifying|touching)|keep|leave|preserve|retain|не\s+(?:меняй|менять|трогай|трогать|редактируй|редактировать|изменяй|изменять)|оставь|оставить|сохрани|сохранить)`;
-  const qualifiedEnglishReference = String.raw`(?:(?:a|an)\s+)?(?:[A-Za-z][A-Za-z0-9_-]*\s+){0,2}reference(?:\s+provider)?s?`;
-  const referenceOnly = String.raw`(?:reference(?:\s+provider)?s?\s+only|only\s+as\s+${qualifiedEnglishReference}|as\s+${qualifiedEnglishReference}\s+only|for\s+${qualifiedEnglishReference}\s+only|read[-\s]?only|только\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*)|лишь\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*)|лише\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*)|тільки\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*))`;
+  const qualifiedEnglishReference = String.raw`(?:(?:(?:a|an)\s+)?(?:[A-Za-z][A-Za-z0-9_-]*\s+){0,3}reference(?:\s+provider)?s?|(?:sources?|source)\s+of\s+(?:facts?|truth)|facts?\s+source)`;
+  const sourceOfFactsReference = String.raw`(?:(?:sources?|source)\s+of\s+(?:facts?|truth)|facts?\s+source|источник\p{L}*\s+факт\p{L}*|джерел\p{L}*\s+факт\p{L}*)`;
+  const referenceOnly = String.raw`(?:reference(?:\s+provider)?s?\s+only|only\s+as\s+${qualifiedEnglishReference}|as\s+${qualifiedEnglishReference}\s+only|for\s+${qualifiedEnglishReference}\s+only|(?:use|treat|keep)\s+(?:them|these|those|the\s+files?|the\s+components?)?[^.!?\n—]{0,90}\s+as\s+${qualifiedEnglishReference}|${sourceOfFactsReference}\s+only|read[-\s]?only|только\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*)|лишь\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*)|лише\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*|джерел\p{L}*\s+факт\p{L}*)|тільки\s+(?:як\s+)?(?:довідк\p{L}*|референс\p{L}*|приклад\p{L}*|джерел\p{L}*\s+факт\p{L}*))`;
   return (
     new RegExp(`${protection}[^.!?\\n—]{0,120}$`, "iu").test(before) ||
     new RegExp(`${referenceOnly}[^.!?\\n—]{0,90}$`, "iu").test(before)
   );
+}
+
+function isGroupedReferenceOnlyMention(rawTask: string, rawMention: string) {
+  const normalizedMention = normalizePath(rawMention);
+  const fileName = path.basename(normalizedMention);
+  if (!fileName) return false;
+  const occurrence = new RegExp(
+    `(?:${escapeRegExp(normalizedMention).replace(/\//g, String.raw`[\\/]`)}|${escapeRegExp(fileName)})`,
+    "giu",
+  );
+  const cue = /(?:only\s+as\s+(?:(?:[A-Za-z][A-Za-z0-9_-]*\s+){0,3}reference(?:\s+provider)?s?|sources?\s+of\s+(?:facts?|truth))|as\s+(?:(?:[A-Za-z][A-Za-z0-9_-]*\s+){0,3}reference(?:\s+provider)?s?|sources?\s+of\s+(?:facts?|truth))(?:\s+only)?|reference(?:\s+provider)?s?\s+only|read[-\s]?only|только\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*)|лишь\s+(?:как\s+)?(?:справк\p{L}*|референс\p{L}*|пример\p{L}*|источник\p{L}*\s+факт\p{L}*))/giu;
+
+  for (const match of rawTask.matchAll(occurrence)) {
+    const absoluteStart = match.index ?? 0;
+    const prefixText = rawTask.slice(0, absoluteStart);
+    const previousStops = [...prefixText.matchAll(/[;!?\n]|\.(?=\s|$)/gu)];
+    const previousStop = previousStops.at(-1);
+    const clauseStart = previousStop
+      ? (previousStop.index ?? 0) + previousStop[0].length
+      : 0;
+    const suffixText = rawTask.slice(absoluteStart);
+    const nextStop = suffixText.match(/[;!?\n]|\.(?=\s|$)/u);
+    const clauseEnd = nextStop?.index !== undefined
+      ? absoluteStart + nextStop.index
+      : rawTask.length;
+    const clause = rawTask.slice(clauseStart, clauseEnd);
+    const mentionStart = absoluteStart - clauseStart;
+    const mentionEnd = mentionStart + (match[0]?.length ?? fileName.length);
+
+    for (const cueMatch of clause.matchAll(cue)) {
+      const cueStart = cueMatch.index ?? 0;
+      if (cueStart < mentionEnd) continue;
+      const prefix = clause.slice(0, cueStart);
+      const englishActions = [...prefix.matchAll(/\b(?:use|treat|keep)\b/giu)];
+      const englishAction = englishActions.at(-1);
+      if (englishAction) {
+        const actionEnd = (englishAction.index ?? 0) + englishAction[0].length;
+        if (mentionStart >= actionEnd) return true;
+        continue;
+      }
+
+      const slavicActions = [
+        ...prefix.matchAll(/(?:используй|использовать|використовуй|використовувати)/giu),
+      ];
+      const slavicAction = slavicActions.at(-1);
+      if (slavicAction) {
+        const actionStart = slavicAction.index ?? 0;
+        const actionEnd = actionStart + slavicAction[0].length;
+        if (mentionStart >= actionEnd || mentionEnd <= actionStart) return true;
+        continue;
+      }
+
+      if (mentionEnd <= cueStart) return true;
+    }
+  }
+
+  return false;
 }
 
 function isDirectFileTargetContext(before: string) {
@@ -148,6 +207,8 @@ export function classifyFileMentionSemanticRole(
   const normalized = normalizePath(rawMention);
   const contexts = getMentionContexts(rawTask, normalized);
   if (contexts.length === 0) return "ambiguous";
+  if (isGroupedReferenceOnlyMention(rawTask, normalized))
+    return "artifact-reference";
 
   let artifactReferences = 0;
   for (const context of contexts) {
@@ -190,6 +251,49 @@ export function isExplicitFileTargetMention(
   return (
     classifyFileMentionSemanticRole(rawTask, rawMention) !==
     "artifact-reference"
+  );
+}
+
+
+const NEGATIVE_CREATE_ACTION = String.raw`(?:do\s+not|don't|dont|must\s+not|should\s+not|never)\s+(?:create|add|introduce|generate|write|make|build)|(?:не\s+(?:создавай|создавать|добавляй|добавлять|генерируй|генерировать|делай|делать)|никогда\s+не\s+(?:создавай|создавать|добавляй|добавлять))`;
+
+/**
+ * Returns true when the raw user wording explicitly forbids creating the
+ * named missing path. This is deliberately separate from edit-target
+ * classification: an existing file may still be editable, while a missing
+ * file must never be synthesized against an explicit "do not create" clause.
+ */
+export function isExplicitFileCreationForbidden(
+  rawTask: string,
+  rawMention: string,
+) {
+  const normalizedMention = normalizePath(rawMention);
+  const mentionName = path.basename(normalizedMention);
+  const contexts = getMentionContexts(rawTask, normalizedMention);
+  const escapedPath = escapeRegExp(normalizedMention).replace(
+    /\//g,
+    String.raw`[\\/]`,
+  );
+  const escapedName = escapeRegExp(mentionName);
+  const directNamed = new RegExp(
+    String.raw`(?:${NEGATIVE_CREATE_ACTION})[^.!?\n—]{0,90}(?:${escapedPath}|${escapedName})(?=$|[^\p{L}\p{N}_])`,
+    "iu",
+  );
+  if (directNamed.test(rawTask)) return true;
+
+  const referent = String.raw`(?:(?:either|both|any|all|none|neither)\s+(?:of\s+)?(?:these|those|the)?\s*)?(?:(?:the|this|that|such)\s+)?(?:file|component|page|route|module|path|screen|view)s?|(?:it|them)|(?:(?:этот|эту|это|данный|такой|указанный)\s+)?(?:файл|компонент|страниц\p{L}*|маршрут|роут|модул\p{L}*|путь|экран)\p{L}*|(?:ни\s+один|оба|все)\s+(?:из\s+)?(?:этих\s+)?(?:файл|компонент|страниц|маршрут|роут|модул)\p{L}*`;
+  const directBefore = new RegExp(
+    String.raw`(?:${NEGATIVE_CREATE_ACTION})\s+(?:(?:the|this|that)\s+)?(?:file|component|page|route|module|path)?\s*$`,
+    "iu",
+  );
+  const coreferenceAfter = new RegExp(
+    String.raw`^[\s\S]{0,220}(?:${NEGATIVE_CREATE_ACTION})\s+(?:${referent})(?=$|[\s,.;:!?])`,
+    "iu",
+  );
+
+  return contexts.some(
+    ({ before, after }) =>
+      directBefore.test(before) || coreferenceAfter.test(after),
   );
 }
 

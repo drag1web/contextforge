@@ -26,7 +26,8 @@
     "test:context-quality": "tsx src/selection/contextQuality.smoke.ts",
     "test:symbol-syntax": "tsx src/scanner/sourceSymbolSyntax.smoke.ts",
     "test:support-grounding": "tsx src/selection/supportingContextGrounding.smoke.ts",
-    "test:authorization-authority": "tsx src/selection/executionAuthorizationAuthority.smoke.ts"
+    "test:authorization-authority": "tsx src/selection/executionAuthorizationAuthority.smoke.ts",
+    "test:safety-preconditions": "tsx src/selection/safetyPreconditions.smoke.ts"
   },
   "dependencies": {
     "@types/sql.js": "^1.4.11",

@@ -8,7 +8,10 @@ import type {
   TaskExecutionContract,
 } from "../taskPacks/taskExecutionContract.js";
 import type { ContextSelectionQualityStatus } from "./contextQuality.js";
-import { extractClassifiedFileMentions } from "./explicitFileMentions.js";
+import {
+  extractClassifiedFileMentions,
+  isExplicitFileCreationForbidden,
+} from "./explicitFileMentions.js";
 import { detectHardTaskSafetyIssue, isSecretLikePath } from "./safetyPolicy.js";
 
 function normalizePath(value: string) {
@@ -197,7 +200,20 @@ export function enforceExecutionAuthorizationAuthority(
     return false;
   });
 
-  const constrainedFiles = nonSecretFiles.map((file) => {
+  const creationSafeFiles = nonSecretFiles.filter((file) => {
+    if (
+      file.usage !== "create-and-edit" ||
+      !isExplicitFileCreationForbidden(input.rawTask, file.path)
+    ) {
+      return true;
+    }
+    authorityNotes.push(
+      `Final authorization authority removed creation-forbidden synthetic target ${file.path}.`,
+    );
+    return false;
+  });
+
+  const constrainedFiles = creationSafeFiles.map((file) => {
     const evidenceProtected = Boolean(
       file.selectionEvidence?.negativeConstraintConflicts.length,
     );
