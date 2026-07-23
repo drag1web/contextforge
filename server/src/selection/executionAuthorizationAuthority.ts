@@ -15,6 +15,7 @@ import {
   resolveCreationForbiddenMissingPaths,
 } from "./explicitFileMentions.js";
 import { detectHardTaskSafetyIssue, isSecretLikePath } from "./safetyPolicy.js";
+import { evaluateCoreFreezeGuard } from "./coreFreezeGuard.js";
 
 function normalizePath(value: string) {
   return value.replace(/\\/g, "/").replace(/^\.\//u, "").trim().toLowerCase();
@@ -216,6 +217,19 @@ export function enforceExecutionAuthorizationAuthority(
     return false;
   });
 
+  const preliminaryCoreFreezeGuard = evaluateCoreFreezeGuard({
+    rawTask: input.rawTask,
+    taskIntent: input.taskIntent,
+    inventory: input.inventory,
+    selectedFiles: creationSafeFiles,
+    authorizedTargets:
+      existingContract.authorization?.authorizedTargets ??
+      existingContract.confirmedTargets,
+  });
+  const semanticallyProtectedPaths = new Set(
+    preliminaryCoreFreezeGuard.protectedPaths.map(normalizePath),
+  );
+
   const constrainedFiles = creationSafeFiles.map((file) => {
     const evidenceProtected = Boolean(
       file.selectionEvidence?.negativeConstraintConflicts.length,
@@ -224,7 +238,12 @@ export function enforceExecutionAuthorizationAuthority(
       file.path,
       protectedMentions,
     );
-    if (!evidenceProtected && !explicitlyProtected) return file;
+    const semanticallyProtected = semanticallyProtectedPaths.has(
+      normalizePath(file.path),
+    );
+    if (!evidenceProtected && !explicitlyProtected && !semanticallyProtected) {
+      return file;
+    }
 
     authorityNotes.push(
       `Final authorization authority kept protected path ${file.path} inspect-only.`,
@@ -234,6 +253,21 @@ export function enforceExecutionAuthorizationAuthority(
       "Explicit user protection/reference-only evidence forbids edit authorization.",
     );
   });
+
+  const editableSemanticProtectionConflicts = creationSafeFiles
+    .filter((file) => {
+      const editable =
+        file.usage === "inspect-and-edit" || file.usage === "create-and-edit";
+      const alreadyGovernedByExistingProtection =
+        Boolean(file.selectionEvidence?.negativeConstraintConflicts.length) ||
+        isExplicitlyProtectedPath(file.path, protectedMentions);
+      return (
+        editable &&
+        !alreadyGovernedByExistingProtection &&
+        semanticallyProtectedPaths.has(normalizePath(file.path))
+      );
+    })
+    .map((file) => file.path);
 
   if (hardSafety.blocked) {
     const reasons = uniqueStrings([
@@ -292,6 +326,67 @@ export function enforceExecutionAuthorizationAuthority(
     };
   }
 
+  if (preliminaryCoreFreezeGuard.contradictionReasons.length > 0) {
+    const reasons = uniqueStrings([
+      ...preliminaryCoreFreezeGuard.contradictionReasons,
+      "Core Freeze Guard blocks implementation when destructive and preservation requirements contradict each other.",
+    ]);
+    const inspectOnlyFiles = constrainedFiles.map((file) =>
+      downgradeToInspectOnly(file, reasons[0]!),
+    );
+    const contract = revokeImplementation(
+      existingContract,
+      inspectOnlyFiles,
+      reasons,
+      false,
+    );
+    return {
+      ...input.fileSelection,
+      selectedFiles: inspectOnlyFiles,
+      notes: uniqueStrings([
+        ...input.fileSelection.notes,
+        ...authorityNotes,
+        ...reasons,
+      ]),
+      diagnostics: {
+        ...existingDiagnostics,
+        selectionSource: "manual-review",
+        executionMode: "investigation",
+        implementationGateReasons: contract.implementationGateReasons,
+        executionContract: contract,
+      },
+    };
+  }
+
+  if (editableSemanticProtectionConflicts.length > 0) {
+    const reasons = uniqueStrings([
+      `Protected/reference-only scope was proposed for editing: ${editableSemanticProtectionConflicts.join(", ")}.`,
+      "Core Freeze Guard revokes the whole implementation instead of allowing a partial plan that conflicts with an explicit negative constraint.",
+    ]);
+    const contract = revokeImplementation(
+      existingContract,
+      constrainedFiles,
+      reasons,
+      false,
+    );
+    return {
+      ...input.fileSelection,
+      selectedFiles: constrainedFiles,
+      notes: uniqueStrings([
+        ...input.fileSelection.notes,
+        ...authorityNotes,
+        ...reasons,
+      ]),
+      diagnostics: {
+        ...existingDiagnostics,
+        selectionSource: "manual-review",
+        executionMode: "investigation",
+        implementationGateReasons: contract.implementationGateReasons,
+        executionContract: contract,
+      },
+    };
+  }
+
   if (input.qualityStatus === "blocked") {
     const reasons = uniqueStrings([
       ...(input.qualityBlockingReasons ?? []),
@@ -317,6 +412,51 @@ export function enforceExecutionAuthorizationAuthority(
       diagnostics: {
         ...existingDiagnostics,
         selectionSource: "blocked",
+        executionMode: "investigation",
+        implementationGateReasons: contract.implementationGateReasons,
+        executionContract: contract,
+      },
+    };
+  }
+
+  const coreFreezeGuard = evaluateCoreFreezeGuard({
+    rawTask: input.rawTask,
+    taskIntent: input.taskIntent,
+    inventory: input.inventory,
+    selectedFiles: constrainedFiles,
+    authorizedTargets:
+      existingContract.authorization?.authorizedTargets ??
+      existingContract.confirmedTargets,
+  });
+
+  if (
+    existingContract.mode === "implementation" &&
+    coreFreezeGuard.missingDirectAuthorizedTargets.length > 0
+  ) {
+    const reasons = uniqueStrings([
+      `Explicit existing mutation target(s) were not authorized: ${coreFreezeGuard.missingDirectAuthorizedTargets.join(", ")}.`,
+      "Core Freeze Guard refuses to substitute a different editable file for an explicitly named existing target.",
+    ]);
+    const inspectOnlyFiles = constrainedFiles.map((file) =>
+      downgradeToInspectOnly(file, reasons[0]!),
+    );
+    const contract = revokeImplementation(
+      existingContract,
+      inspectOnlyFiles,
+      reasons,
+      false,
+    );
+    return {
+      ...input.fileSelection,
+      selectedFiles: inspectOnlyFiles,
+      notes: uniqueStrings([
+        ...input.fileSelection.notes,
+        ...authorityNotes,
+        ...reasons,
+      ]),
+      diagnostics: {
+        ...existingDiagnostics,
+        selectionSource: "manual-review",
         executionMode: "investigation",
         implementationGateReasons: contract.implementationGateReasons,
         executionContract: contract,

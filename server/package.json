@@ -28,7 +28,8 @@
     "test:support-grounding": "tsx src/selection/supportingContextGrounding.smoke.ts",
     "test:authorization-authority": "tsx src/selection/executionAuthorizationAuthority.smoke.ts",
     "test:safety-preconditions": "tsx src/selection/safetyPreconditions.smoke.ts",
-    "test:explicit-create-wiring": "tsx src/selection/explicitCreateWiringCoverage.smoke.ts"
+    "test:explicit-create-wiring": "tsx src/selection/explicitCreateWiringCoverage.smoke.ts",
+    "test:core-freeze-guard": "tsx src/selection/coreFreezeGuard.smoke.ts"
   },
   "dependencies": {
     "@types/sql.js": "^1.4.11",
