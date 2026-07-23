@@ -1,0 +1,4 @@
+apps/desktop/renderer/src/pages/DashboardPage.tsx
+apps/desktop/renderer/src/i18n/index.ts
+PATCH_NOTES_UI_01B_WELCOME_SPLASH.md
+PATCH_FILE_LIST_UI_01B.txt

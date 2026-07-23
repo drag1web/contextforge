@@ -1,9 +1,14 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import {
+  AnimatePresence,
+  motion,
+  useMotionValue,
+  useMotionValueEvent,
+  useSpring,
+  useTransform,
+} from "framer-motion";
 import { useTranslation } from "react-i18next";
-import { Loader2, Sparkles } from "lucide-react";
-
-import contextforgeMarkWhite from "../assets/brand/contextforge-mark-white.png";
+import contextforgeLogoWhite from "../assets/brand/contextforge-logo-white.png";
 
 import { getAppSettings, updateAppSettings } from "../api/client";
 import type { AppSettings } from "../types";
@@ -42,7 +47,6 @@ import { FirstRunOnboardingOverlay } from "../components/onboarding/FirstRunOnbo
 
 import { GlobalSearchModal } from "../components/modals/GlobalSearchModal";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
-import { appMeta } from "../config/appMeta";
 import i18n, { applyAppLanguage } from "../i18n";
 
 const PAGE_ORDER: AppPageId[] = [
@@ -80,40 +84,71 @@ function WelcomeSplashOverlay({
 }) {
   const { t } = useTranslation();
   const safeProgress = Math.max(8, Math.min(100, progress));
+  const progressMotion = useMotionValue(0);
+  const smoothProgress = useSpring(progressMotion, {
+    stiffness: 52,
+    damping: 20,
+    mass: 0.95,
+  });
+  const progressWidth = useTransform(
+    smoothProgress,
+    (value) => `${Math.max(0, Math.min(100, value))}%`,
+  );
+  const [progressLabel, setProgressLabel] = useState(0);
+
+  useMotionValueEvent(smoothProgress, "change", (latest) => {
+    setProgressLabel(Math.round(Math.max(0, Math.min(100, latest))));
+  });
+
+  useEffect(() => {
+    const frameId = window.requestAnimationFrame(() => {
+      progressMotion.set(safeProgress);
+    });
+
+    return () => {
+      window.cancelAnimationFrame(frameId);
+    };
+  }, [progressMotion, safeProgress]);
 
   return (
     <motion.div
       key="contextforge-welcome-splash"
       initial={{ opacity: 1 }}
       animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
+      exit={{ opacity: 0, scale: 1.018, filter: "blur(10px)" }}
       transition={{
-        duration: 0.34,
+        duration: 0.82,
         ease: [0.16, 1, 0.3, 1],
       }}
       className="fixed inset-0 z-[90] grid place-items-center overflow-hidden bg-black"
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_center,rgba(255,255,255,0.10),transparent_32rem)]" />
-      <div className="pointer-events-none absolute left-1/2 top-1/2 size-[540px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-white/[0.04] blur-3xl" />
-      <div className="pointer-events-none absolute -left-20 top-24 size-72 rounded-full bg-white/[0.025] blur-3xl" />
-      <div className="pointer-events-none absolute -right-20 bottom-20 size-72 rounded-full bg-white/[0.025] blur-3xl" />
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_46%,rgba(255,255,255,0.075),transparent_28rem)]" />
+      <motion.div
+        aria-hidden="true"
+        className="pointer-events-none absolute left-1/2 top-1/2 h-px w-[min(900px,82vw)] -translate-x-1/2 -translate-y-1/2 bg-gradient-to-r from-transparent via-white/[0.055] to-transparent"
+        initial={{ opacity: 0, scaleX: 0.45 }}
+        animate={{ opacity: [0, 1, 0.62], scaleX: 1 }}
+        transition={{ duration: 1.15, ease: [0.16, 1, 0.3, 1] }}
+      />
 
       <div className="pointer-events-none absolute inset-0">
-        {SPLASH_PARTICLES.map((particle) => (
+        {SPLASH_PARTICLES.slice(0, 10).map((particle) => (
           <motion.span
             key={particle.id}
-            initial={{ opacity: 0, y: 12, scale: 0.65 }}
+            initial={{ opacity: 0, y: 8, scale: 0.7 }}
             animate={{
-              opacity: [0, 0.55, 0],
-              y: [8, -18],
-              scale: [0.65, 1, 0.8],
+              opacity: [0, 0.34, 0],
+              y: [8, -14],
+              scale: [0.7, 1, 0.78],
             }}
             transition={{
-              delay: particle.delay,
-              duration: 2.2,
+              delay: particle.delay + 0.2,
+              duration: 2.8,
+              repeat: Infinity,
+              repeatDelay: 1.2 + particle.id * 0.08,
               ease: "easeInOut",
             }}
-            className="absolute size-1 rounded-full bg-white/45 shadow-[0_0_16px_rgba(255,255,255,0.7)]"
+            className="absolute size-0.5 rounded-full bg-white/55 shadow-[0_0_12px_rgba(255,255,255,0.65)]"
             style={{
               left: particle.left,
               top: particle.top,
@@ -123,157 +158,146 @@ function WelcomeSplashOverlay({
       </div>
 
       <motion.div
-        initial={{
-          opacity: 0,
-          y: 22,
-          scale: 0.965,
-        }}
-        animate={{
-          opacity: 1,
-          y: 0,
-          scale: 1,
-        }}
-        exit={{
-          opacity: 0,
-          y: -14,
-          scale: 0.985,
-        }}
+        initial={{ opacity: 0, y: 24, filter: "blur(14px)" }}
+        animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+        exit={{ opacity: 0, y: -16, filter: "blur(9px)" }}
         transition={{
-          duration: 0.5,
+          duration: 0.9,
           ease: [0.16, 1, 0.3, 1],
         }}
-        className="relative w-[min(580px,calc(100vw-48px))] overflow-hidden rounded-[2rem] border border-white/10 bg-neutral-950/85 p-7 text-center shadow-[0_34px_110px_rgba(0,0,0,0.72),inset_0_1px_0_rgba(255,255,255,0.07)] backdrop-blur-xl"
+        className="relative flex w-[min(720px,calc(100vw-48px))] flex-col items-center text-center"
       >
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.07),rgba(255,255,255,0.014)_48%,rgba(255,255,255,0.004))]" />
+        <motion.div
+          initial={{ opacity: 0, y: 26, scale: 0.94, filter: "blur(12px)" }}
+          animate={{ opacity: 1, y: 0, scale: 1, filter: "blur(0px)" }}
+          exit={{ opacity: 0, y: -10, scale: 0.985, filter: "blur(7px)" }}
+          transition={{
+            delay: 0.14,
+            duration: 1.05,
+            ease: [0.16, 1, 0.3, 1],
+          }}
+          className="relative flex h-[150px] w-full max-w-[520px] items-center justify-center overflow-hidden"
+        >
+          <motion.div
+            aria-hidden="true"
+            className="pointer-events-none absolute inset-y-8 left-0 w-24 rotate-12 bg-white/12 blur-2xl"
+            initial={{ x: "-180%", opacity: 0 }}
+            animate={{ x: "620%", opacity: [0, 0.7, 0] }}
+            transition={{ delay: 0.86, duration: 1.6, ease: [0.16, 1, 0.3, 1] }}
+          />
+          <img
+            src={contextforgeLogoWhite}
+            alt="ContextForge"
+            draggable={false}
+            className="w-full max-w-[500px] select-none object-contain"
+          />
+        </motion.div>
 
         <motion.div
           aria-hidden="true"
-          initial={{ x: "-140%", opacity: 0 }}
-          animate={{ x: "140%", opacity: [0, 0.7, 0] }}
-          transition={{
-            delay: 0.28,
-            duration: 1.35,
-            ease: [0.16, 1, 0.3, 1],
-          }}
-          className="absolute inset-y-0 left-0 w-28 rotate-12 bg-white/15 blur-2xl"
+          initial={{ width: 0, opacity: 0 }}
+          animate={{ width: 72, opacity: 1 }}
+          transition={{ delay: 0.72, duration: 0.68, ease: [0.16, 1, 0.3, 1] }}
+          className="h-px bg-gradient-to-r from-transparent via-white/45 to-transparent"
         />
 
-        <div className="relative z-10">
-          <motion.div
-            initial={{ scale: 0.76, opacity: 0, rotate: -7 }}
-            animate={{ scale: 1, opacity: 1, rotate: 0 }}
-            exit={{ scale: 0.86, opacity: 0, rotate: 6 }}
-            transition={{
-              delay: 0.08,
-              type: "spring",
-              stiffness: 480,
-              damping: 26,
-              mass: 0.75,
-            }}
-            className="mx-auto mb-5 grid size-16 place-items-center rounded-[1.35rem] border border-white/10 bg-black/50 shadow-[0_18px_54px_rgba(255,255,255,0.10),inset_0_1px_0_rgba(255,255,255,0.06)]"
-          >
-            <img
-              src={contextforgeMarkWhite}
-              alt="ContextForge"
-              draggable={false}
-              className="size-10 object-contain"
-            />
-          </motion.div>
+        <motion.p
+          initial={{ opacity: 0, y: 14, letterSpacing: "0.62em", filter: "blur(8px)" }}
+          animate={{ opacity: 1, y: 0, letterSpacing: "0.18em", filter: "blur(0px)" }}
+          exit={{ opacity: 0, y: -10, filter: "blur(5px)" }}
+          transition={{
+            delay: 0.78,
+            duration: 0.82,
+            ease: [0.16, 1, 0.3, 1],
+          }}
+          className="mt-5 text-[15px] font-medium uppercase text-neutral-300"
+        >
+          {t("splash.welcomeWord")}
+        </motion.p>
 
-          <div className="mb-4 flex flex-wrap justify-center gap-2">
-            {[
-              appMeta.phase,
-              t("common.localFirst"),
-              t("splash.composerReady"),
-            ].map((badge, index) => (
-              <motion.span
-                key={badge}
-                initial={{ opacity: 0, y: 8, scale: 0.96 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -6, scale: 0.96 }}
-                transition={{
-                  delay: 0.16 + index * 0.08,
-                  duration: 0.32,
-                  ease: [0.16, 1, 0.3, 1],
-                }}
-                className="cf-badge"
-              >
-                {index === 0 && <Sparkles size={12} />}
-                {badge}
-              </motion.span>
-            ))}
+        <motion.div
+          initial={{ opacity: 0, y: 16, filter: "blur(7px)" }}
+          animate={{ opacity: 1, y: 0, filter: "blur(0px)" }}
+          exit={{ opacity: 0, y: -10, filter: "blur(5px)" }}
+          transition={{
+            delay: 1.18,
+            duration: 0.68,
+            ease: [0.16, 1, 0.3, 1],
+          }}
+          className="mt-11 w-full max-w-[410px]"
+        >
+          <div className="mb-3 flex items-center justify-between gap-4 px-0.5 text-[11px] font-medium text-neutral-600">
+            <motion.span
+              key={status}
+              initial={{ opacity: 0, y: 3 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.36, ease: [0.16, 1, 0.3, 1] }}
+              className="truncate text-left"
+            >
+              {status}
+            </motion.span>
+            <span className="shrink-0 font-mono text-neutral-500">{progressLabel}%</span>
           </div>
 
-          <motion.h1
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -10 }}
-            transition={{
-              delay: 0.28,
-              duration: 0.42,
-              ease: [0.16, 1, 0.3, 1],
-            }}
-            className="text-[36px] font-semibold leading-[1.02] tracking-[-0.06em] text-white"
-          >
-            {t("splash.welcome")}
-          </motion.h1>
+          <div className="relative h-[3px] overflow-visible bg-gradient-to-r from-white/[0.035] via-white/[0.11] to-white/[0.035]">
+            <motion.div
+              aria-hidden="true"
+              className="absolute inset-0 bg-white/[0.07]"
+              animate={{ opacity: [0.16, 0.5, 0.16] }}
+              transition={{ duration: 2.4, repeat: Infinity, ease: "easeInOut" }}
+            />
 
-          <motion.p
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{
-              delay: 0.38,
-              duration: 0.42,
-              ease: [0.16, 1, 0.3, 1],
-            }}
-            className="mx-auto mt-3 max-w-md text-sm leading-6 text-neutral-500"
-          >
-            {t("splash.description")}
-          </motion.p>
-
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{
-              delay: 0.5,
-              duration: 0.36,
-              ease: [0.16, 1, 0.3, 1],
-            }}
-            className="mx-auto mt-6 w-full max-w-[340px]"
-          >
-            <div className="mb-3 flex items-center justify-center gap-2 rounded-full border border-neutral-900 bg-black/45 px-4 py-2 text-xs text-neutral-400">
-              <Loader2 size={14} className="animate-spin" />
+            <motion.div
+              style={{ width: progressWidth }}
+              className="relative h-full overflow-hidden bg-white shadow-[0_0_18px_rgba(255,255,255,0.42)]"
+            >
               <motion.span
-                key={status}
-                initial={{ opacity: 0, y: 4 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.18 }}
-              >
-                {status}
-              </motion.span>
-            </div>
-
-            <div className="h-1.5 overflow-hidden rounded-full border border-white/10 bg-black shadow-[inset_0_1px_0_rgba(255,255,255,0.045)]">
-              <motion.div
-                initial={false}
-                animate={{ width: `${safeProgress}%` }}
-                transition={{
-                  type: "spring",
-                  stiffness: 170,
-                  damping: 26,
-                  mass: 0.8,
-                }}
-                className="h-full rounded-full bg-white"
+                aria-hidden="true"
+                className="absolute inset-y-[-4px] left-0 w-24 bg-gradient-to-r from-transparent via-black/20 to-transparent blur-[1px]"
+                animate={{ x: ["-130%", "520%"] }}
+                transition={{ duration: 1.9, repeat: Infinity, ease: "linear" }}
               />
-            </div>
+              <motion.span
+                aria-hidden="true"
+                className="absolute inset-y-[-5px] left-0 w-16 bg-gradient-to-r from-transparent via-white/65 to-transparent blur-[2px]"
+                animate={{ x: ["-150%", "650%"] }}
+                transition={{ duration: 2.65, repeat: Infinity, ease: "linear", delay: 0.2 }}
+              />
+            </motion.div>
 
-            <p className="mt-2 text-center text-[11px] text-neutral-700">
-              {Math.round(safeProgress)}%
-            </p>
-          </motion.div>
-        </div>
+            <motion.span
+              aria-hidden="true"
+              style={{ left: progressWidth }}
+              className="absolute top-1/2 size-2 -translate-x-1/2 -translate-y-1/2 rounded-full bg-white shadow-[0_0_18px_rgba(255,255,255,0.9)]"
+              animate={{
+                scale: [0.82, 1.22, 0.82],
+                opacity: [0.7, 1, 0.7],
+                boxShadow: [
+                  "0 0 10px rgba(255,255,255,0.55)",
+                  "0 0 22px rgba(255,255,255,0.95)",
+                  "0 0 10px rgba(255,255,255,0.55)",
+                ],
+              }}
+              transition={{ duration: 1.45, repeat: Infinity, ease: "easeInOut" }}
+            />
+          </div>
+
+          <div className="mt-3 flex justify-center gap-1.5">
+            {[0, 1, 2].map((index) => (
+              <motion.span
+                key={index}
+                className="size-1 rounded-full bg-white/20"
+                animate={{ opacity: [0.18, 0.72, 0.18], scale: [0.85, 1.08, 0.85] }}
+                transition={{
+                  duration: 1.2,
+                  delay: index * 0.16,
+                  repeat: Infinity,
+                  ease: "easeInOut",
+                }}
+              />
+            ))}
+          </div>
+        </motion.div>
       </motion.div>
     </motion.div>
   );
@@ -440,7 +464,7 @@ export function DashboardPage() {
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
       setMinimumSplashDone(true);
-    }, 2200);
+    }, 3000);
 
     return () => {
       window.clearTimeout(timeoutId);
@@ -448,14 +472,23 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
+    let closeTimeoutId: number | null = null;
+
     const timeoutId = window.setTimeout(() => {
       setBootProgress(100);
       setBootStatus(i18n.t("splash.openingWorkspace"));
-      setIsWelcomeVisible(false);
-    }, 5200);
+
+      closeTimeoutId = window.setTimeout(() => {
+        setIsWelcomeVisible(false);
+      }, 900);
+    }, 8000);
 
     return () => {
       window.clearTimeout(timeoutId);
+
+      if (closeTimeoutId !== null) {
+        window.clearTimeout(closeTimeoutId);
+      }
     };
   }, []);
 
@@ -487,7 +520,7 @@ export function DashboardPage() {
 
     const timeoutId = window.setTimeout(() => {
       setIsWelcomeVisible(false);
-    }, 420);
+    }, 900);
 
     return () => {
       window.clearTimeout(timeoutId);
@@ -764,7 +797,20 @@ export function DashboardPage() {
 
   return (
     <main className="relative h-screen min-h-0 w-screen overflow-hidden bg-black text-neutral-100">
-      <div className="flex h-full min-h-0 w-full flex-col">
+      <motion.div
+        initial={false}
+        animate={{
+          opacity: isWelcomeVisible ? 0.42 : 1,
+          scale: isWelcomeVisible ? 0.992 : 1,
+          filter: isWelcomeVisible ? "blur(10px)" : "blur(0px)",
+        }}
+        transition={{
+          duration: 0.92,
+          delay: isWelcomeVisible ? 0 : 0.08,
+          ease: [0.16, 1, 0.3, 1],
+        }}
+        className="flex h-full min-h-0 w-full flex-col"
+      >
         <AppTitleBar
           activePage={activePage}
           isLoading={dashboard.isLoading}
@@ -831,7 +877,7 @@ export function DashboardPage() {
           }
           message={dashboard.statusMessage}
         />
-      </div>
+      </motion.div>
 
       <AnimatePresence>
         {isWelcomeVisible && (

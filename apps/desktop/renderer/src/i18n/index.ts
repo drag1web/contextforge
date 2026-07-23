@@ -122,6 +122,7 @@ const resources = {
       },
       splash: {
         composerReady: "Composer ready",
+        welcomeWord: "Welcome",
         welcome: "Welcome to ContextForge",
         description:
           "Preparing your local AI workflow, project context, and Task Pack workspace.",
@@ -1146,6 +1147,7 @@ const resources = {
       },
       splash: {
         composerReady: "Composer готов",
+        welcomeWord: "Welcome",
         welcome: "Добро пожаловать в ContextForge",
         description:
           "Подготавливаем локальный AI workflow, контекст проектов и workspace для Task Packs.",
