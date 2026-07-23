@@ -61,6 +61,7 @@ import { Modal } from "../components/ui/Modal";
 import { CustomSelect } from "../components/ui/CustomSelect";
 import { TaskUnderstandingModal } from "../components/modals/TaskUnderstandingModal";
 import { SegmentedFilter, type SegmentedFilterOption } from "../components/ui/SegmentedFilter";
+import { HorizontalSlidingSelector } from "../components/ui/SlidingSelectors";
 import { TARGET_TOOL_OPTIONS } from "../components/ai/aiToolOptions";
 import {
   analyzeTaskPackIntent,
@@ -73,8 +74,6 @@ import {
 import {
   LOCAL_CHANGES_NOTE_HEADING,
   buildLocalChangesNote,
-  getGitChangedFiles,
-  getGitChangeLabel,
   mergeLocalChangesNote
 } from "../utils/localChangesNote";
 
@@ -141,38 +140,23 @@ const TASK_TYPE_OPTIONS: Array<{
 type BuilderSection = "task" | "recipe" | "rules" | "acceptance" | "context";
 type TaskUnderstandingPendingAction = "analyze" | "generate" | null;
 
-const BUILDER_SECTION_OPTIONS: SegmentedFilterOption<BuilderSection>[] = [
-  {
-    value: "task",
-    label: "Task",
-    description: "Main prompt",
-    icon: <Sparkles size={14} />
-  },
-  {
-    value: "recipe",
-    label: "Recipe",
-    description: "Agent setup",
-    icon: <Settings2 size={14} />
-  },
-  {
-    value: "rules",
-    label: "Rules",
-    description: "Constraints",
-    icon: <ShieldCheck size={14} />
-  },
-  {
-    value: "acceptance",
-    label: "Acceptance",
-    description: "Final checks",
-    icon: <CheckCircle2 size={14} />
-  },
-  {
-    value: "context",
-    label: "Context",
-    description: "Review files",
-    icon: <Search size={14} />
-  }
-];
+interface BuilderSectionNavigationItem {
+  value: BuilderSection;
+  label: string;
+  description: string;
+  icon: ReactNode;
+}
+
+type PackStatusTone = "ready" | "warning" | "pending";
+
+interface PackStatusItem {
+  section: BuilderSection;
+  label: string;
+  value: string;
+  caption: string;
+  tone: PackStatusTone;
+  icon: ReactNode;
+}
 
 const CONTEXT_BUDGET_MODE_OPTIONS: SegmentedFilterOption<ContextBudgetMode>[] = [
   {
@@ -192,6 +176,33 @@ const CONTEXT_BUDGET_MODE_OPTIONS: SegmentedFilterOption<ContextBudgetMode>[] = 
     label: "Detailed",
     description: "broader",
     icon: <BookOpen size={13} />
+  }
+];
+
+
+const CONTEXT_REVIEW_ITEMS: Array<{
+  value: ContextReviewMode;
+  label: string;
+  description: string;
+  icon: ReactNode;
+}> = [
+  {
+    value: "files",
+    label: "Files",
+    description: "Selected context",
+    icon: <FileText size={14} />
+  },
+  {
+    value: "budget",
+    label: "Budget",
+    description: "Context pressure",
+    icon: <SlidersHorizontal size={14} />
+  },
+  {
+    value: "signals",
+    label: "Signals",
+    description: "Warnings and source",
+    icon: <AlertTriangle size={14} />
   }
 ];
 
@@ -491,146 +502,6 @@ function CompactMetric({
   );
 }
 
-function LocalChangesAwarenessCard({
-  status,
-  isLoading,
-  error,
-  onRefresh,
-  onAddNote,
-  hasNote
-}: {
-  status: GitStatusResult | null;
-  isLoading: boolean;
-  error: string | null;
-  onRefresh: () => void;
-  onAddNote: () => void;
-  hasNote: boolean;
-}) {
-  const changedFiles = getGitChangedFiles(status);
-  const canAddNote = Boolean(status?.isGitRepo && status.summary.totalChanged > 0);
-  const branchLabel = status?.isDetachedHead
-    ? "Detached HEAD"
-    : status?.branch ?? "No branch";
-
-  if (error) {
-    return (
-      <div className="rounded-2xl border border-red-400/20 bg-red-400/10 p-3">
-        <div className="flex items-start justify-between gap-3">
-          <div>
-            <p className="text-xs font-semibold text-red-100">
-              Local Git context unavailable
-            </p>
-            <p className="mt-1 text-[11px] leading-5 text-red-200/75">
-              {error}
-            </p>
-          </div>
-
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="shrink-0 rounded-full border border-red-300/20 bg-black/20 px-2.5 py-1 text-[10px] font-medium text-red-100 transition hover:border-red-200/40"
-          >
-            Retry
-          </button>
-        </div>
-      </div>
-    );
-  }
-
-  return (
-    <section className="rounded-2xl border border-neutral-900 bg-black/35 p-3.5">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-              {isLoading ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
-            </span>
-
-            <div className="min-w-0">
-              <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                Local changes
-              </p>
-              <h3 className="truncate text-sm font-semibold text-white">
-                {isLoading
-                  ? "Checking working tree..."
-                  : status?.isGitRepo
-                    ? `${branchLabel} · ${status.summary.totalChanged} changed`
-                    : "No local Git repository"}
-              </h3>
-            </div>
-          </div>
-
-          <p className="mt-2 max-w-2xl text-xs leading-5 text-neutral-600">
-            Existing working-tree changes are useful background for a Task Pack, but they stay separate from files the agent should edit.
-          </p>
-        </div>
-
-        <div className="flex shrink-0 flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={isLoading}
-            className="inline-flex h-8 items-center gap-2 rounded-full border border-neutral-800 bg-neutral-950 px-3 text-xs font-medium text-neutral-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <RotateCcw size={12} />
-            Refresh
-          </button>
-
-          <button
-            type="button"
-            onClick={onAddNote}
-            disabled={!canAddNote || isLoading}
-            className="cf-invert-action inline-flex h-8 items-center gap-2 rounded-full px-3 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <PlusCircle size={13} />
-            {hasNote ? "Update note" : "Add note"}
-          </button>
-        </div>
-      </div>
-
-      {status?.isGitRepo ? (
-        <div className="mt-3 grid gap-2 sm:grid-cols-4">
-          <CompactMetric label="Staged" value={status.summary.stagedCount} caption="ready" />
-          <CompactMetric label="Unstaged" value={status.summary.unstagedCount} caption="working tree" />
-          <CompactMetric label="Untracked" value={status.summary.untrackedCount} caption="new files" />
-          <CompactMetric label="Latest" value={status.latestCommit?.shortHash ?? "—"} caption={status.latestCommit?.subject ?? "no commit"} />
-        </div>
-      ) : null}
-
-      {changedFiles.length > 0 ? (
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          {changedFiles.slice(0, 8).map((file) => (
-            <span
-              key={file.path}
-              className="max-w-full truncate rounded-full border border-neutral-900 bg-black/30 px-2.5 py-1 text-[10px] text-neutral-500"
-              title={file.path}
-            >
-              {getGitChangeLabel(file)} · {file.path}
-            </span>
-          ))}
-
-          {changedFiles.length > 8 && (
-            <span className="rounded-full border border-neutral-900 bg-black/30 px-2.5 py-1 text-[10px] text-neutral-500">
-              +{changedFiles.length - 8} more
-            </span>
-          )}
-        </div>
-      ) : status?.isGitRepo && !isLoading ? (
-        <div className="mt-3 rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs leading-5 text-emerald-200">
-          Working tree is clean. No local changes need to be added as background context.
-        </div>
-      ) : null}
-
-      {status?.warnings.length ? (
-        <div className="mt-3 rounded-xl border border-amber-400/20 bg-amber-400/10 p-3 text-xs leading-5 text-amber-100">
-          {status.warnings[0]}
-        </div>
-      ) : null}
-    </section>
-  );
-}
-
-
 function LocalChangesCompactStrip({
   status,
   isLoading,
@@ -655,113 +526,202 @@ function LocalChangesCompactStrip({
 
   if (error) {
     return (
-      <section className="mb-3 rounded-2xl border border-red-400/20 bg-red-400/[0.07] px-3 py-2.5">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-red-400/20 bg-red-400/10 text-red-200">
-              <AlertTriangle size={14} />
-            </span>
-            <div className="min-w-0">
-              <p className="cf-tech-label text-[9px] uppercase text-red-200/70">
-                Local changes
-              </p>
-              <p className="truncate text-xs font-semibold text-red-100">
-                Git status unavailable
-              </p>
-            </div>
+      <section className="flex min-h-[104px] min-w-0 flex-col justify-between rounded-2xl border border-red-400/20 bg-red-400/[0.055] p-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-red-400/20 bg-red-400/10 text-red-200">
+            <AlertTriangle size={14} />
+          </span>
+          <div className="min-w-0">
+            <p className="cf-tech-label text-[9px] uppercase text-red-200/70">
+              Local state
+            </p>
+            <p className="mt-1 truncate text-sm font-semibold text-red-100">
+              Git status unavailable
+            </p>
+            <p className="mt-1 text-[11px] text-red-100/55">
+              Retry without leaving the task editor.
+            </p>
           </div>
-
-          <button
-            type="button"
-            onClick={onRefresh}
-            className="shrink-0 rounded-full border border-red-300/20 bg-black/20 px-2.5 py-1 text-[10px] font-medium text-red-100 transition hover:border-red-200/40"
-          >
-            Retry
-          </button>
         </div>
+
+        <button
+          type="button"
+          onClick={onRefresh}
+          className="mt-3 inline-flex h-7 w-fit items-center gap-1.5 rounded-full border border-red-300/20 bg-black/20 px-2.5 text-[11px] font-medium text-red-100 transition hover:border-red-200/40"
+        >
+          <RotateCcw size={11} />
+          Retry
+        </button>
       </section>
     );
   }
 
+  const stateLabel = isLoading
+    ? "Checking working tree..."
+    : status?.isGitRepo
+      ? `${branchLabel} · ${status.summary.totalChanged} changed`
+      : "No local Git repository";
+
+  const stateCaption = status?.isGitRepo && !isLoading
+    ? `${status.summary.stagedCount} staged · ${status.summary.unstagedCount} unstaged · ${status.summary.untrackedCount} untracked`
+    : "Background awareness only";
+
   return (
-    <section className="mb-3 rounded-2xl border border-neutral-900 bg-black/30 px-3 py-2.5">
-      <div className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-2.5">
-          <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-            {isLoading ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
-          </span>
+    <section className="flex min-h-[104px] min-w-0 flex-col justify-between rounded-2xl border border-neutral-900 bg-black/25 p-3">
+      <div className="flex min-w-0 items-start gap-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+          {isLoading ? <Loader2 size={14} className="animate-spin" /> : <GitBranch size={14} />}
+        </span>
 
-          <div className="min-w-0">
-            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-              Local changes
-            </p>
-            <p className="truncate text-xs font-semibold text-white">
-              {isLoading
-                ? "Checking working tree..."
-                : status?.isGitRepo
-                  ? `${branchLabel} · ${status.summary.totalChanged} changed`
-                  : "No local Git repository"}
-            </p>
-          </div>
+        <div className="min-w-0">
+          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+            Local state
+          </p>
+          <p className="mt-1 truncate text-sm font-semibold text-white">
+            {stateLabel}
+          </p>
+          <p className="mt-1 truncate text-[11px] text-neutral-600">
+            {stateCaption}
+          </p>
         </div>
+      </div>
 
-        {status?.isGitRepo && !isLoading ? (
-          <div className="hidden min-w-0 flex-1 flex-wrap items-center gap-1.5 xl:flex">
-            <span className="rounded-full border border-neutral-900 bg-black/30 px-2 py-1 text-[10px] text-neutral-500">
-              {status.summary.stagedCount} staged
-            </span>
-            <span className="rounded-full border border-neutral-900 bg-black/30 px-2 py-1 text-[10px] text-neutral-500">
-              {status.summary.unstagedCount} unstaged
-            </span>
-            <span className="rounded-full border border-neutral-900 bg-black/30 px-2 py-1 text-[10px] text-neutral-500">
-              {status.summary.untrackedCount} untracked
-            </span>
-            <span className="truncate rounded-full border border-neutral-900 bg-black/30 px-2 py-1 text-[10px] text-neutral-600">
-              awareness only · not edit targets
-            </span>
-          </div>
-        ) : null}
+      <div className="mt-3 flex flex-wrap items-center gap-1.5">
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={isLoading}
+          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-400 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RotateCcw size={11} />
+          Refresh
+        </button>
 
-        <div className="ml-auto flex shrink-0 flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={onRefresh}
-            disabled={isLoading}
-            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <RotateCcw size={11} />
-            Refresh
-          </button>
+        <button
+          type="button"
+          onClick={onViewDetails}
+          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-400 transition hover:border-white/20 hover:text-white"
+        >
+          <Eye size={11} />
+          Review
+        </button>
 
-          <button
-            type="button"
-            onClick={onViewDetails}
-            className="inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition hover:border-white/20 hover:text-white"
-          >
-            <Eye size={11} />
-            Details
-          </button>
-
-          <button
-            type="button"
-            onClick={onAddNote}
-            disabled={!canAddNote || isLoading}
-            className="cf-invert-action inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            <PlusCircle size={12} />
-            {hasNote ? "Update note" : "Add note"}
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={onAddNote}
+          disabled={!canAddNote || isLoading}
+          className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <PlusCircle size={12} />
+          {hasNote ? "Update note" : "Add note"}
+        </button>
       </div>
     </section>
   );
 }
 
 
+function ContextLocalStateBar({
+  status,
+  isLoading,
+  error,
+  onRefresh,
+  onAddNote,
+  hasNote
+}: {
+  status: GitStatusResult | null;
+  isLoading: boolean;
+  error: string | null;
+  onRefresh: () => void;
+  onAddNote: () => void;
+  hasNote: boolean;
+}) {
+  const canAddNote = Boolean(status?.isGitRepo && status.summary.totalChanged > 0);
+  const branchLabel = status?.isDetachedHead
+    ? "Detached HEAD"
+    : status?.branch ?? "No branch";
+
+  const stateLabel = error
+    ? "Local Git state unavailable"
+    : isLoading
+      ? "Checking working tree..."
+      : status?.isGitRepo
+        ? `${branchLabel} · ${status.summary.totalChanged} changed`
+        : "No local Git repository";
+
+  const stateCaption = error
+    ? "Context analysis can still run without Git metadata."
+    : status?.isGitRepo && !isLoading
+      ? `${status.summary.stagedCount} staged · ${status.summary.unstagedCount} unstaged · ${status.summary.untrackedCount} untracked`
+      : "Repository state is supporting context only.";
+
+  return (
+    <section
+      className={[
+        "flex flex-col gap-3 rounded-2xl border px-3.5 py-3 lg:flex-row lg:items-center lg:justify-between",
+        error
+          ? "border-red-400/20 bg-red-400/[0.055]"
+          : "border-neutral-900 bg-black/25"
+      ].join(" ")}
+    >
+      <div className="flex min-w-0 items-center gap-3">
+        <span
+          className={[
+            "grid size-9 shrink-0 place-items-center rounded-xl border",
+            error
+              ? "border-red-400/20 bg-red-400/10 text-red-200"
+              : "border-neutral-800 bg-neutral-950 text-neutral-300"
+          ].join(" ")}
+        >
+          {isLoading ? <Loader2 size={14} className="animate-spin" /> : error ? <AlertTriangle size={14} /> : <GitBranch size={14} />}
+        </span>
+
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="truncate text-xs font-semibold text-white">
+              {stateLabel}
+            </p>
+            {hasNote && (
+              <span className="rounded-full border border-emerald-400/20 bg-emerald-400/10 px-2 py-0.5 text-[9px] font-semibold text-emerald-300">
+                note attached
+              </span>
+            )}
+          </div>
+          <p className="mt-0.5 truncate text-[10px] text-neutral-600">
+            {stateCaption} · does not define automatic edit scope
+          </p>
+        </div>
+      </div>
+
+      <div className="flex shrink-0 items-center gap-2">
+        <button
+          type="button"
+          onClick={onRefresh}
+          disabled={isLoading}
+          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-400 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
+        >
+          <RotateCcw size={11} />
+          {error ? "Retry" : "Refresh"}
+        </button>
+
+        <button
+          type="button"
+          onClick={onAddNote}
+          disabled={!canAddNote || isLoading}
+          className="inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        >
+          <PlusCircle size={12} />
+          {hasNote ? "Update note" : "Add note"}
+        </button>
+      </div>
+    </section>
+  );
+}
 
 type ContextFileMode = "edit" | "inspect" | "create" | "reference";
 type ContextFileFilter = "all" | "edit" | "inspect" | "warnings";
 type ContextBudgetMode = "compact" | "standard" | "detailed";
+type ContextReviewMode = "files" | "budget" | "signals";
 
 type ContextReviewSummary = {
   isAnalyzed: boolean;
@@ -1237,84 +1197,6 @@ function ContextFileReasonCard({
   );
 }
 
-function ContextSelectionSummaryCard({
-  summary,
-  isLoading,
-  onReview,
-  onAnalyze
-}: {
-  summary: ContextReviewSummary;
-  isLoading: boolean;
-  onReview: () => void;
-  onAnalyze: () => void;
-}) {
-  const tone = getContextStatusTone(summary.status);
-
-  return (
-    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-      <div className="mb-4 flex items-center justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className={["grid size-10 shrink-0 place-items-center rounded-2xl border", tone.border, tone.bg, tone.icon].join(" ") }>
-            <Search size={18} />
-          </span>
-
-          <div className="min-w-0">
-            <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-              Context
-            </p>
-
-            <h2 className="truncate text-base font-semibold text-white">
-              {summary.label}
-            </h2>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={onReview}
-          className="cf-invert-action inline-flex h-8 shrink-0 items-center gap-2 rounded-full px-3 text-xs"
-        >
-          Review
-        </button>
-      </div>
-
-      <p className="text-xs leading-5 text-neutral-600">
-        {summary.summary}
-      </p>
-
-      {summary.isAnalyzed ? (
-        <>
-          <div className="mt-4 grid grid-cols-2 gap-2">
-            <CompactMetric label="Files" value={summary.files.length} caption="selected" />
-            <CompactMetric label="Edit" value={summary.editCount} caption="candidate" />
-            <CompactMetric label="Inspect" value={summary.inspectCount} caption="read only" />
-            <CompactMetric label="Budget" value={`${summary.budgetScore}%`} caption={summary.budgetLabel} />
-          </div>
-
-          <button
-            type="button"
-            onClick={onReview}
-            className="cf-invert-action mt-4 inline-flex h-8 w-full items-center justify-center gap-2 rounded-full px-3 text-xs"
-          >
-            <Eye size={13} />
-            Review selected context
-          </button>
-        </>
-      ) : (
-        <button
-          type="button"
-          onClick={onAnalyze}
-          disabled={isLoading}
-          className="cf-invert-action mt-4 inline-flex h-8 w-full items-center justify-center gap-2 rounded-full px-3 text-xs disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isLoading ? <Loader2 size={13} className="animate-spin" /> : <Sparkles size={13} />}
-          Analyze context
-        </button>
-      )}
-    </section>
-  );
-}
-
 function getQualityStatusClasses(status: TaskPackQualityStatus) {
   if (status === "pass") {
     return {
@@ -1463,30 +1345,55 @@ function QualityScoreRing({ score, status }: { score: number; status: TaskPackQu
   );
 }
 
-function QualityScoreCard({
+function getPackStatusToneClasses(tone: PackStatusTone) {
+  if (tone === "ready") {
+    return {
+      dot: "bg-emerald-300",
+      text: "text-emerald-300"
+    };
+  }
+
+  if (tone === "warning") {
+    return {
+      dot: "bg-red-300",
+      text: "text-red-300"
+    };
+  }
+
+  return {
+    dot: "bg-neutral-600",
+    text: "text-neutral-500"
+  };
+}
+
+function PackStatusCard({
   quality,
+  items,
+  activeSection,
+  onSelect,
   onOpenDetails
 }: {
   quality: TaskPackQualityResult;
+  items: readonly PackStatusItem[];
+  activeSection: BuilderSection;
+  onSelect: (section: BuilderSection) => void;
   onOpenDetails: () => void;
 }) {
   const classes = getQualityStatusClasses(quality.status);
-  const topIssues = quality.checks.filter((check) => check.status !== "pass").slice(0, 2);
-  const positiveChecks = quality.checks.filter((check) => check.status === "pass").length;
 
   return (
-    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div className="min-w-0">
+    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/45 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 pt-1">
           <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-            Task Pack Quality
+            Pack status
           </p>
 
           <h2 className="mt-1 text-base font-semibold text-white">
             {quality.label}
           </h2>
 
-          <p className="mt-1 text-xs leading-5 text-neutral-600">
+          <p className="mt-1 line-clamp-2 text-xs leading-5 text-neutral-600">
             {quality.summary}
           </p>
         </div>
@@ -1494,56 +1401,50 @@ function QualityScoreCard({
         <QualityScoreRing score={quality.score} status={quality.status} />
       </div>
 
-      <div className="grid grid-cols-3 gap-2">
-        <CompactMetric
-          label="Checks"
-          value={`${positiveChecks}/${quality.checks.length}`}
-          caption="passed"
-        />
-
-        <CompactMetric
-          label="Warnings"
-          value={quality.warnings.length}
-          caption="signals"
-        />
-
-        <CompactMetric
-          label="Words"
-          value={quality.stats.taskWords}
-          caption="task"
-        />
-      </div>
-
-      <div className="mt-4 space-y-2">
-        {(topIssues.length > 0 ? topIssues : quality.checks.slice(0, 2)).map((check) => {
-          const checkClasses = getQualityStatusClasses(check.status);
+      <div className="mt-4 overflow-hidden rounded-2xl border border-neutral-900 bg-black/30">
+        {items.map((item) => {
+          const tone = getPackStatusToneClasses(item.tone);
+          const isActive = item.section === activeSection;
 
           return (
-            <div
-              key={check.id}
-              className="flex items-start gap-2 rounded-2xl border border-neutral-900 bg-black/35 p-3"
+            <button
+              key={item.section}
+              type="button"
+              onClick={() => onSelect(item.section)}
+              className={[
+                "flex w-full items-center gap-3 border-b border-neutral-900 px-3 py-3 text-left transition last:border-b-0",
+                isActive
+                  ? "bg-white/[0.065]"
+                  : "bg-transparent hover:bg-white/[0.035]"
+              ].join(" ")}
             >
               <span
                 className={[
-                  "mt-0.5 grid size-6 shrink-0 place-items-center rounded-lg border",
-                  checkClasses.border,
-                  checkClasses.bg,
-                  checkClasses.text
+                  "grid size-8 shrink-0 place-items-center rounded-xl border transition",
+                  isActive
+                    ? "border-white/15 bg-white/10 text-white"
+                    : "border-neutral-900 bg-neutral-950 text-neutral-500"
                 ].join(" ")}
               >
-                <QualityStatusIcon status={check.status} size={13} />
+                {item.icon}
               </span>
 
-              <div className="min-w-0">
-                <p className="truncate text-xs font-semibold text-white">
-                  {check.label}
-                </p>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-xs font-semibold text-white">
+                  {item.label}
+                </span>
+                <span className="mt-0.5 block truncate text-[10px] text-neutral-600">
+                  {item.caption}
+                </span>
+              </span>
 
-                <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-neutral-600">
-                  {check.message}
-                </p>
-              </div>
-            </div>
+              <span className="shrink-0 text-right">
+                <span className={["flex items-center justify-end gap-1.5 text-[11px] font-medium", tone.text].join(" ")}>
+                  <span className={["size-1.5 rounded-full", tone.dot].join(" ")} />
+                  {item.value}
+                </span>
+              </span>
+            </button>
           );
         })}
       </div>
@@ -1551,19 +1452,18 @@ function QualityScoreCard({
       <button
         type="button"
         onClick={onOpenDetails}
-        className="cf-invert-action mt-4 inline-flex h-8 w-full items-center justify-center gap-2 rounded-full px-3 text-xs"
+        className="cf-invert-action mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-full px-3 text-xs"
       >
         <Lightbulb size={13} />
         View quality details
       </button>
 
-      <p className={["mt-3 text-[11px] leading-4", classes.muted].join(" ") }>
-        Local score only · does not change generation logic.
+      <p className={["mt-3 text-[10px] leading-4", classes.muted].join(" ")}>
+        Local readiness only · generation logic is unchanged.
       </p>
     </section>
   );
 }
-
 
 function getIntentStatusClasses(status: TaskPackIntentStatus) {
   if (status === "match") {
@@ -1615,8 +1515,8 @@ function TaskIntentCard({
   const hasContextMismatch = intent.mismatches.some((item) => item.id.startsWith("context-"));
 
   return (
-    <article className={["rounded-2xl border bg-black/35 p-3", classes.border].join(" ")}>
-      <div className="flex items-start justify-between gap-3">
+    <article className={["rounded-2xl border bg-black/25 p-3", classes.border].join(" ")}>
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <span className={["grid size-9 shrink-0 place-items-center rounded-xl border", classes.icon].join(" ")}>
             {intent.status === "match" ? (
@@ -1629,65 +1529,66 @@ function TaskIntentCard({
           </span>
 
           <div className="min-w-0">
-            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-              Task understanding
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                Task understanding
+              </p>
+              <span className={["rounded-full border px-2 py-0.5 text-[9px] font-semibold", classes.pill].join(" ")}>
+                {intent.confidence}%
+              </span>
+            </div>
 
             <h3 className="mt-1 truncate text-sm font-semibold text-white">
               {intent.label}
             </h3>
 
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-neutral-500">
+            <p className="mt-1 line-clamp-1 text-xs leading-5 text-neutral-500">
               {intent.summary}
             </p>
           </div>
         </div>
 
-        <span className={["shrink-0 rounded-full border px-2 py-1 text-[10px] font-semibold", classes.pill].join(" ")}>
-          {intent.confidence}%
-        </span>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        {intent.signals.map((signal) => (
-          <div key={signal.label} className="rounded-xl border border-neutral-900 bg-black/35 p-2">
-            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">
-              {signal.label}
-            </p>
-            <p
-              className={[
-                "mt-1 truncate text-xs font-semibold",
-                signal.tone === "positive"
-                  ? "text-emerald-300"
-                  : signal.tone === "warning"
-                    ? "text-red-300"
-                    : "text-white"
-              ].join(" ")}
-            >
-              {signal.value}
-            </p>
-          </div>
-        ))}
+        <div className="grid shrink-0 grid-cols-3 gap-1.5 xl:w-[330px]">
+          {intent.signals.map((signal) => (
+            <div key={signal.label} className="rounded-xl border border-neutral-900 bg-black/35 px-2.5 py-2">
+              <p className="cf-tech-label truncate text-[8px] uppercase text-neutral-700">
+                {signal.label}
+              </p>
+              <p
+                className={[
+                  "mt-1 truncate text-[11px] font-semibold",
+                  signal.tone === "positive"
+                    ? "text-emerald-300"
+                    : signal.tone === "warning"
+                      ? "text-red-300"
+                      : "text-white"
+                ].join(" ")}
+              >
+                {signal.value}
+              </p>
+            </div>
+          ))}
+        </div>
       </div>
 
       {primaryMismatch ? (
-        <div className="mt-3 rounded-xl border border-neutral-900 bg-black/40 p-3">
-          <div className="flex items-start gap-2">
+        <div className="mt-3 flex flex-col gap-3 border-t border-neutral-900 pt-3 lg:flex-row lg:items-center lg:justify-between">
+          <div className="flex min-w-0 items-start gap-2">
             <AlertTriangle
               size={13}
-              className={primaryMismatch.severity === "warning" ? "mt-0.5 text-red-300" : "mt-0.5 text-neutral-300"}
+              className={primaryMismatch.severity === "warning" ? "mt-0.5 shrink-0 text-red-300" : "mt-0.5 shrink-0 text-neutral-300"}
             />
             <div className="min-w-0">
-              <p className="text-xs font-semibold text-white">
+              <p className="truncate text-xs font-semibold text-white">
                 {primaryMismatch.title}
               </p>
-              <p className="mt-1 line-clamp-2 text-[11px] leading-5 text-neutral-500">
+              <p className="mt-0.5 line-clamp-1 text-[11px] text-neutral-600">
                 {primaryMismatch.message}
               </p>
             </div>
           </div>
 
-          <div className="mt-3 flex flex-wrap gap-2">
+          <div className="flex shrink-0 flex-wrap gap-2">
             <button
               type="button"
               onClick={onOpenRecipe}
@@ -1708,7 +1609,7 @@ function TaskIntentCard({
           </div>
         </div>
       ) : (
-        <div className="mt-3 rounded-xl border border-emerald-400/10 bg-emerald-400/[0.04] p-3 text-[11px] leading-5 text-emerald-200/80">
+        <div className="mt-3 border-t border-emerald-400/10 pt-3 text-[11px] leading-5 text-emerald-200/75">
           Recipe and task intent look aligned. Keep boundaries and verification visible before exporting.
         </div>
       )}
@@ -1734,7 +1635,7 @@ function BackendTaskUnderstandingCard({
       type="button"
       onClick={onOpen}
       className={[
-        "rounded-2xl border bg-black/35 p-3 text-left transition hover:bg-white/[0.035]",
+        "w-full rounded-2xl border bg-black/25 p-3 text-left transition hover:bg-white/[0.035]",
         isReady
           ? "border-emerald-400/15 hover:border-emerald-300/25"
           : needsClarification
@@ -1742,7 +1643,7 @@ function BackendTaskUnderstandingCard({
             : "border-white/10 hover:border-white/20"
       ].join(" ")}
     >
-      <div className="flex items-start justify-between gap-3">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
         <div className="flex min-w-0 items-start gap-3">
           <span
             className={[
@@ -1764,9 +1665,14 @@ function BackendTaskUnderstandingCard({
           </span>
 
           <div className="min-w-0">
-            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-              {t("taskUnderstanding.eyebrow")}
-            </p>
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                {t("taskUnderstanding.eyebrow")}
+              </p>
+              <span className="rounded-full border border-neutral-800 bg-black/45 px-2 py-0.5 text-[9px] font-semibold text-neutral-300">
+                {confidence}%
+              </span>
+            </div>
 
             <h3 className="mt-1 truncate text-sm font-semibold text-white">
               {needsClarification
@@ -1776,74 +1682,116 @@ function BackendTaskUnderstandingCard({
                   : t("taskUnderstanding.statusReady")}
             </h3>
 
-            <p className="mt-1 line-clamp-2 text-xs leading-5 text-neutral-500">
+            <p className="mt-1 line-clamp-1 text-xs leading-5 text-neutral-500">
               {understanding.goal}
             </p>
           </div>
         </div>
 
-        <span className="shrink-0 rounded-full border border-neutral-800 bg-black/45 px-2 py-1 text-[10px] font-semibold text-neutral-300">
-          {confidence}%
-        </span>
-      </div>
-
-      <div className="mt-3 grid grid-cols-3 gap-2">
-        <div className="rounded-xl border border-neutral-900 bg-black/35 p-2">
-          <p className="cf-tech-label text-[8px] uppercase text-neutral-700">
-            Action
-          </p>
-          <p className="mt-1 truncate text-xs font-semibold text-white">
-            {understanding.action}
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-neutral-900 bg-black/35 p-2">
-          <p className="cf-tech-label text-[8px] uppercase text-neutral-700">
-            Targets
-          </p>
-          <p className="mt-1 truncate text-xs font-semibold text-white">
-            {understanding.targetHints.length}
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-neutral-900 bg-black/35 p-2">
-          <p className="cf-tech-label text-[8px] uppercase text-neutral-700">
-            Values
-          </p>
-          <p className="mt-1 truncate text-xs font-semibold text-white">
-            {understanding.explicitValues.length}
-          </p>
+        <div className="grid shrink-0 grid-cols-4 gap-1.5 xl:w-[430px]">
+          <div className="rounded-xl border border-neutral-900 bg-black/35 px-2.5 py-2">
+            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">Action</p>
+            <p className="mt-1 truncate text-[11px] font-semibold text-white">{understanding.action}</p>
+          </div>
+          <div className="rounded-xl border border-neutral-900 bg-black/35 px-2.5 py-2">
+            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">Targets</p>
+            <p className="mt-1 text-[11px] font-semibold text-white">{understanding.targetHints.length}</p>
+          </div>
+          <div className="rounded-xl border border-neutral-900 bg-black/35 px-2.5 py-2">
+            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">Values</p>
+            <p className="mt-1 text-[11px] font-semibold text-white">{understanding.explicitValues.length}</p>
+          </div>
+          <div className="rounded-xl border border-neutral-900 bg-black/35 px-2.5 py-2">
+            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">Questions</p>
+            <p className="mt-1 text-[11px] font-semibold text-white">{response.clarifications.length}</p>
+          </div>
         </div>
       </div>
 
-      <div className="mt-3 flex items-center justify-between gap-3 text-[11px] text-neutral-500">
-        <span>
-          {t("taskUnderstanding.clarificationCount", {
-            count: response.clarifications.length
-          })}
-        </span>
-        <span className="font-medium text-neutral-300">
-          {t("taskUnderstanding.openDetails")}
-        </span>
+      <div className="mt-3 flex items-center justify-between gap-3 border-t border-neutral-900 pt-3 text-[11px] text-neutral-500">
+        <span>{t("taskUnderstanding.clarificationCount", { count: response.clarifications.length })}</span>
+        <span className="font-medium text-neutral-300">{t("taskUnderstanding.openDetails")}</span>
       </div>
     </button>
   );
 }
 
+
+function getQualityCheckSection(checkId: string): BuilderSection {
+  if (checkId === "recipe") {
+    return "recipe";
+  }
+
+  if (checkId === "constraints" || checkId === "safety") {
+    return "rules";
+  }
+
+  if (checkId === "verification") {
+    return "acceptance";
+  }
+
+  return "task";
+}
+
+function getQualitySuggestionSection(message: string): BuilderSection {
+  const normalized = message.toLowerCase();
+
+  if (/acceptance|verification|build|test|lint|manual|checklist/.test(normalized)) {
+    return "acceptance";
+  }
+
+  if (/template|profile|recipe|preset|agent/.test(normalized)) {
+    return "recipe";
+  }
+
+  if (/rule|constraint|boundary|avoid|preserve|files not to touch/.test(normalized)) {
+    return "rules";
+  }
+
+  if (/context|selected files|inspect-only|edit candidate/.test(normalized)) {
+    return "context";
+  }
+
+  return "task";
+}
+
+function getBuilderSectionLabel(section: BuilderSection) {
+  if (section === "recipe") return "Recipe";
+  if (section === "rules") return "Rules";
+  if (section === "acceptance") return "Acceptance";
+  if (section === "context") return "Context";
+  return "Task";
+}
+
 function QualityDetailsModal({
   quality,
-  onClose
+  onClose,
+  onNavigate
 }: {
   quality: TaskPackQualityResult;
   onClose: () => void;
+  onNavigate: (section: BuilderSection) => void;
 }) {
   const passedChecks = quality.checks.filter((check) => check.status === "pass").length;
   const topIssues = quality.checks.filter((check) => check.status !== "pass").slice(0, 3);
-  const primaryActions = [
-    ...topIssues.map((check) => check.message),
-    ...quality.suggestions
+  const actionCandidates = [
+    ...topIssues.map((check) => ({
+      label: check.message,
+      section: getQualityCheckSection(check.id)
+    })),
+    ...quality.suggestions.map((suggestion) => ({
+      label: suggestion,
+      section: getQualitySuggestionSection(suggestion)
+    }))
   ];
-  const nextActions = Array.from(new Set(primaryActions)).slice(0, 3);
+  const nextActions = Array.from(
+    new Map(actionCandidates.map((action) => [action.label, action])).values()
+  ).slice(0, 3);
+
+  const openSection = (section: BuilderSection) => {
+    onNavigate(section);
+    onClose();
+  };
 
   return (
     <Modal
@@ -1855,7 +1803,7 @@ function QualityDetailsModal({
       footer={
         <div className="flex w-full items-center justify-between gap-3">
           <p className="hidden text-xs text-neutral-600 md:block">
-            Local readiness score · does not rewrite or change generation.
+            Local readiness score · choose an item to open the relevant workflow step.
           </p>
 
           <Button variant="primary" onClick={onClose}>
@@ -1902,7 +1850,7 @@ function QualityDetailsModal({
               </p>
 
               <h3 className="mt-1 text-base font-semibold text-white">
-                Improve the prompt before generating.
+                Fix the strongest gaps first.
               </h3>
             </div>
 
@@ -1917,10 +1865,12 @@ function QualityDetailsModal({
                 const isCritical = quality.status === "fail" || quality.status === "warn";
 
                 return (
-                  <div
-                    key={action}
+                  <button
+                    key={action.label}
+                    type="button"
+                    onClick={() => openSection(action.section)}
                     className={[
-                      "rounded-2xl border p-3",
+                      "group rounded-2xl border p-3 text-left transition hover:border-white/20 hover:bg-white/[0.055]",
                       isCritical && index === 0
                         ? "border-red-400/20 bg-red-400/[0.06]"
                         : "border-white/10 bg-white/[0.035]"
@@ -1938,11 +1888,16 @@ function QualityDetailsModal({
                         {index + 1}
                       </span>
 
-                      <p className="text-xs leading-5 text-neutral-300">
-                        {action}
-                      </p>
+                      <div className="min-w-0 flex-1">
+                        <p className="text-xs leading-5 text-neutral-300">
+                          {action.label}
+                        </p>
+                        <p className="mt-2 text-[10px] font-semibold text-neutral-600 transition group-hover:text-white">
+                          Open {getBuilderSectionLabel(action.section)} →
+                        </p>
+                      </div>
                     </div>
-                  </div>
+                  </button>
                 );
               })
             ) : (
@@ -1981,11 +1936,14 @@ function QualityDetailsModal({
             {quality.checks.map((check) => {
               const classes = getQualityStatusClasses(check.status);
               const percent = Math.round((check.points / check.maxPoints) * 100);
+              const section = getQualityCheckSection(check.id);
 
               return (
-                <article
+                <button
                   key={check.id}
-                  className="rounded-2xl border border-neutral-900 bg-black/35 p-3"
+                  type="button"
+                  onClick={() => openSection(section)}
+                  className="group rounded-2xl border border-neutral-900 bg-black/35 p-3 text-left transition hover:border-white/20 hover:bg-white/[0.035]"
                 >
                   <div className="flex items-start gap-3">
                     <span
@@ -2027,9 +1985,13 @@ function QualityDetailsModal({
                       <p className="mt-2 line-clamp-2 text-xs leading-5 text-neutral-600">
                         {check.message}
                       </p>
+
+                      <p className="mt-2 text-[10px] font-semibold text-neutral-700 transition group-hover:text-white">
+                        Open {getBuilderSectionLabel(section)} →
+                      </p>
                     </div>
                   </div>
-                </article>
+                </button>
               );
             })}
           </div>
@@ -2842,6 +2804,7 @@ export function TaskPackBuilderPage({
     useState<TaskUnderstandingPendingAction>(null);
   const [activeBuilderSection, setActiveBuilderSection] = useState<BuilderSection>("task");
   const [contextFileFilter, setContextFileFilter] = useState<ContextFileFilter>("all");
+  const [contextReviewMode, setContextReviewMode] = useState<ContextReviewMode>("files");
   const [contextBudgetMode, setContextBudgetMode] = useState<ContextBudgetMode>("standard");
   const [showContextTechnicalDetails, setShowContextTechnicalDetails] = useState(false);
   const [gitStatus, setGitStatus] = useState<GitStatusResult | null>(null);
@@ -2902,6 +2865,133 @@ export function TaskPackBuilderPage({
   const contextSummary = useMemo(
     () => buildContextReviewSummary(contextPreview),
     [contextPreview]
+  );
+
+  const builderSectionItems = useMemo<BuilderSectionNavigationItem[]>(
+    () => [
+      {
+        value: "task",
+        label: "Task",
+        description:
+          taskLength >= 120
+            ? "Ready"
+            : taskLength >= 3
+              ? "Needs detail"
+              : "Start here",
+        icon: <Sparkles size={14} />
+      },
+      {
+        value: "recipe",
+        label: "Recipe",
+        description: `${getTaskTypeLabel(draft.taskType)} · ${getTargetToolLabel(draft.targetTool)}`,
+        icon: <Settings2 size={14} />
+      },
+      {
+        value: "rules",
+        label: "Rules",
+        description: `${enabledRuleIds.length} enabled`,
+        icon: <ShieldCheck size={14} />
+      },
+      {
+        value: "acceptance",
+        label: "Acceptance",
+        description: `${totalCriteriaCount} ${totalCriteriaCount === 1 ? "check" : "checks"}`,
+        icon: <CheckCircle2 size={14} />
+      },
+      {
+        value: "context",
+        label: "Context",
+        description: contextSummary.isAnalyzed
+          ? `${contextSummary.files.length} files`
+          : "Not analyzed",
+        icon: <Search size={14} />
+      }
+    ],
+    [
+      contextSummary.files.length,
+      contextSummary.isAnalyzed,
+      draft.targetTool,
+      draft.taskType,
+      enabledRuleIds.length,
+      taskLength,
+      totalCriteriaCount
+    ]
+  );
+
+  const activeBuilderSectionIndex = Math.max(
+    0,
+    builderSectionItems.findIndex((item) => item.value === activeBuilderSection)
+  );
+
+  const packStatusItems = useMemo<PackStatusItem[]>(
+    () => [
+      {
+        section: "task",
+        label: "Task",
+        value:
+          taskLength >= 120
+            ? "Ready"
+            : taskLength >= 3
+              ? "Needs detail"
+              : "Empty",
+        caption: `${taskLength} characters`,
+        tone: taskLength >= 120 ? "ready" : taskLength >= 3 ? "warning" : "pending",
+        icon: <Sparkles size={14} />
+      },
+      {
+        section: "recipe",
+        label: "Setup",
+        value: selectedTemplate && selectedProfile ? "Configured" : "Review",
+        caption: `${getTargetToolLabel(draft.targetTool)} · ${getTaskTypeLabel(draft.taskType)}`,
+        tone: selectedTemplate && selectedProfile ? "ready" : "warning",
+        icon: <Settings2 size={14} />
+      },
+      {
+        section: "rules",
+        label: "Rules",
+        value: `${enabledRuleIds.length} enabled`,
+        caption: `${customRulesCount} custom`,
+        tone: enabledRuleIds.length > 0 ? "ready" : "pending",
+        icon: <ShieldCheck size={14} />
+      },
+      {
+        section: "acceptance",
+        label: "Acceptance",
+        value: `${totalCriteriaCount} checks`,
+        caption: totalCriteriaCount > 0 ? "Final verification" : "Add criteria",
+        tone: totalCriteriaCount > 0 ? "ready" : "warning",
+        icon: <CheckCircle2 size={14} />
+      },
+      {
+        section: "context",
+        label: "Context",
+        value: contextSummary.label,
+        caption: contextSummary.isAnalyzed
+          ? `${contextSummary.files.length} files · ${contextSummary.editCount} edit`
+          : "Analyze before export",
+        tone: !contextSummary.isAnalyzed
+          ? "pending"
+          : contextSummary.status === "ready"
+            ? "ready"
+            : "warning",
+        icon: <Search size={14} />
+      }
+    ],
+    [
+      contextSummary.editCount,
+      contextSummary.files.length,
+      contextSummary.isAnalyzed,
+      contextSummary.label,
+      contextSummary.status,
+      customRulesCount,
+      draft.targetTool,
+      draft.taskType,
+      enabledRuleIds.length,
+      selectedProfile,
+      selectedTemplate,
+      taskLength,
+      totalCriteriaCount
+    ]
   );
 
   const intentResult = useMemo(
@@ -3525,29 +3615,37 @@ export function TaskPackBuilderPage({
   return (
     <section className="h-[calc(100vh-96px)] min-h-0 overflow-hidden pr-1">
       <div className="flex h-full min-h-0 flex-col gap-4 pb-4">
-        <header className="shrink-0 rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012))] p-5 shadow-[0_14px_44px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.045)]">
+        <header className="shrink-0 rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))] p-4 shadow-[0_14px_44px_rgba(0,0,0,0.28),inset_0_1px_0_rgba(255,255,255,0.04)]">
           <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
             <div className="min-w-0">
-              <div className="mb-3 flex flex-wrap gap-2">
-                <Pill>
-                  <Sparkles size={12} />
-                  v0.5 Rules & Templates
-                </Pill>
-
-                <Pill>{draft.projectName}</Pill>
-                <Pill>{catalogStatus}</Pill>
+              <div className="flex items-center gap-2 text-neutral-600">
+                <Sparkles size={13} />
+                <p className="cf-tech-label text-[10px] uppercase">
+                  Task Pack workspace · {draft.projectName}
+                </p>
               </div>
 
-              <h1 className="text-[30px] font-semibold leading-[1.04] tracking-[-0.055em] text-white">
+              <h1 className="mt-2 text-[27px] font-semibold leading-[1.05] tracking-[-0.05em] text-white">
                 Build an agent-ready Task Pack.
               </h1>
 
-              <p className="mt-2 max-w-4xl text-sm leading-6 text-neutral-500">
-                Start with the task. Keep advanced setup in focused sections so the main editor stays clear.
+              <p className="mt-1.5 max-w-3xl text-xs leading-5 text-neutral-500">
+                Define the task, confirm the setup, review context, and export one focused instruction pack.
               </p>
+
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Pill>
+                  {getTaskTypeLabel(draft.taskType)} · {getTargetToolLabel(draft.targetTool)}
+                </Pill>
+                <Pill>{enabledRuleIds.length} rules</Pill>
+                <Pill>{totalCriteriaCount} checks</Pill>
+                <Pill tone={catalogStatus === "Rules and templates loaded." ? "success" : "default"}>
+                  {catalogStatus}
+                </Pill>
+              </div>
             </div>
 
-            <div className="flex shrink-0 flex-wrap gap-3">
+            <div className="flex shrink-0 flex-wrap gap-2">
               <Button variant="secondary" onClick={onClose}>
                 <ArrowLeft size={15} />
                 {t("taskPackBuilder.back")}
@@ -3582,14 +3680,46 @@ export function TaskPackBuilderPage({
           </div>
         </header>
 
-        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
+        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_310px]">
           <main className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-            <div className="shrink-0 border-b border-neutral-900/80 p-4">
-              <SegmentedFilter
-                value={activeBuilderSection}
-                onChange={(value) => setActiveBuilderSection(value)}
-                options={BUILDER_SECTION_OPTIONS}
+            <div className="shrink-0 border-b border-neutral-900/80 p-3">
+              <HorizontalSlidingSelector
+                items={builderSectionItems}
+                activeIndex={activeBuilderSectionIndex}
+                getItemKey={(item) => item.value}
+                onSelect={(item) => setActiveBuilderSection(item.value)}
+                ariaLabel="Task Pack workflow sections"
                 className="h-14"
+                itemClassName="rounded-[0.95rem]"
+                renderItem={(item, isActive) => (
+                  <div className="flex h-full min-w-0 items-center justify-center gap-2.5 px-2 text-left">
+                    <span
+                      className={[
+                        "grid size-7 shrink-0 place-items-center rounded-xl border transition-colors",
+                        isActive
+                          ? "border-black/10 bg-black/[0.045] text-black"
+                          : "border-neutral-800 bg-neutral-950 text-neutral-500"
+                      ].join(" ")}
+                    >
+                      {item.icon}
+                    </span>
+
+                    <span className="min-w-0">
+                      <span className={[
+                        "block truncate text-xs font-semibold",
+                        isActive ? "text-black" : "text-neutral-300"
+                      ].join(" ")}>
+                        {item.label}
+                      </span>
+                      <span className={[
+                        "mt-0.5 block truncate text-[10px]",
+                        isActive ? "text-black/50" : "text-neutral-600"
+                      ].join(" ")}>
+                        {item.description}
+                      </span>
+                    </span>
+                  </div>
+                )}
               />
             </div>
 
@@ -3613,7 +3743,7 @@ export function TaskPackBuilderPage({
                       </h2>
 
                       <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
-                        This is the main input. Write the real task first, then adjust presets only if needed.
+                        Keep the request concrete. Preset, recipe and repository context stay visible below without competing with the editor.
                       </p>
                     </div>
 
@@ -3634,14 +3764,14 @@ export function TaskPackBuilderPage({
                     </div>
                   </div>
 
-                  <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                  <div className="mb-3 flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                     <div className="flex flex-wrap gap-2">
                       {taskExamples.map((example) => (
                         <button
                           key={example.label}
                           type="button"
                           onClick={() => updateDraft({ rawTask: example.value })}
-                          className="cf-invert-action inline-flex h-8 items-center rounded-full px-3 text-xs"
+                          className="inline-flex h-8 items-center rounded-full border border-neutral-800 bg-neutral-950 px-3 text-xs font-medium text-neutral-400 transition hover:border-white/20 hover:text-white"
                         >
                           {example.label}
                         </button>
@@ -3658,87 +3788,117 @@ export function TaskPackBuilderPage({
                     </button>
                   </div>
 
-                  <LocalChangesCompactStrip
-                    status={gitStatus}
-                    isLoading={isGitStatusLoading}
-                    error={gitStatusError}
-                    onRefresh={() => void loadGitStatus()}
-                    onAddNote={handleAddLocalChangesNote}
-                    onViewDetails={() => setActiveBuilderSection("context")}
-                    hasNote={hasLocalChangesNote}
-                  />
+                  <div className="flex min-h-[300px] flex-1 flex-col overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+                    <div className="flex flex-wrap items-center justify-between gap-3 border-b border-neutral-900 px-4 py-3">
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+                          <FileText size={14} />
+                        </span>
+                        <div className="min-w-0">
+                          <p className="text-xs font-semibold text-white">Task brief</p>
+                          <p className="mt-0.5 text-[10px] text-neutral-600">
+                            Main instruction sent into Understanding and generation
+                          </p>
+                        </div>
+                      </div>
 
-                  <div className="min-h-[260px] flex-1 rounded-2xl border border-neutral-900 bg-black/55 p-3 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+                      <div className="flex items-center gap-2 text-[10px] text-neutral-600">
+                        <span>{taskLength} characters</span>
+                        <span className="size-1 rounded-full bg-neutral-800" />
+                        <span>{taskQuality.label}</span>
+                      </div>
+                    </div>
+
                     <textarea
                       value={draft.rawTask}
                       onChange={(event) => updateDraft({ rawTask: event.target.value })}
                       placeholder={t("taskPackBuilder.placeholder")}
-                      className="h-full min-h-[240px] w-full resize-none overflow-y-auto rounded-xl border border-transparent bg-transparent p-4 text-sm leading-7 text-white outline-none placeholder:text-neutral-700 focus:border-white/10"
+                      className="min-h-[250px] flex-1 resize-none overflow-y-auto bg-transparent px-5 py-4 text-sm leading-7 text-white outline-none placeholder:text-neutral-700"
                     />
                   </div>
 
-                  <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_220px_300px]">
-                    <button
-                      type="button"
-                      onClick={() => setIsPresetModalOpen(true)}
-                      className="rounded-2xl border border-neutral-900 bg-black/25 p-3 text-left transition hover:border-white/15 hover:bg-white/[0.035]"
-                    >
-                      <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                        Selected preset
-                      </p>
+                  <section className="mt-4 rounded-[1.5rem] border border-neutral-900 bg-black/30 p-3">
+                    <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-1">
+                      <div>
+                        <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                          Task setup
+                        </p>
+                        <p className="mt-1 text-xs text-neutral-500">
+                          Preset, recipe, repository state and current understanding in one place.
+                        </p>
+                      </div>
 
-                      <div className="mt-2 flex items-center gap-3">
-                        <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-                          {activeTaskPreset.icon}
-                        </span>
+                      <span className="rounded-full border border-neutral-900 bg-black/35 px-2.5 py-1 text-[10px] text-neutral-600">
+                        Supporting context · not automatic edit scope
+                      </span>
+                    </div>
 
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-white">
-                            {activeTaskPreset.title}
+                    <div className="grid gap-2 xl:grid-cols-[minmax(0,1.15fr)_minmax(220px,0.8fr)_minmax(0,1.25fr)]">
+                      <button
+                        type="button"
+                        onClick={() => setIsPresetModalOpen(true)}
+                        className="flex min-h-[104px] min-w-0 flex-col justify-between rounded-2xl border border-neutral-900 bg-black/25 p-3 text-left transition hover:border-white/15 hover:bg-white/[0.035]"
+                      >
+                        <div className="flex min-w-0 items-start gap-3">
+                          <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+                            {activeTaskPreset.icon}
+                          </span>
+                          <div className="min-w-0">
+                            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">Preset</p>
+                            <p className="mt-1 truncate text-sm font-semibold text-white">{activeTaskPreset.title}</p>
+                            <p className="mt-1 line-clamp-1 text-[11px] text-neutral-600">{activeTaskPreset.focus}</p>
+                          </div>
+                        </div>
+                        <span className="mt-3 text-[11px] font-medium text-neutral-400">Change preset</span>
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => setActiveBuilderSection("recipe")}
+                        className="flex min-h-[104px] min-w-0 flex-col justify-between rounded-2xl border border-neutral-900 bg-black/25 p-3 text-left transition hover:border-white/15 hover:bg-white/[0.035]"
+                      >
+                        <div>
+                          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">Recipe</p>
+                          <p className="mt-2 truncate text-sm font-semibold text-white">
+                            {getTaskTypeLabel(draft.taskType)} · {getTargetToolLabel(draft.targetTool)}
                           </p>
-
-                          <p className="mt-0.5 truncate text-xs text-neutral-600">
-                            {activeTaskPreset.focus}
+                          <p className="mt-1 truncate text-[11px] text-neutral-600">
+                            {selectedTemplate?.name ?? "No template"}
                           </p>
                         </div>
-                      </div>
-                    </button>
+                        <span className="mt-3 text-[11px] font-medium text-neutral-400">Review setup</span>
+                      </button>
 
-                    <button
-                      type="button"
-                      onClick={() => setActiveBuilderSection("recipe")}
-                      className="rounded-2xl border border-neutral-900 bg-black/25 p-3 text-left transition hover:border-white/15 hover:bg-white/[0.035]"
-                    >
-                      <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                        Auto recipe
-                      </p>
-
-                      <p className="mt-2 truncate text-sm font-semibold text-white">
-                        {getTaskTypeLabel(draft.taskType)} · {getTargetToolLabel(draft.targetTool)}
-                      </p>
-
-                      <p className="mt-1 truncate text-xs text-neutral-600">
-                        {selectedTemplate?.name ?? "No template"}
-                      </p>
-                    </button>
-
-                    {understandingResponse ? (
-                      <BackendTaskUnderstandingCard
-                        response={understandingResponse}
-                        onOpen={() => {
-                          setPendingUnderstandingAction(null);
-                          setUnderstandingDraft(draft);
-                          setIsUnderstandingModalOpen(true);
-                        }}
+                      <LocalChangesCompactStrip
+                        status={gitStatus}
+                        isLoading={isGitStatusLoading}
+                        error={gitStatusError}
+                        onRefresh={() => void loadGitStatus()}
+                        onAddNote={handleAddLocalChangesNote}
+                        onViewDetails={() => setActiveBuilderSection("context")}
+                        hasNote={hasLocalChangesNote}
                       />
-                    ) : (
-                      <TaskIntentCard
-                        intent={intentResult}
-                        onOpenRecipe={() => setActiveBuilderSection("recipe")}
-                        onOpenContext={() => setActiveBuilderSection("context")}
-                      />
-                    )}
-                  </div>
+                    </div>
+
+                    <div className="mt-2">
+                      {understandingResponse ? (
+                        <BackendTaskUnderstandingCard
+                          response={understandingResponse}
+                          onOpen={() => {
+                            setPendingUnderstandingAction(null);
+                            setUnderstandingDraft(draft);
+                            setIsUnderstandingModalOpen(true);
+                          }}
+                        />
+                      ) : (
+                        <TaskIntentCard
+                          intent={intentResult}
+                          onOpenRecipe={() => setActiveBuilderSection("recipe")}
+                          onOpenContext={() => setActiveBuilderSection("context")}
+                        />
+                      )}
+                    </div>
+                  </section>
 
                   {understandingError && (
                     <div className="mt-3 rounded-2xl border border-red-400/20 bg-red-400/[0.055] p-3 text-xs leading-5 text-red-100">
@@ -3778,241 +3938,299 @@ export function TaskPackBuilderPage({
                     </div>
                   </div>
 
-                  <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_300px]">
-                    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-                      <div className="grid gap-4 md:grid-cols-2">
-                        <div>
-                          <label className="mb-2 block text-xs text-neutral-500">
-                            Task type
-                          </label>
+                  <section className="overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/35">
+                    <div className="grid md:grid-cols-2">
+                      <div className="border-b border-neutral-900 p-4 md:border-r">
+                        <label className="mb-2 block text-xs font-medium text-neutral-400">
+                          Task type
+                        </label>
+                        <p className="mb-3 text-[11px] leading-5 text-neutral-600">
+                          Defines the structure and intent expected in the exported instruction.
+                        </p>
 
-                          <CustomSelect
-                            value={draft.taskType}
-                            onChange={handleTaskTypeChange}
-                            options={TASK_TYPE_OPTIONS}
-                          />
-                        </div>
-
-                        <div>
-                          <label className="mb-2 block text-xs text-neutral-500">
-                            Target AI tool
-                          </label>
-
-                          <CustomSelect
-                            value={draft.targetTool}
-                            onChange={handleTargetToolChange}
-                            options={TARGET_TOOL_OPTIONS}
-                          />
-                        </div>
-
-                        <div>
-                          <label className="mb-2 block text-xs text-neutral-500">
-                            Prompt template
-                          </label>
-
-                          <CustomSelect
-                            value={draft.templateId ?? ""}
-                            onChange={(value) => updateDraft({ templateId: value })}
-                            options={templateOptions}
-                          />
-                        </div>
-
-                        <div>
-                          <label className="mb-2 block text-xs text-neutral-500">
-                            Rule profile
-                          </label>
-
-                          <CustomSelect
-                            value={draft.ruleProfileId ?? ""}
-                            onChange={handleRuleProfileChange}
-                            options={profileOptions}
-                          />
-                        </div>
-                      </div>
-                    </section>
-
-                    <aside className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-                      <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                        Applied recipe
-                      </p>
-
-                      <h3 className="mt-1 text-base font-semibold text-white">
-                        What will be inserted
-                      </h3>
-
-                      <div className="mt-4 grid grid-cols-2 gap-2">
-                        <CompactMetric label="Task" value={getTaskTypeLabel(draft.taskType)} caption={getTargetToolLabel(draft.targetTool)} />
-                        <CompactMetric label="Rules" value={enabledRuleIds.length} caption="toggle" />
-                        <CompactMetric label="Custom" value={customRulesCount} caption="rules" />
-                        <CompactMetric label="Checks" value={totalCriteriaCount} caption="criteria" />
+                        <CustomSelect
+                          value={draft.taskType}
+                          onChange={handleTaskTypeChange}
+                          options={TASK_TYPE_OPTIONS}
+                        />
                       </div>
 
-                      <div className="mt-4 space-y-2">
-                        <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
-                          <p className="truncate text-xs font-semibold text-white">
+                      <div className="border-b border-neutral-900 p-4">
+                        <label className="mb-2 block text-xs font-medium text-neutral-400">
+                          Target AI tool
+                        </label>
+                        <p className="mb-3 text-[11px] leading-5 text-neutral-600">
+                          Selects the coding-agent format used for the final Task Pack.
+                        </p>
+
+                        <CustomSelect
+                          value={draft.targetTool}
+                          onChange={handleTargetToolChange}
+                          options={TARGET_TOOL_OPTIONS}
+                        />
+                      </div>
+
+                      <div className="border-b border-neutral-900 p-4 md:border-b-0 md:border-r">
+                        <label className="mb-2 block text-xs font-medium text-neutral-400">
+                          Prompt template
+                        </label>
+                        <p className="mb-3 text-[11px] leading-5 text-neutral-600">
+                          Provides the reusable instruction frame for this task and agent.
+                        </p>
+
+                        <CustomSelect
+                          value={draft.templateId ?? ""}
+                          onChange={(value) => updateDraft({ templateId: value })}
+                          options={templateOptions}
+                        />
+                      </div>
+
+                      <div className="p-4">
+                        <label className="mb-2 block text-xs font-medium text-neutral-400">
+                          Rule profile
+                        </label>
+                        <p className="mb-3 text-[11px] leading-5 text-neutral-600">
+                          Supplies the baseline safety and workflow constraints.
+                        </p>
+
+                        <CustomSelect
+                          value={draft.ruleProfileId ?? ""}
+                          onChange={handleRuleProfileChange}
+                          options={profileOptions}
+                        />
+                      </div>
+                    </div>
+
+                    <div className="border-t border-neutral-900 bg-white/[0.015] p-4">
+                      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                        <div>
+                          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                            Applied output
+                          </p>
+                          <p className="mt-1 text-sm font-semibold text-white">
+                            What will be inserted into the Task Pack
+                          </p>
+                        </div>
+
+                        <div className="flex flex-wrap gap-2 text-[11px] text-neutral-500">
+                          <span>{enabledRuleIds.length} enabled rules</span>
+                          <span className="text-neutral-800">•</span>
+                          <span>{customRulesCount} custom rules</span>
+                          <span className="text-neutral-800">•</span>
+                          <span>{totalCriteriaCount} checks</span>
+                        </div>
+                      </div>
+
+                      <div className="mt-4 grid divide-y divide-neutral-900 overflow-hidden rounded-2xl border border-neutral-900 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
+                        <div className="min-w-0 p-3">
+                          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">Prompt template</p>
+                          <p className="mt-1 truncate text-xs font-semibold text-white">
                             {selectedTemplate?.name ?? "No template selected"}
                           </p>
-                          <p className="mt-1 truncate text-[11px] text-neutral-600">
-                            Prompt template
-                          </p>
                         </div>
 
-                        <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
-                          <p className="truncate text-xs font-semibold text-white">
+                        <div className="min-w-0 p-3">
+                          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">Rule profile</p>
+                          <p className="mt-1 truncate text-xs font-semibold text-white">
                             {selectedProfile?.name ?? "No rule profile selected"}
-                          </p>
-                          <p className="mt-1 truncate text-[11px] text-neutral-600">
-                            Rule profile
                           </p>
                         </div>
                       </div>
-                    </aside>
-                  </div>
+                    </div>
+                  </section>
                 </section>
               )}
 
               {activeBuilderSection === "rules" && (
-                <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_340px]">
-                  <article className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-                    <div className="mb-4 flex items-center justify-between gap-4">
-                      <div>
-                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                          Custom rules
-                        </p>
+                <section className="space-y-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                        Rules
+                      </p>
 
-                        <h2 className="mt-1 text-xl font-semibold tracking-[-0.035em] text-white">
-                          Extra constraints
-                        </h2>
+                      <h2 className="mt-2 text-xl font-semibold tracking-[-0.035em] text-white">
+                        Constraints and project boundaries.
+                      </h2>
 
-                        <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500">
-                          Add task-specific limits that should be inserted alongside the selected rule profile.
-                        </p>
-                      </div>
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
+                        Keep reusable profile rules visible while adding only the task-specific limits this request needs.
+                      </p>
+                    </div>
 
+                    <div className="flex items-center gap-2">
                       <Pill tone={customRulesCount > 0 ? "success" : "default"}>
                         {customRulesCount} custom
                       </Pill>
-                    </div>
-
-                    <textarea
-                      value={draft.customRulesText ?? ""}
-                      onChange={(event) => updateDraft({ customRulesText: event.target.value })}
-                      placeholder={[
-                        "Do not change backend/API behavior.",
-                        "Do not add new dependencies.",
-                        "Keep AppTitleBar untouched."
-                      ].join("\n")}
-                      className="h-[320px] w-full resize-none overflow-y-auto rounded-2xl border border-neutral-900 bg-black/55 p-4 text-sm leading-6 text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
-                    />
-                  </article>
-
-                  <aside className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-                    <div className="mb-4 flex items-start justify-between gap-4">
-                      <div>
-                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                          Enabled rules
-                        </p>
-
-                        <h3 className="mt-1 text-base font-semibold text-white">
-                          Selected constraints
-                        </h3>
-                      </div>
 
                       <button
                         type="button"
                         onClick={() => setIsRulesModalOpen(true)}
-                        className="cf-invert-action inline-flex h-8 shrink-0 items-center gap-2 rounded-full px-3 text-xs"
+                        className="cf-invert-action inline-flex h-9 shrink-0 items-center gap-2 rounded-full px-4 text-xs"
                       >
                         <SlidersHorizontal size={13} />
-                        Manage
+                        Manage rules
                       </button>
                     </div>
+                  </div>
 
-                    <div className="max-h-[420px] space-y-2 overflow-y-auto pr-1">
-                      {selectedRuleItems.length > 0 ? (
-                        selectedRuleItems.map((rule) => (
-                          <SelectedRulePreview key={rule.id} rule={rule} />
-                        ))
-                      ) : (
-                        <div className="rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs leading-5 text-neutral-600">
-                          No toggle rules enabled. Select a profile or open the rule manager.
+                  <section className="overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/35">
+                    <div className="grid xl:grid-cols-[minmax(0,1fr)_360px]">
+                      <div className="p-4 xl:border-r xl:border-neutral-900">
+                        <div className="mb-3 flex items-start justify-between gap-4">
+                          <div>
+                            <p className="text-sm font-semibold text-white">Extra constraints</p>
+                            <p className="mt-1 text-[11px] leading-5 text-neutral-600">
+                              One instruction per line works best. These are added after the selected rule profile.
+                            </p>
+                          </div>
                         </div>
-                      )}
+
+                        <textarea
+                          value={draft.customRulesText ?? ""}
+                          onChange={(event) => updateDraft({ customRulesText: event.target.value })}
+                          placeholder={[
+                            "Do not change backend/API behavior.",
+                            "Do not add new dependencies.",
+                            "Keep AppTitleBar untouched."
+                          ].join("\n")}
+                          className="h-[280px] w-full resize-none overflow-y-auto rounded-2xl border border-neutral-900 bg-black/55 p-4 text-sm leading-6 text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
+                        />
+                      </div>
+
+                      <aside className="border-t border-neutral-900 p-4 xl:border-t-0">
+                        <div className="mb-3 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-white">Enabled profile rules</p>
+                            <p className="mt-1 text-[11px] text-neutral-600">
+                              {enabledRuleIds.length} constraints currently active
+                            </p>
+                          </div>
+                          <Pill tone={enabledRuleIds.length > 0 ? "success" : "default"}>
+                            {enabledRuleIds.length}
+                          </Pill>
+                        </div>
+
+                        <div className="max-h-[310px] space-y-2 overflow-y-auto pr-1">
+                          {selectedRuleItems.length > 0 ? (
+                            selectedRuleItems.map((rule) => (
+                              <SelectedRulePreview key={rule.id} rule={rule} />
+                            ))
+                          ) : (
+                            <div className="rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs leading-5 text-neutral-600">
+                              No toggle rules enabled. Select a profile or open the rule manager.
+                            </div>
+                          )}
+                        </div>
+                      </aside>
                     </div>
-                  </aside>
+                  </section>
                 </section>
               )}
 
               {activeBuilderSection === "acceptance" && (
-                <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
-                  <article className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-                    <div className="mb-4 flex items-center justify-between gap-4">
-                      <div>
-                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                          Acceptance
-                        </p>
+                <section className="space-y-4">
+                  <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                    <div>
+                      <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                        Acceptance
+                      </p>
 
-                        <h2 className="mt-1 text-xl font-semibold tracking-[-0.035em] text-white">
-                          Checks for the final answer
-                        </h2>
+                      <h2 className="mt-2 text-xl font-semibold tracking-[-0.035em] text-white">
+                        Checks for the final answer.
+                      </h2>
 
-                        <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500">
-                          Tell the external coding agent what must be verified before the task is considered done.
-                        </p>
+                      <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
+                        Define what the coding agent must verify before the task can be considered complete.
+                      </p>
+                    </div>
+
+                    <Pill tone={customCriteriaCount > 0 ? "success" : "default"}>
+                      {totalCriteriaCount} checks
+                    </Pill>
+                  </div>
+
+                  <section className="overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/35">
+                    <div className="grid xl:grid-cols-[minmax(0,1fr)_360px]">
+                      <div className="p-4 xl:border-r xl:border-neutral-900">
+                        <div className="mb-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_220px] md:items-end">
+                          <div>
+                            <label className="mb-2 block text-xs font-medium text-neutral-400">
+                              Acceptance preset
+                            </label>
+                            <CustomSelect
+                              value={draft.acceptanceCriteriaPresetId ?? ""}
+                              onChange={(value) => updateDraft({ acceptanceCriteriaPresetId: value || undefined })}
+                              options={presetOptions}
+                            />
+                          </div>
+
+                          <div className="rounded-2xl border border-neutral-900 bg-black/35 px-3 py-2.5">
+                            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">Custom checks</p>
+                            <p className="mt-1 text-sm font-semibold text-white">{customCriteriaCount}</p>
+                          </div>
+                        </div>
+
+                        <div className="mb-3">
+                          <p className="text-sm font-semibold text-white">Additional verification</p>
+                          <p className="mt-1 text-[11px] leading-5 text-neutral-600">
+                            Add only the checks that are unique to this task. Preset checks remain visible on the right.
+                          </p>
+                        </div>
+
+                        <textarea
+                          value={draft.acceptanceCriteriaText ?? ""}
+                          onChange={(event) => updateDraft({ acceptanceCriteriaText: event.target.value })}
+                          placeholder={[
+                            "Add extra acceptance criteria here.",
+                            "Example: final response must list verification steps."
+                          ].join("\n")}
+                          className="h-[260px] w-full resize-none overflow-y-auto rounded-2xl border border-neutral-900 bg-black/55 p-4 text-sm leading-6 text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
+                        />
                       </div>
 
-                      <Pill tone={customCriteriaCount > 0 ? "success" : "default"}>
-                        {totalCriteriaCount} checks
-                      </Pill>
-                    </div>
+                      <aside className="border-t border-neutral-900 p-4 xl:border-t-0">
+                        <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                          Current preset
+                        </p>
 
-                    <div className="mb-4">
-                      <CustomSelect
-                        value={draft.acceptanceCriteriaPresetId ?? ""}
-                        onChange={(value) => updateDraft({ acceptanceCriteriaPresetId: value || undefined })}
-                        options={presetOptions}
-                      />
-                    </div>
+                        <h3 className="mt-1 text-sm font-semibold text-white">
+                          {selectedPreset?.name ?? "No preset selected"}
+                        </h3>
 
-                    <textarea
-                      value={draft.acceptanceCriteriaText ?? ""}
-                      onChange={(event) => updateDraft({ acceptanceCriteriaText: event.target.value })}
-                      placeholder={[
-                        "Add extra acceptance criteria here.",
-                        "Example: final response must list verification steps."
-                      ].join("\n")}
-                      className="h-[320px] w-full resize-none overflow-y-auto rounded-2xl border border-neutral-900 bg-black/55 p-4 text-sm leading-6 text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
-                    />
-                  </article>
+                        <p className="mt-1 text-[11px] leading-5 text-neutral-600">
+                          {selectedPreset?.criteria?.length
+                            ? `${selectedPreset.criteria.length} reusable checks will be included automatically.`
+                            : "Choose a preset or add custom checks manually."}
+                        </p>
 
-                  <aside className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-                    <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                      Current preset
-                    </p>
-
-                    <h3 className="mt-1 text-base font-semibold text-white">
-                      {selectedPreset?.name ?? "No preset selected"}
-                    </h3>
-
-                    <div className="mt-4 space-y-2">
-                      {selectedPreset?.criteria?.length ? (
-                        selectedPreset.criteria.map((criteria) => (
-                          <div key={criteria} className="rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs leading-5 text-neutral-400">
-                            {criteria}
-                          </div>
-                        ))
-                      ) : (
-                        <div className="rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs leading-5 text-neutral-600">
-                          Choose a preset or add custom checks manually.
+                        <div className="mt-4 max-h-[320px] space-y-2 overflow-y-auto pr-1">
+                          {selectedPreset?.criteria?.length ? (
+                            selectedPreset.criteria.map((criteria, index) => (
+                              <div
+                                key={criteria}
+                                className="flex items-start gap-3 rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs leading-5 text-neutral-400"
+                              >
+                                <span className="grid size-5 shrink-0 place-items-center rounded-full border border-neutral-800 text-[10px] text-neutral-500">
+                                  {index + 1}
+                                </span>
+                                <span>{criteria}</span>
+                              </div>
+                            ))
+                          ) : (
+                            <div className="rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs leading-5 text-neutral-600">
+                              No reusable checks are currently selected.
+                            </div>
+                          )}
                         </div>
-                      )}
+                      </aside>
                     </div>
-                  </aside>
+                  </section>
                 </section>
               )}
 
               {activeBuilderSection === "context" && (
-                <section className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_320px]">
+                <section className="space-y-4">
                   <article className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="flex items-start gap-4">
@@ -4026,7 +4244,7 @@ export function TaskPackBuilderPage({
                           </p>
 
                           <h2 className="mt-1 text-xl font-semibold tracking-[-0.035em] text-white">
-                            {contextSummary.isAnalyzed ? "Selected context and file reasons." : "Analyze context before exporting."}
+                            {contextSummary.isAnalyzed ? "Review the selected context before export." : "Analyze context before exporting."}
                           </h2>
 
                           <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500">
@@ -4050,15 +4268,15 @@ export function TaskPackBuilderPage({
                       </div>
                     </div>
 
-                    <div className="mt-6 grid gap-3 md:grid-cols-4">
+                    <div className="mt-5 grid gap-2 md:grid-cols-4">
                       <CompactMetric label="Status" value={contextSummary.label} caption={contextSummary.source} />
                       <CompactMetric label="Files" value={contextSummary.files.length} caption={`${contextSummary.editCount} edit · ${contextSummary.inspectCount} inspect`} />
                       <CompactMetric label="Snippets" value={contextSummary.snippetsCount} caption="readable" />
                       <CompactMetric label="Budget" value={`${contextSummary.budgetScore}%`} caption={contextSummary.budgetLabel} />
                     </div>
 
-                    <div className="mt-4">
-                      <LocalChangesAwarenessCard
+                    <div className="mt-3">
+                      <ContextLocalStateBar
                         status={gitStatus}
                         isLoading={isGitStatusLoading}
                         error={gitStatusError}
@@ -4068,240 +4286,256 @@ export function TaskPackBuilderPage({
                       />
                     </div>
 
-                    {contextSummary.isAnalyzed && (
-                      <div className="mt-4">
-                        <ContextBudgetPanel
-                          summary={contextSummary}
-                          selectedMode={contextBudgetMode}
-                          onModeChange={setContextBudgetMode}
-                          enabledRulesCount={enabledRuleIds.length}
-                          criteriaCount={totalCriteriaCount}
-                        />
-                      </div>
-                    )}
+                    <HorizontalSlidingSelector
+                      items={CONTEXT_REVIEW_ITEMS}
+                      activeIndex={CONTEXT_REVIEW_ITEMS.findIndex((item) => item.value === contextReviewMode)}
+                      getItemKey={(item) => item.value}
+                      onSelect={(item) => setContextReviewMode(item.value)}
+                      ariaLabel="Context review mode"
+                      className="mt-4"
+                      itemClassName="h-[58px] px-3"
+                      renderItem={(item, isActive) => {
+                        const description = item.value === "files"
+                          ? contextSummary.isAnalyzed
+                            ? `${contextSummary.files.length} selected`
+                            : "Not analyzed"
+                          : item.value === "budget"
+                            ? contextSummary.isAnalyzed
+                              ? `${contextSummary.budgetScore}% · ${contextSummary.budgetLabel}`
+                              : "Pending analysis"
+                            : contextSummary.isAnalyzed
+                              ? contextWarnings.length > 0
+                                ? `${contextWarnings.length} warning${contextWarnings.length === 1 ? "" : "s"}`
+                                : "No warnings"
+                              : "Selection health";
 
-                    {contextSummary.isAnalyzed ? (
-                      <div className="mt-6 space-y-4">
+                        return (
+                          <span className="flex h-full items-center justify-center gap-3">
+                            <span
+                              className={[
+                                "grid size-8 shrink-0 place-items-center rounded-xl border transition",
+                                isActive
+                                  ? "border-black/10 bg-black/[0.045] text-black"
+                                  : "border-neutral-800 bg-neutral-950 text-neutral-500"
+                              ].join(" ")}
+                            >
+                              {item.icon}
+                            </span>
+                            <span className="min-w-0 text-left">
+                              <span className="block truncate text-xs font-semibold">
+                                {item.label}
+                              </span>
+                              <span className={[
+                                "mt-0.5 block truncate text-[10px]",
+                                isActive ? "text-black/50" : "text-neutral-700"
+                              ].join(" ")}>
+                                {description}
+                              </span>
+                            </span>
+                          </span>
+                        );
+                      }}
+                    />
+
+                    {contextReviewMode === "files" && (
+                      <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/20 p-4">
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                           <div>
                             <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
                               Selected files
                             </p>
                             <h3 className="mt-1 text-base font-semibold text-white">
-                              Why each file was included
+                              Edit targets and supporting references
                             </h3>
+                            <p className="mt-1 text-xs leading-5 text-neutral-600">
+                              File roles come from context analysis. Local Git changes remain supporting awareness only.
+                            </p>
                           </div>
 
-                          <Pill tone={contextSummary.status === "ready" ? "success" : "warning"}>
-                            {contextSummary.status === "ready" ? "ready" : "review"}
-                          </Pill>
+                          {contextSummary.isAnalyzed && (
+                            <Pill tone={contextSummary.status === "ready" ? "success" : "warning"}>
+                              {contextSummary.status === "ready" ? "ready" : "review"}
+                            </Pill>
+                          )}
                         </div>
 
-                        <SegmentedFilter
-                          value={contextFileFilter}
-                          onChange={(value) => setContextFileFilter(value as ContextFileFilter)}
-                          options={contextFilterOptions}
-                          className="h-12"
-                        />
+                        {contextSummary.isAnalyzed ? (
+                          <>
+                            <SegmentedFilter
+                              value={contextFileFilter}
+                              onChange={(value) => setContextFileFilter(value as ContextFileFilter)}
+                              options={contextFilterOptions}
+                              className="mt-4 h-12"
+                            />
 
-                        {contextFileFilter === "warnings" ? (
-                          <div className="space-y-2">
-                            {contextWarnings.length > 0 ? contextWarnings.map((warning) => (
-                              <div key={warning} className="rounded-2xl border border-red-400/20 bg-red-400/10 p-4 text-xs leading-5 text-red-200">
-                                <div className="mb-1 flex items-center gap-2 text-red-100">
-                                  <AlertTriangle size={13} />
-                                  <span className="font-semibold">Review before exporting</span>
-                                </div>
-                                {warning}
+                            {contextFileFilter === "warnings" ? (
+                              <div className="mt-4 space-y-2">
+                                {contextWarnings.length > 0 ? contextWarnings.map((warning) => (
+                                  <div key={warning} className="rounded-2xl border border-red-400/20 bg-red-400/10 p-4 text-xs leading-5 text-red-200">
+                                    <div className="mb-1 flex items-center gap-2 text-red-100">
+                                      <AlertTriangle size={13} />
+                                      <span className="font-semibold">Review before exporting</span>
+                                    </div>
+                                    {warning}
+                                  </div>
+                                )) : (
+                                  <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-xs leading-5 text-emerald-200">
+                                    No context warnings returned. Selected files look ready for export.
+                                  </div>
+                                )}
                               </div>
-                            )) : (
-                              <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-xs leading-5 text-emerald-200">
-                                No context warnings returned. Selected files look ready for export.
+                            ) : visibleContextFiles.length > 0 ? (
+                              <div className="mt-4 grid gap-3 xl:grid-cols-2">
+                                {visibleContextFiles.map((file) => (
+                                  <ContextFileReasonCard
+                                    key={file.path}
+                                    file={file}
+                                    preview={contextPreview}
+                                  />
+                                ))}
+                              </div>
+                            ) : (
+                              <div className="mt-4 rounded-2xl border border-dashed border-neutral-800 bg-black/25 p-6 text-sm leading-6 text-neutral-500">
+                                No files match this filter. Open full review or adjust the task before generating.
                               </div>
                             )}
-                          </div>
-                        ) : visibleContextFiles.length > 0 ? (
-                          <div className="grid gap-3 xl:grid-cols-2">
-                            {visibleContextFiles.map((file) => (
-                              <ContextFileReasonCard
-                                key={file.path}
-                                file={file}
-                                preview={contextPreview}
-                              />
-                            ))}
-                          </div>
+                          </>
                         ) : (
-                          <div className="rounded-2xl border border-dashed border-neutral-800 bg-black/25 p-6 text-sm leading-6 text-neutral-500">
-                            No files match this filter. Open full review or adjust the task before generating.
+                          <div className="mt-4 rounded-2xl border border-dashed border-neutral-800 bg-black/25 p-6 text-sm leading-6 text-neutral-500">
+                            Run Analyze Context to see edit candidates, inspect-only references and the reason each file was selected.
                           </div>
                         )}
                       </div>
-                    ) : (
-                      <div className="mt-6 rounded-2xl border border-neutral-900 bg-black/25 p-4">
-                        <p className="text-sm font-semibold text-white">
-                          No context analysis yet.
-                        </p>
-                        <p className="mt-2 text-xs leading-5 text-neutral-600">
-                          Run analysis to see selected files, edit candidates, inspect-only references and a lightweight context budget estimate here.
-                        </p>
+                    )}
+
+                    {contextReviewMode === "budget" && (
+                      <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/20 p-4">
+                        <div>
+                          <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                            Context budget
+                          </p>
+                          <h3 className="mt-1 text-base font-semibold text-white">
+                            Keep the instruction focused without losing evidence
+                          </h3>
+                        </div>
+
+                        {contextSummary.isAnalyzed ? (
+                          <div className="mt-4">
+                            <ContextBudgetPanel
+                              summary={contextSummary}
+                              selectedMode={contextBudgetMode}
+                              onModeChange={setContextBudgetMode}
+                              enabledRulesCount={enabledRuleIds.length}
+                              criteriaCount={totalCriteriaCount}
+                            />
+                          </div>
+                        ) : (
+                          <div className="mt-4 rounded-2xl border border-dashed border-neutral-800 bg-black/25 p-6 text-sm leading-6 text-neutral-500">
+                            Budget pressure is calculated after context analysis. It does not change selector behavior or generation logic.
+                          </div>
+                        )}
+                      </div>
+                    )}
+
+                    {contextReviewMode === "signals" && (
+                      <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/20 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                              Review signals
+                            </p>
+                            <h3 className="mt-1 text-base font-semibold text-white">
+                              Selection health and technical notes
+                            </h3>
+                          </div>
+
+                          {contextSummary.isAnalyzed && (
+                            <Pill tone={contextSummary.status === "ready" ? "success" : "warning"}>
+                              {contextSummary.status === "ready" ? "clear" : "check"}
+                            </Pill>
+                          )}
+                        </div>
+
+                        {contextSummary.isAnalyzed ? (
+                          <div className="mt-4 space-y-3">
+                            <div className="grid gap-2 md:grid-cols-3">
+                              <CompactMetric label="Source" value={contextSummary.source} caption={contextPreview?.fileSelection.usedFallback ? "fallback" : "selector"} />
+                              <CompactMetric label="Read only" value={contextSummary.inspectCount + contextSummary.referenceCount} caption="inspect + reference" />
+                              <CompactMetric label="Risk" value={contextSummary.riskLabel} caption="task intent" />
+                            </div>
+
+                            {contextWarnings.length > 0 ? (
+                              <div className="rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-xs leading-5 text-red-200">
+                                <div className="mb-1 flex items-center gap-2 text-red-100">
+                                  <AlertTriangle size={13} />
+                                  <span className="font-semibold">Review recommended</span>
+                                </div>
+                                {contextWarnings[0]}
+                              </div>
+                            ) : (
+                              <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs leading-5 text-emerald-200">
+                                No blocking context warnings returned.
+                              </div>
+                            )}
+
+                            {contextTechnicalSignals.length > 0 && (
+                              <div className="rounded-xl border border-neutral-900 bg-black/30 p-3">
+                                <button
+                                  type="button"
+                                  onClick={() => setShowContextTechnicalDetails((value) => !value)}
+                                  className="flex w-full items-center justify-between gap-3 text-left text-xs font-semibold text-neutral-300 hover:text-white"
+                                >
+                                  Technical details
+                                  <span className="text-[10px] text-neutral-600">
+                                    {showContextTechnicalDetails ? "Hide" : `Show ${contextTechnicalSignals.length}`}
+                                  </span>
+                                </button>
+
+                                {showContextTechnicalDetails && (
+                                  <div className="mt-3 space-y-2">
+                                    {contextTechnicalSignals.map((signal) => (
+                                      <div key={signal} className="rounded-lg border border-neutral-900 bg-black/35 p-2 text-[11px] leading-5 text-neutral-500">
+                                        {signal}
+                                      </div>
+                                    ))}
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </div>
+                        ) : (
+                          <div className="mt-4 grid gap-2 md:grid-cols-2">
+                            {[
+                              "Selected files and relevance",
+                              "Edit candidates vs inspect-only",
+                              "Context budget pressure",
+                              "Why each file was included"
+                            ].map((item) => (
+                              <div key={item} className="flex items-center gap-2 rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs text-neutral-400">
+                                <CheckCircle2 size={13} className="text-emerald-300" />
+                                {item}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                       </div>
                     )}
                   </article>
-
-                  <aside className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-                    <div className="flex items-center justify-between gap-3">
-                      <div>
-                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                          Review signals
-                        </p>
-                        <h3 className="mt-1 text-sm font-semibold text-white">
-                          {contextSummary.isAnalyzed ? "Selection health" : "What will appear here"}
-                        </h3>
-                      </div>
-
-                      {contextSummary.isAnalyzed && (
-                        <Pill tone={contextSummary.status === "ready" ? "success" : "warning"}>
-                          {contextSummary.status === "ready" ? "clear" : "check"}
-                        </Pill>
-                      )}
-                    </div>
-
-                    <div className="mt-4 space-y-2">
-                      {contextSummary.isAnalyzed ? (
-                        <>
-                          <div className="grid grid-cols-2 gap-2">
-                            <CompactMetric label="Budget" value={contextSummary.budgetLabel} caption={`${contextSummary.budgetScore}%`} />
-                            <CompactMetric label="Source" value={contextSummary.source} caption={contextPreview?.fileSelection.usedFallback ? "fallback" : "selector"} />
-                          </div>
-
-                          <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
-                            <div className="flex items-center justify-between gap-3 text-xs">
-                              <span className="text-neutral-400">Budget pressure</span>
-                              <span className={getBudgetPressureTone(contextSummary.budgetScore).text}>
-                                {contextSummary.budgetScore}%
-                              </span>
-                            </div>
-                            <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-900">
-                              <motion.div
-                                className={["h-full rounded-full", getBudgetPressureTone(contextSummary.budgetScore).bar].join(" ")}
-                                initial={false}
-                                animate={{ width: `${contextSummary.budgetScore}%` }}
-                                transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.6 }}
-                              />
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-2 rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs text-neutral-400">
-                            <Eye size={13} className="text-neutral-300" />
-                            {contextSummary.inspectCount + contextSummary.referenceCount} read-only reference(s)
-                          </div>
-
-                          {contextWarnings.length > 0 ? (
-                            <div className="rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-xs leading-5 text-red-200">
-                              <div className="mb-1 flex items-center gap-2 text-red-100">
-                                <AlertTriangle size={13} />
-                                <span className="font-semibold">Review recommended</span>
-                              </div>
-                              {contextWarnings[0]}
-                            </div>
-                          ) : (
-                            <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs leading-5 text-emerald-200">
-                              No blocking context warnings returned.
-                            </div>
-                          )}
-
-                          {contextTechnicalSignals.length > 0 && (
-                            <div className="rounded-xl border border-neutral-900 bg-black/30 p-3">
-                              <button
-                                type="button"
-                                onClick={() => setShowContextTechnicalDetails((value) => !value)}
-                                className="flex w-full items-center justify-between gap-3 text-left text-xs font-semibold text-neutral-300 hover:text-white"
-                              >
-                                Technical details
-                                <span className="text-[10px] text-neutral-600">
-                                  {showContextTechnicalDetails ? "Hide" : "Show"}
-                                </span>
-                              </button>
-
-                              {showContextTechnicalDetails && (
-                                <div className="mt-3 space-y-2">
-                                  {contextTechnicalSignals.map((signal) => (
-                                    <div key={signal} className="rounded-lg border border-neutral-900 bg-black/35 p-2 text-[11px] leading-5 text-neutral-500">
-                                      {signal}
-                                    </div>
-                                  ))}
-                                </div>
-                              )}
-                            </div>
-                          )}
-                        </>
-                      ) : (
-                        [
-                          "Selected files and relevance",
-                          "Edit candidates vs inspect-only",
-                          "Context budget pressure",
-                          "Why each file was included"
-                        ].map((item) => (
-                          <div key={item} className="flex items-center gap-2 rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs text-neutral-400">
-                            <CheckCircle2 size={13} className="text-emerald-300" />
-                            {item}
-                          </div>
-                        ))
-                      )}
-                    </div>
-                  </aside>
                 </section>
               )}
             </motion.div>
           </main>
 
-          <aside className="min-h-0 space-y-4 overflow-y-auto pr-1">
-            <QualityScoreCard
-              quality={qualityResult}
-              onOpenDetails={() => setIsQualityModalOpen(true)}
-            />
-
-            <ContextSelectionSummaryCard
-              summary={contextSummary}
-              isLoading={isLoading}
-              onReview={() => setActiveBuilderSection("context")}
-              onAnalyze={handleAnalyzeContext}
-            />
-
-            <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-              <div className="mb-4 flex items-center justify-between gap-3">
-                <div className="flex items-center gap-3">
-                  <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-                    <Settings2 size={18} />
-                  </span>
-
-                  <div>
-                    <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                      Setup
-                    </p>
-
-                    <h2 className="text-base font-semibold text-white">
-                      Current recipe
-                    </h2>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setActiveBuilderSection("recipe")}
-                  className="cf-invert-action inline-flex h-8 shrink-0 items-center gap-2 rounded-full px-3 text-xs"
-                >
-                  Open
-                </button>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <CompactMetric label="Task" value={getTaskTypeLabel(draft.taskType)} caption={getTargetToolLabel(draft.targetTool)} />
-                <CompactMetric label="Rules" value={enabledRuleIds.length} caption="toggle" />
-                <CompactMetric label="Custom" value={customRulesCount} caption="rules" />
-                <CompactMetric label="Checks" value={totalCriteriaCount} caption="criteria" />
-              </div>
-            </section>
+          <aside className="min-h-0 overflow-y-auto pr-1">
+            <div className="sticky top-0">
+              <PackStatusCard
+                quality={qualityResult}
+                items={packStatusItems}
+                activeSection={activeBuilderSection}
+                onSelect={setActiveBuilderSection}
+                onOpenDetails={() => setIsQualityModalOpen(true)}
+              />
+            </div>
           </aside>
         </div>
       </div>
@@ -4325,6 +4559,7 @@ export function TaskPackBuilderPage({
         <QualityDetailsModal
           quality={qualityResult}
           onClose={() => setIsQualityModalOpen(false)}
+          onNavigate={setActiveBuilderSection}
         />
       )}
 
