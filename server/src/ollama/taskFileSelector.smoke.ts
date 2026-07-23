@@ -5369,6 +5369,70 @@ async function testConnectionCheckVariantsKeepExistingBackendReadOnly() {
   ]);
 }
 
+
+async function testExplicitCreateAndMissingWiringTargetStaysInvestigative() {
+  const rawTask =
+    "Create src/components/StatusBadge.tsx and render it in src/pages/MissingDetailsPage.tsx.";
+  const result = await selectTaskFiles({
+    rawTask,
+    taskType: "ui",
+    targetTool: "codex",
+    inventory: inventory([
+      sourceFile("src/pages/ExistingDetailsPage.tsx", {
+        role: "page",
+        textHints: ["details page"],
+      }),
+    ]),
+    settings: testSettings,
+    taskIntent: structuredIntent({
+      taskArea: "ui",
+      taskUnderstanding: {
+        ...structuredIntent().taskUnderstanding,
+        goal: "Create a status badge and render it in the explicitly named page.",
+        action: "create",
+        targetHints: [
+          "src/components/StatusBadge.tsx",
+          "src/pages/MissingDetailsPage.tsx",
+        ],
+        requestedChanges: [
+          "Create the component.",
+          "Render it in the explicitly named page.",
+        ],
+        changeDefinition: "bounded",
+      },
+      structuredIntent: {
+        schemaVersion: 1,
+        primaryTargets: [],
+        positiveActions: ["Create the component and wire it into the named page."],
+        protectedScopes: [],
+        allowedEditScope: "explicit_targets_only",
+        needsStyles: false,
+        needsBackend: false,
+        ambiguities: [],
+        modelNotes: [],
+      },
+    }),
+  });
+
+  assert.equal(
+    result.diagnostics?.explicitCreateWiringCoverage?.status,
+    "incomplete",
+  );
+  assert.equal(result.diagnostics?.executionMode, "investigation");
+  assert.deepEqual(
+    result.diagnostics?.executionContract?.authorization?.authorizedTargets,
+    [],
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.usage === "inspect-and-edit"),
+    false,
+  );
+  assert.equal(
+    result.selectedFiles.some((file) => file.usage === "create-and-edit"),
+    false,
+  );
+}
+
 async function main() {
   await testConnectionCheckVariantsKeepExistingBackendReadOnly();
   await testReplacementClarificationDoesNotContaminateSettingsTarget();
@@ -5402,6 +5466,7 @@ async function main() {
   await testCreateMissingTeamPageExactPathCreatesPlannedFile();
   await testCreateMissingBackendEndpointKeepsExplicitDestination();
   await testCreateRouteWithExportDeclarationKeepsMissingTarget();
+  await testExplicitCreateAndMissingWiringTargetStaysInvestigative();
   await testExplicitDocumentationTargetBeatsCommandAndCoreKeywords();
   await testTypeSymbolRenameUsesDeclarationAndReferenceGraph();
   await testMissingSymbolRenameSafelyInvestigates();

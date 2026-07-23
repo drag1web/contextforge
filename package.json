@@ -37,7 +37,8 @@
     "test:symbol-syntax": "npm run test:symbol-syntax -w @contextforge/server",
     "test:support-grounding": "npm run test:support-grounding -w @contextforge/server",
     "test:authorization-authority": "npm run test:authorization-authority -w @contextforge/server",
-    "test:safety-preconditions": "npm run test:safety-preconditions -w @contextforge/server"
+    "test:safety-preconditions": "npm run test:safety-preconditions -w @contextforge/server",
+    "test:explicit-create-wiring": "npm run test:explicit-create-wiring -w @contextforge/server"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",

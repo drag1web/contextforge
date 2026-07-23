@@ -1,0 +1,8 @@
+package.json
+server/package.json
+server/src/ollama/taskFileSelector.ts
+server/src/ollama/taskFileSelector.smoke.ts
+server/src/selection/explicitCreateWiringCoverage.ts
+server/src/selection/explicitCreateWiringCoverage.smoke.ts
+PATCH_NOTES_PATCH_B1A_EXPLICIT_CREATE_WIRING.md
+PATCH_FILE_LIST_B1A.txt

@@ -22,6 +22,10 @@ import { retainGraphSeeds } from "../selection/selectionConsistency.js";
 import { reconcileFinalSelectionDecision } from "../selection/finalSelectionDecision.js";
 import { rankCreateTargetReferenceFiles } from "../selection/createTargetReferenceRanking.js";
 import { classifyTaskSelectionProfile } from "../selection/taskSelectionProfile.js";
+import {
+  verifyExplicitCreateWiringCoverage,
+  type ExplicitCreateWiringCoverageResult,
+} from "../selection/explicitCreateWiringCoverage.js";
 import { extractSymbolRenameIntent } from "../selection/symbolRename.js";
 import {
   detectHardTaskSafetyIssue,
@@ -141,6 +145,7 @@ export interface TaskFileSelection {
     investigationTrace?: InvestigationTrace;
     executionContract?: TaskExecutionContract;
     taskProfile?: string;
+    explicitCreateWiringCoverage?: ExplicitCreateWiringCoverageResult;
     omittedGraphSeeds?: Array<{ path: string; reason: string }>;
   };
 }
@@ -13745,6 +13750,7 @@ function applyExecutionContractSelectionPolicy(
       taskProfile: null as string | null,
       finalDecisionApplied: false,
       effectiveTaskAreaOverride: null as EffectiveTaskArea | null,
+      explicitCreateWiringCoverage: null as ExplicitCreateWiringCoverageResult | null,
     };
   }
 
@@ -13775,6 +13781,7 @@ function applyExecutionContractSelectionPolicy(
       taskProfile: "clarification",
       finalDecisionApplied: false,
       effectiveTaskAreaOverride: null as EffectiveTaskArea | null,
+      explicitCreateWiringCoverage: null as ExplicitCreateWiringCoverageResult | null,
     };
   }
 
@@ -13988,7 +13995,7 @@ function applyExecutionContractSelectionPolicy(
       ((investigationTrace?.triggered &&
         initialContract.mode === "investigation") ||
         finalDecision.profile.kind === "exact-text"));
-  const contract = keepDiagnosticInvestigation
+  const diagnosticContract = keepDiagnosticInvestigation
     ? {
         ...tracedContract,
         mode: "investigation" as const,
@@ -14003,6 +14010,40 @@ function applyExecutionContractSelectionPolicy(
         ]).slice(0, 18),
       }
     : tracedContract;
+  const explicitCreateWiringCoverage = verifyExplicitCreateWiringCoverage({
+    rawTask: input.rawTask,
+    inventory: input.inventory,
+    selectedFiles: decisionFiles,
+  });
+  const contract: TaskExecutionContract =
+    explicitCreateWiringCoverage.status === "incomplete" &&
+    diagnosticContract.mode !== "clarification_required"
+      ? {
+          ...diagnosticContract,
+          mode: "investigation",
+          allowImplementationGuidance: false,
+          implementationGateReasons: uniqueStrings([
+            ...diagnosticContract.implementationGateReasons,
+            "Explicit create-plus-wiring coverage is incomplete.",
+            ...explicitCreateWiringCoverage.gaps.map(
+              (gap) => `${gap.path}: ${gap.reason}`,
+            ),
+          ]).slice(0, 12),
+          reasons: uniqueStrings([
+            ...diagnosticContract.reasons,
+            ...explicitCreateWiringCoverage.reasons,
+          ]).slice(0, 18),
+          authorization: diagnosticContract.authorization
+            ? {
+                ...diagnosticContract.authorization,
+                scopeConfirmed: false,
+                scopeConfirmationSource: "none",
+                targetAuthorization: "unconfirmed",
+                authorizedTargets: [],
+              }
+            : undefined,
+        }
+      : diagnosticContract;
 
   const constraints = getTaskConstraints(input);
   const traceCanPruneWeakCandidates =
@@ -14188,6 +14229,7 @@ function applyExecutionContractSelectionPolicy(
       finalDecision.profile.kind === "api-contract"
         ? ("backend" as EffectiveTaskArea)
         : canonicalArea,
+    explicitCreateWiringCoverage,
   };
 }
 
@@ -14415,6 +14457,8 @@ function withSelectorSafetyProfile(
       investigationTrace: executionPolicy.investigationTrace,
       executionContract: executionPolicy.contract ?? undefined,
       taskProfile: executionPolicy.taskProfile ?? undefined,
+      explicitCreateWiringCoverage:
+        executionPolicy.explicitCreateWiringCoverage ?? undefined,
     },
   };
 }
