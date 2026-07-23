@@ -5,7 +5,6 @@ import {
   AlertTriangle,
   FolderOpen,
   Gauge,
-  Layers3,
   Search,
   SlidersHorizontal,
   X
@@ -13,10 +12,7 @@ import {
 
 import type { Project } from "../../types";
 import { Button } from "../ui/Button";
-import {
-  SegmentedFilter,
-  type SegmentedFilterOption
-} from "../ui/SegmentedFilter";
+import { HorizontalSlidingSelector } from "../ui/SlidingSelectors";
 import {
   CustomSelect,
   type SelectOption
@@ -36,59 +32,16 @@ interface ProjectsSectionProps {
 type ReadinessFilter = "all" | "low" | "medium" | "high";
 type SortMode = "lastScan" | "readinessLow" | "readinessHigh" | "name";
 
-const readinessOptions: SegmentedFilterOption<ReadinessFilter>[] = [
-  {
-    value: "all",
-    label: "All",
-    description: "Every project"
-  },
-  {
-    value: "low",
-    label: "Low",
-    description: "Below 50"
-  },
-  {
-    value: "medium",
-    label: "Medium",
-    description: "50–79"
-  },
-  {
-    value: "high",
-    label: "High",
-    description: "80–100"
-  }
-];
-
-const sortOptions: SelectOption<SortMode>[] = [
-  {
-    value: "lastScan",
-    label: "Latest scan",
-    description: "Recently scanned or updated projects first"
-  },
-  {
-    value: "readinessLow",
-    label: "Readiness low first",
-    description: "Projects requiring attention first"
-  },
-  {
-    value: "readinessHigh",
-    label: "Readiness high first",
-    description: "Most AI-ready projects first"
-  },
-  {
-    value: "name",
-    label: "Name",
-    description: "Alphabetical project order"
-  }
-];
+interface ReadinessOption {
+  value: ReadinessFilter;
+  label: string;
+  description: string;
+}
 
 const PROJECT_CARD_TRANSITION = {
   duration: 0.22,
   ease: [0.16, 1, 0.3, 1]
 } as const;
-
-void readinessOptions;
-void sortOptions;
 
 function normalize(value: unknown) {
   return String(value ?? "").toLowerCase();
@@ -116,47 +69,25 @@ function getReadinessLabel(score: number) {
   return "Low";
 }
 
-function getTopStack(projects: Project[]) {
-  const counts = new Map<string, number>();
-
-  for (const project of projects) {
-    for (const item of project.detectedStack) {
-      counts.set(item, (counts.get(item) ?? 0) + 1);
-    }
-  }
-
-  const [stack] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
-
-  return stack ?? "—";
-}
-
-function MetricCard({
+function WorkspaceStat({
   icon,
   label,
-  value,
-  caption
+  value
 }: {
   icon: ReactNode;
   label: string;
   value: string | number;
-  caption: string;
 }) {
   return (
-    <article className="cf-card p-5">
-      <div className="mb-4 flex size-9 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-200">
+    <div className="min-w-0 p-4 lg:border-l lg:border-neutral-900 lg:first:border-l-0">
+      <div className="mb-3 flex items-center gap-2 text-neutral-600">
         {icon}
+        <span className="cf-tech-label truncate text-[10px] uppercase">{label}</span>
       </div>
-
-      <p className="cf-tech-label text-xs uppercase text-neutral-500">
-        {label}
-      </p>
-
-      <p className="cf-display-font mt-2 truncate text-4xl font-semibold leading-none text-white">
+      <p className="cf-display-font truncate text-3xl font-semibold leading-none text-white">
         {value}
       </p>
-
-      <p className="mt-2 truncate text-sm text-neutral-500">{caption}</p>
-    </article>
+    </div>
   );
 }
 
@@ -175,7 +106,8 @@ export function ProjectsSection({
   const [stackFilter, setStackFilter] = useState("all");
   const [packageFilter, setPackageFilter] = useState("all");
   const [sortMode, setSortMode] = useState<SortMode>("lastScan");
-  const localizedReadinessOptions = useMemo<SegmentedFilterOption<ReadinessFilter>[]>(
+
+  const readinessOptions = useMemo<ReadinessOption[]>(
     () => [
       {
         value: "all",
@@ -200,6 +132,7 @@ export function ProjectsSection({
     ],
     [t]
   );
+
   const localizedSortOptions = useMemo<SelectOption<SortMode>[]>(
     () => [
       {
@@ -323,8 +256,9 @@ export function ProjectsSection({
 
   const averageReadiness = getAverageReadiness(projects);
   const lowReadinessCount = projects.filter((project) => project.readinessScore < 50).length;
-  const topStack = getTopStack(projects);
-  const topStackLabel = topStack === "â€”" || topStack === "—" ? t("labels.noValue") : topStack;
+  const activeReadinessIndex = readinessOptions.findIndex(
+    (option) => option.value === readinessFilter
+  );
 
   const hasActiveFilters =
     query.trim().length > 0 ||
@@ -368,58 +302,49 @@ export function ProjectsSection({
   }
 
   return (
-    <section className="space-y-5">
-      <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012)_48%,rgba(255,255,255,0.006))] p-6 shadow-[0_16px_52px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.045)]">
-        <div className="mb-4 flex flex-wrap gap-2">
-          <span className="cf-badge">
-            <FolderOpen size={13} />
-            {t("projectsPage.operations")}
-          </span>
-          <span className="cf-badge">{t("projectsPage.localRepositories")}</span>
-          <span className="cf-badge">{t("projectsPage.aiReadiness")}</span>
+    <section className="space-y-4">
+      <div className="cf-card overflow-hidden p-5">
+        <div className="grid items-stretch gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
+          <div className="flex min-w-0 items-center gap-4">
+            <div className="grid size-12 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-200">
+              <FolderOpen size={21} />
+            </div>
+
+            <div className="min-w-0">
+              <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                {t("projectsPage.workspaceKicker")}
+              </p>
+              <h2 className="mt-1 text-[30px] font-semibold leading-none tracking-[-0.045em] text-white">
+                {t("projectsPage.projects")}
+              </h2>
+              <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500">
+                {t("projectsPage.workspaceDescription")}
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 overflow-hidden rounded-2xl border border-neutral-900 bg-black/30">
+            <WorkspaceStat
+              icon={<FolderOpen size={14} />}
+              label={t("projectsPage.projects")}
+              value={projects.length}
+            />
+            <WorkspaceStat
+              icon={<Gauge size={14} />}
+              label={t("projectsPage.avgReadiness")}
+              value={averageReadiness ?? "—"}
+            />
+            <WorkspaceStat
+              icon={<AlertTriangle size={14} />}
+              label={t("projectsPage.needAttention")}
+              value={lowReadinessCount}
+            />
+          </div>
         </div>
-
-        <h2 className="max-w-4xl text-[34px] font-semibold leading-[1.05] tracking-[-0.05em] text-white">
-          {t("projectsPage.title")}
-        </h2>
-
-        <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-400">
-          {t("projectsPage.description")}
-        </p>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-4">
-        <MetricCard
-          icon={<FolderOpen size={18} />}
-          label={t("projectsPage.projects")}
-          value={projects.length}
-          caption={t("projectsPage.scannedRepositories")}
-        />
-
-        <MetricCard
-          icon={<Gauge size={18} />}
-          label={t("projectsPage.avgReadiness")}
-          value={averageReadiness ?? "—"}
-          caption={t("projectsPage.averageAiScore")}
-        />
-
-        <MetricCard
-          icon={<AlertTriangle size={18} />}
-          label={t("projectsPage.needAttention")}
-          value={lowReadinessCount}
-          caption={t("projectsPage.belowScore")}
-        />
-
-        <MetricCard
-          icon={<Layers3 size={18} />}
-          label={t("projectsPage.topStack")}
-          value={topStackLabel}
-          caption={t("projectsPage.mostDetectedStack")}
-        />
-      </div>
-
-      <div className="cf-card min-h-[252px] p-5">
-        <div className="mb-5 flex min-h-9 flex-wrap items-center gap-3">
+      <div className="cf-card p-4">
+        <div className="mb-3 flex min-h-9 flex-wrap items-center gap-3">
           <div className="flex items-center gap-2">
             <SlidersHorizontal size={15} className="text-neutral-500" />
             <h3 className="text-sm font-semibold text-white">{t("projectsPage.filters")}</h3>
@@ -454,7 +379,7 @@ export function ProjectsSection({
           </button>
         </div>
 
-        <div className="relative mb-4">
+        <div className="relative mb-3">
           <Search
             size={16}
             className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-neutral-600"
@@ -464,15 +389,34 @@ export function ProjectsSection({
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder={t("projectsPage.searchPlaceholder")}
-            className="h-12 w-full rounded-2xl border border-neutral-900 bg-black/45 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-neutral-700 hover:border-neutral-800 focus:border-white/40 focus:bg-black/70 focus:ring-4 focus:ring-white/5"
+            className="h-11 w-full rounded-2xl border border-neutral-900 bg-black/45 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-neutral-700 hover:border-neutral-800 focus:border-white/40 focus:bg-black/70 focus:ring-4 focus:ring-white/5"
           />
         </div>
 
-        <div className="grid gap-3 xl:grid-cols-[minmax(360px,1.35fr)_repeat(3,minmax(0,1fr))]">
-          <SegmentedFilter
-            value={readinessFilter}
-            options={localizedReadinessOptions}
-            onChange={(value) => setReadinessFilter(value as ReadinessFilter)}
+        <div className="grid gap-3 xl:grid-cols-[minmax(360px,1.3fr)_repeat(3,minmax(0,1fr))]">
+          <HorizontalSlidingSelector
+            items={readinessOptions}
+            activeIndex={activeReadinessIndex}
+            getItemKey={(option) => option.value}
+            onSelect={(option) => setReadinessFilter(option.value)}
+            ariaLabel={t("projectsPage.filters")}
+            itemClassName="h-12 px-2 text-left"
+            renderItem={(option, isActive) => (
+              <div className="min-w-0 px-1">
+                <p className={[
+                  "truncate text-xs font-semibold",
+                  isActive ? "text-black" : "text-neutral-200"
+                ].join(" ")}>
+                  {option.label}
+                </p>
+                <p className={[
+                  "mt-0.5 truncate text-[10px]",
+                  isActive ? "text-neutral-500" : "text-neutral-700"
+                ].join(" ")}>
+                  {option.description}
+                </p>
+              </div>
+            )}
           />
 
           <CustomSelect
@@ -525,7 +469,7 @@ export function ProjectsSection({
               packageFilter,
               sortMode
             ].join(":")}
-            className="grid gap-4"
+            className="grid gap-3"
             initial={{ opacity: 0, y: 10 }}
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -8 }}

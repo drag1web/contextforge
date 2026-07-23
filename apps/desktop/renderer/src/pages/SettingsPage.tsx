@@ -43,7 +43,7 @@ import {
 import type { AppSettings, OllamaModel, OllamaStatus, SelectorPipelineDiagnostics, StorageAuditResult, WorkspaceBackupExportResult } from "../types";
 import { CustomSelect } from "../components/ui/CustomSelect";
 import { Button } from "../components/ui/Button";
-import { SlidingSelectionIndicator } from "../components/ui/SlidingSelectionIndicator";
+import { HorizontalSlidingSelector, VerticalSlidingSelector } from "../components/ui/SlidingSelectors";
 import { appMeta } from "../config/appMeta";
 import { keyboardShortcuts } from "../config/keyboardShortcuts";
 import { TARGET_TOOL_OPTIONS } from "../components/ai/aiToolOptions";
@@ -388,6 +388,168 @@ function getActivePreset(limits: AppSettings["composerFileLimits"]) {
   );
 }
 
+
+function SettingsChoiceCardContent({
+  icon: Icon,
+  label,
+  caption,
+  isActive
+}: {
+  icon: LucideIcon;
+  label: string;
+  caption: string;
+  isActive: boolean;
+}) {
+  return (
+    <div className="flex h-full flex-col p-4 text-left">
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <span
+          className={[
+            "grid size-9 place-items-center rounded-xl border transition-colors duration-150",
+            isActive
+              ? "border-black/10 bg-black/5 text-black"
+              : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/15 group-hover:text-white"
+          ].join(" ")}
+        >
+          <Icon size={15} />
+        </span>
+
+        <CheckCircle2
+          size={16}
+          className={[
+            "shrink-0 transition-opacity duration-150",
+            isActive ? "text-black opacity-100" : "opacity-0"
+          ].join(" ")}
+        />
+      </div>
+
+      <p
+        className={[
+          "text-sm font-semibold transition-colors duration-150",
+          isActive ? "text-black" : "text-white group-hover:text-white"
+        ].join(" ")}
+      >
+        {label}
+      </p>
+
+      <p
+        className={[
+          "mt-1 text-xs leading-5 transition-colors duration-150",
+          isActive
+            ? "text-black/55"
+            : "text-neutral-600 group-hover:text-neutral-400"
+        ].join(" ")}
+      >
+        {caption}
+      </p>
+    </div>
+  );
+}
+
+function InterfaceChoiceContent({
+  icon: Icon,
+  label,
+  caption,
+  meta,
+  isActive
+}: {
+  icon: LucideIcon;
+  label: string;
+  caption: string;
+  meta?: string;
+  isActive: boolean;
+}) {
+  return (
+    <div className="flex h-full min-h-[104px] items-start gap-3 p-4 text-left">
+      <span
+        className={[
+          "mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl border transition-colors duration-150",
+          isActive
+            ? "border-black/10 bg-black/5 text-black"
+            : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/15 group-hover:text-white"
+        ].join(" ")}
+      >
+        <Icon size={15} />
+      </span>
+
+      <span className="min-w-0 flex-1">
+        <span className="flex items-start justify-between gap-3">
+          <span
+            className={[
+              "text-sm font-semibold transition-colors duration-150",
+              isActive ? "text-black" : "text-white"
+            ].join(" ")}
+          >
+            {label}
+          </span>
+
+          {meta && (
+            <span
+              className={[
+                "cf-tech-label shrink-0 text-[9px] uppercase transition-colors duration-150",
+                isActive ? "text-black/45" : "text-neutral-700"
+              ].join(" ")}
+            >
+              {meta}
+            </span>
+          )}
+        </span>
+
+        <span
+          className={[
+            "mt-1 block text-xs leading-5 transition-colors duration-150",
+            isActive
+              ? "text-black/55"
+              : "text-neutral-600 group-hover:text-neutral-400"
+          ].join(" ")}
+        >
+          {caption}
+        </span>
+      </span>
+
+      <CheckCircle2
+        size={16}
+        className={[
+          "mt-1 shrink-0 transition-opacity duration-150",
+          isActive ? "text-black opacity-100" : "opacity-0"
+        ].join(" ")}
+      />
+    </div>
+  );
+}
+
+function PlannedInterfaceFeature({
+  icon: Icon,
+  title,
+  description,
+  badge
+}: {
+  icon: LucideIcon;
+  title: string;
+  description: string;
+  badge: string;
+}) {
+  return (
+    <div
+      aria-disabled="true"
+      className="settings-inner-surface flex min-h-[132px] flex-col rounded-2xl border p-4 opacity-80"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <span className="grid size-9 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500">
+          <Icon size={15} />
+        </span>
+
+        <span className="rounded-full border border-neutral-800 bg-black/35 px-2 py-0.5 text-[9px] uppercase tracking-[0.14em] text-neutral-600">
+          {badge}
+        </span>
+      </div>
+
+      <p className="mt-4 text-sm font-semibold text-neutral-300">{title}</p>
+      <p className="mt-1 text-xs leading-5 text-neutral-600">{description}</p>
+    </div>
+  );
+}
+
 function SettingCard({
   icon,
   label,
@@ -633,10 +795,6 @@ function SettingsSidebar({
     SETTINGS_SECTIONS.findIndex((section) => section.id === activeSection)
   );
 
-  const navHeight =
-    SETTINGS_SECTIONS.length * SETTINGS_NAV_ITEM_HEIGHT +
-    (SETTINGS_SECTIONS.length - 1) * SETTINGS_NAV_ITEM_GAP;
-
   return (
     <aside className="settings-control-panel sticky top-5 h-fit overflow-hidden rounded-[1.6rem] border border-neutral-900 p-2 text-render-crisp">
       <div className="mb-2 px-3 py-3">
@@ -649,33 +807,21 @@ function SettingsSidebar({
         </p>
       </div>
 
-      <div
-        className="relative grid gap-1 overflow-hidden"
-        style={{ height: navHeight }}
-      >
-        <SlidingSelectionIndicator
-          activeIndex={activeIndex}
-          itemHeight={SETTINGS_NAV_ITEM_HEIGHT}
-          itemGap={SETTINGS_NAV_ITEM_GAP}
-          glowClassName="settings-nav-active-glow"
-          className="settings-nav-active-pill"
-        />
-
-        {SETTINGS_SECTIONS.map((section) => {
+      <VerticalSlidingSelector
+        items={SETTINGS_SECTIONS}
+        activeIndex={activeIndex}
+        itemHeight={SETTINGS_NAV_ITEM_HEIGHT}
+        itemGap={SETTINGS_NAV_ITEM_GAP}
+        getItemKey={(section) => section.id}
+        onSelect={(section) => onChange(section.id)}
+        ariaLabel="Settings sections"
+        indicatorClassName="border border-white/[0.18] shadow-[0_10px_26px_rgba(0,0,0,0.42)]"
+        itemClassName="flex items-center gap-3 overflow-hidden rounded-2xl px-3 text-left"
+        renderItem={(section, isActive) => {
           const Icon = section.icon;
-          const isActive = activeSection === section.id;
 
           return (
-            <button
-              key={section.id}
-              type="button"
-              onClick={() => onChange(section.id)}
-              className={[
-                "group relative z-10 flex w-full items-center gap-3 overflow-hidden rounded-2xl px-3 text-left transition-colors duration-150",
-                isActive ? "text-black" : "text-neutral-500 hover:text-white"
-              ].join(" ")}
-              style={{ height: SETTINGS_NAV_ITEM_HEIGHT }}
-            >
+            <>
               <span
                 className={[
                   "grid size-7 shrink-0 place-items-center rounded-xl border transition-colors duration-150",
@@ -708,10 +854,10 @@ function SettingsSidebar({
                   Soon
                 </span>
               )}
-            </button>
+            </>
           );
-        })}
-      </div>
+        }}
+      />
 
       <div className="mt-3 rounded-2xl border border-neutral-900 bg-black/40 p-3">
         <div className="flex items-center justify-between gap-3">
@@ -909,79 +1055,6 @@ function ComposerLimitRow({
         </span>
       </div>
     </div>
-  );
-}
-
-function ToggleSetting({
-  label,
-  description,
-  checked,
-  onChange
-}: {
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={() => onChange(!checked)}
-      className={[
-        "group flex w-full items-center justify-between gap-5 rounded-2xl border p-4 text-left transition duration-200",
-        checked
-          ? "border-emerald-400/25 bg-emerald-400/[0.055] hover:border-emerald-400/35 hover:bg-emerald-400/[0.075]"
-          : "border-neutral-900 bg-black/40 hover:border-neutral-700 hover:bg-white/[0.035]"
-      ].join(" ")}
-    >
-      <span className="min-w-0">
-        <span className="flex items-center gap-2 text-sm font-semibold text-white">
-          {label}
-
-          <span
-            className={[
-              "rounded-full border px-2 py-0.5 text-[10px]",
-              checked
-                ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
-                : "border-neutral-800 bg-neutral-950 text-neutral-500"
-            ].join(" ")}
-          >
-            {checked ? "On" : "Off"}
-          </span>
-        </span>
-
-        <span className="mt-1 block text-sm leading-6 text-neutral-500">
-          {description}
-        </span>
-      </span>
-
-      <span
-        className={[
-          "relative h-7 w-12 shrink-0 rounded-full border transition duration-200",
-          checked
-            ? "border-emerald-400/30 bg-emerald-400/15 shadow-[0_0_22px_rgba(52,211,153,0.12)]"
-            : "border-neutral-800 bg-neutral-950"
-        ].join(" ")}
-      >
-        <motion.span
-          className={[
-            "absolute left-1 top-1 grid size-5 place-items-center rounded-full transition duration-200",
-            checked
-              ? "bg-emerald-300 shadow-[0_0_14px_rgba(110,231,183,0.55)]"
-              : "bg-neutral-600"
-          ].join(" ")}
-          initial={false}
-          animate={{ x: checked ? 20 : 0 }}
-          transition={{
-            type: "spring",
-            stiffness: 520,
-            damping: 38,
-            mass: 0.6
-          }}
-          style={{ willChange: "transform" }}
-        />
-      </span>
-    </button>
   );
 }
 
@@ -1531,6 +1604,135 @@ export function SettingsPage() {
     ];
   }, [models, settingsDraft?.defaultOllamaModel, t]);
 
+  const clarificationOptions = useMemo(
+    () => [
+      {
+        value: "automatic" as const,
+        label: t("settings.clarificationModeAutomatic"),
+        caption: t("settings.clarificationModeAutomaticDesc")
+      },
+      {
+        value: "balanced" as const,
+        label: t("settings.clarificationModeBalanced"),
+        caption: t("settings.clarificationModeBalancedDesc")
+      },
+      {
+        value: "confirm_all" as const,
+        label: t("settings.clarificationModeConfirmAll"),
+        caption: t("settings.clarificationModeConfirmAllDesc")
+      }
+    ],
+    [t]
+  );
+
+  const selectorModeOptions = useMemo(
+    () =>
+      SELECTOR_PIPELINE_MODES.map((value) => ({
+        value,
+        ...getSelectorModeCopy(value, t)
+      })),
+    [t]
+  );
+
+  const contextQualityOptions = [
+    {
+      value: "advisory" as const,
+      label: "Warn only",
+      caption: "Fastest. Never blocks automatic Task Packs; weak context is shown as warnings."
+    },
+    {
+      value: "balanced" as const,
+      label: "Balanced",
+      caption: "Recommended. Blocks only clearly unsafe context, allows plausible fallback selections."
+    },
+    {
+      value: "strict" as const,
+      label: "Strict",
+      caption: "Most careful. Blocks low-confidence selections more often."
+    }
+  ];
+
+
+  const interfaceLanguageOptions = useMemo(
+    () => [
+      {
+        value: "system" as const,
+        label: t("settings.languageSystem"),
+        caption: t("settings.languageSystemDescription"),
+        meta: resolvedLanguage.toUpperCase(),
+        icon: Settings
+      },
+      {
+        value: "en" as const,
+        label: t("settings.languageEnglish"),
+        caption: t("settings.languageEnglishDescription"),
+        meta: "EN",
+        icon: Languages
+      },
+      {
+        value: "ru" as const,
+        label: t("settings.languageRussian"),
+        caption: t("settings.languageRussianDescription"),
+        meta: "RU",
+        icon: Languages
+      }
+    ],
+    [resolvedLanguage, t]
+  );
+
+  const navigationDensityOptions = useMemo(
+    () => [
+      {
+        value: false,
+        label: t("settings.navigationCompact"),
+        caption: t("settings.navigationCompactDescription"),
+        meta: t("settings.recommendedChoice"),
+        icon: PanelLeft
+      },
+      {
+        value: true,
+        label: t("settings.navigationGuided"),
+        caption: t("settings.navigationGuidedDescription"),
+        meta: t("settings.guided"),
+        icon: MessageSquareText
+      }
+    ],
+    [t]
+  );
+
+  const launchExperienceOptions = useMemo(
+    () => [
+      {
+        value: "workspace" as const,
+        label: t("settings.launchDirect"),
+        caption: t("settings.launchDirectDescription"),
+        meta: t("settings.fastest"),
+        icon: Gauge
+      },
+      {
+        value: "first-run" as const,
+        label: t("settings.launchFirstRun"),
+        caption: t("settings.launchFirstRunDescription"),
+        meta: t("settings.recommendedChoice"),
+        icon: Sparkles
+      },
+      {
+        value: "every-launch" as const,
+        label: t("settings.launchEveryTime"),
+        caption: t("settings.launchEveryTimeDescription"),
+        meta: t("settings.alpha"),
+        icon: RefreshCw
+      }
+    ],
+    [t]
+  );
+
+  const launchExperienceMode = settingsDraft?.onboardingEnabled === false
+    ? "workspace"
+    : settingsDraft?.onboardingShowEveryLaunch === false
+      ? "first-run"
+      : "every-launch";
+
   function handleLanguageChange(language: AppLanguage) {
     updateSettingsDraft({ language });
     void applyAppLanguage(language);
@@ -1806,33 +2008,34 @@ export function SettingsPage() {
                         </pre>
                       </div>
                     ) : (
-                      <div className="grid gap-3 md:grid-cols-2">
-                        {models.map((model) => {
-                          const isSelected =
-                            settingsDraft?.defaultOllamaModel === model.name;
-
-                          return (
-                            <button
-                              key={model.name}
-                              type="button"
-                              onClick={() =>
-                                updateSettingsDraft({
-                                  defaultOllamaModel: model.name
-                                })
-                              }
-                              className={[
-                                "group flex items-center gap-3 rounded-2xl border px-4 py-3 text-left transition duration-200",
-                                isSelected
-                                  ? "border-white bg-white text-black shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
-                                  : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white hover:bg-white hover:text-black hover:shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
-                              ].join(" ")}
-                            >
+                      <div className="overflow-x-auto pb-1">
+                        <HorizontalSlidingSelector
+                          items={models}
+                          activeIndex={models.findIndex(
+                            (model) =>
+                              settingsDraft?.defaultOllamaModel === model.name
+                          )}
+                          getItemKey={(model) => model.name}
+                          onSelect={(model) =>
+                            updateSettingsDraft({
+                              defaultOllamaModel: model.name
+                            })
+                          }
+                          ariaLabel={t("settings.detectedModels")}
+                          className={
+                            models.length > 2
+                              ? "min-w-[840px]"
+                              : "min-w-[560px]"
+                          }
+                          itemClassName="rounded-[0.95rem] text-left"
+                          renderItem={(model, isSelected) => (
+                            <div className="flex h-full items-center gap-3 px-4 py-3 text-left">
                               <span
                                 className={[
-                                  "grid size-9 shrink-0 place-items-center rounded-xl border transition",
+                                  "grid size-9 shrink-0 place-items-center rounded-xl border transition-colors duration-150",
                                   isSelected
                                     ? "border-black/10 bg-black/5 text-black"
-                                    : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black"
+                                    : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/15 group-hover:text-white"
                                 ].join(" ")}
                               >
                                 <Cpu size={15} />
@@ -1841,10 +2044,10 @@ export function SettingsPage() {
                               <span className="min-w-0 flex-1">
                                 <span
                                   className={[
-                                    "block truncate text-sm font-semibold transition",
+                                    "block truncate text-sm font-semibold transition-colors duration-150",
                                     isSelected
                                       ? "text-black"
-                                      : "text-white group-hover:text-black"
+                                      : "text-white group-hover:text-white"
                                   ].join(" ")}
                                 >
                                   {model.name}
@@ -1852,19 +2055,19 @@ export function SettingsPage() {
 
                                 <span
                                   className={[
-                                    "mt-0.5 block truncate text-xs transition",
+                                    "mt-0.5 block truncate text-xs transition-colors duration-150",
                                     isSelected
                                       ? "text-black/55"
-                                      : "text-neutral-600 group-hover:text-black/55"
+                                      : "text-neutral-600 group-hover:text-neutral-400"
                                   ].join(" ")}
                                 >
                                   {model.model ?? "local model"} ·{" "}
                                   {formatModelSize(model.size)}
                                 </span>
                               </span>
-                            </button>
-                          );
-                        })}
+                            </div>
+                          )}
+                        />
                       </div>
                     )}
                   </SettingCard>
@@ -2075,86 +2278,31 @@ export function SettingsPage() {
                       description={t("settings.clarificationModeDescription")}
                       className="xl:col-span-2"
                     >
-                      <div className="grid gap-3 md:grid-cols-3">
-                        {[
-                          {
-                            value: "automatic" as const,
-                            label: t("settings.clarificationModeAutomatic"),
-                            caption: t("settings.clarificationModeAutomaticDesc")
-                          },
-                          {
-                            value: "balanced" as const,
-                            label: t("settings.clarificationModeBalanced"),
-                            caption: t("settings.clarificationModeBalancedDesc")
-                          },
-                          {
-                            value: "confirm_all" as const,
-                            label: t("settings.clarificationModeConfirmAll"),
-                            caption: t("settings.clarificationModeConfirmAllDesc")
-                          }
-                        ].map((option) => {
-                          const isActive =
+                      <HorizontalSlidingSelector
+                        items={clarificationOptions}
+                        activeIndex={clarificationOptions.findIndex(
+                          (option) =>
+                            option.value ===
                             (settingsDraft?.taskUnderstandingInteractionMode ??
-                              "balanced") === option.value;
-
-                          return (
-                            <button
-                              key={option.value}
-                              type="button"
-                              onClick={() =>
-                                updateSettingsDraft({
-                                  taskUnderstandingInteractionMode: option.value
-                                })
-                              }
-                              className={[
-                                "group rounded-2xl border p-4 text-left transition duration-200",
-                                isActive
-                                  ? "border-white bg-white text-black shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
-                                  : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white hover:bg-white hover:text-black hover:shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
-                              ].join(" ")}
-                            >
-                              <div className="mb-3 flex items-center justify-between gap-3">
-                                <span
-                                  className={[
-                                    "grid size-9 place-items-center rounded-xl border transition",
-                                    isActive
-                                      ? "border-black/10 bg-black/5 text-black"
-                                      : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black"
-                                  ].join(" ")}
-                                >
-                                  <MessageSquareText size={15} />
-                                </span>
-
-                                {isActive && (
-                                  <CheckCircle2 size={16} className="text-black" />
-                                )}
-                              </div>
-
-                              <p
-                                className={[
-                                  "text-sm font-semibold transition",
-                                  isActive
-                                    ? "text-black"
-                                    : "text-white group-hover:text-black"
-                                ].join(" ")}
-                              >
-                                {option.label}
-                              </p>
-
-                              <p
-                                className={[
-                                  "mt-1 text-xs leading-5 transition",
-                                  isActive
-                                    ? "text-black/55"
-                                    : "text-neutral-600 group-hover:text-black/55"
-                                ].join(" ")}
-                              >
-                                {option.caption}
-                              </p>
-                            </button>
-                          );
-                        })}
-                      </div>
+                              "balanced")
+                        )}
+                        getItemKey={(option) => option.value}
+                        onSelect={(option) =>
+                          updateSettingsDraft({
+                            taskUnderstandingInteractionMode: option.value
+                          })
+                        }
+                        ariaLabel={t("settings.clarificationModeTitle")}
+                        itemClassName="rounded-[0.95rem] text-left"
+                        renderItem={(option, isActive) => (
+                          <SettingsChoiceCardContent
+                            icon={MessageSquareText}
+                            label={option.label}
+                            caption={option.caption}
+                            isActive={isActive}
+                          />
+                        )}
+                      />
 
                       <p className="mt-4 text-xs leading-5 text-neutral-600">
                         {t("settings.clarificationModeSafetyNote")}
@@ -2180,39 +2328,30 @@ export function SettingsPage() {
                     title={t("settings.selectorRolloutTitle")}
                     description={t("settings.selectorRolloutDescription")}
                   >
-                    <div className="grid gap-3 md:grid-cols-3">
-                      {SELECTOR_PIPELINE_MODES.map((value) => {
-                        const option = getSelectorModeCopy(value, t);
-                        const isActive = (settingsDraft?.selectorPipelineMode ?? "legacy") === value;
-                        return (
-                          <button
-                            key={value}
-                            type="button"
-                            onClick={() => updateSettingsDraft({ selectorPipelineMode: value })}
-                            className={[
-                              "group rounded-2xl border p-4 text-left transition duration-200",
-                              isActive
-                                ? "border-white bg-white text-black"
-                                : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white hover:bg-white hover:text-black"
-                            ].join(" ")}
-                          >
-                            <div className="mb-3 flex items-center justify-between gap-3">
-                              <span className={[
-                                "grid size-9 place-items-center rounded-xl border transition",
-                                isActive
-                                  ? "border-black/10 bg-black/5 text-black"
-                                  : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black"
-                              ].join(" ")}>
-                                <Layers3 size={15} />
-                              </span>
-                              {isActive && <CheckCircle2 size={16} className="text-black" />}
-                            </div>
-                            <p className={["text-sm font-semibold", isActive ? "text-black" : "text-white group-hover:text-black"].join(" ")}>{option.label}</p>
-                            <p className={["mt-1 text-xs leading-5", isActive ? "text-black/55" : "text-neutral-600 group-hover:text-black/55"].join(" ")}>{option.description}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <HorizontalSlidingSelector
+                      items={selectorModeOptions}
+                      activeIndex={selectorModeOptions.findIndex(
+                        (option) =>
+                          option.value ===
+                          (settingsDraft?.selectorPipelineMode ?? "legacy")
+                      )}
+                      getItemKey={(option) => option.value}
+                      onSelect={(option) =>
+                        updateSettingsDraft({
+                          selectorPipelineMode: option.value
+                        })
+                      }
+                      ariaLabel={t("settings.selectorRolloutTitle")}
+                      itemClassName="rounded-[0.95rem] text-left"
+                      renderItem={(option, isActive) => (
+                        <SettingsChoiceCardContent
+                          icon={Layers3}
+                          label={option.label}
+                          caption={option.description}
+                          isActive={isActive}
+                        />
+                      )}
+                    />
 
                     <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-neutral-900 bg-black/35 p-4">
                       <div>
@@ -2253,59 +2392,30 @@ export function SettingsPage() {
                     title="Context blocking mode"
                     description="Control when ContextForge should stop automatic prompt generation and ask for manual file review."
                   >
-                    <div className="grid gap-3 md:grid-cols-3">
-                      {[
-                        {
-                          value: "advisory" as const,
-                          label: "Warn only",
-                          caption: "Fastest. Never blocks automatic Task Packs; weak context is shown as warnings."
-                        },
-                        {
-                          value: "balanced" as const,
-                          label: "Balanced",
-                          caption: "Recommended. Blocks only clearly unsafe context, allows plausible fallback selections."
-                        },
-                        {
-                          value: "strict" as const,
-                          label: "Strict",
-                          caption: "Most careful. Blocks low-confidence selections more often."
-                        }
-                      ].map((option) => {
-                        const isActive = (settingsDraft?.contextQualityMode ?? "balanced") === option.value;
-
-                        return (
-                          <button
-                            key={option.value}
-                            type="button"
-                            onClick={() => updateSettingsDraft({ contextQualityMode: option.value })}
-                            className={[
-                              "group rounded-2xl border p-4 text-left transition duration-200",
-                              isActive
-                                ? "border-white bg-white text-black shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
-                                : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white hover:bg-white hover:text-black hover:shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
-                            ].join(" ")}
-                          >
-                            <div className="mb-3 flex items-center justify-between gap-3">
-                              <span
-                                className={[
-                                  "grid size-9 place-items-center rounded-xl border transition",
-                                  isActive
-                                    ? "border-black/10 bg-black/5 text-black"
-                                    : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black"
-                                ].join(" ")}
-                              >
-                                <ShieldCheck size={15} />
-                              </span>
-
-                              {isActive && <CheckCircle2 size={16} className="text-black" />}
-                            </div>
-
-                            <p className={["text-sm font-semibold transition", isActive ? "text-black" : "text-white group-hover:text-black"].join(" ")}>{option.label}</p>
-                            <p className={["mt-1 text-xs leading-5 transition", isActive ? "text-black/55" : "text-neutral-600 group-hover:text-black/55"].join(" ")}>{option.caption}</p>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <HorizontalSlidingSelector
+                      items={contextQualityOptions}
+                      activeIndex={contextQualityOptions.findIndex(
+                        (option) =>
+                          option.value ===
+                          (settingsDraft?.contextQualityMode ?? "balanced")
+                      )}
+                      getItemKey={(option) => option.value}
+                      onSelect={(option) =>
+                        updateSettingsDraft({
+                          contextQualityMode: option.value
+                        })
+                      }
+                      ariaLabel="Context blocking mode"
+                      itemClassName="rounded-[0.95rem] text-left"
+                      renderItem={(option, isActive) => (
+                        <SettingsChoiceCardContent
+                          icon={ShieldCheck}
+                          label={option.label}
+                          caption={option.caption}
+                          isActive={isActive}
+                        />
+                      )}
+                    />
                   </SettingCard>
 
                   <SettingCard
@@ -2314,62 +2424,25 @@ export function SettingsPage() {
                     title={t("settings.fileCandidateLimits")}
                     description={t("settings.fileCandidateLimitsDesc")}
                   >
-                    <div className="mb-5 grid gap-3 md:grid-cols-3">
-                      {COMPOSER_LIMIT_PRESETS.map((preset) => {
-                        const isActive = activePreset?.id === preset.id;
-
-                        return (
-                          <button
-                            key={preset.id}
-                            type="button"
-                            onClick={() => updateComposerLimits(preset.limits)}
-                            className={[
-                              "group rounded-2xl border p-4 text-left transition duration-200",
-                              isActive
-                                ? "border-white bg-white text-black shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
-                                : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white hover:bg-white hover:text-black hover:shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
-                            ].join(" ")}
-                          >
-                            <div className="mb-3 flex items-center justify-between gap-3">
-                              <span
-                                className={[
-                                  "grid size-9 place-items-center rounded-xl border transition",
-                                  isActive
-                                    ? "border-black/10 bg-black/5 text-black"
-                                    : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black"
-                                ].join(" ")}
-                              >
-                                <Gauge size={15} />
-                              </span>
-
-                              {isActive && (
-                                <CheckCircle2 size={16} className="text-black" />
-                              )}
-                            </div>
-
-                            <p
-                              className={[
-                                "text-sm font-semibold transition",
-                                isActive ? "text-black" : "text-white group-hover:text-black"
-                              ].join(" ")}
-                            >
-                              {preset.label}
-                            </p>
-
-                            <p
-                              className={[
-                                "mt-1 text-xs transition",
-                                isActive
-                                  ? "text-black/55"
-                                  : "text-neutral-600 group-hover:text-black/55"
-                              ].join(" ")}
-                            >
-                              {preset.caption}
-                            </p>
-                          </button>
-                        );
-                      })}
-                    </div>
+                    <HorizontalSlidingSelector
+                      items={COMPOSER_LIMIT_PRESETS}
+                      activeIndex={COMPOSER_LIMIT_PRESETS.findIndex(
+                        (preset) => preset.id === activePreset?.id
+                      )}
+                      getItemKey={(preset) => preset.id}
+                      onSelect={(preset) => updateComposerLimits(preset.limits)}
+                      ariaLabel={t("settings.fileCandidateLimits")}
+                      className="mb-5"
+                      itemClassName="rounded-[0.95rem] text-left"
+                      renderItem={(preset, isActive) => (
+                        <SettingsChoiceCardContent
+                          icon={Gauge}
+                          label={preset.label}
+                          caption={preset.caption}
+                          isActive={isActive}
+                        />
+                      )}
+                    />
 
                     <div className="mb-5 rounded-2xl border border-neutral-900 bg-black/35 p-4">
                       <div className="flex items-start gap-3">
@@ -2411,170 +2484,193 @@ export function SettingsPage() {
                   <SectionHeader
                     icon={<PanelLeft size={13} />}
                     label={t("settings.interface")}
-                    title={t("settings.navigationDensity")}
-                    description={t("settings.navigationDensityDescription")}
+                    title={t("settings.interfaceWorkspaceTitle")}
+                    description={t("settings.interfaceWorkspaceDescription")}
                   />
 
-                  <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-                    <div className="space-y-5">
-                      <SettingCard
-                        icon={<Languages size={18} />}
-                        label={t("settings.language")}
-                        title={t("settings.languageTitle")}
-                        description={t("settings.languageDescription")}
-                      >
-                        <div className="grid gap-3 md:grid-cols-3">
-                          {[
-                            {
-                              value: "system" as const,
-                              label: t("settings.languageSystem")
-                            },
-                            {
-                              value: "en" as const,
-                              label: t("settings.languageEnglish")
-                            },
-                            {
-                              value: "ru" as const,
-                              label: t("settings.languageRussian")
-                            }
-                          ].map((option) => {
-                            const isActive = currentLanguage === option.value;
+                  <SettingCard
+                    icon={<Languages size={18} />}
+                    label={t("settings.language")}
+                    title={t("settings.languageTitle")}
+                    description={t("settings.languageDescription")}
+                  >
+                    <HorizontalSlidingSelector
+                      items={interfaceLanguageOptions}
+                      activeIndex={interfaceLanguageOptions.findIndex(
+                        (option) => option.value === currentLanguage
+                      )}
+                      getItemKey={(option) => option.value}
+                      onSelect={(option) => handleLanguageChange(option.value)}
+                      ariaLabel={t("settings.languageTitle")}
+                      itemClassName="rounded-[0.95rem] text-left"
+                      renderItem={(option, isActive) => (
+                        <InterfaceChoiceContent
+                          icon={option.icon}
+                          label={option.label}
+                          caption={option.caption}
+                          meta={option.meta}
+                          isActive={isActive}
+                        />
+                      )}
+                    />
 
-                            return (
-                              <button
-                                key={option.value}
-                                type="button"
-                                onClick={() => handleLanguageChange(option.value)}
-                                className={[
-                                  "group relative overflow-hidden rounded-2xl border px-4 py-3 text-left transition duration-200",
-                                  isActive
-                                    ? "border-white bg-white text-black shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
-                                    : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white hover:bg-white hover:text-black"
-                                ].join(" ")}
-                              >
-                                {isActive && (
-                                  <motion.span
-                                    layoutId="settings-language-active"
-                                    className="absolute inset-0 bg-white"
-                                    transition={{
-                                      type: "spring",
-                                      stiffness: 520,
-                                      damping: 42,
-                                      mass: 0.55
-                                    }}
-                                  />
-                                )}
+                    <div className="mt-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-neutral-900 bg-black/40 px-4 py-3">
+                      <div className="flex items-center gap-3">
+                        <span className="grid size-8 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-400">
+                          <Languages size={14} />
+                        </span>
 
-                                <span className="relative z-10 flex items-center justify-between gap-3">
-                                  <span className="font-medium">
-                                    {option.label}
-                                  </span>
-
-                                  <span className="cf-tech-label text-[10px] uppercase opacity-60">
-                                    {option.value === "system"
-                                      ? resolvedLanguage.toUpperCase()
-                                      : option.value.toUpperCase()}
-                                  </span>
-                                </span>
-                              </button>
-                            );
-                          })}
-                        </div>
-
-                        <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                        <div>
                           <p className="text-sm font-medium text-white">
                             {t("settings.languageCurrent")}: {resolvedLanguage.toUpperCase()}
                           </p>
-
-                          <p className="mt-1 text-sm leading-6 text-neutral-500">
+                          <p className="mt-0.5 text-xs text-neutral-600">
                             {t("settings.languageSavedWithSettings")}
                           </p>
                         </div>
-                      </SettingCard>
+                      </div>
 
-                      <SettingCard
-                        icon={<PanelLeft size={18} />}
-                        label={t("settings.sidebar")}
-                        title={t("settings.navigationDensity")}
-                        description={t("settings.navigationDensityDescription")}
-                      >
-                        <div className="space-y-3">
-                          <ToggleSetting
-                            label={t("settings.showSidebarDescriptions")}
-                            description={t("settings.showSidebarDescriptionsDesc")}
-                            checked={settingsDraft?.sidebarShowDescriptions ?? false}
-                            onChange={(checked) =>
-                              updateSettingsDraft({
-                                sidebarShowDescriptions: checked
-                              })
-                            }
-                          />
-                        </div>
-                      </SettingCard>
-
-                      <SettingCard
-                        icon={<Sparkles size={18} />}
-                        label={t("settings.onboarding")}
-                        title={t("settings.onboardingTitle")}
-                        description={t("settings.onboardingDescription")}
-                      >
-                        <div className="space-y-3">
-                          <ToggleSetting
-                            label={t("settings.showOnboardingOnLaunch")}
-                            description={t("settings.showOnboardingOnLaunchDesc")}
-                            checked={settingsDraft?.onboardingEnabled ?? true}
-                            onChange={(checked) =>
-                              updateSettingsDraft({
-                                onboardingEnabled: checked
-                              })
-                            }
-                          />
-
-                          <ToggleSetting
-                            label={t("settings.repeatOnboardingDuringAlpha")}
-                            description={t("settings.repeatOnboardingDuringAlphaDesc")}
-                            checked={settingsDraft?.onboardingShowEveryLaunch ?? true}
-                            onChange={(checked) =>
-                              updateSettingsDraft({
-                                onboardingShowEveryLaunch: checked
-                              })
-                            }
-                          />
-                        </div>
-
-                        <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/40 p-4">
-                          <p className="text-sm font-medium text-white">
-                            {settingsDraft?.onboardingEnabled === false
-                              ? t("settings.onboardingLaunchOff")
-                              : settingsDraft?.onboardingShowEveryLaunch === false
-                                ? t("settings.onboardingFirstRunOnly")
-                                : t("settings.onboardingEveryLaunch")}
-                          </p>
-
-                          <p className="mt-1 text-sm leading-6 text-neutral-500">
-                            {t("settings.onboardingSavedWithSettings")}
-                          </p>
-                        </div>
-                      </SettingCard>
+                      <span className="rounded-full border border-white/10 bg-white/[0.045] px-3 py-1 text-[10px] uppercase tracking-[0.14em] text-neutral-500">
+                        {t("settings.appliesImmediately")}
+                      </span>
                     </div>
+                  </SettingCard>
+
+                  <div className="grid items-start gap-5 2xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+                    <SettingCard
+                      icon={<PanelLeft size={18} />}
+                      label={t("settings.sidebar")}
+                      title={t("settings.navigationStyle")}
+                      description={t("settings.navigationStyleDescription")}
+                    >
+                      <HorizontalSlidingSelector
+                        items={navigationDensityOptions}
+                        activeIndex={navigationDensityOptions.findIndex(
+                          (option) =>
+                            option.value ===
+                            (settingsDraft?.sidebarShowDescriptions ?? false)
+                        )}
+                        getItemKey={(option) => String(option.value)}
+                        onSelect={(option) =>
+                          updateSettingsDraft({
+                            sidebarShowDescriptions: option.value
+                          })
+                        }
+                        ariaLabel={t("settings.navigationStyle")}
+                        itemClassName="rounded-[0.95rem] text-left"
+                        renderItem={(option, isActive) => (
+                          <InterfaceChoiceContent
+                            icon={option.icon}
+                            label={option.label}
+                            caption={option.caption}
+                            meta={option.meta}
+                            isActive={isActive}
+                          />
+                        )}
+                      />
+
+                      <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                        <div className="flex items-start gap-3">
+                          <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500">
+                            <PanelLeft size={14} />
+                          </span>
+
+                          <div>
+                            <p className="text-sm font-medium text-white">
+                              {t("settings.collapsibleSidebar")}
+                            </p>
+                            <p className="mt-1 text-xs leading-5 text-neutral-600">
+                              {t("settings.collapsibleSidebarDesc")}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    </SettingCard>
 
                     <SettingCard
                       icon={<Sparkles size={18} />}
-                      label={t("settings.layoutTip")}
-                      title={t("settings.collapsibleSidebar")}
-                      description={t("settings.collapsibleSidebarDesc")}
+                      label={t("settings.onboarding")}
+                      title={t("settings.launchExperience")}
+                      description={t("settings.launchExperienceDescription")}
                     >
-                      <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
-                        <p className="text-sm font-medium text-white">
-                          {t("settings.recommendedSetup")}
-                        </p>
+                      <HorizontalSlidingSelector
+                        items={launchExperienceOptions}
+                        activeIndex={launchExperienceOptions.findIndex(
+                          (option) => option.value === launchExperienceMode
+                        )}
+                        getItemKey={(option) => option.value}
+                        onSelect={(option) => {
+                          if (option.value === "workspace") {
+                            updateSettingsDraft({
+                              onboardingEnabled: false,
+                              onboardingShowEveryLaunch: false
+                            });
+                            return;
+                          }
 
-                        <p className="mt-2 text-sm leading-6 text-neutral-500">
-                          {t("settings.recommendedSetupDesc")}
+                          updateSettingsDraft({
+                            onboardingEnabled: true,
+                            onboardingShowEveryLaunch:
+                              option.value === "every-launch"
+                          });
+                        }}
+                        ariaLabel={t("settings.launchExperience")}
+                        itemClassName="rounded-[0.95rem] text-left"
+                        renderItem={(option, isActive) => (
+                          <InterfaceChoiceContent
+                            icon={option.icon}
+                            label={option.label}
+                            caption={option.caption}
+                            meta={option.meta}
+                            isActive={isActive}
+                          />
+                        )}
+                      />
+
+                      <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/40 px-4 py-3">
+                        <p className="text-sm font-medium text-white">
+                          {launchExperienceMode === "workspace"
+                            ? t("settings.onboardingLaunchOff")
+                            : launchExperienceMode === "first-run"
+                              ? t("settings.onboardingFirstRunOnly")
+                              : t("settings.onboardingEveryLaunch")}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-neutral-600">
+                          {t("settings.onboardingSavedWithSettings")}
                         </p>
                       </div>
                     </SettingCard>
                   </div>
+
+                  <SettingCard
+                    icon={<SlidersHorizontal size={18} />}
+                    label={t("settings.experienceLab")}
+                    title={t("settings.experienceLabTitle")}
+                    description={t("settings.experienceLabDescription")}
+                  >
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <PlannedInterfaceFeature
+                        icon={Gauge}
+                        title={t("settings.interfaceScale")}
+                        description={t("settings.interfaceScaleDescription")}
+                        badge={t("settings.planned")}
+                      />
+
+                      <PlannedInterfaceFeature
+                        icon={Sparkles}
+                        title={t("settings.motionPreference")}
+                        description={t("settings.motionPreferenceDescription")}
+                        badge={t("settings.planned")}
+                      />
+
+                      <PlannedInterfaceFeature
+                        icon={ShieldCheck}
+                        title={t("settings.focusContrast")}
+                        description={t("settings.focusContrastDescription")}
+                        badge={t("settings.planned")}
+                      />
+                    </div>
+                  </SettingCard>
                 </>
               )}
 

@@ -18,7 +18,10 @@ import {
 
 import type { Project, ReadinessCheck } from "../types";
 import { Button } from "../components/ui/Button";
-import { SegmentedFilter, type SegmentedFilterOption } from "../components/ui/SegmentedFilter";
+import {
+  HorizontalSlidingSelector,
+  VerticalSlidingSelector
+} from "../components/ui/SlidingSelectors";
 import { ProjectScannerSignalsPanel } from "../components/projects/ProjectReadinessReport";
 
 type ScannerLens = "all" | "withSignals" | "missingTests" | "missingCi";
@@ -31,7 +34,11 @@ interface ScannersPageProps {
   onCreateTaskPack: (project: Project) => void | Promise<void>;
 }
 
-const SCANNER_LENS_OPTIONS: SegmentedFilterOption<ScannerLens>[] = [
+const SCANNER_LENS_OPTIONS: Array<{
+  value: ScannerLens;
+  label: string;
+  description: string;
+}> = [
   {
     value: "all",
     label: "All scans",
@@ -65,6 +72,9 @@ const SCANNER_SWITCH_TRANSITION = {
   damping: 42,
   mass: 0.58
 } as const;
+
+const SCANNER_PROJECT_ITEM_HEIGHT = 90;
+const SCANNER_PROJECT_ITEM_GAP = 10;
 
 function normalize(value: unknown) {
   return String(value ?? "").toLowerCase();
@@ -134,10 +144,6 @@ function getScannerCoverage(project: Project) {
 
 function getPassedChecks(project: Project) {
   return project.readinessReport.checks.filter((check) => check.passed).length;
-}
-
-function getFailedChecks(project: Project) {
-  return project.readinessReport.checks.filter((check) => !check.passed);
 }
 
 function ScannerMetricTile({
@@ -298,66 +304,79 @@ function AnimatedHealthBar({ score, isSelected = false }: { score: number; isSel
 
 function ProjectScanListItem({
   project,
-  isSelected,
-  onSelect
+  isSelected
 }: {
   project: Project;
   isSelected: boolean;
-  onSelect: () => void;
 }) {
   const signals = project.readinessReport.signals;
-  const failedChecks = getFailedChecks(project).length;
-  const coverage = getScannerCoverage(project);
 
   return (
-    <motion.button
-      type="button"
-      onClick={onSelect}
-      aria-pressed={isSelected}
-      layout="position"
-      transition={SCANNER_SWITCH_TRANSITION}
-      className={[
-        "group relative w-full overflow-hidden rounded-[1.35rem] border p-4 text-left transition-colors duration-150",
-        "shadow-[0_12px_36px_rgba(0,0,0,0.18)]",
-        isSelected
-          ? "border-white bg-white text-black shadow-[0_20px_54px_rgba(255,255,255,0.12),0_18px_40px_rgba(0,0,0,0.42)]"
-          : "border-neutral-900 bg-black/35 text-white hover:border-neutral-800 hover:bg-black/50"
-      ].join(" ")}
-    >
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="mb-1 flex items-center gap-2">
-            <p className="truncate text-sm font-semibold">{project.name}</p>
-            {signals?.inventory.truncated && (
-              <AlertTriangle size={13} className={isSelected ? "text-black/60" : "text-amber-200"} />
-            )}
-          </div>
-          <p className={isSelected ? "truncate text-xs text-black/55" : "truncate text-xs text-neutral-600"}>
-            {project.localPath}
-          </p>
-        </div>
+    <>
+      <span
+        aria-hidden="true"
+        className={[
+          "pointer-events-none absolute inset-0 rounded-[1.35rem] border transition-colors duration-150",
+          isSelected
+            ? "border-transparent"
+            : "border-transparent group-hover:border-neutral-800 group-hover:bg-black/15"
+        ].join(" ")}
+      />
 
-        <span className="cf-display-font text-2xl font-semibold leading-none">
-          {project.readinessScore}
-        </span>
-      </div>
+      <span className="relative z-10 block">
+        <span className="mb-2 flex items-start justify-between gap-3">
+          <span className="min-w-0">
+            <span className="mb-1 flex items-center gap-2">
+              <span
+                className={[
+                  "truncate text-sm font-semibold transition-colors duration-150",
+                  isSelected ? "text-black" : "text-white group-hover:text-white"
+                ].join(" ")}
+              >
+                {project.name}
+              </span>
+              {signals?.inventory.truncated && (
+                <AlertTriangle
+                  size={13}
+                  className={isSelected ? "text-black/60" : "text-amber-200"}
+                />
+              )}
+            </span>
+            <span
+              className={[
+                "block truncate text-xs transition-colors duration-150",
+                isSelected
+                  ? "text-black/55"
+                  : "text-neutral-600 group-hover:text-neutral-500"
+              ].join(" ")}
+            >
+              {project.localPath}
+            </span>
+          </span>
 
-      <div className={isSelected ? "mb-3 rounded-full bg-black/10 p-1" : "mb-3 rounded-full border border-neutral-900 bg-black p-1"}>
-        <AnimatedHealthBar score={project.readinessScore} isSelected={isSelected} />
-      </div>
+          <span
+            className={[
+              "cf-display-font text-2xl font-semibold leading-none transition-colors duration-150",
+              isSelected ? "text-black" : "text-white"
+            ].join(" ")}
+          >
+            {project.readinessScore}
+          </span>
+        </span>
 
-      <div className="grid grid-cols-3 gap-2 text-[11px]">
-        <span className={isSelected ? "rounded-full bg-black/10 px-2 py-1 text-center text-black/60" : "cf-badge justify-center"}>
-          {getPassedChecks(project)}/{project.readinessReport.checks.length} checks
+        <span
+          className={[
+            "block rounded-full p-1 transition-colors duration-150",
+            isSelected
+              ? "bg-black/10"
+              : "border border-neutral-900 bg-black"
+          ].join(" ")}
+        >
+          <AnimatedHealthBar score={project.readinessScore} isSelected={isSelected} />
         </span>
-        <span className={isSelected ? "rounded-full bg-black/10 px-2 py-1 text-center text-black/60" : "cf-badge justify-center"}>
-          {failedChecks} gaps
-        </span>
-        <span className={isSelected ? "rounded-full bg-black/10 px-2 py-1 text-center text-black/60" : "cf-badge justify-center"}>
-          {coverage}/9 signals
-        </span>
-      </div>
-    </motion.button>
+
+      </span>
+    </>
   );
 }
 
@@ -496,10 +515,42 @@ export function ScannersPage({
             />
           </div>
 
-          <SegmentedFilter
-            value={lens}
-            options={SCANNER_LENS_OPTIONS}
-            onChange={(value) => setLens(value as ScannerLens)}
+          <HorizontalSlidingSelector
+            items={SCANNER_LENS_OPTIONS}
+            activeIndex={Math.max(
+              0,
+              SCANNER_LENS_OPTIONS.findIndex((option) => option.value === lens)
+            )}
+            getItemKey={(option) => option.value}
+            onSelect={(option) => setLens(option.value)}
+            ariaLabel="Scanner filters"
+            className="h-14"
+            itemClassName="rounded-[0.95rem] px-3 text-left"
+            renderItem={(option, isActive) => (
+              <span className="relative z-10 flex min-w-0 items-center gap-2">
+                <span className="min-w-0">
+                  <span
+                    className={[
+                      "block truncate text-xs font-semibold transition-colors duration-150",
+                      isActive ? "text-black" : "text-neutral-300 group-hover:text-white"
+                    ].join(" ")}
+                  >
+                    {option.label}
+                  </span>
+
+                  <span
+                    className={[
+                      "mt-0.5 block truncate text-[10px] transition-colors duration-150",
+                      isActive
+                        ? "text-black/55"
+                        : "text-neutral-700 group-hover:text-neutral-500"
+                    ].join(" ")}
+                  >
+                    {option.description}
+                  </span>
+                </span>
+              </span>
+            )}
           />
 
           <div className="mt-4">
@@ -508,22 +559,23 @@ export function ScannersPage({
                 No projects match this scanner lens.
               </div>
             ) : (
-              <div className="grid gap-3">
-                {filteredProjects.map((project, index) => (
-                  <motion.div
-                    key={project.id}
-                    initial={{ opacity: 0, y: 8, scale: 0.985 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    transition={{ ...PAGE_TRANSITION, delay: Math.min(index * 0.012, 0.06) }}
-                  >
-                    <ProjectScanListItem
-                      project={project}
-                      isSelected={selectedProject?.id === project.id}
-                      onSelect={() => setSelectedProjectId(project.id)}
-                    />
-                  </motion.div>
-                ))}
-              </div>
+              <VerticalSlidingSelector
+                items={filteredProjects}
+                activeIndex={filteredProjects.findIndex(
+                  (project) => project.id === selectedProject?.id
+                )}
+                itemHeight={SCANNER_PROJECT_ITEM_HEIGHT}
+                itemGap={SCANNER_PROJECT_ITEM_GAP}
+                getItemKey={(project) => project.id}
+                onSelect={(project) => setSelectedProjectId(project.id)}
+                ariaLabel="Scanned projects"
+                itemSurfaceClassName="rounded-[1.35rem] border border-neutral-900 bg-black/35 shadow-[0_12px_36px_rgba(0,0,0,0.18)]"
+                indicatorClassName="rounded-[1.35rem] border border-white shadow-[0_20px_54px_rgba(255,255,255,0.12),0_18px_40px_rgba(0,0,0,0.42)]"
+                itemClassName="overflow-hidden rounded-[1.35rem] px-4 py-3 text-left"
+                renderItem={(project, isSelected) => (
+                  <ProjectScanListItem project={project} isSelected={isSelected} />
+                )}
+              />
             )}
           </div>
         </aside>

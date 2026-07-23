@@ -1,4 +1,5 @@
 import {
+  AlertTriangle,
   CheckCircle2,
   CircleDot,
   Code2,
@@ -7,18 +8,44 @@ import {
   FolderGit2,
   GitBranch,
   KeyRound,
+  ListChecks,
   Package,
+  ScanSearch,
   ShieldCheck,
   TerminalSquare,
   XCircle
 } from "lucide-react";
-import type { ReactNode } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReadinessReport, ScannerSignals } from "../../types";
+import { HorizontalSlidingSelector } from "../ui/SlidingSelectors";
 
 interface ProjectReadinessReportProps {
   report: ReadinessReport;
 }
+
+type ReadinessView = "priorities" | "checks" | "scanner";
+
+const READINESS_VIEWS = [
+  {
+    id: "priorities" as const,
+    label: "Priorities",
+    caption: "What needs attention first",
+    icon: AlertTriangle
+  },
+  {
+    id: "checks" as const,
+    label: "Checks",
+    caption: "All readiness criteria",
+    icon: ListChecks
+  },
+  {
+    id: "scanner" as const,
+    label: "Scanner",
+    caption: "Detected project evidence",
+    icon: ScanSearch
+  }
+] as const;
 
 type SignalTone = "success" | "warning" | "muted";
 
@@ -342,81 +369,191 @@ export function ProjectScannerSignalsPanel({
 }
 
 export function ProjectReadinessReport({ report }: ProjectReadinessReportProps) {
-  const { t } = useTranslation();
-  const passedChecks = report.checks.filter((check) => check.passed).length;
+  const [activeView, setActiveView] = useState<ReadinessView>("priorities");
+  const passedChecks = report.checks.filter((check) => check.passed);
+  const failedChecks = report.checks.filter((check) => !check.passed);
+  const activeViewIndex = READINESS_VIEWS.findIndex((view) => view.id === activeView);
+
+  useEffect(() => {
+    setActiveView("priorities");
+  }, [report.score, report.checks.length, report.issues.length]);
+
+  const issueItems = report.issues.map((issue) => ({
+    key: `issue-${issue}`,
+    title: issue,
+    caption: "Recommended improvement",
+    points: null as number | null
+  }));
+
+  const failedCheckItems = failedChecks.map((check) => ({
+    key: `check-${check.key}`,
+    title: check.label,
+    caption: check.message,
+    points: check.points
+  }));
+
+  const priorityItems = [...issueItems, ...failedCheckItems].filter(
+    (item, index, items) =>
+      items.findIndex(
+        (candidate) =>
+          candidate.title.trim().toLowerCase() === item.title.trim().toLowerCase()
+      ) === index
+  );
+
+  const renderCheckRows = (checks: ReadinessReport["checks"]) => (
+    <div className="divide-y divide-neutral-900">
+      {checks.map((check) => (
+        <article key={check.key} className="flex min-w-0 items-start gap-3 px-4 py-3.5">
+          <span className="mt-0.5 shrink-0">
+            {check.passed ? (
+              <CheckCircle2 size={15} className="text-emerald-300" />
+            ) : (
+              <XCircle size={15} className="text-neutral-600" />
+            )}
+          </span>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex min-w-0 items-center justify-between gap-3">
+              <p className="truncate text-sm font-medium text-neutral-200">{check.label}</p>
+              <span className="shrink-0 text-xs text-neutral-600">
+                {check.passed ? `+${check.points}` : `0/${check.points}`}
+              </span>
+            </div>
+            <p className="mt-1 text-xs leading-5 text-neutral-600">{check.message}</p>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
 
   return (
-    <div className="mt-5 overflow-hidden border-t border-neutral-900 pt-5">
-      <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-        <div>
-          <p className="cf-tech-label mb-1 text-[10px] uppercase text-neutral-600">
-            {t("projectsPage.report")}
-          </p>
+    <div>
+      <HorizontalSlidingSelector
+        items={READINESS_VIEWS}
+        activeIndex={activeViewIndex}
+        getItemKey={(view) => view.id}
+        onSelect={(view) => setActiveView(view.id)}
+        ariaLabel="Readiness evidence view"
+        className="rounded-[1.2rem]"
+        itemClassName="min-h-[58px] px-4 py-2"
+        renderItem={(view, isActive) => {
+          const Icon = view.icon;
 
-          <p className="text-sm text-neutral-500">
-            {t("projectsPage.checksPassed", {
-              passed: passedChecks,
-              total: report.checks.length
-            })}
-          </p>
-        </div>
+          return (
+            <span className="flex min-w-0 items-center justify-center gap-3 text-left">
+              <span
+                className={[
+                  "grid size-8 shrink-0 place-items-center rounded-xl border transition-colors duration-150",
+                  isActive
+                    ? "border-black/10 bg-black/[0.045] text-black"
+                    : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:text-white"
+                ].join(" ")}
+              >
+                <Icon size={15} />
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-sm font-semibold">{view.label}</span>
+                <span className={isActive ? "block truncate text-xs text-black/50" : "block truncate text-xs text-neutral-700"}>
+                  {view.caption}
+                </span>
+              </span>
+            </span>
+          );
+        }}
+      />
 
-        <span className="cf-badge">
-          {report.issues.length > 0
-            ? t("projectsPage.issuesCount", { count: report.issues.length })
-            : t("projectsPage.noMajorIssues")}
-        </span>
-      </div>
-
-      <div className="grid gap-3 md:grid-cols-2">
-        {report.checks.map((check) => (
-          <div
-            key={check.key}
-            className="rounded-2xl border border-neutral-900 bg-black/40 p-4 transition duration-200 hover:border-neutral-800 hover:bg-black/45"
-          >
-            <div className="flex items-start gap-3">
-              {check.passed ? (
-                <CheckCircle2 size={16} className="mt-0.5 text-emerald-300" />
-              ) : (
-                <XCircle size={16} className="mt-0.5 text-neutral-600" />
-              )}
-
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <p className="truncate text-sm font-medium text-white">
-                    {check.label}
-                  </p>
-
-                  <span className="shrink-0 text-xs text-neutral-600">
-                    {check.passed ? `+${check.points}` : `0/${check.points}`}
-                  </span>
-                </div>
-
-                <p className="mt-1 text-sm leading-5 text-neutral-500">
-                  {check.message}
-                </p>
-              </div>
+      {activeView === "priorities" && (
+        <div className="mt-4">
+          <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <p className="cf-tech-label mb-1 text-[10px] uppercase text-neutral-600">
+                Next priorities
+              </p>
+              <p className="text-sm text-neutral-500">
+                {priorityItems.length > 0
+                  ? "Focus on these gaps before broad implementation work."
+                  : "No major readiness gaps were detected."}
+              </p>
             </div>
+
+            <span className="cf-badge">
+              {priorityItems.length > 0
+                ? `${priorityItems.length} attention item${priorityItems.length === 1 ? "" : "s"}`
+                : "Ready for scoped work"}
+            </span>
           </div>
-        ))}
-      </div>
 
-      <ProjectScannerSignalsPanel signals={report.signals} compact />
-
-      {report.issues.length > 0 && (
-        <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/40 p-4">
-          <p className="cf-tech-label mb-3 text-[10px] uppercase text-neutral-600">
-            {t("projectsPage.recommendedImprovements")}
-          </p>
-
-          <ul className="space-y-2">
-            {report.issues.map((issue) => (
-              <li key={issue} className="text-sm leading-5 text-neutral-500">
-                • {issue}
-              </li>
-            ))}
-          </ul>
+          {priorityItems.length > 0 ? (
+            <div className="overflow-hidden rounded-2xl border border-neutral-900 bg-black/35">
+              {priorityItems.map((item, index) => (
+                <article
+                  key={item.key}
+                  className={[
+                    "flex min-w-0 items-start gap-3 px-4 py-3.5",
+                    index > 0 ? "border-t border-neutral-900" : ""
+                  ].join(" ")}
+                >
+                  <span className="grid size-7 shrink-0 place-items-center rounded-full border border-neutral-800 bg-neutral-950 text-[11px] text-neutral-500">
+                    {index + 1}
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex min-w-0 items-center justify-between gap-3">
+                      <p className="truncate text-sm font-medium text-neutral-200">{item.title}</p>
+                      {item.points !== null && (
+                        <span className="shrink-0 text-xs text-neutral-600">0/{item.points}</span>
+                      )}
+                    </div>
+                    <p className="mt-1 text-xs leading-5 text-neutral-600">{item.caption}</p>
+                  </div>
+                </article>
+              ))}
+            </div>
+          ) : (
+            <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.06] p-4 text-sm leading-6 text-emerald-100/75">
+              All readiness checks passed or no actionable gaps were reported. Continue with a focused Task Pack.
+            </div>
+          )}
         </div>
+      )}
+
+      {activeView === "checks" && (
+        <div className="mt-4 grid gap-4 xl:grid-cols-2">
+          <section className="overflow-hidden rounded-2xl border border-neutral-900 bg-black/35">
+            <div className="flex items-center justify-between gap-3 border-b border-neutral-900 px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-white">Needs attention</p>
+                <p className="mt-0.5 text-xs text-neutral-600">Failed readiness criteria</p>
+              </div>
+              <SignalBadge tone={failedChecks.length > 0 ? "warning" : "success"}>
+                {failedChecks.length}
+              </SignalBadge>
+            </div>
+            {failedChecks.length > 0 ? (
+              renderCheckRows(failedChecks)
+            ) : (
+              <p className="px-4 py-5 text-sm text-neutral-600">No failed checks.</p>
+            )}
+          </section>
+
+          <section className="overflow-hidden rounded-2xl border border-neutral-900 bg-black/35">
+            <div className="flex items-center justify-between gap-3 border-b border-neutral-900 px-4 py-3">
+              <div>
+                <p className="text-sm font-medium text-white">Passed</p>
+                <p className="mt-0.5 text-xs text-neutral-600">Verified project capabilities</p>
+              </div>
+              <SignalBadge tone="success">{passedChecks.length}</SignalBadge>
+            </div>
+            {passedChecks.length > 0 ? (
+              renderCheckRows(passedChecks)
+            ) : (
+              <p className="px-4 py-5 text-sm text-neutral-600">No checks have passed yet.</p>
+            )}
+          </section>
+        </div>
+      )}
+
+      {activeView === "scanner" && (
+        <ProjectScannerSignalsPanel signals={report.signals} compact />
       )}
     </div>
   );

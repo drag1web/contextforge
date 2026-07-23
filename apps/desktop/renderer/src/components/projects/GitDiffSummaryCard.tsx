@@ -84,11 +84,21 @@ function DiffBadge({ children, tone = "muted" }: { children: ReactNode; tone?: D
   );
 }
 
-function DiffMetric({ label, value, caption }: { label: string; value: string | number; caption: string }) {
+function DiffMetric({
+  label,
+  value,
+  caption,
+  withDivider = false
+}: {
+  label: string;
+  value: string | number;
+  caption: string;
+  withDivider?: boolean;
+}) {
   return (
-    <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
+    <div className={["min-w-0 px-4 py-3", withDivider ? "border-l border-neutral-900" : ""].join(" ")}>
       <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{label}</p>
-      <p className="cf-display-font mt-1 text-2xl font-semibold text-white">{value}</p>
+      <p className="cf-display-font mt-1 text-xl font-semibold text-white">{value}</p>
       <p className="mt-1 truncate text-xs text-neutral-600">{caption}</p>
     </div>
   );
@@ -560,7 +570,7 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
 
           <div className="min-w-0">
             <div className="mb-1 flex flex-wrap items-center gap-2">
-              <p className="text-sm font-medium text-white">Diff Review Lite</p>
+              <p className="text-sm font-medium text-white">Diff summary</p>
               <DiffBadge tone={diffSummary?.dirty ? "warning" : diffSummary?.isGitRepo ? "success" : "muted"}>
                 {isLoading && !diffSummary ? <Loader2 size={12} className="animate-spin" /> : null}
                 {diffSummary
@@ -623,11 +633,11 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
 
       {!error && diffSummary?.isGitRepo && (
         <div className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid overflow-hidden rounded-2xl border border-neutral-900 bg-black/35 sm:grid-cols-2 lg:grid-cols-4">
             <DiffMetric label="Files" value={diffSummary.totals.filesChanged} caption={buildScopeSummary(diffSummary)} />
-            <DiffMetric label="Added" value={`+${diffSummary.totals.additions}`} caption="tracked line additions" />
-            <DiffMetric label="Deleted" value={`-${diffSummary.totals.deletions}`} caption="tracked line deletions" />
-            <DiffMetric label="Binary" value={diffSummary.totals.binaryFiles} caption="binary file changes" />
+            <DiffMetric label="Added" value={`+${diffSummary.totals.additions}`} caption="tracked line additions" withDivider />
+            <DiffMetric label="Deleted" value={`-${diffSummary.totals.deletions}`} caption="tracked line deletions" withDivider />
+            <DiffMetric label="Binary" value={diffSummary.totals.binaryFiles} caption="binary file changes" withDivider />
           </div>
 
           <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">

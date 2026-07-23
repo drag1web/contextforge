@@ -27,6 +27,7 @@ import {
 } from "../api/client";
 import { Button } from "../components/ui/Button";
 import { ProjectMemoryModal } from "../components/modals/ProjectMemoryModal";
+import { VerticalSlidingSelector } from "../components/ui/SlidingSelectors";
 
 interface ContextBuilderPageProps {
   projects: Project[];
@@ -42,12 +43,8 @@ const PAGE_TRANSITION = {
   ease: [0.16, 1, 0.3, 1]
 } as const;
 
-const ACTIVE_PROJECT_TRANSITION = {
-  type: "spring",
-  stiffness: 520,
-  damping: 42,
-  mass: 0.55
-} as const;
+const CONTEXT_SOURCE_ITEM_HEIGHT = 60;
+const CONTEXT_SOURCE_ITEM_GAP = 8;
 
 function normalize(value: unknown) {
   return String(value ?? "").toLowerCase();
@@ -83,55 +80,33 @@ function getMainIssue(project: Project, t: (key: string) => string) {
   return project.readinessReport.issues[0] ?? t("contextBuilder.noMajorIssues");
 }
 
-function ProjectListButton({
+function ProjectListContent({
   project,
   isSelected,
-  onClick,
   packageManagerLabel
 }: {
   project: Project;
   isSelected: boolean;
-  onClick: () => void;
   packageManagerLabel: string;
 }) {
   return (
-    <motion.button
-      type="button"
-      onClick={onClick}
-      whileHover={{ scale: isSelected ? 1 : 1.01 }}
-      whileTap={{ scale: 0.992 }}
-      transition={PAGE_TRANSITION}
-      className={[
-        "group relative flex w-full items-center gap-3 overflow-hidden rounded-2xl border px-3 py-3 text-left transition duration-200",
-        isSelected
-          ? "border-transparent text-black shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
-          : "border-neutral-900 bg-black/35 text-neutral-400 hover:border-white hover:bg-white hover:text-black hover:shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
-      ].join(" ")}
-    >
-      {isSelected && (
-        <motion.span
-          layoutId="context-builder-active-project"
-          className="absolute inset-0 rounded-2xl bg-white"
-          transition={ACTIVE_PROJECT_TRANSITION}
-        />
-      )}
-
+    <span className="flex h-full items-center gap-3">
       <span
         className={[
-          "relative z-10 grid size-9 shrink-0 place-items-center rounded-xl border transition",
+          "grid size-9 shrink-0 place-items-center rounded-xl border transition-colors duration-150",
           isSelected
             ? "border-black/10 bg-black/5 text-black"
-            : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black"
+            : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-neutral-700 group-hover:text-neutral-300"
         ].join(" ")}
       >
         <Bot size={15} />
       </span>
 
-      <span className="relative z-10 min-w-0 flex-1">
+      <span className="min-w-0 flex-1">
         <span
           className={[
-            "block truncate text-sm font-semibold transition",
-            isSelected ? "text-black" : "text-white group-hover:text-black"
+            "block truncate text-sm font-semibold transition-colors duration-150",
+            isSelected ? "text-black" : "text-white"
           ].join(" ")}
         >
           {project.name}
@@ -139,17 +114,15 @@ function ProjectListButton({
 
         <span
           className={[
-            "mt-0.5 block truncate text-xs transition",
-            isSelected
-              ? "text-black/55"
-              : "text-neutral-600 group-hover:text-black/55"
+            "mt-0.5 block truncate text-xs transition-colors duration-150",
+            isSelected ? "text-black/55" : "text-neutral-600"
           ].join(" ")}
         >
           AI {project.readinessScore}/100 ·{" "}
           {project.packageManager ?? packageManagerLabel}
         </span>
       </span>
-    </motion.button>
+    </span>
   );
 }
 
@@ -711,33 +684,39 @@ export function ContextBuilderPage({
             />
           </div>
 
-          <div className="space-y-2">
-            {filteredProjects.map((project) => {
-              const isSelected = selectedProject?.id === project.id;
-
-              return (
-                <ProjectListButton
-                  key={project.id}
+          {filteredProjects.length > 0 ? (
+            <VerticalSlidingSelector
+              items={filteredProjects}
+              activeIndex={filteredProjects.findIndex(
+                (project) => project.id === selectedProject?.id
+              )}
+              getItemKey={(project) => project.id}
+              onSelect={(project) => setSelectedProjectId(project.id)}
+              renderItem={(project, isSelected) => (
+                <ProjectListContent
                   project={project}
                   isSelected={isSelected}
                   packageManagerLabel={t("common.unknown")}
-                  onClick={() => setSelectedProjectId(project.id)}
                 />
-              );
-            })}
+              )}
+              itemHeight={CONTEXT_SOURCE_ITEM_HEIGHT}
+              itemGap={CONTEXT_SOURCE_ITEM_GAP}
+              itemSurfaceClassName="rounded-2xl border border-neutral-900 bg-black/35"
+              itemClassName="rounded-2xl px-3 text-left"
+              indicatorClassName="shadow-[0_12px_34px_rgba(255,255,255,0.10)]"
+              ariaLabel={t("contextBuilder.selectContextSource")}
+            />
+          ) : (
+            <div className="rounded-2xl border border-neutral-900 bg-black/35 p-5 text-center">
+              <p className="text-sm font-medium text-white">
+                {t("contextBuilder.noMatchingProjects")}
+              </p>
 
-            {filteredProjects.length === 0 && (
-              <div className="rounded-2xl border border-neutral-900 bg-black/35 p-5 text-center">
-                <p className="text-sm font-medium text-white">
-                  {t("contextBuilder.noMatchingProjects")}
-                </p>
-
-                <p className="mt-1 text-sm text-neutral-500">
-                  {t("contextBuilder.tryAnotherProject")}
-                </p>
-              </div>
-            )}
-          </div>
+              <p className="mt-1 text-sm text-neutral-500">
+                {t("contextBuilder.tryAnotherProject")}
+              </p>
+            </div>
+          )}
         </aside>
 
         {selectedProject && (

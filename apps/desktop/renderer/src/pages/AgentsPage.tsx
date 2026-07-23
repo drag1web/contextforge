@@ -22,7 +22,7 @@ import {
 
 import { AiToolLogo } from "../components/ai/AiToolLogo";
 import { Button } from "../components/ui/Button";
-import { SlidingSelectionIndicator } from "../components/ui/SlidingSelectionIndicator";
+import { VerticalSlidingSelector } from "../components/ui/SlidingSelectors";
 
 interface AgentsPageProps {
   onOpenContextBuilder?: () => void;
@@ -51,13 +51,6 @@ interface AgentProfile {
 
 const AGENT_ITEM_HEIGHT = 104;
 const AGENT_ITEM_GAP = 12;
-
-const AGENT_SWITCH_TRANSITION = {
-  type: "spring",
-  stiffness: 520,
-  damping: 42,
-  mass: 0.58,
-} as const;
 
 const PAGE_TRANSITION = {
   duration: 0.2,
@@ -381,72 +374,58 @@ function StatCard({
   );
 }
 
-function AgentListItem({
+function AgentListContent({
   profile,
   isSelected,
-  onSelect,
 }: {
   profile: AgentProfile;
   isSelected: boolean;
-  onSelect: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={[
-        "cf-pressable group relative z-10 w-full overflow-hidden rounded-[1.35rem] p-4 text-left transition-colors duration-150",
-        isSelected
-          ? "text-black"
-          : "border border-neutral-900 bg-black/35 text-white hover:border-white/15 hover:bg-white/[0.035]",
-      ].join(" ")}
-      style={{ height: AGENT_ITEM_HEIGHT }}
-    >
-      <div className="flex items-start gap-3">
-        <AiToolLogo
-          tool={getProfileIconTool(profile)}
-          size="lg"
-          contrast={isSelected ? "onLight" : "default"}
-          className={isSelected ? "border-black/10 bg-black/5" : ""}
-        />
+    <div className="flex items-start gap-3">
+      <AiToolLogo
+        tool={getProfileIconTool(profile)}
+        size="lg"
+        contrast={isSelected ? "onLight" : "default"}
+        className={isSelected ? "border-black/10 bg-black/5" : ""}
+      />
 
-        <div className="min-w-0 flex-1">
-          <div className="mb-1 flex items-center gap-2">
-            <p className="truncate text-sm font-semibold">{profile.title}</p>
-            <span
-              className={[
-                "rounded-full px-2 py-0.5 text-[10px] font-medium",
-                isSelected
-                  ? "bg-black/10 text-black/60"
-                  : "border border-neutral-900 bg-neutral-950 text-neutral-600 group-hover:border-white/15 group-hover:text-neutral-300",
-              ].join(" ")}
-            >
-              {profile.readiness}
-            </span>
-          </div>
-
-          <p
-            className={
+      <div className="min-w-0 flex-1">
+        <div className="mb-1 flex items-center gap-2">
+          <p className="truncate text-sm font-semibold">{profile.title}</p>
+          <span
+            className={[
+              "rounded-full px-2 py-0.5 text-[10px] font-medium",
               isSelected
-                ? "truncate text-xs text-black/55"
-                : "truncate text-xs text-neutral-600 group-hover:text-neutral-500"
-            }
+                ? "bg-black/10 text-black/60"
+                : "border border-neutral-900 bg-neutral-950 text-neutral-600 group-hover:border-white/15 group-hover:text-neutral-300",
+            ].join(" ")}
           >
-            {profile.shortLabel}
-          </p>
-
-          <p
-            className={
-              isSelected
-                ? "mt-2 line-clamp-2 text-xs leading-5 text-black/60"
-                : "mt-2 line-clamp-2 text-xs leading-5 text-neutral-500"
-            }
-          >
-            {profile.subtitle}
-          </p>
+            {profile.readiness}
+          </span>
         </div>
+
+        <p
+          className={
+            isSelected
+              ? "truncate text-xs text-black/55"
+              : "truncate text-xs text-neutral-600 group-hover:text-neutral-500"
+          }
+        >
+          {profile.shortLabel}
+        </p>
+
+        <p
+          className={
+            isSelected
+              ? "mt-2 line-clamp-2 text-xs leading-5 text-black/60"
+              : "mt-2 line-clamp-2 text-xs leading-5 text-neutral-500"
+          }
+        >
+          {profile.subtitle}
+        </p>
       </div>
-    </button>
+    </div>
   );
 }
 
@@ -563,10 +542,6 @@ export function AgentsPage({
   const activeAgentIndex = AGENT_PROFILES.findIndex(
     (profile) => profile.id === selectedAgent.id,
   );
-  const agentListHeight =
-    AGENT_PROFILES.length * AGENT_ITEM_HEIGHT +
-    (AGENT_PROFILES.length - 1) * AGENT_ITEM_GAP;
-
   return (
     <section className="space-y-5">
       <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012)_48%,rgba(255,255,255,0.006))] p-5 shadow-[0_16px_52px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.045)]">
@@ -656,40 +631,24 @@ export function AgentsPage({
             <span className="cf-badge">{AGENT_PROFILES.length} ready</span>
           </div>
 
-          <div
-            className="relative grid"
-            style={{
-              gap: AGENT_ITEM_GAP,
-              height: agentListHeight,
-            }}
-          >
-            <SlidingSelectionIndicator
-              activeIndex={activeAgentIndex}
-              itemHeight={AGENT_ITEM_HEIGHT}
-              itemGap={AGENT_ITEM_GAP}
-              className="agents-profile-active-pill"
-              transition={AGENT_SWITCH_TRANSITION}
-            />
-
-            {AGENT_PROFILES.map((profile, index) => (
-              <motion.div
-                key={profile.id}
-                initial={{ opacity: 0, y: 8, scale: 0.985 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                transition={{
-                  ...PAGE_TRANSITION,
-                  delay: Math.min(index * 0.012, 0.06),
-                }}
-                style={{ height: AGENT_ITEM_HEIGHT }}
-              >
-                <AgentListItem
-                  profile={profile}
-                  isSelected={selectedAgent.id === profile.id}
-                  onSelect={() => setSelectedAgentId(profile.id)}
-                />
-              </motion.div>
-            ))}
-          </div>
+          <VerticalSlidingSelector
+            items={AGENT_PROFILES}
+            activeIndex={activeAgentIndex}
+            itemHeight={AGENT_ITEM_HEIGHT}
+            itemGap={AGENT_ITEM_GAP}
+            getItemKey={(profile) => profile.id}
+            onSelect={(profile) => setSelectedAgentId(profile.id)}
+            ariaLabel="Agent targets"
+            itemSurfaceClassName="rounded-[1.35rem] border border-neutral-900 bg-black/35 shadow-[0_12px_36px_rgba(0,0,0,0.18)]"
+            indicatorClassName="rounded-[1.35rem] border border-white shadow-[0_20px_54px_rgba(255,255,255,0.12),0_18px_40px_rgba(0,0,0,0.42)]"
+            itemClassName="overflow-hidden rounded-[1.35rem] p-4 text-left"
+            renderItem={(profile, isSelected) => (
+              <AgentListContent
+                profile={profile}
+                isSelected={isSelected}
+              />
+            )}
+          />
         </aside>
 
         <main className="min-w-0 space-y-5">

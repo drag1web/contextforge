@@ -1,19 +1,16 @@
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import {
   AlertTriangle,
-  CheckCircle2,
   Clock3,
-  FileCode2,
   GitBranch,
   GitCommitHorizontal,
   GitPullRequestDraft,
   Loader2,
-  RefreshCw,
-  ShieldCheck
+  RefreshCw
 } from "lucide-react";
 
 import { getProjectGitStatus } from "../../api/client";
-import type { GitChangedFile, GitStatusResult } from "../../types";
+import type { GitStatusResult } from "../../types";
 import { Button } from "../ui/Button";
 
 interface GitContextCardProps {
@@ -22,8 +19,6 @@ interface GitContextCardProps {
 }
 
 type GitBucket = "staged" | "unstaged" | "untracked";
-
-const FILE_PREVIEW_LIMIT = 6;
 
 const BUCKET_META: Record<GitBucket, { label: string; caption: string }> = {
   staged: {
@@ -50,21 +45,11 @@ function getStatusLabel(status: GitStatusResult) {
   return `${status.summary.totalChanged} changed`;
 }
 
-function getPreviewFiles(status: GitStatusResult) {
-  const withBucket: Array<GitChangedFile & { bucket: GitBucket }> = [
-    ...status.staged.map((file) => ({ ...file, bucket: "staged" as const })),
-    ...status.unstaged.map((file) => ({ ...file, bucket: "unstaged" as const })),
-    ...status.untracked.map((file) => ({ ...file, bucket: "untracked" as const }))
-  ];
-
-  return withBucket.slice(0, FILE_PREVIEW_LIMIT);
-}
-
-function GitMetric({ label, value, caption }: { label: string; value: number; caption: string }) {
+function GitMetric({ label, value, caption, withDivider = false }: { label: string; value: number; caption: string; withDivider?: boolean }) {
   return (
-    <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
+    <div className={["min-w-0 px-4 py-3", withDivider ? "border-l border-neutral-900" : ""].join(" ")}>
       <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{label}</p>
-      <p className="cf-display-font mt-1 text-2xl font-semibold text-white">{value}</p>
+      <p className="cf-display-font mt-1 text-xl font-semibold text-white">{value}</p>
       <p className="mt-1 truncate text-xs text-neutral-600">{caption}</p>
     </div>
   );
@@ -120,11 +105,6 @@ export function GitContextCard({ projectId, enabled }: GitContextCardProps) {
     setHasRequested(false);
   }, [projectId]);
 
-  const previewFiles = useMemo(() => (status?.isGitRepo ? getPreviewFiles(status) : []), [status]);
-  const hiddenPreviewCount = status
-    ? Math.max(0, status.summary.totalChanged - previewFiles.length)
-    : 0;
-
   return (
     <section className="mt-4 rounded-[1.35rem] border border-neutral-900 bg-black/30 p-4">
       <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
@@ -135,7 +115,7 @@ export function GitContextCard({ projectId, enabled }: GitContextCardProps) {
 
           <div className="min-w-0">
             <div className="mb-1 flex flex-wrap items-center gap-2">
-              <p className="text-sm font-medium text-white">Local changes</p>
+              <p className="text-sm font-medium text-white">Repository status</p>
               <GitBadge tone={status && !status.dirty && status.isGitRepo ? "success" : status?.dirty ? "warning" : "muted"}>
                 {isLoading && !status ? <Loader2 size={12} className="animate-spin" /> : null}
                 {status ? getStatusLabel(status) : isLoading ? "Reading status" : "Not loaded"}
@@ -143,7 +123,7 @@ export function GitContextCard({ projectId, enabled }: GitContextCardProps) {
             </div>
 
             <p className="text-xs leading-5 text-neutral-600">
-              Local working tree only. No GitHub account, cloud sync, commits, or pushes.
+              Branch, latest commit, and local file state. No commits or pushes are performed here.
             </p>
           </div>
         </div>
@@ -193,27 +173,10 @@ export function GitContextCard({ projectId, enabled }: GitContextCardProps) {
 
       {!error && status?.isGitRepo && (
         <div className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-3">
-            <GitMetric
-              label={BUCKET_META.staged.label}
-              value={status.summary.stagedCount}
-              caption={BUCKET_META.staged.caption}
-            />
-            <GitMetric
-              label={BUCKET_META.unstaged.label}
-              value={status.summary.unstagedCount}
-              caption={BUCKET_META.unstaged.caption}
-            />
-            <GitMetric
-              label={BUCKET_META.untracked.label}
-              value={status.summary.untrackedCount}
-              caption={BUCKET_META.untracked.caption}
-            />
-          </div>
-
-          <div className="grid gap-3 lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1.05fr)]">
-            <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
-              <div className="mb-3 flex flex-wrap gap-2">
+          <div className="overflow-hidden rounded-2xl border border-neutral-900 bg-black/35">
+            <div className="flex flex-wrap items-start justify-between gap-4 p-4">
+              <div className="min-w-0">
+                <div className="mb-3 flex flex-wrap gap-2">
                 <GitBadge tone="muted">
                   <GitBranch size={12} />
                   {status.isDetachedHead ? "Detached" : status.branch ?? "Unknown branch"}
@@ -224,16 +187,13 @@ export function GitContextCard({ projectId, enabled }: GitContextCardProps) {
                 {status.summary.isTruncated && <GitBadge tone="warning">Large status</GitBadge>}
               </div>
 
-              {status.latestCommit ? (
-                <div className="min-w-0">
-                  <p className="cf-tech-label mb-2 text-[10px] uppercase text-neutral-600">
-                    Latest commit
-                  </p>
+                {status.latestCommit ? (
                   <div className="flex min-w-0 items-start gap-3">
                     <div className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
                       <GitCommitHorizontal size={14} />
                     </div>
                     <div className="min-w-0">
+                      <p className="cf-tech-label mb-1 text-[9px] uppercase text-neutral-700">Latest commit</p>
                       <p className="truncate text-sm font-medium text-white">
                         {status.latestCommit.subject}
                       </p>
@@ -248,57 +208,35 @@ export function GitContextCard({ projectId, enabled }: GitContextCardProps) {
                       </p>
                     </div>
                   </div>
-                </div>
-              ) : (
-                <p className="text-sm leading-5 text-neutral-500">Latest commit could not be read.</p>
-              )}
-            </div>
-
-            <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
-              <div className="mb-3 flex items-start justify-between gap-3">
-                <div>
-                  <p className="cf-tech-label mb-1 text-[10px] uppercase text-neutral-600">
-                    Changed files preview
-                  </p>
-                  <p className="text-xs leading-5 text-neutral-600">
-                    For awareness only. Task Pack selection still decides edit context separately.
-                  </p>
-                </div>
-                <GitBadge tone={status.dirty ? "warning" : "success"}>
-                  <ShieldCheck size={12} />
-                  {status.summary.totalChanged}
-                </GitBadge>
+                ) : (
+                  <p className="text-sm leading-5 text-neutral-500">Latest commit could not be read.</p>
+                )}
               </div>
 
-              {previewFiles.length === 0 ? (
-                <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100">
-                  <CheckCircle2 size={14} className="mr-2 inline" />
-                  No local changes detected.
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  {previewFiles.map((file, index) => (
-                    <div
-                      key={`${file.bucket}-${file.path}-${index}`}
-                      className="flex min-w-0 items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/25 px-3 py-2"
-                    >
-                      <div className="flex min-w-0 items-center gap-2">
-                        <FileCode2 size={13} className="shrink-0 text-neutral-500" />
-                        <p className="truncate text-xs text-neutral-300">{file.path}</p>
-                      </div>
-                      <span className="shrink-0 rounded-full border border-neutral-800 bg-black/35 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-neutral-500">
-                        {file.bucket}
-                      </span>
-                    </div>
-                  ))}
+              <div className="rounded-xl border border-neutral-900 bg-black/25 px-3 py-2 text-right">
+                <p className="cf-tech-label text-[9px] uppercase text-neutral-700">Changed files</p>
+                <p className="mt-1 text-xl font-semibold text-white">{status.summary.totalChanged}</p>
+              </div>
+            </div>
 
-                  {hiddenPreviewCount > 0 && (
-                    <p className="px-1 text-xs text-neutral-600">
-                      +{hiddenPreviewCount} more changed files hidden from this compact preview.
-                    </p>
-                  )}
-                </div>
-              )}
+            <div className="grid grid-cols-3 border-t border-neutral-900">
+              <GitMetric
+                label={BUCKET_META.staged.label}
+                value={status.summary.stagedCount}
+                caption={BUCKET_META.staged.caption}
+              />
+              <GitMetric
+                label={BUCKET_META.unstaged.label}
+                value={status.summary.unstagedCount}
+                caption={BUCKET_META.unstaged.caption}
+                withDivider
+              />
+              <GitMetric
+                label={BUCKET_META.untracked.label}
+                value={status.summary.untrackedCount}
+                caption={BUCKET_META.untracked.caption}
+                withDivider
+              />
             </div>
           </div>
 

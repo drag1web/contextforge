@@ -282,6 +282,9 @@ const resources = {
         title: "Manage scanned projects and prepare them for AI coding agents.",
         description:
           "Search repositories, review readiness, rescan project structure, generate AGENTS.md, and create Task Packs from one place.",
+        workspaceKicker: "Local project workspace",
+        workspaceDescription:
+          "Choose a repository, review its readiness, and start the next AI workflow without opening a full report.",
         projects: "Projects",
         scannedRepositories: "scanned repositories",
         avgReadiness: "Avg readiness",
@@ -329,6 +332,7 @@ const resources = {
         checks: "Checks",
         issues: "Issues",
         createTaskPack: "Create Task Pack",
+        projectDetails: "Project details",
         rescan: "Rescan",
         hideReport: "Hide report",
         showReport: "Show report",
@@ -897,13 +901,31 @@ const resources = {
         languageSystem: "System language",
         languageEnglish: "English",
         languageRussian: "Russian",
+        languageSystemDescription: "Follow the language selected by your operating system.",
+        languageEnglishDescription: "Use the English interface across the workspace.",
+        languageRussianDescription: "Use the Russian interface across the workspace.",
         languageCurrent: "Current language",
         languageSavedWithSettings:
           "The selected language is saved with the rest of your interface settings.",
+        appliesImmediately: "Applies immediately",
+        interfaceWorkspaceTitle: "Shape ContextForge around the way you work.",
+        interfaceWorkspaceDescription:
+          "Choose the language, navigation style and launch experience without changing project data or AI behavior.",
         sidebar: "Sidebar",
         navigationDensity: "Navigation density",
         navigationDensityDescription:
           "Keep the sidebar compact by default, or show extra descriptions when you want more guidance.",
+        navigationStyle: "Navigation style",
+        navigationStyleDescription:
+          "Choose a compact workspace or keep helper descriptions visible while navigating.",
+        navigationCompact: "Compact",
+        navigationCompactDescription: "Clean navigation with labels only and more room for project content.",
+        navigationGuided: "Guided",
+        navigationGuidedDescription: "Show short descriptions under navigation items for extra context.",
+        recommendedChoice: "Recommended",
+        guided: "Guided",
+        fastest: "Fastest",
+        alpha: "Alpha",
         showSidebarDescriptions: "Show sidebar descriptions",
         showSidebarDescriptionsDesc:
           "Display short helper text under each navigation item. Turn this off for a cleaner, more compact sidebar.",
@@ -922,6 +944,26 @@ const resources = {
         onboardingEveryLaunch: "Onboarding appears on every launch.",
         onboardingSavedWithSettings:
           "These preferences are saved locally with the rest of your interface settings.",
+        launchExperience: "Launch experience",
+        launchExperienceDescription:
+          "Decide whether ContextForge opens directly in the workspace or shows the quick guide first.",
+        launchDirect: "Open workspace",
+        launchDirectDescription: "Skip the guide and continue directly to the main workspace.",
+        launchFirstRun: "First run only",
+        launchFirstRunDescription: "Show the guide until initial setup has been completed.",
+        launchEveryTime: "Every launch",
+        launchEveryTimeDescription: "Keep the guide visible on each start while the alpha flow evolves.",
+        experienceLab: "Experience lab",
+        experienceLabTitle: "More interface controls are being prepared.",
+        experienceLabDescription:
+          "These options are visible as honest placeholders and do not change application behavior yet.",
+        interfaceScale: "Interface scale",
+        interfaceScaleDescription: "Choose compact, comfortable or spacious control sizing.",
+        motionPreference: "Motion preference",
+        motionPreferenceDescription: "Follow the system setting or reduce non-essential animation.",
+        focusContrast: "Focus contrast",
+        focusContrastDescription: "Strengthen keyboard focus and selected-state visibility.",
+        planned: "Planned",
         layoutTip: "Layout tip",
         collapsibleSidebar: "Collapsible sidebar",
         collapsibleSidebarDesc:
@@ -1307,6 +1349,9 @@ const resources = {
           "Управляйте просканированными проектами и готовьте их для AI coding agents.",
         description:
           "Ищите репозитории, проверяйте readiness, пересканируйте структуру проекта, генерируйте AGENTS.md и создавайте Task Packs из одного места.",
+        workspaceKicker: "Локальная рабочая область проектов",
+        workspaceDescription:
+          "Выберите репозиторий, проверьте его готовность и запустите следующий AI workflow без открытия полного отчёта.",
         projects: "Проекты",
         scannedRepositories: "просканированные репозитории",
         avgReadiness: "Средний readiness",
@@ -1355,6 +1400,7 @@ const resources = {
         checks: "Проверки",
         issues: "Проблемы",
         createTaskPack: "Создать Task Pack",
+        projectDetails: "Детали проекта",
         rescan: "Пересканировать",
         hideReport: "Скрыть отчёт",
         showReport: "Показать отчёт",
@@ -1925,13 +1971,31 @@ const resources = {
         languageSystem: "Системный язык",
         languageEnglish: "English",
         languageRussian: "Русский",
+        languageSystemDescription: "Использовать язык, выбранный в операционной системе.",
+        languageEnglishDescription: "Включить английский интерфейс во всём workspace.",
+        languageRussianDescription: "Включить русский интерфейс во всём workspace.",
         languageCurrent: "Текущий язык",
         languageSavedWithSettings:
           "Выбранный язык сохраняется вместе с остальными настройками интерфейса.",
+        appliesImmediately: "Применяется сразу",
+        interfaceWorkspaceTitle: "Настройте ContextForge под свой рабочий ритм.",
+        interfaceWorkspaceDescription:
+          "Выберите язык, стиль навигации и сценарий запуска без изменения данных проектов и поведения AI.",
         sidebar: "Сайдбар",
         navigationDensity: "Плотность навигации",
         navigationDensityDescription:
           "Оставьте сайдбар компактным или включите описания, если нужны подсказки.",
+        navigationStyle: "Стиль навигации",
+        navigationStyleDescription:
+          "Выберите компактный workspace или оставьте подсказки видимыми во время навигации.",
+        navigationCompact: "Компактный",
+        navigationCompactDescription: "Чистая навигация без описаний и больше места для контента проекта.",
+        navigationGuided: "С подсказками",
+        navigationGuidedDescription: "Показывать короткие описания под пунктами навигации.",
+        recommendedChoice: "Рекомендуется",
+        guided: "Подсказки",
+        fastest: "Быстрее",
+        alpha: "Alpha",
         showSidebarDescriptions: "Показывать описания в сайдбаре",
         showSidebarDescriptionsDesc:
           "Показывает короткие подсказки под пунктами навигации. Отключите для более чистого интерфейса.",
@@ -1950,6 +2014,26 @@ const resources = {
         onboardingEveryLaunch: "Обучение показывается при каждом запуске.",
         onboardingSavedWithSettings:
           "Эти параметры сохраняются локально вместе с остальными настройками интерфейса.",
+        launchExperience: "Сценарий запуска",
+        launchExperienceDescription:
+          "Выберите, будет ли ContextForge сразу открывать workspace или сначала показывать краткий гайд.",
+        launchDirect: "Открывать workspace",
+        launchDirectDescription: "Пропускать гайд и сразу переходить в основной интерфейс.",
+        launchFirstRun: "Только первый запуск",
+        launchFirstRunDescription: "Показывать гайд до завершения первоначальной настройки.",
+        launchEveryTime: "При каждом запуске",
+        launchEveryTimeDescription: "Показывать гайд при каждом старте, пока alpha-flow дорабатывается.",
+        experienceLab: "Лаборатория интерфейса",
+        experienceLabTitle: "Готовятся дополнительные настройки интерфейса.",
+        experienceLabDescription:
+          "Эти возможности показаны как честные заглушки и пока не изменяют поведение приложения.",
+        interfaceScale: "Масштаб интерфейса",
+        interfaceScaleDescription: "Выбор компактного, комфортного или просторного размера элементов.",
+        motionPreference: "Настройка анимаций",
+        motionPreferenceDescription: "Следовать системным настройкам или уменьшить необязательные анимации.",
+        focusContrast: "Контраст фокуса",
+        focusContrastDescription: "Усилить видимость keyboard-focus и выбранных состояний.",
+        planned: "В планах",
         layoutTip: "Подсказка по layout",
         collapsibleSidebar: "Складной сайдбар",
         collapsibleSidebarDesc:
