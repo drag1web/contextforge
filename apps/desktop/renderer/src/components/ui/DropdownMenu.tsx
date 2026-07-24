@@ -1,16 +1,18 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { MoreHorizontal } from "lucide-react";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 
 interface DropdownAction {
   label: string;
   onClick: () => void;
   disabled?: boolean;
+  icon?: ReactNode;
 }
 
 interface DropdownMenuProps {
   actions: DropdownAction[];
+  ariaLabel?: string;
 }
 
 interface MenuPosition {
@@ -23,7 +25,7 @@ const MENU_WIDTH = 220;
 const MENU_ITEM_HEIGHT = 38;
 const MENU_VERTICAL_OFFSET = 8;
 
-export function DropdownMenu({ actions }: DropdownMenuProps) {
+export function DropdownMenu({ actions, ariaLabel = "More actions" }: DropdownMenuProps) {
   const buttonRef = useRef<HTMLButtonElement | null>(null);
 
   const [isOpen, setIsOpen] = useState(false);
@@ -111,6 +113,8 @@ export function DropdownMenu({ actions }: DropdownMenuProps) {
         ref={buttonRef}
         type="button"
         onClick={toggleMenu}
+        aria-label={ariaLabel}
+        title={ariaLabel}
         className={[
           "inline-flex size-8 items-center justify-center rounded-lg",
           "border border-neutral-900 bg-neutral-950/80 text-neutral-500",
@@ -179,11 +183,18 @@ export function DropdownMenu({ actions }: DropdownMenuProps) {
                       closeMenu();
                     }}
                     className={[
-                      "cf-menu-item",
+                      "cf-menu-item group",
                       action.disabled ? "cf-menu-item-disabled" : ""
                     ].join(" ")}
                   >
-                    <span className="truncate">{action.label}</span>
+                    <span className="flex min-w-0 items-center gap-2.5">
+                      {action.icon && (
+                        <span className="shrink-0 text-neutral-500 transition-colors group-hover:text-white">
+                          {action.icon}
+                        </span>
+                      )}
+                      <span className="truncate">{action.label}</span>
+                    </span>
                   </button>
                 ))}
               </motion.div>

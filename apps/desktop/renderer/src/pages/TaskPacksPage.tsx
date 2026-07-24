@@ -1,32 +1,41 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ChangeEvent,
+  type ReactNode,
+} from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import {
   Archive,
-  Bot,
   Check,
+  ChevronDown,
   Clipboard,
   CloudUpload,
+  Download,
   ExternalLink,
   FileText,
-  Github,
+  Filter,
+  HelpCircle,
   Inbox,
   RefreshCw,
   Search,
   ShieldAlert,
-  ShieldCheck,
   SlidersHorizontal,
-  Sparkles,
   X,
 } from "lucide-react";
 
 import type { Project, TaskPack } from "../types";
 import type { DesktopSyncTaskPackInboxItem } from "../types/desktopSync";
 import { getProjects, importCloudTaskPack } from "../api/client";
-import { TaskPackExportActions } from "../components/taskPacks/TaskPackExportActions";
-import { Button } from "../components/ui/Button";
 import { makeAiToolSelectOption } from "../components/ai/aiToolOptions";
+import { Button } from "../components/ui/Button";
 import { CustomSelect, type SelectOption } from "../components/ui/CustomSelect";
+import { DropdownMenu } from "../components/ui/DropdownMenu";
+import { HorizontalSlidingSelector } from "../components/ui/SlidingSelectors";
+import { exportTaskPack } from "../utils/taskPackExport";
 
 interface TaskPacksPageProps {
   taskPacks: TaskPack[];
@@ -48,6 +57,7 @@ type TaskTypeFilter =
 
 type BodyModeFilter = "all" | "ollama" | "template" | "cached" | "fallback";
 type SortMode = "newest" | "oldest" | "title" | "project";
+type PublishState = "idle" | "publishing" | "published";
 
 const TASK_PACK_TRANSITION = {
   duration: 0.2,
@@ -74,9 +84,16 @@ function getTaskPackBodyBadge(taskPack: TaskPack, t: (key: string) => string) {
     return t("labels.ollamaRefined");
   }
 
+  if (taskPack.generationCached) {
+    return t("labels.cached");
+  }
+
+  if (taskPack.generationUsedFallback) {
+    return t("labels.fallback");
+  }
+
   return t("labels.safeTemplate");
 }
-
 
 async function openGitHubUrl(url: string) {
   if (window.contextforge?.openExternalUrl) {
@@ -134,64 +151,6 @@ function matchesBodyMode(taskPack: TaskPack, filter: BodyModeFilter) {
   );
 }
 
-function Pill({
-  children,
-  tone = "default",
-}: {
-  children: React.ReactNode;
-  tone?: "default" | "success" | "warning";
-}) {
-  const className =
-    tone === "success"
-      ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
-      : tone === "warning"
-        ? "border-amber-400/20 bg-amber-400/10 text-amber-200"
-        : "border-neutral-800 bg-neutral-950 text-neutral-400";
-
-  return (
-    <span
-      className={[
-        "inline-flex h-6 max-w-full items-center gap-1.5 truncate rounded-full border px-2.5 text-[11px] font-medium",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </span>
-  );
-}
-
-function MetricCard({
-  icon,
-  label,
-  value,
-  caption,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string | number;
-  caption: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
-      <div className="mb-3 flex items-center justify-between gap-3">
-        <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-          {icon}
-        </span>
-
-        <span className="cf-display-font text-2xl font-semibold text-white">
-          {value}
-        </span>
-      </div>
-
-      <p className="cf-tech-label truncate text-[10px] uppercase text-neutral-600">
-        {label}
-      </p>
-
-      <p className="mt-1 truncate text-xs text-neutral-600">{caption}</p>
-    </div>
-  );
-}
-
 function getTaskPackDisplayTitle(taskPack: TaskPack) {
   const sourceIssue = taskPack.generationRecipe?.githubIssue;
 
@@ -221,17 +180,35 @@ function getTaskPackArchiveSummary(taskPack: TaskPack) {
   return taskPack.rawTask;
 }
 
+function getFriendlyWebsiteError(
+  error: string,
+  t: (key: string) => string,
+) {
+  if (!error) {
+    return "";
+  }
+
+  if (
+    error.includes("WEBSITE_OFFLINE") ||
+    error.includes("Could not reach the ContextForge website")
+  ) {
+    return t("taskPacksPage.websiteUnavailableDescription");
+  }
+
+  return t("taskPacksPage.cloudRequestFailedFriendly");
+}
+
 function EmptyState({
   icon,
   title,
   description,
 }: {
-  icon: React.ReactNode;
+  icon: ReactNode;
   title: string;
   description: string;
 }) {
   return (
-    <section className="grid h-full min-h-[360px] place-items-center rounded-[1.5rem] border border-dashed border-neutral-800 bg-black/25 p-8 text-center">
+    <section className="grid h-full min-h-[320px] place-items-center rounded-[1.5rem] border border-dashed border-neutral-800 bg-black/25 p-8 text-center">
       <div>
         <div className="mx-auto mb-5 grid size-12 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-300">
           {icon}
@@ -247,11 +224,28 @@ function EmptyState({
   );
 }
 
+function SummaryMetric({
+  value,
+  label,
+}: {
+  value: string | number;
+  label: string;
+}) {
+  return (
+    <div className="min-w-0 px-4 first:pl-0 last:pr-0">
+      <p className="cf-display-font truncate text-xl font-semibold text-white">
+        {value}
+      </p>
+      <p className="mt-0.5 truncate text-[11px] text-neutral-600">{label}</p>
+    </div>
+  );
+}
+
 function TaskPackCard({
   taskPack,
   isCopied,
   projectName,
-  bodyBadge,
+  bodyLabel,
   onCopy,
   onOpen,
   onPublish,
@@ -260,154 +254,176 @@ function TaskPackCard({
   taskPack: TaskPack;
   isCopied: boolean;
   projectName: string;
-  bodyBadge: string;
+  bodyLabel: string;
   onCopy: () => void;
   onOpen: () => void;
   onPublish: () => void;
-  publishState: "idle" | "publishing" | "published";
+  publishState: PublishState;
 }) {
   const { t } = useTranslation();
+  const [isExpanded, setIsExpanded] = useState(false);
   const recipe = taskPack.generationRecipe;
+  const summary = getTaskPackArchiveSummary(taskPack);
+
+  const actions = [
+    {
+      label: t("taskPacksPage.exportMarkdown"),
+      icon: <FileText size={15} />,
+      onClick: () => exportTaskPack(taskPack, "md"),
+    },
+    {
+      label: t("taskPacksPage.exportText"),
+      icon: <Download size={15} />,
+      onClick: () => exportTaskPack(taskPack, "txt"),
+    },
+    {
+      label:
+        publishState === "publishing"
+          ? t("taskPacksPage.publishing")
+          : publishState === "published"
+            ? t("taskPacksPage.onWebsite")
+            : t("taskPacksPage.publishToWebsite"),
+      icon:
+        publishState === "published" ? (
+          <Check size={15} />
+        ) : (
+          <CloudUpload size={15} />
+        ),
+      onClick: onPublish,
+      disabled: publishState === "publishing",
+    },
+    {
+      label: isCopied
+        ? t("taskPacksPage.copied")
+        : t("taskPacksPage.copyPrompt"),
+      icon: isCopied ? <Check size={15} /> : <Clipboard size={15} />,
+      onClick: onCopy,
+    },
+    ...(recipe?.githubCreatedIssue
+      ? [
+          {
+            label: t("taskPacksPage.openGitHubIssue"),
+            icon: <ExternalLink size={15} />,
+            onClick: () =>
+              void openGitHubUrl(recipe.githubCreatedIssue!.issueUrl),
+          },
+        ]
+      : []),
+  ];
 
   return (
     <motion.article
       layout
-      initial={{ opacity: 0, y: 12 }}
+      initial={{ opacity: 0, y: 10 }}
       animate={{ opacity: 1, y: 0 }}
       transition={TASK_PACK_TRANSITION}
-      className="group rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5 transition hover:border-white/15 hover:bg-white/[0.035]"
+      className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4 transition-colors duration-200 hover:border-white/15 hover:bg-white/[0.025]"
     >
-      <div className="mb-4 flex items-start justify-between gap-4">
-        <div className="min-w-0">
-          <div className="mb-3 flex flex-wrap gap-2">
-            <Pill>{bodyBadge}</Pill>
+      <div className="flex items-start justify-between gap-4">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-400">
+            <FileText size={15} />
+          </span>
 
-            {recipe && <Pill tone="success">v0.5 recipe</Pill>}
+          <div className="min-w-0">
+            <h4 className="line-clamp-2 text-[15px] font-semibold leading-6 text-white">
+              {getTaskPackDisplayTitle(taskPack)}
+            </h4>
 
-            {recipe?.githubIssue && (
-              <Pill tone="success">
-                <Github size={12} />
-                Issue #{recipe.githubIssue.issueNumber}
-              </Pill>
-            )}
-
-            {recipe?.githubCreatedIssue && (
-              <Pill tone="success">
-                <ExternalLink size={12} />
-                Created #{recipe.githubCreatedIssue.issueNumber}
-              </Pill>
-            )}
+            <p className="mt-1 truncate text-xs text-neutral-600">
+              {projectName} <span className="px-1.5 text-neutral-800">·</span>
+              {taskPack.targetTool}
+              <span className="px-1.5 text-neutral-800">·</span>
+              {taskPack.taskType}
+              <span className="px-1.5 text-neutral-800">·</span>
+              {bodyLabel}
+            </p>
           </div>
+        </div>
 
-          <div className="flex items-start gap-3">
-            <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-              <FileText size={15} />
-            </span>
+        <div className="flex shrink-0 items-center gap-2">
+          <Button variant="primary" onClick={onOpen} className="h-9 px-4 text-xs">
+            {t("taskPacksPage.open")}
+          </Button>
+          <DropdownMenu
+            ariaLabel={t("taskPacksPage.moreActions")}
+            actions={actions}
+          />
+        </div>
+      </div>
 
-            <div className="min-w-0">
-              <h4 className="line-clamp-2 text-base font-semibold leading-6 text-white">
-                {getTaskPackDisplayTitle(taskPack)}
-              </h4>
+      <div className="mt-3 border-t border-neutral-900 pt-2.5">
+        <button
+          type="button"
+          onClick={() => setIsExpanded((current) => !current)}
+          aria-expanded={isExpanded}
+          className={[
+            "group flex w-full items-center gap-2 rounded-xl px-1 py-1.5 text-left text-xs font-medium outline-none transition-colors",
+            isExpanded
+              ? "text-white"
+              : "text-neutral-500 hover:text-white focus-visible:text-white",
+          ].join(" ")}
+        >
+          <motion.span
+            className={[
+              "grid size-6 shrink-0 place-items-center rounded-full border transition-colors",
+              isExpanded
+                ? "border-white bg-white text-black"
+                : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-neutral-700",
+            ].join(" ")}
+            animate={{ rotate: isExpanded ? 180 : 0 }}
+            transition={{ type: "spring", stiffness: 560, damping: 42, mass: 0.5 }}
+          >
+            <ChevronDown size={13} />
+          </motion.span>
 
-              <p className="mt-1 truncate text-xs text-neutral-600">
-                {projectName}
+          <span>
+            {isExpanded
+              ? t("taskPacksPage.hideDescription")
+              : t("taskPacksPage.showDescription")}
+          </span>
+
+          <span className="ml-auto text-[10px] font-normal uppercase tracking-[0.12em] text-neutral-700">
+            {isExpanded
+              ? t("taskPacksPage.detailsExpanded")
+              : t("taskPacksPage.detailsCollapsed")}
+          </span>
+        </button>
+
+        <motion.div
+          className="grid"
+          initial={false}
+          animate={{ gridTemplateRows: isExpanded ? "1fr" : "0fr" }}
+          transition={{ duration: 0.24, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <div className="overflow-hidden">
+            <motion.div
+              initial={false}
+              animate={{ opacity: isExpanded ? 1 : 0, y: isExpanded ? 0 : -4 }}
+              transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
+              className="pt-2"
+            >
+              <p className="rounded-2xl border border-neutral-900/80 bg-black/25 px-3.5 py-3 text-sm leading-6 text-neutral-500">
+                {summary}
               </p>
-            </div>
+            </motion.div>
           </div>
-        </div>
+        </motion.div>
       </div>
 
-      <p className="line-clamp-3 text-sm leading-6 text-neutral-500">
-        {getTaskPackArchiveSummary(taskPack)}
-      </p>
-
-      <div className="mt-5 flex flex-wrap gap-2">
-        <Pill>{taskPack.targetTool}</Pill>
-        <Pill>{taskPack.taskType}</Pill>
-
-        {recipe?.template && <Pill>Template: {recipe.template.name}</Pill>}
-
-        {recipe?.ruleProfile && <Pill>Profile: {recipe.ruleProfile.name}</Pill>}
-
-        {recipe && (
-          <Pill tone="success">Rules: {recipe.counts.enabledRules}</Pill>
-        )}
-      </div>
-
-      {recipe && (
-        <div className="mt-4 grid grid-cols-3 gap-2">
-          <div className="rounded-xl border border-neutral-900 bg-black/35 p-2.5">
-            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-              Rules
-            </p>
-
-            <p className="mt-1 text-sm font-semibold text-white">
-              {recipe.counts.enabledRules}
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-neutral-900 bg-black/35 p-2.5">
-            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-              Custom
-            </p>
-
-            <p className="mt-1 text-sm font-semibold text-white">
-              {recipe.counts.customRules}
-            </p>
-          </div>
-
-          <div className="rounded-xl border border-neutral-900 bg-black/35 p-2.5">
-            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-              Criteria
-            </p>
-
-            <p className="mt-1 text-sm font-semibold text-white">
-              {recipe.counts.acceptanceCriteria}
-            </p>
-          </div>
-        </div>
-      )}
-
-      <div className="mt-5 flex items-center justify-between gap-4 border-t border-neutral-900 pt-4">
-        <p className="truncate text-xs text-neutral-700">
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3 border-t border-neutral-900 pt-3">
+        <p className="truncate text-[11px] text-neutral-700">
           {formatDate(taskPack.createdAt)}
+          {recipe?.githubIssue
+            ? ` · GitHub #${recipe.githubIssue.issueNumber}`
+            : ""}
         </p>
 
-        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
-          <TaskPackExportActions taskPack={taskPack} compact />
-
-          <Button
-            variant="secondary"
-            onClick={onPublish}
-            disabled={publishState === "publishing"}
-          >
-            {publishState === "published" ? <Check size={15} /> : <CloudUpload size={15} />}
-            {publishState === "publishing"
-              ? t("taskPacksPage.publishing")
-              : publishState === "published"
-                ? t("taskPacksPage.onWebsite")
-                : t("taskPacksPage.publish")}
-          </Button>
-
-          {recipe?.githubCreatedIssue && (
-            <Button
-              variant="secondary"
-              onClick={() => openGitHubUrl(recipe.githubCreatedIssue!.issueUrl)}
-            >
-              <ExternalLink size={15} />
-              Issue
-            </Button>
-          )}
-
-          <Button variant="secondary" onClick={onCopy}>
-            {isCopied ? <Check size={15} /> : <Clipboard size={15} />}
-            {isCopied ? "Copied" : "Copy"}
-          </Button>
-
-          <Button variant="primary" onClick={onOpen}>
-            Open
-          </Button>
-        </div>
+        <p className="text-[11px] text-neutral-700">
+          {publishState === "published"
+            ? t("taskPacksPage.onWebsite")
+            : t("taskPacksPage.savedLocally")}
+        </p>
       </div>
     </motion.article>
   );
@@ -428,6 +444,8 @@ function CloudTaskPackBridge({
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
+  const [isInboxOpen, setIsInboxOpen] = useState(false);
+  const [isGuideOpen, setIsGuideOpen] = useState(false);
 
   const refresh = useCallback(async (silent = false) => {
     const bridge = window.contextforge?.desktopSync;
@@ -454,9 +472,10 @@ function CloudTaskPackBridge({
       setInbox(items);
       setProjects(localProjects);
       setLastCheckedAt(new Date());
+      setIsInboxOpen((current) => current || items.length > 0);
       setProjectByDelivery((current) => {
         const fallback = String(localProjects[0]?.id ?? "");
-        return Object.fromEntries(items.map((item) => [
+        return Object.fromEntries(items.map((item: DesktopSyncTaskPackInboxItem) => [
           item.delivery.id,
           current[item.delivery.id] && localProjects.some((project) => String(project.id) === current[item.delivery.id])
             ? current[item.delivery.id]
@@ -565,119 +584,232 @@ function CloudTaskPackBridge({
     }
   }
 
+  const friendlyError = getFriendlyWebsiteError(error, t);
+  const statusLabel = !connected
+    ? t("taskPacksPage.cloudDisconnected")
+    : error
+      ? t("taskPacksPage.cloudLinkedOffline")
+      : t("taskPacksPage.cloudOnline");
+
   return (
-    <section className="xl:col-span-2 rounded-[1.5rem] border border-white/10 bg-white/[0.025] p-4">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-black/45 text-neutral-300">
-            <Inbox size={17} />
+    <section className="rounded-[1.35rem] border border-neutral-900 bg-black/30 px-4 py-3.5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-400">
+            <Inbox size={16} />
           </span>
-          <div>
+
+          <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-semibold text-white">{t("taskPacksPage.cloudBridge")}</h3>
-              <Pill tone={connected ? "success" : "warning"}>
-                {connected ? t("taskPacksPage.cloudConnected") : t("taskPacksPage.cloudDisconnected")}
-              </Pill>
+              <h3 className="text-sm font-semibold text-white">
+                {t("taskPacksPage.desktopLink")}
+              </h3>
+              <span
+                className={[
+                  "inline-flex items-center gap-1.5 text-[11px] font-medium",
+                  !connected
+                    ? "text-neutral-500"
+                    : error
+                      ? "text-amber-300"
+                      : "text-emerald-300",
+                ].join(" ")}
+              >
+                <span
+                  className={[
+                    "size-1.5 rounded-full",
+                    !connected
+                      ? "bg-neutral-700"
+                      : error
+                        ? "bg-amber-300"
+                        : "bg-emerald-300",
+                  ].join(" ")}
+                />
+                {statusLabel}
+              </span>
             </div>
-            <p className="mt-1 max-w-3xl text-xs leading-5 text-neutral-500">
-              {t("taskPacksPage.cloudBridgeDescription")}
+
+            <p className="mt-1 truncate text-xs text-neutral-600">
+              {friendlyError ||
+                (connected
+                  ? inbox.length > 0
+                    ? t("taskPacksPage.incomingCount", { count: inbox.length })
+                    : t("taskPacksPage.inboxEmpty")
+                  : t("taskPacksPage.cloudBridgeDescription"))}
+              {lastCheckedAt && !error
+                ? ` · ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}`
+                : ""}
             </p>
-            {connected && (
-              <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-emerald-400/80">
-                <span className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.65)]" />
-                {t("taskPacksPage.autoRefreshActive")}
-                {lastCheckedAt ? ` · ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}
-              </p>
-            )}
           </div>
         </div>
-        <Button variant="secondary" onClick={() => void refresh()} disabled={loading}>
-          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
-          {t("taskPacksPage.refreshInbox")}
-        </Button>
+
+        <div className="flex items-center gap-2">
+          <Button
+            variant="ghost"
+            onClick={() => setIsGuideOpen((current) => !current)}
+            className="h-9 px-3 text-xs"
+            aria-expanded={isGuideOpen}
+          >
+            <HelpCircle size={14} />
+            {t("taskPacksPage.howPublishingWorks")}
+          </Button>
+
+          {connected && inbox.length > 0 && (
+            <Button
+              variant="secondary"
+              onClick={() => setIsInboxOpen((current) => !current)}
+              className="h-9 px-3 text-xs"
+            >
+              <motion.span
+                animate={{ rotate: isInboxOpen ? 180 : 0 }}
+                transition={{ type: "spring", stiffness: 560, damping: 42, mass: 0.5 }}
+              >
+                <ChevronDown size={14} />
+              </motion.span>
+              {isInboxOpen
+                ? t("taskPacksPage.hideInbox")
+                : t("taskPacksPage.showInbox")}
+            </Button>
+          )}
+
+          <Button
+            variant="secondary"
+            onClick={() => void refresh()}
+            disabled={loading}
+            className="h-9 px-3 text-xs"
+          >
+            <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+            {error ? t("taskPacksPage.retry") : t("taskPacksPage.refreshInbox")}
+          </Button>
+        </div>
       </div>
 
-      {error && (
-        <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-xs text-red-200">
-          {error}
-        </p>
-      )}
+      <motion.div
+        className="grid"
+        initial={false}
+        animate={{ gridTemplateRows: isGuideOpen ? "1fr" : "0fr" }}
+        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <div className="overflow-hidden">
+          <div className="mt-3 grid gap-3 rounded-2xl border border-neutral-900 bg-black/30 p-3 sm:grid-cols-3">
+            <div className="flex items-start gap-3">
+              <span className="grid size-7 shrink-0 place-items-center rounded-full border border-neutral-800 bg-neutral-950 text-[11px] font-semibold text-neutral-300">1</span>
+              <div>
+                <p className="text-xs font-semibold text-white">{t("taskPacksPage.publishStepOneTitle")}</p>
+                <p className="mt-1 text-[11px] leading-5 text-neutral-600">{t("taskPacksPage.publishStepOneDescription")}</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <span className="grid size-7 shrink-0 place-items-center rounded-full border border-neutral-800 bg-neutral-950 text-[11px] font-semibold text-neutral-300">2</span>
+              <div>
+                <p className="text-xs font-semibold text-white">{t("taskPacksPage.publishStepTwoTitle")}</p>
+                <p className="mt-1 text-[11px] leading-5 text-neutral-600">{t("taskPacksPage.publishStepTwoDescription")}</p>
+              </div>
+            </div>
+
+            <div className="flex items-start gap-3">
+              <span className="grid size-7 shrink-0 place-items-center rounded-full border border-neutral-800 bg-neutral-950 text-[11px] font-semibold text-neutral-300">3</span>
+              <div>
+                <p className="text-xs font-semibold text-white">{t("taskPacksPage.publishStepThreeTitle")}</p>
+                <p className="mt-1 text-[11px] leading-5 text-neutral-600">{t("taskPacksPage.publishStepThreeDescription")}</p>
+              </div>
+            </div>
+          </div>
+
+          {error && (
+            <p className="mt-2 text-[11px] text-amber-300/80">
+              {t("taskPacksPage.publishRequiresWebsite")}
+            </p>
+          )}
+        </div>
+      </motion.div>
+
       {notice && (
         <p className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-3 py-2 text-xs text-emerald-200">
           {notice}
         </p>
       )}
 
-      {connected && inbox.length > 0 && (
-        <div className="mt-4 grid max-h-[280px] gap-3 overflow-y-auto pr-1 2xl:grid-cols-2">
-          {inbox.map((item) => {
-            const projectOptions: SelectOption<string>[] = projects.map((project) => ({
-              value: String(project.id),
-              label: project.name,
-              description: t("taskPacksPage.localImportTarget"),
-            }));
-            const disabled = busyId === item.delivery.id;
-            return (
-              <article key={item.delivery.id} className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-white">{item.taskPack.title}</p>
-                    <p className="mt-1 truncate text-xs text-neutral-600">
-                      {item.taskPack.projectName || t("taskPacksPage.unknownProject")} · {item.taskPack.targetTool}
-                    </p>
-                  </div>
-                  <Pill tone={item.taskPack.integrityValid ? "success" : "warning"}>
-                    {item.taskPack.integrityValid ? t("taskPacksPage.integrityVerified") : t("taskPacksPage.integrityFailed")}
-                  </Pill>
-                </div>
-                <p className="mt-3 line-clamp-2 text-xs leading-5 text-neutral-500">{item.taskPack.rawTask}</p>
-                <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-neutral-600">
-                  <span className="rounded-lg border border-white/10 px-2 py-1 font-mono">SHA-256 {item.taskPack.contentHash.slice(0, 12)}…</span>
-                  <span>{t("taskPacksPage.deliveryAttempt").replace("{count}", String(item.delivery.attemptCount))}</span>
-                </div>
-                {!item.taskPack.integrityValid && (
-                  <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/[0.07] p-3 text-xs leading-5 text-red-200">
-                    <ShieldAlert size={15} className="mt-0.5 shrink-0" />
-                    <span>{t("taskPacksPage.integrityBlocked")}</span>
-                  </div>
-                )}
-                <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
-                  {!item.taskPack.integrityValid ? (
-                    <p className="text-xs text-red-200">{t("taskPacksPage.importBlocked")}</p>
-                  ) : projects.length > 0 ? (
-                    <CustomSelect
-                      value={projectByDelivery[item.delivery.id] ?? String(projects[0]?.id ?? "")}
-                      options={projectOptions}
-                      onChange={(value) => setProjectByDelivery((current) => ({ ...current, [item.delivery.id]: value }))}
-                    />
-                  ) : (
-                    <p className="text-xs text-amber-200">{t("taskPacksPage.noLocalProjects")}</p>
-                  )}
-                  {item.taskPack.integrityValid ? (
-                    <Button variant="primary" onClick={() => void importItem(item)} disabled={disabled || projects.length === 0}>
-                      <Check size={14} />
-                      {disabled ? t("taskPacksPage.importing") : t("taskPacksPage.importHere")}
-                    </Button>
-                  ) : (
-                    <Button variant="secondary" onClick={() => void reportIntegrityFailure(item)} disabled={disabled}>
-                      <ShieldAlert size={14} />
-                      {t("taskPacksPage.reportIntegrity")}
-                    </Button>
-                  )}
-                  <Button variant="secondary" onClick={() => void dismissItem(item)} disabled={disabled}>
-                    <X size={14} />
-                    {t("taskPacksPage.dismiss")}
-                  </Button>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      )}
+      <motion.div
+        className="grid"
+        initial={false}
+        animate={{ gridTemplateRows: isInboxOpen && inbox.length > 0 ? "1fr" : "0fr" }}
+        transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+      >
+        <div className="overflow-hidden">
+          <div className="mt-4 grid max-h-[280px] gap-3 overflow-y-auto pr-1 2xl:grid-cols-2">
+            {inbox.map((item: DesktopSyncTaskPackInboxItem) => {
+              const projectOptions: SelectOption<string>[] = projects.map((project) => ({
+                value: String(project.id),
+                label: project.name,
+                description: t("taskPacksPage.localImportTarget"),
+              }));
+              const disabled = busyId === item.delivery.id;
 
-      {connected && !loading && inbox.length === 0 && (
-        <p className="mt-3 text-xs text-neutral-600">{t("taskPacksPage.inboxEmpty")}</p>
-      )}
+              return (
+                <article key={item.delivery.id} className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-semibold text-white">{item.taskPack.title}</p>
+                      <p className="mt-1 truncate text-xs text-neutral-600">
+                        {item.taskPack.projectName || t("taskPacksPage.unknownProject")} · {item.taskPack.targetTool}
+                      </p>
+                    </div>
+                    <span className={item.taskPack.integrityValid ? "text-xs text-emerald-300" : "text-xs text-red-200"}>
+                      {item.taskPack.integrityValid ? t("taskPacksPage.integrityVerified") : t("taskPacksPage.integrityFailed")}
+                    </span>
+                  </div>
+
+                  <p className="mt-3 line-clamp-2 text-xs leading-5 text-neutral-500">{item.taskPack.rawTask}</p>
+
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-neutral-600">
+                    <span className="rounded-lg border border-white/10 px-2 py-1 font-mono">SHA-256 {item.taskPack.contentHash.slice(0, 12)}…</span>
+                    <span>{t("taskPacksPage.deliveryAttempt").replace("{count}", String(item.delivery.attemptCount))}</span>
+                  </div>
+
+                  {!item.taskPack.integrityValid && (
+                    <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/[0.07] p-3 text-xs leading-5 text-red-200">
+                      <ShieldAlert size={15} className="mt-0.5 shrink-0" />
+                      <span>{t("taskPacksPage.integrityBlocked")}</span>
+                    </div>
+                  )}
+
+                  <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+                    {!item.taskPack.integrityValid ? (
+                      <p className="text-xs text-red-200">{t("taskPacksPage.importBlocked")}</p>
+                    ) : projects.length > 0 ? (
+                      <CustomSelect
+                        value={projectByDelivery[item.delivery.id] ?? String(projects[0]?.id ?? "")}
+                        options={projectOptions}
+                        onChange={(value) => setProjectByDelivery((current) => ({ ...current, [item.delivery.id]: value }))}
+                      />
+                    ) : (
+                      <p className="text-xs text-amber-200">{t("taskPacksPage.noLocalProjects")}</p>
+                    )}
+
+                    {item.taskPack.integrityValid ? (
+                      <Button variant="primary" onClick={() => void importItem(item)} disabled={disabled || projects.length === 0}>
+                        <Check size={14} />
+                        {disabled ? t("taskPacksPage.importing") : t("taskPacksPage.importHere")}
+                      </Button>
+                    ) : (
+                      <Button variant="secondary" onClick={() => void reportIntegrityFailure(item)} disabled={disabled}>
+                        <ShieldAlert size={14} />
+                        {t("taskPacksPage.reportIntegrity")}
+                      </Button>
+                    )}
+
+                    <Button variant="secondary" onClick={() => void dismissItem(item)} disabled={disabled}>
+                      <X size={14} />
+                      {t("taskPacksPage.dismiss")}
+                    </Button>
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        </div>
+      </motion.div>
     </section>
   );
 }
@@ -693,8 +825,9 @@ export function TaskPacksPage({
   const [targetFilter, setTargetFilter] = useState("all");
   const [bodyModeFilter, setBodyModeFilter] = useState<BodyModeFilter>("all");
   const [sortMode, setSortMode] = useState<SortMode>("newest");
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const [copiedTaskPackId, setCopiedTaskPackId] = useState<number | null>(null);
-  const [publishStateById, setPublishStateById] = useState<Record<number, "idle" | "publishing" | "published">>({});
+  const [publishStateById, setPublishStateById] = useState<Record<number, PublishState>>({});
   const [publishError, setPublishError] = useState("");
 
   const localizedTaskTypeOptions = useMemo<SelectOption<TaskTypeFilter>[]>(
@@ -704,112 +837,42 @@ export function TaskPacksPage({
         label: t("labels.taskTypeAll"),
         description: t("taskPacksPage.allTypes"),
       },
-      {
-        value: "general",
-        label: t("labels.taskTypeGeneral"),
-        description: "General",
-      },
+      { value: "general", label: t("labels.taskTypeGeneral"), description: "General" },
       { value: "ui", label: t("labels.taskTypeUi"), description: "Interface" },
-      {
-        value: "backend",
-        label: t("labels.taskTypeBackend"),
-        description: "Server",
-      },
-      {
-        value: "fullstack",
-        label: t("labels.taskTypeFullstack"),
-        description: "Both sides",
-      },
-      {
-        value: "build",
-        label: t("labels.taskTypeBuild"),
-        description: "Build",
-      },
-      {
-        value: "bugfix",
-        label: t("labels.taskTypeBugfix"),
-        description: "Fixes",
-      },
-      {
-        value: "refactor",
-        label: t("labels.taskTypeRefactor"),
-        description: "Cleanup",
-      },
-      {
-        value: "docs",
-        label: t("labels.taskTypeDocs"),
-        description: "Writing",
-      },
-      {
-        value: "tests",
-        label: t("labels.taskTypeTests"),
-        description: "Coverage",
-      },
+      { value: "backend", label: t("labels.taskTypeBackend"), description: "Server" },
+      { value: "fullstack", label: t("labels.taskTypeFullstack"), description: "Both sides" },
+      { value: "build", label: t("labels.taskTypeBuild"), description: "Build" },
+      { value: "bugfix", label: t("labels.taskTypeBugfix"), description: "Fixes" },
+      { value: "refactor", label: t("labels.taskTypeRefactor"), description: "Cleanup" },
+      { value: "docs", label: t("labels.taskTypeDocs"), description: "Writing" },
+      { value: "tests", label: t("labels.taskTypeTests"), description: "Coverage" },
     ],
     [t],
   );
 
   const localizedBodyModeOptions = useMemo<SelectOption<BodyModeFilter>[]>(
     () => [
-      {
-        value: "all",
-        label: t("taskPacksPage.allBodyModes"),
-        description: t("taskPacksPage.allBodyModesDesc"),
-      },
-      {
-        value: "ollama",
-        label: t("labels.ollamaRefined"),
-        description: t("taskPacksPage.ollamaRefinedDesc"),
-      },
-      {
-        value: "template",
-        label: t("labels.safeTemplate"),
-        description: t("taskPacksPage.safeTemplateDesc"),
-      },
-      {
-        value: "cached",
-        label: t("labels.cached"),
-        description: t("taskPacksPage.cachedDesc"),
-      },
-      {
-        value: "fallback",
-        label: t("labels.fallback"),
-        description: t("taskPacksPage.fallbackDesc"),
-      },
+      { value: "all", label: t("taskPacksPage.allPacks"), description: t("taskPacksPage.allBodyModesDesc") },
+      { value: "ollama", label: t("labels.ollamaRefined"), description: t("taskPacksPage.ollamaRefinedDesc") },
+      { value: "template", label: t("labels.safeTemplate"), description: t("taskPacksPage.safeTemplateDesc") },
+      { value: "cached", label: t("labels.cached"), description: t("taskPacksPage.cachedDesc") },
+      { value: "fallback", label: t("labels.fallback"), description: t("taskPacksPage.fallbackDesc") },
     ],
     [t],
   );
 
   const localizedSortOptions = useMemo<SelectOption<SortMode>[]>(
     () => [
-      {
-        value: "newest",
-        label: t("taskPacksPage.newest"),
-        description: t("taskPacksPage.newestDesc"),
-      },
-      {
-        value: "oldest",
-        label: t("taskPacksPage.oldest"),
-        description: t("taskPacksPage.oldestDesc"),
-      },
-      {
-        value: "title",
-        label: t("taskPacksPage.titleSort"),
-        description: t("taskPacksPage.titleSortDesc"),
-      },
-      {
-        value: "project",
-        label: t("taskPacksPage.projectSort"),
-        description: t("taskPacksPage.projectSortDesc"),
-      },
+      { value: "newest", label: t("taskPacksPage.newest"), description: t("taskPacksPage.newestDesc") },
+      { value: "oldest", label: t("taskPacksPage.oldest"), description: t("taskPacksPage.oldestDesc") },
+      { value: "title", label: t("taskPacksPage.titleSort"), description: t("taskPacksPage.titleSortDesc") },
+      { value: "project", label: t("taskPacksPage.projectSort"), description: t("taskPacksPage.projectSortDesc") },
     ],
     [t],
   );
 
   const targetOptions: SelectOption<string>[] = useMemo(() => {
-    const targets = [
-      ...new Set(taskPacks.map((taskPack) => taskPack.targetTool)),
-    ]
+    const targets = [...new Set(taskPacks.map((taskPack) => taskPack.targetTool))]
       .filter(Boolean)
       .sort();
     const allAgentsIcon = makeAiToolSelectOption("generic");
@@ -818,7 +881,7 @@ export function TaskPacksPage({
       {
         value: "all",
         label: t("taskPacksPage.allAgents"),
-        description: "Codex, Cursor, Claude, Generic",
+        description: t("taskPacksPage.allAgentsDesc"),
         icon: allAgentsIcon.icon,
         activeIcon: allAgentsIcon.activeIcon,
       },
@@ -832,7 +895,6 @@ export function TaskPacksPage({
     return [...taskPacks]
       .filter((taskPack) => {
         const recipe = taskPack.generationRecipe;
-
         const searchableText = [
           taskPack.title,
           getTaskPackDisplayTitle(taskPack),
@@ -859,34 +921,23 @@ export function TaskPacksPage({
           .join(" ");
 
         const matchesQuery =
-          normalizedQuery.length === 0 ||
-          searchableText.includes(normalizedQuery);
-
+          normalizedQuery.length === 0 || searchableText.includes(normalizedQuery);
         const matchesTaskType =
           taskTypeFilter === "all" || taskPack.taskType === taskTypeFilter;
-
         const matchesTarget =
           targetFilter === "all" || taskPack.targetTool === targetFilter;
-
         const matchesBody = matchesBodyMode(taskPack, bodyModeFilter);
 
         return matchesQuery && matchesTaskType && matchesTarget && matchesBody;
       })
       .sort((a, b) => {
-        if (sortMode === "oldest") {
-          return getDateValue(a) - getDateValue(b);
-        }
-
+        if (sortMode === "oldest") return getDateValue(a) - getDateValue(b);
         if (sortMode === "title") {
           return getTaskPackDisplayTitle(a).localeCompare(getTaskPackDisplayTitle(b));
         }
-
         if (sortMode === "project") {
-          return getTaskPackProjectName(a, t).localeCompare(
-            getTaskPackProjectName(b, t),
-          );
+          return getTaskPackProjectName(a, t).localeCompare(getTaskPackProjectName(b, t));
         }
-
         return getDateValue(b) - getDateValue(a);
       });
   }, [
@@ -903,14 +954,13 @@ export function TaskPacksPage({
     (taskPack) =>
       taskPack.generationMode === "ollama" && !taskPack.generationUsedFallback,
   ).length;
-
-  const recipeCount = taskPacks.filter(
-    (taskPack) => taskPack.generationRecipe,
-  ).length;
-  const fallbackCount = taskPacks.filter(
-    (taskPack) => taskPack.generationUsedFallback,
-  ).length;
   const mostUsedTarget = getMostUsedTarget(taskPacks);
+
+  const advancedFilterCount = [
+    taskTypeFilter !== "all",
+    targetFilter !== "all",
+    sortMode !== "newest",
+  ].filter(Boolean).length;
 
   const hasActiveFilters =
     query.trim().length > 0 ||
@@ -964,249 +1014,190 @@ export function TaskPacksPage({
   }
 
   return (
-    <section className="grid h-[calc(100vh-96px)] min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden">
-      <div className="grid shrink-0 gap-4 xl:grid-cols-[minmax(0,1fr)_520px]">
-        <div className="overflow-hidden rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012))] p-5 shadow-[0_16px_52px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.045)]">
-          <div className="mb-4 flex flex-wrap gap-2">
-            <Pill>
-              <Archive size={13} />
-              {t("taskPacksPage.archive")}
-            </Pill>
-
-            <Pill>{t("taskPacksPage.searchablePrompts")}</Pill>
-            <Pill>{t("taskPacksPage.agentReadyHistory")}</Pill>
-
-            {recipeCount > 0 && (
-              <Pill tone="success">v0.5 recipe metadata</Pill>
-            )}
-          </div>
-
-          <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-end 2xl:justify-between">
-            <div>
-              <h2 className="max-w-4xl text-[32px] font-semibold leading-[1.05] tracking-[-0.05em] text-white">
-                {t("taskPacksPage.title")}
+    <section className="flex h-[calc(100vh-96px)] min-h-0 flex-col gap-3 overflow-hidden">
+      <header className="shrink-0 rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.01))] px-5 py-4">
+        <div className="flex flex-wrap items-center justify-between gap-5">
+          <div className="flex min-w-0 items-center gap-4">
+            <span className="grid size-11 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-black/45 text-neutral-300">
+              <Archive size={18} />
+            </span>
+            <div className="min-w-0">
+              <h2 className="text-[26px] font-semibold leading-tight tracking-[-0.045em] text-white">
+                {t("taskPacksPage.libraryTitle")}
               </h2>
-
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-400">
-                {t("taskPacksPage.description")}
+              <p className="mt-1 max-w-2xl truncate text-sm text-neutral-500">
+                {t("taskPacksPage.libraryDescription")}
               </p>
             </div>
-
-            <Pill>{filteredTaskPacks.length} visible</Pill>
-          </div>
-        </div>
-
-        <div className="grid gap-3 sm:grid-cols-2">
-          <MetricCard
-            icon={<FileText size={15} />}
-            label="Total"
-            value={taskPacks.length}
-            caption="saved Task Packs"
-          />
-
-          <MetricCard
-            icon={<ShieldCheck size={15} />}
-            label="Recipes"
-            value={recipeCount}
-            caption="v0.5 metadata"
-          />
-
-          <MetricCard
-            icon={<Sparkles size={15} />}
-            label="Refined"
-            value={refinedCount}
-            caption="Ollama bodies"
-          />
-
-          <MetricCard
-            icon={<Bot size={15} />}
-            label="Top target"
-            value={mostUsedTarget}
-            caption={`${fallbackCount} fallback`}
-          />
-        </div>
-
-        <CloudTaskPackBridge onImportedTaskPack={onImportedTaskPack} />
-
-        {publishError && (
-          <p className="xl:col-span-2 rounded-xl border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-xs text-red-200">
-            {publishError}
-          </p>
-        )}
-      </div>
-
-      <div className="grid min-h-0 gap-4 overflow-hidden xl:grid-cols-[360px_minmax(0,1fr)]">
-        <aside className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
-          <div className="mb-5 shrink-0">
-            <div className="mb-4 flex size-10 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-              <SlidersHorizontal size={18} />
-            </div>
-
-            <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-              Filter console
-            </p>
-
-            <h3 className="mt-2 text-base font-semibold text-white">
-              Search and narrow history
-            </h3>
-
-            <p className="mt-2 text-sm leading-6 text-neutral-500">
-              Filter saved prompts by task type, target agent, generation mode,
-              recipe metadata and text content.
-            </p>
           </div>
 
-          <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
-            <div className="rounded-2xl border border-neutral-900 bg-black/30 p-3">
-              <div className="mb-3">
-                <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                  Search
-                </p>
+          <div className="flex divide-x divide-neutral-900 rounded-2xl border border-neutral-900 bg-black/25 px-4 py-2.5">
+            <SummaryMetric value={taskPacks.length} label={t("taskPacksPage.savedSummary")} />
+            <SummaryMetric value={refinedCount} label={t("taskPacksPage.refinedSummary")} />
+            <SummaryMetric value={mostUsedTarget} label={t("taskPacksPage.topTargetSummary")} />
+          </div>
+        </div>
+      </header>
 
-                <p className="mt-1 text-xs text-neutral-600">
-                  Search by task, project, agent, template or rules.
-                </p>
-              </div>
+      <CloudTaskPackBridge onImportedTaskPack={onImportedTaskPack} />
 
-              <div className="relative">
-                <Search
-                  size={15}
-                  className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-600"
-                />
+      {publishError && (
+        <div className="shrink-0 rounded-xl border border-amber-500/20 bg-amber-500/[0.07] px-3 py-2 text-xs text-amber-100">
+          {getFriendlyWebsiteError(publishError, t)}
+        </div>
+      )}
 
-                <input
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Type to search..."
-                  className="h-10 w-full rounded-xl border border-neutral-900 bg-black/50 pl-10 pr-3 text-sm text-white outline-none transition placeholder:text-neutral-700 hover:border-neutral-800 focus:border-white/30 focus:bg-black/75 focus:ring-4 focus:ring-white/5"
-                />
-              </div>
-            </div>
+      <section className="shrink-0 rounded-[1.4rem] border border-neutral-900 bg-black/30 p-3">
+        <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_minmax(480px,640px)_auto] xl:items-center">
+          <div className="relative">
+            <Search
+              size={15}
+              className="pointer-events-none absolute left-3.5 top-1/2 -translate-y-1/2 text-neutral-600"
+            />
+            <input
+              value={query}
+              onChange={(event: ChangeEvent<HTMLInputElement>) =>
+                setQuery(event.target.value)
+              }
+              placeholder={t("taskPacksPage.searchPlaceholder")}
+              className="h-11 w-full rounded-2xl border border-neutral-900 bg-black/40 pl-10 pr-3 text-sm text-white outline-none transition placeholder:text-neutral-700 hover:border-neutral-700 focus:border-white/30 focus:bg-black/75 focus:ring-4 focus:ring-white/5"
+            />
+          </div>
 
-            <div className="rounded-2xl border border-neutral-900 bg-black/30 p-3">
-              <div className="mb-3">
-                <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                  {t("taskPacksPage.taskType")}
-                </p>
+          <HorizontalSlidingSelector
+            items={localizedBodyModeOptions}
+            activeIndex={localizedBodyModeOptions.findIndex((option) => option.value === bodyModeFilter)}
+            getItemKey={(option) => option.value}
+            onSelect={(option) => setBodyModeFilter(option.value)}
+            ariaLabel={t("taskPacksPage.generationMode")}
+            itemClassName="h-10 px-2"
+            renderItem={(option, isActive) => (
+              <span className={[
+                "block truncate text-xs font-semibold",
+                isActive ? "text-black" : "text-neutral-400",
+              ].join(" ")}>{option.label}</span>
+            )}
+          />
 
-                <p className="mt-1 text-xs text-neutral-600">
-                  {t("taskPacksPage.narrowByTask")}
-                </p>
-              </div>
+          <Button
+            variant="secondary"
+            onClick={() => setFiltersOpen((current) => !current)}
+            className="h-11 min-w-[118px] px-4 text-xs"
+            aria-expanded={filtersOpen}
+          >
+            <Filter size={14} />
+            {t("taskPacksPage.filters")}
+            {advancedFilterCount > 0 ? ` · ${advancedFilterCount}` : ""}
+            <motion.span
+              animate={{ rotate: filtersOpen ? 180 : 0 }}
+              transition={{ type: "spring", stiffness: 560, damping: 42, mass: 0.5 }}
+            >
+              <ChevronDown size={14} />
+            </motion.span>
+          </Button>
+        </div>
 
+        <motion.div
+          className="grid"
+          initial={false}
+          animate={{ gridTemplateRows: filtersOpen ? "1fr" : "0fr" }}
+          transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
+        >
+          <div className="overflow-hidden">
+            <div className="mt-3 grid gap-3 border-t border-neutral-900 pt-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
               <CustomSelect
                 value={taskTypeFilter}
                 options={localizedTaskTypeOptions}
                 onChange={(value) => setTaskTypeFilter(value as TaskTypeFilter)}
               />
+              <CustomSelect
+                value={targetFilter}
+                options={targetOptions}
+                onChange={setTargetFilter}
+              />
+              <CustomSelect
+                value={sortMode}
+                options={localizedSortOptions}
+                onChange={(value) => setSortMode(value as SortMode)}
+              />
+              <Button
+                variant="ghost"
+                onClick={clearFilters}
+                disabled={!hasActiveFilters}
+                className="h-11 px-4 text-xs disabled:cursor-not-allowed disabled:opacity-35"
+              >
+                <X size={14} />
+                {t("taskPacksPage.clearFilters")}
+              </Button>
             </div>
+          </div>
+        </motion.div>
+      </section>
 
-            <CustomSelect
-              value={targetFilter}
-              options={targetOptions}
-              onChange={setTargetFilter}
-            />
+      <main className="grid min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)] gap-3 overflow-hidden">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 px-1">
+          <div className="flex items-center gap-2">
+            <SlidersHorizontal size={14} className="text-neutral-600" />
+            <h3 className="text-sm font-semibold text-white">
+              {t("taskPacksPage.resultCount", { count: filteredTaskPacks.length })}
+            </h3>
+          </div>
 
-            <CustomSelect
-              value={bodyModeFilter}
-              options={localizedBodyModeOptions}
-              onChange={(value) => setBodyModeFilter(value as BodyModeFilter)}
-            />
-
-            <CustomSelect
-              value={sortMode}
-              options={localizedSortOptions}
-              onChange={(value) => setSortMode(value as SortMode)}
-            />
-
+          {hasActiveFilters && (
             <button
               type="button"
               onClick={clearFilters}
-              disabled={!hasActiveFilters}
-              className={[
-                "cf-invert-action inline-flex h-9 w-full items-center justify-center gap-2 rounded-full px-4 text-xs transition",
-                hasActiveFilters
-                  ? "opacity-100"
-                  : "pointer-events-none opacity-40",
-              ].join(" ")}
+              className="text-xs text-neutral-600 transition hover:text-white"
             >
-              <X size={13} />
               {t("taskPacksPage.clearFilters")}
             </button>
-          </div>
-        </aside>
+          )}
+        </div>
 
-        <main className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden">
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3">
-            <div>
-              <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                Archive results
-              </p>
-
-              <h3 className="mt-1 text-lg font-semibold text-white">
-                {filteredTaskPacks.length} Task Pack(s)
-              </h3>
-            </div>
-
-            <Pill>{hasActiveFilters ? "Filtered" : "All history"}</Pill>
-          </div>
-
-          <AnimatePresence mode="wait" initial={false}>
-            {filteredTaskPacks.length === 0 ? (
-              <motion.div
-                key="empty"
-                initial={{ opacity: 0, y: 14, scale: 0.985 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: -10, scale: 0.985 }}
-                transition={TASK_PACK_TRANSITION}
-                className="min-h-0 overflow-hidden"
-              >
-                <EmptyState
-                  icon={<Search size={22} />}
-                  title={t(taskPacks.length === 0 ? "taskPacksPage.noTaskPacks" : "taskPacksPage.noMatching")}
-                  description={t(taskPacks.length === 0 ? "taskPacksPage.noTaskPacksDescription" : "taskPacksPage.noMatchingDescription")}
-                />
-              </motion.div>
-            ) : (
-              <motion.div
-                key={[
-                  "list",
-                  query.trim(),
-                  taskTypeFilter,
-                  targetFilter,
-                  bodyModeFilter,
-                  sortMode,
-                ].join(":")}
-                className="min-h-0 overflow-y-auto pr-2"
-                initial={{ opacity: 0, y: 10 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -8 }}
-                transition={TASK_PACK_TRANSITION}
-              >
-                <div className="grid gap-4 2xl:grid-cols-2">
-                  {filteredTaskPacks.map((taskPack) => {
-                    const isCopied = copiedTaskPackId === taskPack.id;
-
-                    return (
-                      <TaskPackCard
-                        key={taskPack.id}
-                        taskPack={taskPack}
-                        isCopied={isCopied}
-                        projectName={getTaskPackProjectName(taskPack, t)}
-                        bodyBadge={getTaskPackBodyBadge(taskPack, t)}
-                        onCopy={() => handleCopy(taskPack)}
-                        onOpen={() => onOpenTaskPack(taskPack)}
-                        onPublish={() => void handlePublish(taskPack)}
-                        publishState={publishStateById[taskPack.id] ?? "idle"}
-                      />
-                    );
-                  })}
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </main>
-      </div>
+        <AnimatePresence mode="wait" initial={false}>
+          {filteredTaskPacks.length === 0 ? (
+            <motion.div
+              key="empty"
+              initial={{ opacity: 0, y: 14, scale: 0.985 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.985 }}
+              transition={TASK_PACK_TRANSITION}
+              className="min-h-0 overflow-hidden"
+            >
+              <EmptyState
+                icon={<Search size={22} />}
+                title={t(taskPacks.length === 0 ? "taskPacksPage.noTaskPacks" : "taskPacksPage.noMatching")}
+                description={t(taskPacks.length === 0 ? "taskPacksPage.noTaskPacksDescription" : "taskPacksPage.noMatchingDescription")}
+              />
+            </motion.div>
+          ) : (
+            <motion.div
+              key={["list", query.trim(), taskTypeFilter, targetFilter, bodyModeFilter, sortMode].join(":")}
+              className="min-h-0 overflow-y-auto pr-2"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -6 }}
+              transition={TASK_PACK_TRANSITION}
+            >
+              <div className="grid gap-3 2xl:grid-cols-2">
+                {filteredTaskPacks.map((taskPack) => (
+                  <TaskPackCard
+                    key={taskPack.id}
+                    taskPack={taskPack}
+                    isCopied={copiedTaskPackId === taskPack.id}
+                    projectName={getTaskPackProjectName(taskPack, t)}
+                    bodyLabel={getTaskPackBodyBadge(taskPack, t)}
+                    onCopy={() => void handleCopy(taskPack)}
+                    onOpen={() => onOpenTaskPack(taskPack)}
+                    onPublish={() => void handlePublish(taskPack)}
+                    publishState={publishStateById[taskPack.id] ?? "idle"}
+                  />
+                ))}
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+      </main>
     </section>
   );
 }
