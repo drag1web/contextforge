@@ -1600,6 +1600,89 @@ taskPacksRouter.get("/", async (_req, res) => {
   });
 });
 
+const cloudTaskPackImportSchema = z.object({
+  projectId: z.number().int().positive(),
+  deliveryId: z.string().uuid(),
+  source: z.object({
+    taskPackId: z.string().uuid(),
+    originInstallationId: z.string().min(3).max(120),
+    projectName: z.string().max(180).optional().default(""),
+  }),
+  taskPack: z.object({
+    title: z.string().trim().min(1).max(180),
+    rawTask: z.string().trim().min(1).max(24_000),
+    taskType: z.string().trim().min(1).max(80),
+    targetTool: z.string().trim().min(1).max(80),
+    generatedPrompt: z.string().trim().min(1).max(160_000),
+  }),
+});
+
+taskPacksRouter.post("/import", async (req, res) => {
+  const parsed = cloudTaskPackImportSchema.safeParse(req.body ?? {});
+
+  if (!parsed.success) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid cloud Task Pack import",
+      issues: parsed.error.issues,
+    });
+    return;
+  }
+
+  const { projectId, deliveryId, source, taskPack } = parsed.data;
+  const importMarker = `ContextForge cloud handoff:${deliveryId}`;
+
+  try {
+    const project = await storage.getProjectById(projectId);
+
+    if (!project) {
+      res.status(404).json({ ok: false, message: "Target project not found" });
+      return;
+    }
+
+    const existing = (await storage.listTaskPacks()).find(
+      (candidate) => candidate.generationMessage === importMarker,
+    );
+
+    if (existing) {
+      res.json({ ok: true, imported: false, taskPack: existing });
+      return;
+    }
+
+    const imported = await storage.createTaskPack({
+      projectId,
+      title: taskPack.title,
+      rawTask: taskPack.rawTask,
+      taskType: taskPack.taskType,
+      targetTool: taskPack.targetTool,
+      generatedPrompt: taskPack.generatedPrompt,
+      generationMode: "template",
+      generationModel: null,
+      generationMessage: importMarker,
+      generationUsedFallback: false,
+      generationDurationMs: null,
+      generationRecipe: null,
+    });
+
+    res.status(201).json({
+      ok: true,
+      imported: true,
+      taskPack: imported,
+      source: {
+        taskPackId: source.taskPackId,
+        originInstallationId: source.originInstallationId,
+        projectName: source.projectName,
+      },
+    });
+  } catch (error) {
+    console.error("Cloud Task Pack import failed:", error);
+    res.status(500).json({
+      ok: false,
+      message: error instanceof Error ? error.message : "Task Pack import failed",
+    });
+  }
+});
+
 taskPacksRouter.post("/:id/github/issue", async (req, res) => {
   const taskPackId = Number(req.params.id);
   const parsed = createGitHubIssueFromTaskPackSchema.safeParse(req.body ?? {});

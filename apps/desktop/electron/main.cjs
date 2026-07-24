@@ -1,8 +1,26 @@
-const { app, BrowserWindow, ipcMain, dialog, Menu, screen, shell } = require("electron");
+const {
+  app,
+  BrowserWindow,
+  ipcMain,
+  dialog,
+  Menu,
+  powerMonitor,
+  safeStorage,
+  screen,
+  shell
+} = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
+const {
+  DEFAULT_WEBSITE_ORIGIN,
+  createDesktopSyncService,
+  normalizeWebsiteOrigin
+} = require("./desktop-sync.cjs");
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
+const desktopHeartbeatIntervalMs = 60_000;
+let desktopHeartbeatTimer = null;
+let desktopSyncService = null;
 
 const appIconPath = path.join(
   __dirname,
@@ -10,12 +28,112 @@ const appIconPath = path.join(
   process.platform === "win32" ? "icon.ico" : "icon.png"
 );
 
+function getDesktopAppVersion() {
+  if (!isDev) {
+    return app.getVersion();
+  }
+
+  try {
+    const packageMetadata = require(path.join(__dirname, "../../../package.json"));
+    return String(packageMetadata.version ?? app.getVersion());
+  } catch {
+    return app.getVersion();
+  }
+}
+
+async function getLocalProjectCount() {
+  const response = await fetch("http://127.0.0.1:4000/api/projects", {
+    headers: { Accept: "application/json" },
+    signal: AbortSignal.timeout(3_000)
+  });
+
+  if (!response.ok) {
+    return null;
+  }
+
+  const payload = await response.json();
+  return Array.isArray(payload?.projects) ? payload.projects.length : null;
+}
+
+function broadcastDesktopSyncStatus(status) {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send("desktop-sync:status-changed", status);
+    }
+  }
+}
+
+function createDesktopSync() {
+  return createDesktopSyncService({
+    appVersion: getDesktopAppVersion(),
+    platform: process.platform,
+    arch: process.arch,
+    isDev,
+    defaultSiteUrl:
+      process.env.CONTEXTFORGE_WEB_ORIGIN ??
+      (isDev ? "http://127.0.0.1:5177" : DEFAULT_WEBSITE_ORIGIN),
+    userDataPath: app.getPath("userData"),
+    secureStorage: safeStorage,
+    getProjectCount: getLocalProjectCount,
+    onStatusChanged: broadcastDesktopSyncStatus
+  });
+}
+
+function startDesktopHeartbeat() {
+  if (desktopHeartbeatTimer) {
+    return;
+  }
+
+  desktopHeartbeatTimer = setInterval(() => {
+    if (desktopSyncService?.getStatus().configured) {
+      void desktopSyncService.heartbeat().catch(() => {
+        // Offline website access never interrupts the local-first workspace.
+      });
+    }
+  }, desktopHeartbeatIntervalMs);
+
+  desktopHeartbeatTimer.unref?.();
+}
+
+function stopDesktopHeartbeat() {
+  if (desktopHeartbeatTimer) {
+    clearInterval(desktopHeartbeatTimer);
+    desktopHeartbeatTimer = null;
+  }
+}
+
+function requireDesktopSync() {
+  if (!desktopSyncService) {
+    throw new Error("DESKTOP_SYNC_NOT_READY: Desktop sync is not ready.");
+  }
+
+  return desktopSyncService;
+}
+
+async function runDesktopSyncOperation(operation) {
+  try {
+    return await operation(requireDesktopSync());
+  } catch (error) {
+    const code =
+      typeof error?.code === "string" ? error.code : "DESKTOP_SYNC_FAILED";
+    const message =
+      error instanceof Error ? error.message : "Desktop sync failed.";
+    throw new Error(`${code}: ${message}`);
+  }
+}
 
 function isAllowedExternalUrl(rawUrl) {
   try {
     const url = new URL(rawUrl);
 
-    return url.protocol === "https:" && url.hostname === "github.com";
+    return (
+      (url.protocol === "https:" &&
+        (url.hostname === "github.com" ||
+          url.hostname.endsWith(".github.com") ||
+          url.hostname === "githubusercontent.com" ||
+          url.hostname.endsWith(".githubusercontent.com"))) ||
+      Boolean(desktopSyncService?.isAllowedWebsiteUrl(rawUrl))
+    );
   } catch {
     return false;
   }
@@ -170,6 +288,60 @@ ipcMain.handle("shell:open-external", async (_event, rawUrl) => {
   return true;
 });
 
+ipcMain.handle("desktop-sync:get-status", async (_event, options) =>
+  runDesktopSyncOperation(async (service) => {
+    if (options?.refresh && service.getStatus().configured) {
+      try {
+        await service.refreshAccount();
+      } catch {
+        // Return the current offline/error state to the renderer.
+      }
+    }
+
+    return service.getStatus();
+  })
+);
+
+ipcMain.handle("desktop-sync:pair", async (_event, input) =>
+  runDesktopSyncOperation((service) => service.pair(input))
+);
+
+ipcMain.handle("desktop-sync:heartbeat", async () =>
+  runDesktopSyncOperation((service) => service.heartbeat())
+);
+
+ipcMain.handle("desktop-sync:check-update", async () =>
+  runDesktopSyncOperation((service) => service.checkForUpdates())
+);
+
+ipcMain.handle("desktop-sync:publish-task-pack", async (_event, taskPack) =>
+  runDesktopSyncOperation((service) => service.publishTaskPack(taskPack))
+);
+
+ipcMain.handle("desktop-sync:get-task-pack-inbox", async () =>
+  runDesktopSyncOperation((service) => service.getTaskPackInbox())
+);
+
+ipcMain.handle("desktop-sync:ack-task-pack", async (_event, input) =>
+  runDesktopSyncOperation((service) =>
+    service.acknowledgeTaskPack(input?.deliveryId, input?.status, input?.options)
+  )
+);
+
+ipcMain.handle("desktop-sync:unpair", async () =>
+  runDesktopSyncOperation((service) => service.unpair())
+);
+
+ipcMain.handle("desktop-sync:open-pairing-page", async (_event, rawSiteUrl) =>
+  runDesktopSyncOperation(async () => {
+    const origin = normalizeWebsiteOrigin(rawSiteUrl, {
+      allowInsecureLocal: isDev
+    });
+    await shell.openExternal(`${origin}/devices`);
+    return true;
+  })
+);
+
 ipcMain.handle("dialog:select-project-folder", async () => {
   const result = await dialog.showOpenDialog({
     title: "Select project folder",
@@ -219,8 +391,23 @@ if (process.platform === "win32") {
   app.setAppUserModelId("com.contextforge.desktop");
 }
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   Menu.setApplicationMenu(null);
+
+  try {
+    desktopSyncService = createDesktopSync();
+    await desktopSyncService.initialize();
+    startDesktopHeartbeat();
+    powerMonitor.on("resume", () => {
+      if (desktopSyncService?.getStatus().configured) {
+        void desktopSyncService.heartbeat().catch(() => {});
+      }
+    });
+  } catch (error) {
+    console.error("Desktop sync initialization failed:", error);
+    desktopSyncService = null;
+  }
+
   createWindow();
 
   app.on("activate", () => {
@@ -228,6 +415,10 @@ app.whenReady().then(() => {
       createWindow();
     }
   });
+});
+
+app.on("before-quit", () => {
+  stopDesktopHeartbeat();
 });
 
 app.on("window-all-closed", () => {

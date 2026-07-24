@@ -5,6 +5,7 @@ import {
   useMotionValue,
   useMotionValueEvent,
   useSpring,
+  useIsPresent,
   useTransform,
 } from "framer-motion";
 import { useTranslation } from "react-i18next";
@@ -83,6 +84,7 @@ function WelcomeSplashOverlay({
   status: string;
 }) {
   const { t } = useTranslation();
+  const isPresent = useIsPresent();
   const safeProgress = Math.max(8, Math.min(100, progress));
   const progressMotion = useMotionValue(0);
   const smoothProgress = useSpring(progressMotion, {
@@ -113,6 +115,7 @@ function WelcomeSplashOverlay({
   return (
     <motion.div
       key="contextforge-welcome-splash"
+      style={{ pointerEvents: isPresent ? "auto" : "none" }}
       initial={{ opacity: 1 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0, scale: 1.018, filter: "blur(10px)" }}
@@ -672,6 +675,7 @@ export function DashboardPage() {
           <TaskPacksPage
             taskPacks={dashboard.taskPacks}
             onOpenTaskPack={dashboard.setGeneratedTaskPack}
+            onImportedTaskPack={dashboard.handleExternalTaskPackCreated}
           />
         </>
       );

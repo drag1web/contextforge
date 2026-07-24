@@ -140,6 +140,8 @@ const resources = {
         emptyDescription:
           "Add a project folder. ContextForge will scan it, calculate readiness, then help generate AGENTS.md and Task Packs for coding agents.",
         workspaceOverview: "Workspace overview",
+        commandCenterDescription:
+          "Project readiness, current priorities, and recent Task Packs in one focused workspace.",
         lastScan: "Last scan {{time}}",
         summary:
           "{{count}} project{{plural}} need context · average readiness {{readiness}} · {{taskPacks}} Task Packs generated",
@@ -151,8 +153,13 @@ const resources = {
         workspaceScore: "workspace score",
         taskPacks: "Task Packs",
         generatedPrompts: "generated prompts",
+        readyProjects: "Ready projects",
+        readyProjectsCaption: "readiness 80 or higher",
         projectsNeedingAttention: "Projects needing attention",
+        otherProjectsNeedingAttention: "Other projects needing attention",
         priorityCaption: "Only the highest-priority projects are shown here.",
+        otherPriorityCaption:
+          "After the main priority, these projects need context work.",
         viewAllProjects: "View all projects",
         noUrgentIssues: "No urgent project issues",
         noUrgentIssuesDesc:
@@ -168,6 +175,8 @@ const resources = {
           "Why the average readiness score is low or high.",
         quickActions: "Quick actions",
         quickActionsCaption: "Jump directly into the next useful workflow.",
+        utilities: "Utilities",
+        utilitiesCaption: "Secondary setup actions, kept outside the main workflow.",
         openContextBuilder: "Open Context Builder",
         generateAgentsAndContext: "Generate AGENTS.md and project context.",
         generateMissingAgents: "Generate missing AGENTS.md",
@@ -180,7 +189,10 @@ const resources = {
         configureOllama: "Configure Ollama",
         localAiProvider: "Local AI provider and generation defaults.",
         currentActivity: "Current activity",
+        activityCaption: "Latest workspace status and generated Task Packs.",
         latestWorkspaceEvent: "Latest workspace event.",
+        workspaceStatus: "Workspace status",
+        taskPackCreated: "Task Pack created",
         lastStatus: "Last status",
         readyStatus: "Ready to scan projects and generate context.",
         nextPriority: "Next priority",
@@ -440,6 +452,34 @@ const resources = {
         copied: "Copied",
         copy: "Copy",
         open: "Open",
+        publish: "Publish",
+        publishing: "Publishing...",
+        onWebsite: "On website",
+        cloudBridge: "Website handoff",
+        cloudBridgeDescription:
+          "Publish only the selected Task Pack or import an incoming pack into a local project. Project files and local paths stay on this device.",
+        cloudConnected: "Connected",
+        cloudDisconnected: "Connect in Settings",
+        refreshInbox: "Refresh inbox",
+        inboxEmpty: "No Task Packs are waiting for this installation.",
+        incoming: "Incoming",
+        localImportTarget: "Local import target",
+        noLocalProjects: "Add a local project before importing.",
+        importHere: "Import",
+        importing: "Importing...",
+        dismiss: "Dismiss",
+        unknownProject: "Unknown project",
+        cloudUnavailable: "The secure website bridge is unavailable in this build.",
+        cloudRequestFailed: "The website handoff could not be completed.",
+        autoRefreshActive: "Inbox syncs automatically",
+        integrityVerified: "Verified",
+        integrityFailed: "Blocked",
+        integrityBlocked: "The package content does not match its signed SHA-256 digest. Import is blocked before local storage is touched.",
+        reportIntegrity: "Report failure",
+        integrityReported: "The corrupted delivery was blocked and reported to the website.",
+        importBlocked: "Integrity check required",
+        deliveryAttempt: "Attempt {count}",
+        importSuccess: "Task Pack imported into the selected local project.",
       },
       taskPackBuilder: {
         badge: "Task Pack Builder",
@@ -894,6 +934,107 @@ const resources = {
         interface: "Interface",
         shortcuts: "Shortcuts",
         system: "System",
+        privacy: "Privacy",
+        storage: "Storage",
+        updates: "Updates",
+        desktopAccount: "Account & Sync",
+        desktopAccountEyebrow: "ContextForge Cloud",
+        desktopAccountTitle: "Connect this app to your website account.",
+        desktopAccountDescription:
+          "Pair Desktop once to show live device status on the website, receive release metadata, and keep account access available without uploading project files.",
+        desktopAccountLoading: "Loading connection status...",
+        desktopAccountOnline: "Online",
+        desktopAccountOffline: "Offline",
+        desktopAccountUnavailableTitle: "Open this page in ContextForge Desktop",
+        desktopAccountUnavailableDesc:
+          "The secure account bridge is available only in the installed Electron application.",
+        desktopAccountSecureStorageUnavailable:
+          "Secure operating-system storage is unavailable. ContextForge will not save a website token until protected storage is available.",
+        desktopAccountConnectTitle: "Connect Desktop",
+        desktopAccountConnectDesc:
+          "Use the one-time code from the website control center.",
+        desktopAccountWebsite: "Website address",
+        desktopAccountDeviceName: "Device name",
+        desktopAccountChannel: "Release channel",
+        desktopAccountPairingCode: "One-time pairing code",
+        desktopAccountConnect: "Connect account",
+        desktopAccountConnecting: "Connecting...",
+        desktopAccountCreateCode: "Create code on website",
+        desktopAccountHowItWorks: "How it works",
+        desktopAccountStepOne:
+          "Open Connected devices on the website and create a short-lived code.",
+        desktopAccountStepTwo:
+          "Paste the code here. It can be used only once.",
+        desktopAccountStepThree:
+          "Desktop sends a small heartbeat while the app is running.",
+        desktopAccountPrivacy:
+          "Project contents and local paths stay on this machine. The website receives only device, version, channel, project count, and update metadata.",
+        desktopAccountChannelAlpha: "Alpha",
+        desktopAccountChannelAlphaDesc: "Newest development builds",
+        desktopAccountChannelBeta: "Beta",
+        desktopAccountChannelBetaDesc:
+          "Preview builds with extra validation",
+        desktopAccountChannelStable: "Stable",
+        desktopAccountChannelStableDesc: "Production-ready builds",
+        desktopAccountConnectedUser: "Connected account",
+        desktopAccountOpenWebsite: "Open website",
+        desktopAccountSyncNow: "Sync now",
+        desktopAccountDevice: "Device",
+        desktopAccountInstallationId: "Installation ID",
+        desktopAccountLicense: "License",
+        desktopAccountProjects: "Local projects",
+        desktopAccountVersion: "Version",
+        desktopAccountLastSignal: "Last signal",
+        desktopAccountNever: "Never",
+        desktopAccountCopyId: "Copy ID",
+        desktopAccountCopied: "Copied",
+        desktopAccountUpdatesTitle: "Desktop updates",
+        desktopAccountUpdatesDesc:
+          "Check the release catalog for this platform and channel.",
+        desktopAccountUpdateReady: "ContextForge {{version}} is available",
+        desktopAccountNewVersion: "new version",
+        desktopAccountUpToDate: "You have the latest available build",
+        desktopAccountCurrentBuild:
+          "Current: {{version}} · {{platform}} / {{arch}}",
+        desktopAccountCheckUpdates: "Check updates",
+        desktopAccountDownload: "Download",
+        desktopAccountSecurityTitle: "Connection security",
+        desktopAccountSecurityDesc:
+          "The device token is encrypted by the operating system and never exposed to the interface.",
+        desktopAccountDisconnect: "Disconnect device",
+        desktopAccountConfirmDisconnect: "Click again to disconnect",
+        desktopAccountCapabilitiesTitle: "Cloud bridge",
+        desktopAccountCapabilitiesDesc:
+          "A clear view of what already works and what will connect Desktop to the wider ContextForge platform next.",
+        desktopAccountCapabilityPresence: "Device presence",
+        desktopAccountCapabilityPresenceDesc:
+          "Live status, version, channel, and project count on the website.",
+        desktopAccountCapabilityReleases: "Release catalog",
+        desktopAccountCapabilityReleasesDesc:
+          "Channel-aware update checks and direct release links.",
+        desktopAccountCapabilityLicense: "License entitlements",
+        desktopAccountCapabilityLicenseDesc:
+          "Plan and workspace limits will sync without exposing project content.",
+        desktopAccountCapabilityHandoff: "Task Pack handoff",
+        desktopAccountCapabilityHandoffDesc:
+          "Publish one selected Task Pack and import it on another trusted installation after explicit confirmation.",
+        desktopAccountCapabilityActive: "Active",
+        desktopAccountCapabilityPreview: "Preview",
+        desktopAccountCapabilityPlanned: "Planned",
+        desktopAccountErrorCode:
+          "The pairing code is invalid or expired. Create a new code on the website.",
+        desktopAccountErrorOwnership:
+          "This installation is connected to another active account. Disconnect it there first, then create a new pairing code.",
+        desktopAccountErrorUrl:
+          "Enter a valid HTTPS website address. HTTP is allowed only for localhost in development.",
+        desktopAccountErrorSecureStorage:
+          "Protected token storage is unavailable on this system.",
+        desktopAccountErrorTimeout:
+          "The website did not respond in time. Check the address and try again.",
+        desktopAccountErrorOffline:
+          "Could not reach the ContextForge website. Check your connection and website address.",
+        desktopAccountErrorGeneric:
+          "The account operation could not be completed. Please try again.",
         language: "Language",
         languageTitle: "Application language",
         languageDescription:
@@ -1207,6 +1348,8 @@ const resources = {
         emptyDescription:
           "Добавьте папку проекта. ContextForge просканирует её, посчитает readiness и поможет создать AGENTS.md и Task Packs для coding agents.",
         workspaceOverview: "Обзор workspace",
+        commandCenterDescription:
+          "Readiness проектов, текущие приоритеты и недавние Task Packs в одном сфокусированном workspace.",
         lastScan: "Последнее сканирование {{time}}",
         summary:
           "{{count}} проект{{plural}} требует контекста · средний readiness {{readiness}} · Task Packs создано: {{taskPacks}}",
@@ -1218,8 +1361,13 @@ const resources = {
         workspaceScore: "score workspace",
         taskPacks: "Task Packs",
         generatedPrompts: "готовые промпты",
+        readyProjects: "Готовые проекты",
+        readyProjectsCaption: "readiness 80 и выше",
         projectsNeedingAttention: "Проекты, требующие внимания",
+        otherProjectsNeedingAttention: "Другие проекты, требующие внимания",
         priorityCaption: "Здесь показаны только самые приоритетные проекты.",
+        otherPriorityCaption:
+          "После главного приоритета этим проектам нужно улучшение контекста.",
         viewAllProjects: "Все проекты",
         noUrgentIssues: "Срочных проблем нет",
         noUrgentIssuesDesc:
@@ -1235,6 +1383,8 @@ const resources = {
           "Почему средний readiness низкий или высокий.",
         quickActions: "Быстрые действия",
         quickActionsCaption: "Переход к следующему полезному workflow.",
+        utilities: "Утилиты",
+        utilitiesCaption: "Вторичные настройки вне основного workflow.",
         openContextBuilder: "Открыть Context Builder",
         generateAgentsAndContext: "Создать AGENTS.md и контекст проекта.",
         generateMissingAgents: "Создать недостающий AGENTS.md",
@@ -1247,7 +1397,10 @@ const resources = {
         configureOllama: "Настроить Ollama",
         localAiProvider: "Локальный AI-провайдер и defaults генерации.",
         currentActivity: "Текущая активность",
+        activityCaption: "Последний статус workspace и созданные Task Packs.",
         latestWorkspaceEvent: "Последнее событие workspace.",
+        workspaceStatus: "Статус workspace",
+        taskPackCreated: "Task Pack создан",
         lastStatus: "Последний статус",
         readyStatus: "Готово к сканированию проектов и генерации контекста.",
         nextPriority: "Следующий приоритет",
@@ -1510,6 +1663,34 @@ const resources = {
         copied: "Скопировано",
         copy: "Копировать",
         open: "Открыть",
+        publish: "На сайт",
+        publishing: "Публикуем...",
+        onWebsite: "На сайте",
+        cloudBridge: "Передача через сайт",
+        cloudBridgeDescription:
+          "Публикуйте только выбранный Task Pack или импортируйте входящий пакет в локальный проект. Файлы проектов и локальные пути остаются на устройстве.",
+        cloudConnected: "Подключено",
+        cloudDisconnected: "Подключите в настройках",
+        refreshInbox: "Обновить входящие",
+        inboxEmpty: "Для этой установки нет ожидающих Task Pack.",
+        incoming: "Входящий",
+        localImportTarget: "Локальный проект для импорта",
+        noLocalProjects: "Перед импортом добавьте локальный проект.",
+        importHere: "Импортировать",
+        importing: "Импортируем...",
+        dismiss: "Отклонить",
+        unknownProject: "Неизвестный проект",
+        cloudUnavailable: "Защищённый мост с сайтом недоступен в этой сборке.",
+        cloudRequestFailed: "Не удалось выполнить передачу через сайт.",
+        autoRefreshActive: "Входящие обновляются автоматически",
+        integrityVerified: "Проверен",
+        integrityFailed: "Заблокирован",
+        integrityBlocked: "Содержимое пакета не совпадает с его SHA-256. Импорт заблокирован до записи в локальное хранилище.",
+        reportIntegrity: "Сообщить об ошибке",
+        integrityReported: "Повреждённая доставка заблокирована, информация отправлена на сайт.",
+        importBlocked: "Нужна проверка целостности",
+        deliveryAttempt: "Попытка {count}",
+        importSuccess: "Task Pack импортирован в выбранный локальный проект.",
       },
       taskPackBuilder: {
         badge: "Task Pack Builder",
@@ -1964,6 +2145,109 @@ const resources = {
         interface: "Интерфейс",
         shortcuts: "Горячие клавиши",
         system: "Система",
+        privacy: "Конфиденциальность",
+        storage: "Хранилище",
+        updates: "Обновления",
+        desktopAccount: "Аккаунт и синхронизация",
+        desktopAccountEyebrow: "ContextForge Cloud",
+        desktopAccountTitle: "Подключите приложение к аккаунту на сайте.",
+        desktopAccountDescription:
+          "Один раз свяжите Desktop с сайтом, чтобы видеть онлайн-статус устройства, получать данные о релизах и использовать аккаунт без загрузки файлов проектов.",
+        desktopAccountLoading: "Загружаем состояние подключения...",
+        desktopAccountOnline: "В сети",
+        desktopAccountOffline: "Не в сети",
+        desktopAccountUnavailableTitle:
+          "Откройте эту страницу в ContextForge Desktop",
+        desktopAccountUnavailableDesc:
+          "Безопасное подключение аккаунта доступно только в установленном Electron-приложении.",
+        desktopAccountSecureStorageUnavailable:
+          "Защищённое хранилище операционной системы недоступно. ContextForge не сохранит токен сайта, пока безопасное хранилище не станет доступно.",
+        desktopAccountConnectTitle: "Подключить Desktop",
+        desktopAccountConnectDesc:
+          "Используйте одноразовый код из центра управления на сайте.",
+        desktopAccountWebsite: "Адрес сайта",
+        desktopAccountDeviceName: "Имя устройства",
+        desktopAccountChannel: "Канал релизов",
+        desktopAccountPairingCode: "Одноразовый код подключения",
+        desktopAccountConnect: "Подключить аккаунт",
+        desktopAccountConnecting: "Подключаем...",
+        desktopAccountCreateCode: "Создать код на сайте",
+        desktopAccountHowItWorks: "Как это работает",
+        desktopAccountStepOne:
+          "Откройте раздел подключённых устройств на сайте и создайте короткоживущий код.",
+        desktopAccountStepTwo:
+          "Вставьте код сюда. Его можно использовать только один раз.",
+        desktopAccountStepThree:
+          "Пока приложение запущено, Desktop отправляет небольшой heartbeat.",
+        desktopAccountPrivacy:
+          "Содержимое проектов и локальные пути остаются на этом компьютере. Сайт получает только сведения об устройстве, версии, канале, количестве проектов и обновлениях.",
+        desktopAccountChannelAlpha: "Альфа",
+        desktopAccountChannelAlphaDesc:
+          "Самые новые сборки для разработки",
+        desktopAccountChannelBeta: "Бета",
+        desktopAccountChannelBetaDesc:
+          "Предварительные сборки с дополнительной проверкой",
+        desktopAccountChannelStable: "Стабильный",
+        desktopAccountChannelStableDesc: "Готовые к использованию сборки",
+        desktopAccountConnectedUser: "Подключённый аккаунт",
+        desktopAccountOpenWebsite: "Открыть сайт",
+        desktopAccountSyncNow: "Синхронизировать",
+        desktopAccountDevice: "Устройство",
+        desktopAccountInstallationId: "ID установки",
+        desktopAccountLicense: "Лицензия",
+        desktopAccountProjects: "Локальные проекты",
+        desktopAccountVersion: "Версия",
+        desktopAccountLastSignal: "Последний сигнал",
+        desktopAccountNever: "Никогда",
+        desktopAccountCopyId: "Копировать ID",
+        desktopAccountCopied: "Скопировано",
+        desktopAccountUpdatesTitle: "Обновления Desktop",
+        desktopAccountUpdatesDesc:
+          "Проверка каталога релизов для этой платформы и выбранного канала.",
+        desktopAccountUpdateReady: "Доступен ContextForge {{version}}",
+        desktopAccountNewVersion: "новой версии",
+        desktopAccountUpToDate: "У вас последняя доступная сборка",
+        desktopAccountCurrentBuild:
+          "Текущая: {{version}} · {{platform}} / {{arch}}",
+        desktopAccountCheckUpdates: "Проверить обновления",
+        desktopAccountDownload: "Скачать",
+        desktopAccountSecurityTitle: "Безопасность подключения",
+        desktopAccountSecurityDesc:
+          "Токен устройства зашифрован операционной системой и никогда не передаётся в интерфейс.",
+        desktopAccountDisconnect: "Отключить устройство",
+        desktopAccountConfirmDisconnect: "Нажмите ещё раз для отключения",
+        desktopAccountCapabilitiesTitle: "Облачный мост",
+        desktopAccountCapabilitiesDesc:
+          "Показывает, что уже работает и какие возможности дальше свяжут Desktop с платформой ContextForge.",
+        desktopAccountCapabilityPresence: "Статус устройства",
+        desktopAccountCapabilityPresenceDesc:
+          "Онлайн-статус, версия, канал и количество проектов на сайте.",
+        desktopAccountCapabilityReleases: "Каталог релизов",
+        desktopAccountCapabilityReleasesDesc:
+          "Проверка обновлений по каналу и прямые ссылки на релизы.",
+        desktopAccountCapabilityLicense: "Синхронизация лицензии",
+        desktopAccountCapabilityLicenseDesc:
+          "Тариф и лимиты workspace будут доступны без передачи содержимого проектов.",
+        desktopAccountCapabilityHandoff: "Передача Task Pack",
+        desktopAccountCapabilityHandoffDesc:
+          "Публикация одного выбранного Task Pack и импорт на другой доверенной установке только после явного подтверждения.",
+        desktopAccountCapabilityActive: "Работает",
+        desktopAccountCapabilityPreview: "Preview",
+        desktopAccountCapabilityPlanned: "Запланировано",
+        desktopAccountErrorCode:
+          "Код подключения неверен или истёк. Создайте новый код на сайте.",
+        desktopAccountErrorOwnership:
+          "Эта установка подключена к другому активному аккаунту. Сначала отключите её там, затем создайте новый код.",
+        desktopAccountErrorUrl:
+          "Укажите корректный HTTPS-адрес сайта. HTTP разрешён только для localhost в режиме разработки.",
+        desktopAccountErrorSecureStorage:
+          "Защищённое хранилище токенов недоступно в этой системе.",
+        desktopAccountErrorTimeout:
+          "Сайт не ответил вовремя. Проверьте адрес и повторите попытку.",
+        desktopAccountErrorOffline:
+          "Не удалось связаться с сайтом ContextForge. Проверьте интернет и адрес сайта.",
+        desktopAccountErrorGeneric:
+          "Не удалось выполнить операцию с аккаунтом. Попробуйте ещё раз.",
         language: "Язык",
         languageTitle: "Язык приложения",
         languageDescription:

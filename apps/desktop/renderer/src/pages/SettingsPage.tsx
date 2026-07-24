@@ -24,6 +24,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
+  UserRound,
   WandSparkles,
   XCircle,
   type LucideIcon
@@ -44,6 +45,7 @@ import type { AppSettings, OllamaModel, OllamaStatus, SelectorPipelineDiagnostic
 import { CustomSelect } from "../components/ui/CustomSelect";
 import { Button } from "../components/ui/Button";
 import { HorizontalSlidingSelector, VerticalSlidingSelector } from "../components/ui/SlidingSelectors";
+import { DesktopAccountPanel } from "../components/settings/DesktopAccountPanel";
 import { appMeta } from "../config/appMeta";
 import { keyboardShortcuts } from "../config/keyboardShortcuts";
 import { TARGET_TOOL_OPTIONS } from "../components/ai/aiToolOptions";
@@ -63,6 +65,7 @@ type SettingsSectionId =
   | "composer"
   | "interface"
   | "shortcuts"
+  | "account"
   | "system"
   | "privacy"
   | "storage"
@@ -108,19 +111,28 @@ const SETTINGS_SECTIONS: Array<{
       icon: Keyboard
     },
     {
+      id: "account",
+      label: "Account",
+      labelKey: "settings.desktopAccount",
+      icon: UserRound
+    },
+    {
       id: "privacy",
       label: "Privacy",
+      labelKey: "settings.privacy",
       icon: ShieldCheck,
       status: "soon"
     },
     {
       id: "storage",
       label: "Storage",
+      labelKey: "settings.storage",
       icon: Server
     },
     {
       id: "updates",
       label: "Updates",
+      labelKey: "settings.updates",
       icon: RefreshCw,
       status: "soon"
     },
@@ -136,7 +148,7 @@ function getSettingsSectionLabel(section: (typeof SETTINGS_SECTIONS)[number], t:
   return section.labelKey ? t(section.labelKey) : section.label;
 }
 
-const SETTINGS_PLACEHOLDERS: Record<Exclude<SettingsSectionId, "ai" | "generation" | "composer" | "interface" | "shortcuts" | "system">, {
+const SETTINGS_PLACEHOLDERS: Record<Exclude<SettingsSectionId, "ai" | "generation" | "composer" | "interface" | "shortcuts" | "account" | "system">, {
   label: string;
   title: string;
   description: string;
@@ -814,7 +826,7 @@ function SettingsSidebar({
         itemGap={SETTINGS_NAV_ITEM_GAP}
         getItemKey={(section) => section.id}
         onSelect={(section) => onChange(section.id)}
-        ariaLabel="Settings sections"
+        ariaLabel={t("settings.title")}
         indicatorClassName="border border-white/[0.18] shadow-[0_10px_26px_rgba(0,0,0,0.42)]"
         itemClassName="flex items-center gap-3 overflow-hidden rounded-2xl px-3 text-left"
         renderItem={(section, isActive) => {
@@ -851,7 +863,7 @@ function SettingsSidebar({
                       : "border-neutral-800 bg-black/35 text-neutral-600 group-hover:border-white/15 group-hover:text-neutral-300"
                   ].join(" ")}
                 >
-                  Soon
+                  {t("common.soon")}
                 </span>
               )}
             </>
@@ -1061,7 +1073,7 @@ function ComposerLimitRow({
 function PlaceholderSettingsPanel({
   sectionId
 }: {
-  sectionId: Exclude<SettingsSectionId, "ai" | "generation" | "composer" | "interface" | "shortcuts" | "system">;
+  sectionId: Exclude<SettingsSectionId, "ai" | "generation" | "composer" | "interface" | "shortcuts" | "account" | "system">;
 }) {
   const config = SETTINGS_PLACEHOLDERS[sectionId];
 
@@ -2734,6 +2746,8 @@ export function SettingsPage() {
                   </SettingCard>
                 </>
               )}
+
+              {activeSection === "account" && <DesktopAccountPanel />}
 
               {(activeSection === "privacy" || activeSection === "updates") && (
                 <PlaceholderSettingsPanel sectionId={activeSection} />

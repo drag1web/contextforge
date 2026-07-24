@@ -455,6 +455,34 @@ export async function getTaskPacks(): Promise<TaskPack[]> {
   return data.taskPacks;
 }
 
+export async function importCloudTaskPack(input: {
+  projectId: number;
+  deliveryId: string;
+  source: {
+    taskPackId: string;
+    originInstallationId: string;
+    projectName?: string;
+  };
+  taskPack: {
+    title: string;
+    rawTask: string;
+    taskType: string;
+    targetTool: string;
+    generatedPrompt: string;
+  };
+}): Promise<{ taskPack: TaskPack; imported: boolean }> {
+  const data = await request<{
+    ok: true;
+    taskPack: TaskPack;
+    imported: boolean;
+  }>("/task-packs/import", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return { taskPack: data.taskPack, imported: data.imported };
+}
+
 export async function getSelectorDiagnosticsHistory() {
   const data = await request<{ ok: true; history: import("../types").SelectorPipelineDiagnostics[] }>(
     "/settings/selector-diagnostics",

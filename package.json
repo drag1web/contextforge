@@ -32,6 +32,7 @@
     "test:investigation": "npm run test:investigation -w @contextforge/server",
     "test:ownership": "npm run test:ownership -w @contextforge/server",
     "test:validation-lab": "node --import tsx scripts/validationLab.smoke.ts",
+    "test:desktop-sync": "node scripts/desktopSync.smoke.mjs",
     "test:canonical-core": "npm run test:canonical-core -w @contextforge/server",
     "test:context-quality": "npm run test:context-quality -w @contextforge/server",
     "test:symbol-syntax": "npm run test:symbol-syntax -w @contextforge/server",

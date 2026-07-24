@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import {
@@ -6,17 +6,23 @@ import {
   Bot,
   Check,
   Clipboard,
+  CloudUpload,
   ExternalLink,
   FileText,
   Github,
+  Inbox,
+  RefreshCw,
   Search,
+  ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
   X,
 } from "lucide-react";
 
-import type { TaskPack } from "../types";
+import type { Project, TaskPack } from "../types";
+import type { DesktopSyncTaskPackInboxItem } from "../types/desktopSync";
+import { getProjects, importCloudTaskPack } from "../api/client";
 import { TaskPackExportActions } from "../components/taskPacks/TaskPackExportActions";
 import { Button } from "../components/ui/Button";
 import { makeAiToolSelectOption } from "../components/ai/aiToolOptions";
@@ -25,6 +31,7 @@ import { CustomSelect, type SelectOption } from "../components/ui/CustomSelect";
 interface TaskPacksPageProps {
   taskPacks: TaskPack[];
   onOpenTaskPack: (taskPack: TaskPack) => void;
+  onImportedTaskPack: (taskPack: TaskPack) => void;
 }
 
 type TaskTypeFilter =
@@ -247,6 +254,8 @@ function TaskPackCard({
   bodyBadge,
   onCopy,
   onOpen,
+  onPublish,
+  publishState,
 }: {
   taskPack: TaskPack;
   isCopied: boolean;
@@ -254,7 +263,10 @@ function TaskPackCard({
   bodyBadge: string;
   onCopy: () => void;
   onOpen: () => void;
+  onPublish: () => void;
+  publishState: "idle" | "publishing" | "published";
 }) {
+  const { t } = useTranslation();
   const recipe = taskPack.generationRecipe;
 
   return (
@@ -361,8 +373,21 @@ function TaskPackCard({
           {formatDate(taskPack.createdAt)}
         </p>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="flex shrink-0 flex-wrap items-center justify-end gap-2">
           <TaskPackExportActions taskPack={taskPack} compact />
+
+          <Button
+            variant="secondary"
+            onClick={onPublish}
+            disabled={publishState === "publishing"}
+          >
+            {publishState === "published" ? <Check size={15} /> : <CloudUpload size={15} />}
+            {publishState === "publishing"
+              ? t("taskPacksPage.publishing")
+              : publishState === "published"
+                ? t("taskPacksPage.onWebsite")
+                : t("taskPacksPage.publish")}
+          </Button>
 
           {recipe?.githubCreatedIssue && (
             <Button
@@ -388,9 +413,279 @@ function TaskPackCard({
   );
 }
 
+function CloudTaskPackBridge({
+  onImportedTaskPack,
+}: {
+  onImportedTaskPack: (taskPack: TaskPack) => void;
+}) {
+  const { t } = useTranslation();
+  const [connected, setConnected] = useState(false);
+  const [inbox, setInbox] = useState<DesktopSyncTaskPackInboxItem[]>([]);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [projectByDelivery, setProjectByDelivery] = useState<Record<string, string>>({});
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [notice, setNotice] = useState("");
+  const [lastCheckedAt, setLastCheckedAt] = useState<Date | null>(null);
+
+  const refresh = useCallback(async (silent = false) => {
+    const bridge = window.contextforge?.desktopSync;
+    if (!bridge) {
+      setConnected(false);
+      setLoading(false);
+      return;
+    }
+
+    if (!silent) setLoading(true);
+    try {
+      const status = await bridge.getStatus();
+      setConnected(status.connected);
+      if (!status.connected) {
+        setInbox([]);
+        setError("");
+        return;
+      }
+
+      const [items, localProjects] = await Promise.all([
+        bridge.getTaskPackInbox(),
+        getProjects(),
+      ]);
+      setInbox(items);
+      setProjects(localProjects);
+      setLastCheckedAt(new Date());
+      setProjectByDelivery((current) => {
+        const fallback = String(localProjects[0]?.id ?? "");
+        return Object.fromEntries(items.map((item) => [
+          item.delivery.id,
+          current[item.delivery.id] && localProjects.some((project) => String(project.id) === current[item.delivery.id])
+            ? current[item.delivery.id]
+            : fallback,
+        ]));
+      });
+      setError("");
+      if (!silent) setNotice("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t("taskPacksPage.cloudRequestFailed"));
+    } finally {
+      if (!silent) setLoading(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    void refresh();
+  }, [refresh]);
+
+  useEffect(() => {
+    const refreshWhenVisible = () => {
+      if (document.visibilityState === "visible") void refresh(true);
+    };
+    const timer = window.setInterval(refreshWhenVisible, 15_000);
+    document.addEventListener("visibilitychange", refreshWhenVisible);
+    return () => {
+      window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", refreshWhenVisible);
+    };
+  }, [refresh]);
+
+  async function importItem(item: DesktopSyncTaskPackInboxItem) {
+    const bridge = window.contextforge?.desktopSync;
+    const projectId = Number(projectByDelivery[item.delivery.id]);
+    if (!bridge || !item.taskPack.integrityValid || !Number.isInteger(projectId) || projectId <= 0) return;
+
+    setBusyId(item.delivery.id);
+    try {
+      const result = await importCloudTaskPack({
+        projectId,
+        deliveryId: item.delivery.id,
+        source: {
+          taskPackId: item.taskPack.id,
+          originInstallationId: item.taskPack.originInstallationId,
+          projectName: item.taskPack.projectName,
+        },
+        taskPack: {
+          title: item.taskPack.title,
+          rawTask: item.taskPack.rawTask,
+          taskType: item.taskPack.taskType,
+          targetTool: item.taskPack.targetTool,
+          generatedPrompt: item.taskPack.generatedPrompt,
+        },
+      });
+      await bridge.acknowledgeTaskPack(item.delivery.id, "imported", {
+        contentHash: item.taskPack.contentHash,
+      });
+      setInbox((current) => current.filter((candidate) => candidate.delivery.id !== item.delivery.id));
+      onImportedTaskPack(result.taskPack);
+      setError("");
+      setNotice(t("taskPacksPage.importSuccess"));
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : t("taskPacksPage.cloudRequestFailed");
+      setError(message);
+      try {
+        await bridge.acknowledgeTaskPack(item.delivery.id, "failed", { error: message });
+        setInbox((current) => current.filter((candidate) => candidate.delivery.id !== item.delivery.id));
+      } catch {
+        // Keep the delivery in the inbox so an idempotent import can be retried.
+      }
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function reportIntegrityFailure(item: DesktopSyncTaskPackInboxItem) {
+    const bridge = window.contextforge?.desktopSync;
+    if (!bridge) return;
+    setBusyId(item.delivery.id);
+    try {
+      await bridge.acknowledgeTaskPack(item.delivery.id, "failed", {
+        error: "Task Pack SHA-256 integrity verification failed before import.",
+      });
+      setInbox((current) => current.filter((candidate) => candidate.delivery.id !== item.delivery.id));
+      setError("");
+      setNotice(t("taskPacksPage.integrityReported"));
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t("taskPacksPage.cloudRequestFailed"));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function dismissItem(item: DesktopSyncTaskPackInboxItem) {
+    const bridge = window.contextforge?.desktopSync;
+    if (!bridge) return;
+    setBusyId(item.delivery.id);
+    try {
+      await bridge.acknowledgeTaskPack(item.delivery.id, "dismissed");
+      setInbox((current) => current.filter((candidate) => candidate.delivery.id !== item.delivery.id));
+      setError("");
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : t("taskPacksPage.cloudRequestFailed"));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <section className="xl:col-span-2 rounded-[1.5rem] border border-white/10 bg-white/[0.025] p-4">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="flex min-w-0 items-start gap-3">
+          <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-black/45 text-neutral-300">
+            <Inbox size={17} />
+          </span>
+          <div>
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-white">{t("taskPacksPage.cloudBridge")}</h3>
+              <Pill tone={connected ? "success" : "warning"}>
+                {connected ? t("taskPacksPage.cloudConnected") : t("taskPacksPage.cloudDisconnected")}
+              </Pill>
+            </div>
+            <p className="mt-1 max-w-3xl text-xs leading-5 text-neutral-500">
+              {t("taskPacksPage.cloudBridgeDescription")}
+            </p>
+            {connected && (
+              <p className="mt-1.5 flex items-center gap-1.5 text-[11px] text-emerald-400/80">
+                <span className="size-1.5 rounded-full bg-emerald-400 shadow-[0_0_10px_rgba(52,211,153,0.65)]" />
+                {t("taskPacksPage.autoRefreshActive")}
+                {lastCheckedAt ? ` · ${lastCheckedAt.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}` : ""}
+              </p>
+            )}
+          </div>
+        </div>
+        <Button variant="secondary" onClick={() => void refresh()} disabled={loading}>
+          <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
+          {t("taskPacksPage.refreshInbox")}
+        </Button>
+      </div>
+
+      {error && (
+        <p className="mt-3 rounded-xl border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-xs text-red-200">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p className="mt-3 rounded-xl border border-emerald-500/20 bg-emerald-500/[0.07] px-3 py-2 text-xs text-emerald-200">
+          {notice}
+        </p>
+      )}
+
+      {connected && inbox.length > 0 && (
+        <div className="mt-4 grid max-h-[280px] gap-3 overflow-y-auto pr-1 2xl:grid-cols-2">
+          {inbox.map((item) => {
+            const projectOptions: SelectOption<string>[] = projects.map((project) => ({
+              value: String(project.id),
+              label: project.name,
+              description: t("taskPacksPage.localImportTarget"),
+            }));
+            const disabled = busyId === item.delivery.id;
+            return (
+              <article key={item.delivery.id} className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="truncate text-sm font-semibold text-white">{item.taskPack.title}</p>
+                    <p className="mt-1 truncate text-xs text-neutral-600">
+                      {item.taskPack.projectName || t("taskPacksPage.unknownProject")} · {item.taskPack.targetTool}
+                    </p>
+                  </div>
+                  <Pill tone={item.taskPack.integrityValid ? "success" : "warning"}>
+                    {item.taskPack.integrityValid ? t("taskPacksPage.integrityVerified") : t("taskPacksPage.integrityFailed")}
+                  </Pill>
+                </div>
+                <p className="mt-3 line-clamp-2 text-xs leading-5 text-neutral-500">{item.taskPack.rawTask}</p>
+                <div className="mt-3 flex flex-wrap items-center gap-2 text-[10px] text-neutral-600">
+                  <span className="rounded-lg border border-white/10 px-2 py-1 font-mono">SHA-256 {item.taskPack.contentHash.slice(0, 12)}…</span>
+                  <span>{t("taskPacksPage.deliveryAttempt").replace("{count}", String(item.delivery.attemptCount))}</span>
+                </div>
+                {!item.taskPack.integrityValid && (
+                  <div className="mt-3 flex items-start gap-2 rounded-xl border border-red-500/20 bg-red-500/[0.07] p-3 text-xs leading-5 text-red-200">
+                    <ShieldAlert size={15} className="mt-0.5 shrink-0" />
+                    <span>{t("taskPacksPage.integrityBlocked")}</span>
+                  </div>
+                )}
+                <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-end">
+                  {!item.taskPack.integrityValid ? (
+                    <p className="text-xs text-red-200">{t("taskPacksPage.importBlocked")}</p>
+                  ) : projects.length > 0 ? (
+                    <CustomSelect
+                      value={projectByDelivery[item.delivery.id] ?? String(projects[0]?.id ?? "")}
+                      options={projectOptions}
+                      onChange={(value) => setProjectByDelivery((current) => ({ ...current, [item.delivery.id]: value }))}
+                    />
+                  ) : (
+                    <p className="text-xs text-amber-200">{t("taskPacksPage.noLocalProjects")}</p>
+                  )}
+                  {item.taskPack.integrityValid ? (
+                    <Button variant="primary" onClick={() => void importItem(item)} disabled={disabled || projects.length === 0}>
+                      <Check size={14} />
+                      {disabled ? t("taskPacksPage.importing") : t("taskPacksPage.importHere")}
+                    </Button>
+                  ) : (
+                    <Button variant="secondary" onClick={() => void reportIntegrityFailure(item)} disabled={disabled}>
+                      <ShieldAlert size={14} />
+                      {t("taskPacksPage.reportIntegrity")}
+                    </Button>
+                  )}
+                  <Button variant="secondary" onClick={() => void dismissItem(item)} disabled={disabled}>
+                    <X size={14} />
+                    {t("taskPacksPage.dismiss")}
+                  </Button>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      )}
+
+      {connected && !loading && inbox.length === 0 && (
+        <p className="mt-3 text-xs text-neutral-600">{t("taskPacksPage.inboxEmpty")}</p>
+      )}
+    </section>
+  );
+}
+
 export function TaskPacksPage({
   taskPacks,
   onOpenTaskPack,
+  onImportedTaskPack,
 }: TaskPacksPageProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -399,6 +694,8 @@ export function TaskPacksPage({
   const [bodyModeFilter, setBodyModeFilter] = useState<BodyModeFilter>("all");
   const [sortMode, setSortMode] = useState<SortMode>("newest");
   const [copiedTaskPackId, setCopiedTaskPackId] = useState<number | null>(null);
+  const [publishStateById, setPublishStateById] = useState<Record<number, "idle" | "publishing" | "published">>({});
+  const [publishError, setPublishError] = useState("");
 
   const localizedTaskTypeOptions = useMemo<SelectOption<TaskTypeFilter>[]>(
     () => [
@@ -639,16 +936,31 @@ export function TaskPacksPage({
     }, 1400);
   }
 
-  if (taskPacks.length === 0) {
-    return (
-      <section className="grid h-[calc(100vh-96px)] place-items-center overflow-hidden">
-        <EmptyState
-          icon={<FileText size={22} />}
-          title={t("taskPacksPage.noTaskPacks")}
-          description={t("taskPacksPage.noTaskPacksDescription")}
-        />
-      </section>
-    );
+  async function handlePublish(taskPack: TaskPack) {
+    const bridge = window.contextforge?.desktopSync;
+    if (!bridge) {
+      setPublishError(t("taskPacksPage.cloudUnavailable"));
+      return;
+    }
+
+    setPublishStateById((current) => ({ ...current, [taskPack.id]: "publishing" }));
+    setPublishError("");
+    try {
+      await bridge.publishTaskPack({
+        sourceTaskPackId: String(taskPack.id),
+        title: getTaskPackDisplayTitle(taskPack),
+        projectName: getTaskPackProjectName(taskPack, t),
+        rawTask: taskPack.rawTask,
+        taskType: taskPack.taskType,
+        targetTool: taskPack.targetTool,
+        generatedPrompt: taskPack.generatedPrompt,
+        sourceCreatedAt: taskPack.createdAt,
+      });
+      setPublishStateById((current) => ({ ...current, [taskPack.id]: "published" }));
+    } catch (reason) {
+      setPublishStateById((current) => ({ ...current, [taskPack.id]: "idle" }));
+      setPublishError(reason instanceof Error ? reason.message : t("taskPacksPage.cloudRequestFailed"));
+    }
   }
 
   return (
@@ -713,6 +1025,14 @@ export function TaskPacksPage({
             caption={`${fallbackCount} fallback`}
           />
         </div>
+
+        <CloudTaskPackBridge onImportedTaskPack={onImportedTaskPack} />
+
+        {publishError && (
+          <p className="xl:col-span-2 rounded-xl border border-red-500/20 bg-red-500/[0.07] px-3 py-2 text-xs text-red-200">
+            {publishError}
+          </p>
+        )}
       </div>
 
       <div className="grid min-h-0 gap-4 overflow-hidden xl:grid-cols-[360px_minmax(0,1fr)]">
@@ -843,8 +1163,8 @@ export function TaskPacksPage({
               >
                 <EmptyState
                   icon={<Search size={22} />}
-                  title={t("taskPacksPage.noMatching")}
-                  description={t("taskPacksPage.noMatchingDescription")}
+                  title={t(taskPacks.length === 0 ? "taskPacksPage.noTaskPacks" : "taskPacksPage.noMatching")}
+                  description={t(taskPacks.length === 0 ? "taskPacksPage.noTaskPacksDescription" : "taskPacksPage.noMatchingDescription")}
                 />
               </motion.div>
             ) : (
@@ -876,6 +1196,8 @@ export function TaskPacksPage({
                         bodyBadge={getTaskPackBodyBadge(taskPack, t)}
                         onCopy={() => handleCopy(taskPack)}
                         onOpen={() => onOpenTaskPack(taskPack)}
+                        onPublish={() => void handlePublish(taskPack)}
+                        publishState={publishStateById[taskPack.id] ?? "idle"}
                       />
                     );
                   })}

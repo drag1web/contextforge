@@ -131,6 +131,7 @@ SQLITE_DB_PATH=./data/contextforge.sqlite
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
 APP_VERSION=0.6.7-alpha
+CONTEXTFORGE_WEB_ORIGIN=https://contextforge.dev
 
 # Optional GitHub integration. ContextForge works without this.
 GITHUB_OAUTH_CLIENT_ID=
@@ -148,6 +149,36 @@ SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
 APP_VERSION=0.6.7-alpha
 ```
+
+---
+
+## Optional website account
+
+Desktop can be connected to the ContextForge website from **Settings → Account & Sync**.
+The website provides a short-lived pairing code, and Electron exchanges it for a device
+token that is encrypted with the operating system secure storage.
+
+The connection currently supports:
+
+- website device presence and manual heartbeat;
+- account and license metadata;
+- release-channel update checks;
+- explicit publication of one selected Task Pack to the website;
+- an account-owned Task Pack inbox with confirmed import into a chosen local project;
+- automatic inbox refresh while the Task Packs page is visible;
+- SHA-256 verification in the protected Electron bridge before content reaches the renderer;
+- import failure reporting so the website can preserve history and safely retry delivery;
+- explicit disconnect and token revocation.
+
+Project contents, local paths, and generated files are not uploaded. A Task Pack prompt
+is transferred only when the user clicks **Publish** on that specific pack. The website
+rejects detected secrets and absolute local paths. Incoming packs are imported only after
+the user selects a local destination project; importing does not run or modify the Task
+Pack generator. Failed or corrupted deliveries never touch local project storage. Device
+metadata and the total project count remain the only heartbeat data.
+
+For local website development, launch the website on `http://127.0.0.1:5177`.
+Development builds use that address by default; production builds require HTTPS.
 
 ---
 
