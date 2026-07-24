@@ -31,6 +31,7 @@ import type { Project, TaskPack } from "../types";
 import type { DesktopSyncTaskPackInboxItem } from "../types/desktopSync";
 import { getProjects, importCloudTaskPack } from "../api/client";
 import { makeAiToolSelectOption } from "../components/ai/aiToolOptions";
+import { WorkspacePageHeader } from "../components/layout/WorkspacePageHeader";
 import { Button } from "../components/ui/Button";
 import { CustomSelect, type SelectOption } from "../components/ui/CustomSelect";
 import { DropdownMenu } from "../components/ui/DropdownMenu";
@@ -1015,29 +1016,20 @@ export function TaskPacksPage({
 
   return (
     <section className="flex h-[calc(100vh-96px)] min-h-0 flex-col gap-3 overflow-hidden">
-      <header className="shrink-0 rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.035),rgba(255,255,255,0.01))] px-5 py-4">
-        <div className="flex flex-wrap items-center justify-between gap-5">
-          <div className="flex min-w-0 items-center gap-4">
-            <span className="grid size-11 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-black/45 text-neutral-300">
-              <Archive size={18} />
-            </span>
-            <div className="min-w-0">
-              <h2 className="text-[26px] font-semibold leading-tight tracking-[-0.045em] text-white">
-                {t("taskPacksPage.libraryTitle")}
-              </h2>
-              <p className="mt-1 max-w-2xl truncate text-sm text-neutral-500">
-                {t("taskPacksPage.libraryDescription")}
-              </p>
-            </div>
-          </div>
-
-          <div className="flex divide-x divide-neutral-900 rounded-2xl border border-neutral-900 bg-black/25 px-4 py-2.5">
+      <WorkspacePageHeader
+        icon={<Archive size={18} />}
+        eyebrow={t("taskPacksPage.archive")}
+        title={t("taskPacksPage.libraryTitle")}
+        description={t("taskPacksPage.libraryDescription")}
+        className="shrink-0"
+        aside={
+          <div className="flex w-full divide-x divide-neutral-900 rounded-2xl border border-neutral-900 bg-black/25 px-4 py-2.5 xl:w-auto">
             <SummaryMetric value={taskPacks.length} label={t("taskPacksPage.savedSummary")} />
             <SummaryMetric value={refinedCount} label={t("taskPacksPage.refinedSummary")} />
             <SummaryMetric value={mostUsedTarget} label={t("taskPacksPage.topTargetSummary")} />
           </div>
-        </div>
-      </header>
+        }
+      />
 
       <CloudTaskPackBridge onImportedTaskPack={onImportedTaskPack} />
 

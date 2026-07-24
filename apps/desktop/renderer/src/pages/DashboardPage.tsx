@@ -325,20 +325,6 @@ export function DashboardPage() {
   const [bootProgress, setBootProgress] = useState(12);
   const [bootStatus, setBootStatus] = useState(() => i18n.t("splash.starting"));
 
-  const renderPageStatus = useCallback(() => {
-    const normalizedMessage = dashboard.statusMessage.trim();
-
-    if (!normalizedMessage) {
-      return null;
-    }
-
-    return (
-      <div className="mb-6">
-        <StatusBar message={normalizedMessage} />
-      </div>
-    );
-  }, [dashboard.statusMessage]);
-
   useKeyboardShortcuts({
     globalSearch: () => setIsGlobalSearchOpen(true),
   });
@@ -649,51 +635,39 @@ export function DashboardPage() {
 
     if (activePage === "projects") {
       return (
-        <>
-          {renderPageStatus()}
-
-          <ProjectsSection
-            projects={dashboard.projects}
-            isLoading={dashboard.isLoading}
-            onAddProject={dashboard.handleSelectProject}
-            onRescanProject={dashboard.handleRescanProject}
-            onGenerateAgents={dashboard.handleGenerateAgentsPreview}
-            onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
-            onOpenProjectDetails={(project) =>
-              handleOpenProjectDetails(project.id)
-            }
-          />
-        </>
+        <ProjectsSection
+          projects={dashboard.projects}
+          isLoading={dashboard.isLoading}
+          onAddProject={dashboard.handleSelectProject}
+          onRescanProject={dashboard.handleRescanProject}
+          onGenerateAgents={dashboard.handleGenerateAgentsPreview}
+          onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
+          onOpenProjectDetails={(project) =>
+            handleOpenProjectDetails(project.id)
+          }
+        />
       );
     }
 
     if (activePage === "taskPacks") {
       return (
-        <>
-          {renderPageStatus()}
-
-          <TaskPacksPage
-            taskPacks={dashboard.taskPacks}
-            onOpenTaskPack={dashboard.setGeneratedTaskPack}
-            onImportedTaskPack={dashboard.handleExternalTaskPackCreated}
-          />
-        </>
+        <TaskPacksPage
+          taskPacks={dashboard.taskPacks}
+          onOpenTaskPack={dashboard.setGeneratedTaskPack}
+          onImportedTaskPack={dashboard.handleExternalTaskPackCreated}
+        />
       );
     }
 
     if (activePage === "scanners") {
       return (
-        <>
-          {renderPageStatus()}
-
-          <ScannersPage
-            projects={dashboard.projects}
-            isLoading={dashboard.isLoading}
-            onAddProject={dashboard.handleSelectProject}
-            onRescanProject={dashboard.handleRescanProject}
-            onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
-          />
-        </>
+        <ScannersPage
+          projects={dashboard.projects}
+          isLoading={dashboard.isLoading}
+          onAddProject={dashboard.handleSelectProject}
+          onRescanProject={dashboard.handleRescanProject}
+          onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
+        />
       );
     }
 
@@ -759,7 +733,6 @@ export function DashboardPage() {
     dashboard,
     handleNavigate,
     handleOpenProjectDetails,
-    renderPageStatus,
     selectedProjectDetailsId,
   ]);
 
@@ -882,6 +855,14 @@ export function DashboardPage() {
           message={dashboard.statusMessage}
         />
       </motion.div>
+
+      <StatusBar
+        message={
+          dashboard.statusMessage === i18n.t("common.statusReady")
+            ? ""
+            : dashboard.statusMessage
+        }
+      />
 
       <AnimatePresence>
         {isWelcomeVisible && (

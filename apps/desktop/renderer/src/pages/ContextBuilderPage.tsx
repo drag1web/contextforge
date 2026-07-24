@@ -27,6 +27,7 @@ import {
   updateProjectMemory,
 } from "../api/client";
 import { ProjectMemoryWorkspace } from "../components/projects/ProjectMemoryWorkspace";
+import { WorkspacePageHeader } from "../components/layout/WorkspacePageHeader";
 import { Button } from "../components/ui/Button";
 import {
   HorizontalSlidingSelector,
@@ -464,33 +465,15 @@ export function ContextBuilderPage({
 
   return (
     <section className="grid h-[calc(100vh-96px)] min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden">
-      <motion.header
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={PAGE_TRANSITION}
-        className="rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01))] px-5 py-4"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-4">
-          <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-              <Gauge size={17} />
-            </span>
-            <div>
-              <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                {t("contextBuilder.workspaceKicker")}
-              </p>
-              <h2 className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-white">
-                {t("contextBuilder.workspaceTitle")}
-              </h2>
-              <p className="mt-1 text-sm text-neutral-500">
-                {t("contextBuilder.workspaceDescription")}
-              </p>
-            </div>
-          </div>
-
-          {selectedProject ? (
-            <div className="flex items-center gap-5 rounded-2xl border border-neutral-900 bg-black/35 px-4 py-3">
-              <div>
+      <WorkspacePageHeader
+        icon={<Gauge size={17} />}
+        eyebrow={t("contextBuilder.workspaceKicker")}
+        title={t("contextBuilder.workspaceTitle")}
+        description={t("contextBuilder.workspaceDescription")}
+        aside={
+          selectedProject ? (
+            <div className="flex w-full items-center gap-5 rounded-2xl border border-neutral-900 bg-black/35 px-4 py-3 xl:w-auto">
+              <div className="min-w-0">
                 <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
                   {t("contextBuilder.selectedProject")}
                 </p>
@@ -508,9 +491,9 @@ export function ContextBuilderPage({
                 </p>
               </div>
             </div>
-          ) : null}
-        </div>
-      </motion.header>
+          ) : null
+        }
+      />
 
       <div className="grid min-h-0 gap-4 overflow-hidden xl:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="flex min-h-0 flex-col overflow-hidden rounded-[1.6rem] border border-neutral-900 bg-black/35 p-4">

@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 
 import type { Project } from "../../types";
+import { WorkspacePageHeader } from "../layout/WorkspacePageHeader";
 import { Button } from "../ui/Button";
 import { HorizontalSlidingSelector } from "../ui/SlidingSelectors";
 import {
@@ -303,27 +304,13 @@ export function ProjectsSection({
 
   return (
     <section className="space-y-4">
-      <div className="cf-card overflow-hidden p-5">
-        <div className="grid items-stretch gap-5 lg:grid-cols-[minmax(0,1fr)_420px]">
-          <div className="flex min-w-0 items-center gap-4">
-            <div className="grid size-12 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-200">
-              <FolderOpen size={21} />
-            </div>
-
-            <div className="min-w-0">
-              <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                {t("projectsPage.workspaceKicker")}
-              </p>
-              <h2 className="mt-1 text-[30px] font-semibold leading-none tracking-[-0.045em] text-white">
-                {t("projectsPage.projects")}
-              </h2>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500">
-                {t("projectsPage.workspaceDescription")}
-              </p>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-3 overflow-hidden rounded-2xl border border-neutral-900 bg-black/30">
+      <WorkspacePageHeader
+        icon={<FolderOpen size={18} />}
+        eyebrow={t("projectsPage.workspaceKicker")}
+        title={t("projectsPage.projects")}
+        description={t("projectsPage.workspaceDescription")}
+        aside={
+          <div className="grid w-full grid-cols-3 overflow-hidden rounded-2xl border border-neutral-900 bg-black/30 xl:w-[420px]">
             <WorkspaceStat
               icon={<FolderOpen size={14} />}
               label={t("projectsPage.projects")}
@@ -340,8 +327,8 @@ export function ProjectsSection({
               value={lowReadinessCount}
             />
           </div>
-        </div>
-      </div>
+        }
+      />
 
       <div className="cf-card p-4">
         <div className="mb-3 flex min-h-9 flex-wrap items-center gap-3">

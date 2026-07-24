@@ -21,6 +21,7 @@ import {
   Zap,
 } from "lucide-react";
 
+import { WorkspacePageHeader } from "../components/layout/WorkspacePageHeader";
 import { Button } from "../components/ui/Button";
 import type { Project, TaskPack } from "../types";
 
@@ -694,47 +695,33 @@ export function DashboardHomePage({
 
   return (
     <section className="space-y-5 pb-2">
-      <motion.section
-        initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ ...ENTER_TRANSITION, delay: motionDelay(0.02) }}
-        className="relative overflow-hidden rounded-[1.55rem] border border-white/[0.09] bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012))] p-5 shadow-[0_14px_44px_rgba(0,0,0,0.3),inset_0_1px_0_rgba(255,255,255,0.04)]"
-      >
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_86%_20%,rgba(255,255,255,0.055),transparent_24rem)]" />
-        <div className="relative grid gap-7 xl:grid-cols-[minmax(0,1fr)_360px] xl:items-center">
-          <div className="min-w-0">
-            <div className="mb-3 flex flex-wrap gap-2">
-              <span className="cf-badge">
-                <Gauge size={12} />
-                {t("dashboard.workspaceOverview")}
-              </span>
+      <WorkspacePageHeader
+        icon={<Gauge size={18} />}
+        eyebrow={t("dashboard.workspaceKicker")}
+        title={t("dashboard.workspaceOverview")}
+        description={t("dashboard.commandCenterDescription")}
+        headingLevel={1}
+        aside={
+          <div className="w-full xl:w-[360px]">
+            <div className="mb-2 flex justify-end">
               <span className="cf-badge">
                 {t("dashboard.lastScan", { time: latestScanLabel })}
               </span>
             </div>
-
-            <h1 className="text-[34px] font-semibold leading-[1.02] tracking-[-0.06em] text-white">
-              {t("dashboard.workspaceOverview")}
-            </h1>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500">
-              {t("dashboard.commandCenterDescription")}
-            </p>
-
+            <ReadinessProgress
+              score={readinessValue}
+              label={t("dashboard.avgReadiness")}
+              status={
+                readinessValue >= 80
+                  ? t("contextBuilder.readyForAgents")
+                  : readinessValue >= 60
+                    ? t("contextBuilder.needsContextPolish")
+                    : t("contextBuilder.needsAttention")
+              }
+            />
           </div>
-
-          <ReadinessProgress
-            score={readinessValue}
-            label={t("dashboard.avgReadiness")}
-            status={
-              readinessValue >= 80
-                ? t("contextBuilder.readyForAgents")
-                : readinessValue >= 60
-                  ? t("contextBuilder.needsContextPolish")
-                  : t("contextBuilder.needsAttention")
-            }
-          />
-        </div>
-      </motion.section>
+        }
+      />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <AnimatedMetric
