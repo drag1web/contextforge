@@ -1138,6 +1138,249 @@ const resources = {
         markdownDone: ".md exported",
         textDone: ".txt exported",
       },
+      integrationsHub: {
+        eyebrow: "Integration workspace",
+        title: "Integrations",
+        description:
+          "Connect model providers and workflow bridges without mixing connection setup with everyday generation defaults.",
+        loading: "Loading integrations...",
+        tabs: {
+          label: "Integration sections",
+          overview: "Overview",
+          providers: "AI providers",
+          connections: "Connections",
+          security: "Security",
+        },
+        actions: {
+          dismiss: "Dismiss",
+          configure: "Configure",
+          clear: "Clear",
+          saveProvider: "Save provider",
+          saved: "Saved",
+          openSettings: "Open settings",
+          generationSettings: "Generation settings",
+          manageDefaults: "Manage generation defaults",
+          openGithub: "Open GitHub",
+          openAccount: "Open Account & Sync",
+        },
+        status: {
+          connected: "Connected",
+          notConnected: "Not connected",
+          saveRequired: "Save required",
+          notApplied: "Not applied",
+          needsAttention: "Needs attention",
+          separateWorkspace: "Separate workspace",
+          available: "Available",
+          ready: "Ready",
+          active: "Active",
+          local: "Local",
+        },
+        summary: {
+          provider: "Provider",
+          activeProvider: "Active provider",
+          selectedProvider: "Selected provider",
+          draftProvider: "Draft provider",
+          status: "Status",
+          target: "Output target",
+          model: "Model",
+          activeModel: "Current generation model",
+          secrets: "Credentials",
+          serverSide: "Keys stay outside the renderer",
+          noApiKey: "No API key",
+          keySaved: "Key saved",
+          noKeySaved: "No key saved",
+        },
+        overview: {
+          pipelineEyebrow: "Current workflow",
+          pipelineTitle: "One local pipeline, optional external connections.",
+          pipelineDescription:
+            "ContextForge keeps project evidence local, calls an AI provider only in assisted mode, and exports an agent-ready package at the end.",
+          contextLabel: "Project context",
+          localContext: "Local",
+          localContextCaption: "Scanner, memory and selected files",
+          providerLabel: "Refinement",
+          assistedCaption: "AI-assisted with fallback",
+          templateCaption: "Deterministic template mode",
+          outputLabel: "Package format",
+          outputCaption: "Framing for the selected coding agent",
+          boundaryLabel: "Data boundary",
+          localFirst: "On this device",
+          boundaryCaption: "Repository contents stay on this device",
+          draftTitle: "{{provider}} is selected as an unpublished draft.",
+          draftDescription:
+            "The active provider remains unchanged until you save the connection.",
+          healthEyebrow: "Provider health",
+          healthConnected: "The active provider is ready.",
+          healthOffline: "The provider needs attention.",
+          healthSaveDescription:
+            "Save the current connection draft before ContextForge checks its health.",
+          healthUnknownDescription:
+            "Connection health has not been checked yet.",
+          servicesEyebrow: "Connected workspaces",
+          servicesTitle: "Open each integration in the place where it belongs.",
+          servicesDescription:
+            "Provider setup stays here. GitHub, account sync and future bridges keep their own focused workspaces.",
+        },
+        providers: {
+          eyebrow: "Model providers",
+          title: "Connect the provider used by assisted workflows.",
+          description:
+            "Choose an active provider, configure its endpoint and credentials, then verify the detected models. Generation defaults remain in Settings.",
+          credentialsEyebrow: "Credential state",
+          credentialsDescription:
+            "Saved secrets are accepted through settings updates and are never returned to the renderer.",
+        },
+        providerCards: {
+          ollama: {
+            meta: "Local",
+            description:
+              "Run models on this machine for private and offline-friendly workflows.",
+            note1: "No cloud by default",
+            note2: "Best for private repositories",
+          },
+          "openai-compatible": {
+            meta: "Endpoint",
+            description:
+              "Use a local gateway, proxy or hosted provider with an OpenAI-compatible /v1 API.",
+            note1: "Flexible gateway",
+            note2: "API key can be optional",
+          },
+          anthropic: {
+            meta: "Cloud",
+            description:
+              "Connect Claude through the Anthropic API for assisted refinement workflows.",
+            note1: "Server-side key",
+            note2: "Manual model id supported",
+          },
+          gemini: {
+            meta: "Cloud",
+            description:
+              "Connect Gemini through the Google Generative Language API.",
+            note1: "Server-side key",
+            note2: "Manual model id supported",
+          },
+        },
+        providerSetup: {
+          eyebrow: "Connection setup",
+          loading: "Loading provider",
+          saveToCheck: "Save this connection to refresh its health and model list.",
+          notChecked: "Connection status has not been checked yet.",
+          ollamaUrl: "Ollama URL",
+          ollamaUrlCaption:
+            "Usually http://localhost:11434 for the local Ollama service.",
+          baseUrl: "Base URL",
+          openAiUrlCaption:
+            "Use an OpenAI-compatible /v1 base URL, for example http://localhost:1234/v1.",
+          claudeUrl: "Claude API base URL",
+          claudeUrlCaption:
+            "The default Anthropic Messages API endpoint is https://api.anthropic.com/v1.",
+          geminiUrl: "Gemini API base URL",
+          geminiUrlCaption:
+            "The default Google Generative Language API v1beta endpoint.",
+          apiKey: "API key",
+          claudeKey: "Claude API key",
+          geminiKey: "Gemini API key",
+          keyConfigured:
+            "A key is already stored. Enter another key to replace it or clear the saved one.",
+          keyOptional:
+            "Optional for local endpoints and usually required for remote gateways.",
+          keyRequired:
+            "Required for remote requests. The saved value is not returned to the interface.",
+          savedKey: "Saved key configured",
+          manualModel: "Model id",
+          manualModelCaption:
+            "Use a known model id when the provider cannot list models automatically.",
+          mode: "Generation mode",
+          modeCaption:
+            "This mirrors the current generation behavior. Broader defaults are managed in Settings.",
+          templateMode: "Template only",
+          templateModeDescription: "Deterministic output without AI calls.",
+          assistedMode: "AI-assisted",
+          assistedModeDescription:
+            "Use the selected provider with template fallback.",
+        },
+        models: {
+          eyebrow: "Provider evidence",
+          title: "Detected models",
+          description:
+            "This list confirms what the active provider exposes. Select the default model in Settings.",
+          detected: "{{count}} detected",
+          saveFirst: "Save the provider draft before refreshing detected models.",
+          empty:
+            "No models were detected. Check the endpoint, start the local service or provide a valid model id.",
+        },
+        connections: {
+          eyebrow: "Workflow bridges",
+          title: "Connect external workflows without turning them into settings.",
+          description:
+            "Each bridge has a focused workspace and an explicit local-first boundary.",
+          aiProviderTitle: "AI provider",
+          aiProviderDescription:
+            "Endpoint, credentials, health and detected models for assisted generation.",
+          githubDescription:
+            "Repository linking, browser pairing and issue workflows live on the GitHub page.",
+          githubLong:
+            "Pair an account, link local repositories, import issues and publish selected packages through the dedicated GitHub workspace.",
+          accountTitle: "Account & Sync",
+          accountDescription:
+            "Desktop Link, device state, release channel and package handoff stay in their own hub.",
+          accountLong:
+            "Manage the website account, this installation, updates and explicit package transfer without uploading repositories.",
+          futureTitle: "Future connectors",
+          futureDescription:
+            "MCP permissions, CLI bridges and shared workspace features remain visible as planned modules.",
+          exportTitle: "Local export",
+          exportDescription:
+            "Markdown and text packages can be exported locally without any connected service.",
+        },
+        future: {
+          eyebrow: "Product roadmap",
+          title: "Planned connectors stay explicit and inactive.",
+          description:
+            "These cards communicate direction without pretending unfinished integrations already work.",
+          mcpTitle: "MCP and tool permissions",
+          mcpDescription:
+            "Approval rules for external tools, scopes and sensitive actions.",
+          cliTitle: "CLI bridge",
+          cliDescription:
+            "Explicit command-line handoff for local automation and scripts.",
+          issuesTitle: "Issue trackers",
+          issuesDescription:
+            "Focused import and export flows for tasks from external trackers.",
+          cloudTitle: "Shared workspace sync",
+          cloudDescription:
+            "Optional account sync for templates, devices and selected settings.",
+        },
+        security: {
+          eyebrow: "Local-first boundary",
+          title: "See exactly what stays local and what may leave the device.",
+          description:
+            "Connections are optional, secrets remain protected and repository contents are never uploaded implicitly.",
+          staysLocal: "Always stays on this device",
+          mayLeave: "May be sent only after an explicit action",
+          local1: "Repository files, absolute paths and workspace structure",
+          local2: "Scanner evidence, Project Memory and saved context files",
+          local3: "Local database, backups and generated package history",
+          local4: "Environment files, tokens and other local secrets",
+          external1: "A prompt body sent to the selected AI provider in assisted mode",
+          external2: "A selected package published through GitHub or Desktop Link",
+          external3: "Provider health requests and model-list metadata",
+          external4: "Account and installation status used by connected services",
+          credentialsEyebrow: "Credential handling",
+          credentialsTitle: "Keys are stored outside the renderer.",
+          credentialsDescription:
+            "Saved provider keys are accepted by the backend, are not returned to the interface and are not included in exports.",
+          activeProvider: "Provider selected for assisted generation",
+          outputEyebrow: "Agent output",
+          outputTitle: "The coding agent receives an exported package, not repository access.",
+          outputDescription:
+            "ContextForge prepares instructions and selected context. The external agent still performs the coding work in its own environment.",
+        },
+        errors: {
+          load: "Failed to load integrations.",
+          save: "Failed to save the integration.",
+        },
+      },
       accountSync: {
         eyebrow: "Connected workspace",
         title: "Account & Sync",
@@ -2872,6 +3115,249 @@ const resources = {
         text: "Экспорт .txt",
         markdownDone: ".md сохранён",
         textDone: ".txt сохранён",
+      },
+      integrationsHub: {
+        eyebrow: "Рабочая область интеграций",
+        title: "Интеграции",
+        description:
+          "Подключайте AI-провайдеры и внешние рабочие процессы, не смешивая настройку соединений с повседневными параметрами генерации.",
+        loading: "Загрузка интеграций...",
+        tabs: {
+          label: "Разделы интеграций",
+          overview: "Обзор",
+          providers: "AI-провайдеры",
+          connections: "Подключения",
+          security: "Безопасность",
+        },
+        actions: {
+          dismiss: "Скрыть",
+          configure: "Настроить",
+          clear: "Очистить",
+          saveProvider: "Сохранить провайдера",
+          saved: "Сохранено",
+          openSettings: "Открыть настройки",
+          generationSettings: "Настройки генерации",
+          manageDefaults: "Настроить параметры генерации",
+          openGithub: "Открыть GitHub",
+          openAccount: "Открыть аккаунт и синхронизацию",
+        },
+        status: {
+          connected: "Подключён",
+          notConnected: "Не подключён",
+          saveRequired: "Нужно сохранить",
+          notApplied: "Не применено",
+          needsAttention: "Требует внимания",
+          separateWorkspace: "Отдельный раздел",
+          available: "Доступно",
+          ready: "Готово",
+          active: "Активно",
+          local: "Локально",
+        },
+        summary: {
+          provider: "Провайдер",
+          activeProvider: "Активный провайдер",
+          selectedProvider: "Выбранный провайдер",
+          draftProvider: "Черновик провайдера",
+          status: "Состояние",
+          target: "Формат вывода",
+          model: "Модель",
+          activeModel: "Текущая модель генерации",
+          secrets: "Учётные данные",
+          serverSide: "Ключи не передаются в renderer",
+          noApiKey: "API-ключ не нужен",
+          keySaved: "Ключ сохранён",
+          noKeySaved: "Ключ не сохранён",
+        },
+        overview: {
+          pipelineEyebrow: "Текущий процесс",
+          pipelineTitle: "Один локальный процесс и только явные внешние подключения.",
+          pipelineDescription:
+            "ContextForge хранит доказательства проекта локально, обращается к AI-провайдеру только в режиме с локальным AI и в конце создаёт пакет задачи для выбранного агента.",
+          contextLabel: "Контекст проекта",
+          localContext: "Локально",
+          localContextCaption: "Сканер, память проекта и выбранные файлы",
+          providerLabel: "Улучшение",
+          assistedCaption: "AI-режим с безопасным fallback",
+          templateCaption: "Детерминированный шаблонный режим",
+          outputLabel: "Формат пакета",
+          outputCaption: "Структура для выбранного coding-агента",
+          boundaryLabel: "Граница данных",
+          localFirst: "На устройстве",
+          boundaryCaption: "Содержимое репозитория остаётся на устройстве",
+          draftTitle: "{{provider}} выбран как несохранённый черновик.",
+          draftDescription:
+            "Активный провайдер не изменится, пока вы не сохраните соединение.",
+          healthEyebrow: "Состояние провайдера",
+          healthConnected: "Активный провайдер готов к работе.",
+          healthOffline: "Провайдер требует внимания.",
+          healthSaveDescription:
+            "Сохраните текущий черновик соединения, прежде чем ContextForge проверит его состояние.",
+          healthUnknownDescription:
+            "Состояние подключения ещё не проверялось.",
+          servicesEyebrow: "Подключённые рабочие области",
+          servicesTitle: "Каждая интеграция открывается там, где ей логично находиться.",
+          servicesDescription:
+            "Настройка провайдера остаётся здесь. GitHub, аккаунт и будущие мосты получают отдельные понятные разделы.",
+        },
+        providers: {
+          eyebrow: "Провайдеры моделей",
+          title: "Подключите провайдера для AI-процессов ContextForge.",
+          description:
+            "Выберите активный провайдер, настройте endpoint и ключи, затем проверьте найденные модели. Повседневные параметры генерации остаются в Настройках.",
+          credentialsEyebrow: "Состояние ключей",
+          credentialsDescription:
+            "Секреты принимаются только через backend-настройки и никогда не возвращаются в renderer.",
+        },
+        providerCards: {
+          ollama: {
+            meta: "Локально",
+            description:
+              "Запускайте модели на этом компьютере для приватной и автономной работы.",
+            note1: "Без облака по умолчанию",
+            note2: "Подходит для приватных репозиториев",
+          },
+          "openai-compatible": {
+            meta: "Endpoint",
+            description:
+              "Используйте локальный gateway, proxy или облачный сервис с OpenAI-совместимым /v1 API.",
+            note1: "Гибкая точка подключения",
+            note2: "API-ключ может быть необязателен",
+          },
+          anthropic: {
+            meta: "Облако",
+            description:
+              "Подключите Claude через Anthropic API для AI-улучшения пакетов задач.",
+            note1: "Ключ хранится на backend",
+            note2: "Поддерживается ручной ID модели",
+          },
+          gemini: {
+            meta: "Облако",
+            description:
+              "Подключите Gemini через Google Generative Language API.",
+            note1: "Ключ хранится на backend",
+            note2: "Поддерживается ручной ID модели",
+          },
+        },
+        providerSetup: {
+          eyebrow: "Настройка соединения",
+          loading: "Загрузка провайдера",
+          saveToCheck: "Сохраните соединение, чтобы обновить его состояние и список моделей.",
+          notChecked: "Состояние подключения ещё не проверялось.",
+          ollamaUrl: "Адрес Ollama",
+          ollamaUrlCaption:
+            "Обычно локальный сервис Ollama доступен по адресу http://localhost:11434.",
+          baseUrl: "Базовый URL",
+          openAiUrlCaption:
+            "Укажите OpenAI-совместимый /v1 URL, например http://localhost:1234/v1.",
+          claudeUrl: "Базовый URL Claude API",
+          claudeUrlCaption:
+            "Стандартный адрес Anthropic Messages API — https://api.anthropic.com/v1.",
+          geminiUrl: "Базовый URL Gemini API",
+          geminiUrlCaption:
+            "Стандартный endpoint Google Generative Language API v1beta.",
+          apiKey: "API-ключ",
+          claudeKey: "Ключ Claude API",
+          geminiKey: "Ключ Gemini API",
+          keyConfigured:
+            "Ключ уже сохранён. Введите новый для замены или удалите сохранённый.",
+          keyOptional:
+            "Для локальных endpoint ключ может не требоваться, для удалённых обычно обязателен.",
+          keyRequired:
+            "Нужен для удалённых запросов. Сохранённое значение не возвращается в интерфейс.",
+          savedKey: "Сохранённый ключ настроен",
+          manualModel: "ID модели",
+          manualModelCaption:
+            "Укажите известный ID, если провайдер не умеет отдавать список моделей.",
+          mode: "Режим генерации",
+          modeCaption:
+            "Здесь показано текущее поведение генерации. Остальные defaults настраиваются в разделе Настройки.",
+          templateMode: "Только шаблон",
+          templateModeDescription: "Детерминированный результат без AI-запросов.",
+          assistedMode: "С локальным AI",
+          assistedModeDescription:
+            "Использовать выбранный провайдер с fallback на шаблон.",
+        },
+        models: {
+          eyebrow: "Доказательства провайдера",
+          title: "Найденные модели",
+          description:
+            "Список подтверждает, что именно отдаёт активный провайдер. Модель по умолчанию выбирается в Настройках.",
+          detected: "Найдено: {{count}}",
+          saveFirst: "Сначала сохраните черновик провайдера, затем обновите список моделей.",
+          empty:
+            "Модели не найдены. Проверьте endpoint, запустите локальный сервис или укажите корректный ID модели.",
+        },
+        connections: {
+          eyebrow: "Мосты рабочих процессов",
+          title: "Подключайте внешние сервисы, не превращая их в ещё один список настроек.",
+          description:
+            "Каждый мост получает отдельный рабочий раздел и понятную локальную границу.",
+          aiProviderTitle: "AI-провайдер",
+          aiProviderDescription:
+            "Endpoint, ключи, состояние и найденные модели для AI-генерации.",
+          githubDescription:
+            "Привязка репозиториев, browser pairing и работа с issues находятся на странице GitHub.",
+          githubLong:
+            "Подключите аккаунт, свяжите локальные репозитории, импортируйте issues и публикуйте выбранные пакеты задач через отдельную рабочую область GitHub.",
+          accountTitle: "Аккаунт и синхронизация",
+          accountDescription:
+            "Desktop Link, состояние устройства, канал релизов и передача пакетов находятся в отдельном центре.",
+          accountLong:
+            "Управляйте аккаунтом сайта, этой установкой, обновлениями и явной передачей пакетов задач без загрузки репозиториев.",
+          futureTitle: "Будущие подключения",
+          futureDescription:
+            "MCP-разрешения, CLI-мосты и общие рабочие пространства пока показаны как честные планы.",
+          exportTitle: "Локальный экспорт",
+          exportDescription:
+            "Пакеты задач в Markdown и TXT можно сохранять локально без подключённых сервисов.",
+        },
+        future: {
+          eyebrow: "План развития",
+          title: "Будущие интеграции видны, но не притворяются готовыми.",
+          description:
+            "Эти карточки показывают направление продукта и не меняют поведение приложения.",
+          mcpTitle: "MCP и разрешения инструментов",
+          mcpDescription:
+            "Правила доступа внешних инструментов, scopes и подтверждение опасных действий.",
+          cliTitle: "CLI-мост",
+          cliDescription:
+            "Явная передача задач в локальные скрипты и командные процессы.",
+          issuesTitle: "Трекеры задач",
+          issuesDescription:
+            "Отдельные сценарии импорта и экспорта задач из внешних систем.",
+          cloudTitle: "Синхронизация рабочего пространства",
+          cloudDescription:
+            "Опциональная синхронизация шаблонов, устройств и выбранных настроек.",
+        },
+        security: {
+          eyebrow: "Локальная граница данных",
+          title: "Показываем точно, что остаётся локально и что может покинуть устройство.",
+          description:
+            "Подключения необязательны, секреты защищены, а содержимое репозитория никогда не загружается скрытно.",
+          staysLocal: "Всегда остаётся на этом устройстве",
+          mayLeave: "Может быть отправлено только после явного действия",
+          local1: "Файлы репозитория, абсолютные пути и структура рабочего пространства",
+          local2: "Доказательства сканера, память проекта и сохранённые context-файлы",
+          local3: "Локальная база, резервные копии и история созданных пакетов",
+          local4: "Файлы окружения, токены и другие локальные секреты",
+          external1: "Текст промпта, отправленный выбранному AI-провайдеру в AI-режиме",
+          external2: "Выбранный пакет задачи, опубликованный через GitHub или Desktop Link",
+          external3: "Запросы проверки провайдера и метаданные списка моделей",
+          external4: "Статус аккаунта и установки для подключённых сервисов",
+          credentialsEyebrow: "Работа с ключами",
+          credentialsTitle: "Ключи хранятся вне renderer.",
+          credentialsDescription:
+            "Ключи провайдеров принимает backend, они не возвращаются в интерфейс и не попадают в экспорт.",
+          activeProvider: "Провайдер, выбранный для AI-генерации",
+          outputEyebrow: "Вывод для агента",
+          outputTitle: "Coding-агент получает пакет задачи, а не доступ к репозиторию.",
+          outputDescription:
+            "ContextForge подготавливает инструкции и выбранный контекст. Саму работу внешний агент выполняет в собственной среде.",
+        },
+        errors: {
+          load: "Не удалось загрузить интеграции.",
+          save: "Не удалось сохранить интеграцию.",
+        },
       },
       accountSync: {
         eyebrow: "Подключённое рабочее пространство",

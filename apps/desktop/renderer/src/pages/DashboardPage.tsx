@@ -714,7 +714,13 @@ export function DashboardPage() {
     }
 
     if (activePage === "integrations") {
-      return <IntegrationsPage onOpenGitHub={() => handleNavigate("github")} />;
+      return (
+        <IntegrationsPage
+          onOpenGitHub={() => handleNavigate("github")}
+          onOpenSettings={() => handleNavigate("settings")}
+          onOpenAccountSync={() => handleNavigate("accountSync")}
+        />
+      );
     }
 
     if (activePage === "github") {
