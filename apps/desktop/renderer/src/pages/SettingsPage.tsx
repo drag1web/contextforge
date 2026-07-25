@@ -1,10 +1,9 @@
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import {
   Bot,
   ChevronDown,
-  Check,
   CheckCircle2,
   Circle,
   Cpu,
@@ -24,7 +23,6 @@ import {
   SlidersHorizontal,
   Sparkles,
   Trash2,
-  UserRound,
   WandSparkles,
   XCircle,
   type LucideIcon
@@ -45,7 +43,7 @@ import type { AppSettings, OllamaModel, OllamaStatus, SelectorPipelineDiagnostic
 import { CustomSelect } from "../components/ui/CustomSelect";
 import { Button } from "../components/ui/Button";
 import { HorizontalSlidingSelector, VerticalSlidingSelector } from "../components/ui/SlidingSelectors";
-import { DesktopAccountPanel } from "../components/settings/DesktopAccountPanel";
+import { WorkspacePageHeader } from "../components/layout/WorkspacePageHeader";
 import { appMeta } from "../config/appMeta";
 import { keyboardShortcuts } from "../config/keyboardShortcuts";
 import { TARGET_TOOL_OPTIONS } from "../components/ai/aiToolOptions";
@@ -60,12 +58,12 @@ import {
 } from "../i18n";
 
 type SettingsSectionId =
+  | "general"
   | "ai"
   | "generation"
   | "composer"
   | "interface"
   | "shortcuts"
-  | "account"
   | "system"
   | "privacy"
   | "storage"
@@ -80,6 +78,12 @@ const SETTINGS_SECTIONS: Array<{
   icon: LucideIcon;
   status?: "soon";
 }> = [
+    {
+      id: "general",
+      label: "General",
+      labelKey: "settings.general",
+      icon: Settings
+    },
     {
       id: "ai",
       label: "AI Engine",
@@ -109,12 +113,6 @@ const SETTINGS_SECTIONS: Array<{
       label: "Shortcuts",
       labelKey: "settings.shortcuts",
       icon: Keyboard
-    },
-    {
-      id: "account",
-      label: "Account",
-      labelKey: "settings.desktopAccount",
-      icon: UserRound
     },
     {
       id: "privacy",
@@ -148,75 +146,8 @@ function getSettingsSectionLabel(section: (typeof SETTINGS_SECTIONS)[number], t:
   return section.labelKey ? t(section.labelKey) : section.label;
 }
 
-const SETTINGS_PLACEHOLDERS: Record<Exclude<SettingsSectionId, "ai" | "generation" | "composer" | "interface" | "shortcuts" | "account" | "system">, {
-  label: string;
-  title: string;
-  description: string;
-  cards: Array<{
-    label: string;
-    title: string;
-    description: string;
-    points: string[];
-  }>;
-}> = {
-  privacy: {
-    label: "Security",
-    title: "Privacy and safety controls",
-    description: "Future controls for sensitive files, secret handling, and safe local project scanning.",
-    cards: [
-      {
-        label: "Planned",
-        title: "Secret-aware scanning",
-        description: "Guard rails for .env files, tokens, private keys, and generated local databases.",
-        points: ["Sensitive file review", "Redaction rules", "Local-only safety notes"]
-      },
-      {
-        label: "Planned",
-        title: "Project trust levels",
-        description: "Per-project policies for how much context may be scanned and included in Task Packs.",
-        points: ["Strict project mode", "Allowed folders", "Forbidden patterns"]
-      }
-    ]
-  },
-  storage: {
-    label: "Workspace",
-    title: "Storage and cache settings",
-    description: "Future controls for inventory cache, generated Task Pack history, and workspace cleanup.",
-    cards: [
-      {
-        label: "Planned",
-        title: "Inventory cache",
-        description: "Speed up repeated generations by reusing file metadata and only rescanning changed files.",
-        points: ["File hash cache", "Project metadata cache", "Manual cache reset"]
-      },
-      {
-        label: "Planned",
-        title: "Task Pack history",
-        description: "Manage saved generations, exported prompts, and review history from one place.",
-        points: ["Retention controls", "Export cleanup", "Local database tools"]
-      }
-    ]
-  },
-  updates: {
-    label: "Product",
-    title: "Updates and release channel",
-    description: "Future controls for version checks, release notes, and update behavior.",
-    cards: [
-      {
-        label: "Planned",
-        title: "Release channel",
-        description: "Choose between stable, beta, and local developer builds when auto-update arrives.",
-        points: ["Stable channel", "Beta builds", "Manual update check"]
-      },
-      {
-        label: "Planned",
-        title: "Release notes",
-        description: "Show what changed in the current version and what is planned next.",
-        points: ["Core fixes", "UI polish", "Known limitations"]
-      }
-    ]
-  }
-};
+const SETTINGS_PLACEHOLDER_SECTIONS = ["privacy", "updates"] as const;
+type PlaceholderSectionId = (typeof SETTINGS_PLACEHOLDER_SECTIONS)[number];
 
 const DEFAULT_COMPOSER_FILE_LIMITS: AppSettings["composerFileLimits"] = {
   default: 8,
@@ -338,7 +269,7 @@ const PAGE_TRANSITION = {
 
 function formatModelSize(size?: number) {
   if (!size) {
-    return "Unknown size";
+    return "—";
   }
 
   const gb = size / 1024 / 1024 / 1024;
@@ -544,20 +475,21 @@ function PlannedInterfaceFeature({
   return (
     <div
       aria-disabled="true"
-      className="settings-inner-surface flex min-h-[132px] flex-col rounded-2xl border p-4 opacity-80"
+      className="settings-inner-surface min-h-[132px] rounded-2xl border p-4 opacity-80"
     >
-      <div className="flex items-start justify-between gap-3">
-        <span className="grid size-9 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500">
+      <div className="flex items-start gap-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500">
           <Icon size={15} />
         </span>
 
-        <span className="rounded-full border border-neutral-800 bg-black/35 px-2 py-0.5 text-[9px] uppercase tracking-[0.14em] text-neutral-600">
-          {badge}
-        </span>
+        <div className="min-w-0 flex-1">
+          <p className="cf-tech-label text-[9px] uppercase tracking-[0.16em] text-neutral-700">
+            {badge}
+          </p>
+          <p className="mt-2 text-sm font-semibold text-neutral-300">{title}</p>
+          <p className="mt-1 text-xs leading-5 text-neutral-600">{description}</p>
+        </div>
       </div>
-
-      <p className="mt-4 text-sm font-semibold text-neutral-300">{title}</p>
-      <p className="mt-1 text-xs leading-5 text-neutral-600">{description}</p>
     </div>
   );
 }
@@ -569,7 +501,8 @@ function SettingCard({
   description,
   children,
   defaultOpen = true,
-  className = ""
+  className = "",
+  storageId
 }: {
   icon: ReactNode;
   label: string;
@@ -578,14 +511,15 @@ function SettingCard({
   children?: ReactNode;
   defaultOpen?: boolean;
   className?: string;
+  storageId?: string;
 }) {
   const hasContent = Boolean(children);
   const storageKey = useMemo(
     () =>
-      `contextforge:settings-card:${label}:${title}`
+      `contextforge:settings-card:${storageId ?? `${label}:${title}`}`
         .toLowerCase()
         .replace(/[^a-z0-9а-яё:_-]+/gi, "-"),
-    [label, title]
+    [label, storageId, title]
   );
   const [isOpen, setIsOpen] = useState(() => {
     if (typeof window === "undefined") {
@@ -626,13 +560,13 @@ function SettingCard({
   return (
     <article
       className={[
-        "cf-card settings-collapsible-card group/card self-start p-0 text-render-crisp",
+        "cf-card settings-collapsible-card group/card self-start overflow-hidden p-0 text-render-crisp",
         className
       ].join(" ")}
     >
-      <div className="flex w-full items-start justify-between gap-5 p-5 text-left transition duration-200">
+      <div className="flex w-full items-start justify-between gap-4 p-4 text-left transition duration-200">
         <div className="min-w-0">
-          <div className="mb-3 flex size-10 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-200 transition duration-200 group-hover/card:border-white/15 group-hover/card:text-white">
+          <div className="mb-3 flex size-9 items-center justify-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-200 transition duration-200 group-hover/card:border-white/15 group-hover/card:text-white">
             {icon}
           </div>
 
@@ -680,7 +614,7 @@ function SettingCard({
             className="overflow-hidden"
             style={{ willChange: "height, opacity" }}
           >
-            <div className="px-5 pb-5">
+            <div className="px-4 pb-4">
               {children}
             </div>
           </motion.div>
@@ -691,6 +625,7 @@ function SettingCard({
 }
 
 function StatusBadge({ status }: { status: OllamaStatus | null }) {
+  const { t } = useTranslation();
   const isOnline = Boolean(status?.online);
 
   return (
@@ -710,7 +645,7 @@ function StatusBadge({ status }: { status: OllamaStatus | null }) {
             : "bg-red-400 shadow-[0_0_12px_rgba(248,113,113,0.8)]"
         ].join(" ")}
       />
-      {isOnline ? "Online" : "Offline"}
+      {isOnline ? t("settings.ollamaOnline") : t("settings.ollamaOffline")}
     </span>
   );
 }
@@ -808,15 +743,20 @@ function SettingsSidebar({
   );
 
   return (
-    <aside className="settings-control-panel sticky top-5 h-fit overflow-hidden rounded-[1.6rem] border border-neutral-900 p-2 text-render-crisp">
+    <aside className="settings-control-panel sticky top-5 h-fit overflow-hidden rounded-[1.6rem] border border-neutral-900 bg-black/20 p-2 text-render-crisp">
       <div className="mb-2 px-3 py-3">
         <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
           {t("settings.title")}
         </p>
 
-        <p className="mt-1 text-sm font-medium text-white">
-          {t("settings.controlCenter")}
-        </p>
+        <div className="mt-1 flex items-center justify-between gap-3">
+          <p className="text-sm font-medium text-white">
+            {t("settings.controlCenter")}
+          </p>
+          <span className="rounded-full border border-neutral-900 bg-black/35 px-2 py-0.5 text-[10px] text-neutral-600">
+            {SETTINGS_SECTIONS.length}
+          </span>
+        </div>
       </div>
 
       <VerticalSlidingSelector
@@ -903,22 +843,27 @@ function SectionHeader({
   description: string;
 }) {
   return (
-    <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012)_48%,rgba(255,255,255,0.006))] p-6 shadow-[0_16px_52px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.045)]">
-      <div className="mb-4 flex flex-wrap gap-2">
-        <span className="cf-badge">
+    <motion.div
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+      className="rounded-[1.6rem] border border-neutral-900 bg-black/20 p-5"
+    >
+      <div className="flex items-start gap-3">
+        <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-400">
           {icon}
-          {label}
         </span>
+        <div className="min-w-0">
+          <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{label}</p>
+          <h2 className="mt-1 text-2xl font-semibold tracking-[-0.04em] text-white">
+            {title}
+          </h2>
+          <p className="mt-1 max-w-3xl text-sm leading-6 text-neutral-500">
+            {description}
+          </p>
+        </div>
       </div>
-
-      <h2 className="max-w-4xl text-[34px] font-semibold leading-[1.05] tracking-[-0.05em] text-white">
-        {title}
-      </h2>
-
-      <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-400">
-        {description}
-      </p>
-    </div>
+    </motion.div>
   );
 }
 
@@ -1073,38 +1018,108 @@ function ComposerLimitRow({
 function PlaceholderSettingsPanel({
   sectionId
 }: {
-  sectionId: Exclude<SettingsSectionId, "ai" | "generation" | "composer" | "interface" | "shortcuts" | "account" | "system">;
+  sectionId: PlaceholderSectionId;
 }) {
-  const config = SETTINGS_PLACEHOLDERS[sectionId];
+  const { t } = useTranslation();
+
+  const config = sectionId === "privacy"
+    ? {
+        label: t("settings.privacy"),
+        title: t("settings.privacyTitle"),
+        description: t("settings.privacyDescription"),
+        cards: [
+          {
+            title: t("settings.secretAwareScanning"),
+            description: t("settings.secretAwareScanningDesc"),
+            points: [
+              t("settings.sensitiveFileReview"),
+              t("settings.redactionRules"),
+              t("settings.localSafetyNotes")
+            ]
+          },
+          {
+            title: t("settings.projectTrustLevels"),
+            description: t("settings.projectTrustLevelsDesc"),
+            points: [
+              t("settings.strictProjectMode"),
+              t("settings.allowedFolders"),
+              t("settings.forbiddenPatterns")
+            ]
+          },
+          {
+            title: t("settings.exportPrivacy"),
+            description: t("settings.exportPrivacyDesc"),
+            points: [
+              t("settings.clipboardWarnings"),
+              t("settings.pathRedaction"),
+              t("settings.safeExportSummary")
+            ]
+          }
+        ]
+      }
+    : {
+        label: t("settings.updates"),
+        title: t("settings.updatesTitle"),
+        description: t("settings.updatesDescription"),
+        cards: [
+          {
+            title: t("settings.updatePolicy"),
+            description: t("settings.updatePolicyDesc"),
+            points: [
+              t("settings.backgroundChecks"),
+              t("settings.downloadConfirmation"),
+              t("settings.restartControl")
+            ]
+          },
+          {
+            title: t("settings.releaseNotes"),
+            description: t("settings.releaseNotesDesc"),
+            points: [
+              t("settings.coreChanges"),
+              t("settings.uiChanges"),
+              t("settings.knownLimitations")
+            ]
+          },
+          {
+            title: t("settings.releaseChannelLocation"),
+            description: t("settings.releaseChannelLocationDesc"),
+            points: [
+              t("settings.accountSyncSection"),
+              t("settings.channelAwareBuilds"),
+              t("settings.directReleaseLinks")
+            ]
+          }
+        ]
+      };
 
   return (
     <>
       <SectionHeader
-        icon={<Sparkles size={13} />}
+        icon={<Sparkles size={15} />}
         label={config.label}
         title={config.title}
         description={config.description}
       />
 
-      <div className="grid items-start gap-5 xl:grid-cols-2">
+      <div className="grid items-start gap-4 xl:grid-cols-3">
         {config.cards.map((card) => (
           <SettingCard
             key={card.title}
-            icon={<Sparkles size={18} />}
-            label={card.label}
+            icon={<Sparkles size={17} />}
+            label={t("settings.planned")}
             title={card.title}
             description={card.description}
             defaultOpen={false}
           >
-            <div className="grid gap-3">
+            <div className="grid gap-2">
               {card.points.map((point) => (
                 <div
                   key={point}
-                  className="settings-inner-surface flex items-center justify-between gap-4 rounded-2xl border px-4 py-3"
+                  className="settings-inner-surface flex items-center justify-between gap-3 rounded-xl border px-3 py-2.5"
                 >
                   <span className="text-sm text-neutral-300">{point}</span>
-                  <span className="rounded-full border border-neutral-800 bg-black/35 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-neutral-600">
-                    Planned
+                  <span className="rounded-full border border-neutral-800 bg-black/35 px-2 py-0.5 text-[9px] uppercase tracking-[0.14em] text-neutral-600">
+                    {t("settings.planned")}
                   </span>
                 </div>
               ))}
@@ -1119,7 +1134,7 @@ function PlaceholderSettingsPanel({
 
 function formatStorageBytes(sizeBytes: number | null) {
   if (sizeBytes === null || !Number.isFinite(sizeBytes)) {
-    return "Unknown";
+    return "—";
   }
 
   if (sizeBytes < 1024) {
@@ -1170,15 +1185,228 @@ function StorageSettingsPanel({
   loading: boolean;
   onRefresh: () => void | Promise<void>;
 }) {
+  const { i18n } = useTranslation();
+  const isRussian = i18n.resolvedLanguage?.startsWith("ru") ?? false;
+  const copy = (english: string, russian: string) => isRussian ? russian : english;
+  const dateTimeFormatter = useMemo(
+    () => new Intl.DateTimeFormat(isRussian ? "ru-RU" : "en-US", {
+      dateStyle: "medium",
+      timeStyle: "short"
+    }),
+    [isRussian]
+  );
+  const formatDateTime = (value: string | number | Date) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : dateTimeFormatter.format(date);
+  };
+  const [activeView, setActiveView] = useState<"overview" | "backups" | "diagnostics">("overview");
+  const [backupResult, setBackupResult] = useState<WorkspaceBackupExportResult | null>(null);
+  const [backupError, setBackupError] = useState<string | null>(null);
+  const [isBackupExporting, setIsBackupExporting] = useState(false);
+
   const counts = audit?.counts ?? [];
   const artifacts = audit?.artifacts ?? [];
   const gaps = audit?.gaps ?? [];
   const plan = audit?.plan ?? [];
   const schema = audit?.schema ?? null;
   const releaseReadiness = audit?.releaseReadiness ?? null;
-  const [backupResult, setBackupResult] = useState<WorkspaceBackupExportResult | null>(null);
-  const [backupError, setBackupError] = useState<string | null>(null);
-  const [isBackupExporting, setIsBackupExporting] = useState(false);
+
+  const views = [
+    {
+      id: "overview" as const,
+      label: copy("Overview", "Обзор"),
+      description: copy("Database and local data", "База и локальные данные"),
+      icon: Server
+    },
+    {
+      id: "backups" as const,
+      label: copy("Backups", "Резервные копии"),
+      description: copy("Export and release checks", "Экспорт и проверка готовности"),
+      icon: Download
+    },
+    {
+      id: "diagnostics" as const,
+      label: copy("Diagnostics", "Диагностика"),
+      description: copy("Schema, files and migrations", "Схема, файлы и миграции"),
+      icon: ShieldCheck
+    }
+  ];
+
+  function statusLabel(status: string) {
+    const labels: Record<string, [string, string]> = {
+      ready: ["Ready", "Готово"],
+      primary: ["Primary", "Основное"],
+      done: ["Done", "Выполнено"],
+      pass: ["Passed", "Пройдено"],
+      planned: ["Planned", "В планах"],
+      external: ["External", "Внешнее"],
+      legacy: ["Legacy", "Переходное"],
+      warning: ["Warning", "Внимание"],
+      review: ["Review", "Проверить"],
+      current: ["Current", "Текущий этап"],
+      next: ["Next", "Следующий этап"],
+      later: ["Later", "Позже"],
+      fail: ["Failed", "Ошибка"],
+      blocked: ["Blocked", "Заблокировано"],
+      needs_migration: ["Migration needed", "Нужна миграция"],
+      unknown: ["Unknown", "Неизвестно"]
+    };
+    const value = labels[status];
+    return value ? copy(value[0], value[1]) : status;
+  }
+
+  function countCopy(item: StorageAuditResult["counts"][number]) {
+    const values: Record<string, { label: [string, string]; note: [string, string] }> = {
+      projects: {
+        label: ["Projects", "Проекты"],
+        note: ["Local project records are stored in the active database.", "Локальные проекты хранятся в активной базе данных."]
+      },
+      task_packs: {
+        label: ["Task Packs", "Пакеты задач"],
+        note: ["Generated history is stored through the active adapter.", "История созданных пакетов задач хранится через активный адаптер."]
+      },
+      project_memories: {
+        label: ["Project Memory", "Память проектов"],
+        note: ["Long-term project decisions are stored locally.", "Долгосрочные решения проектов хранятся локально."]
+      },
+      schema_migrations: {
+        label: ["Schema migrations", "Миграции схемы"],
+        note: ["SQLite changes are versioned and applied incrementally.", "Изменения SQLite версионируются и применяются поэтапно."]
+      },
+      rules_templates: {
+        label: ["Rules and templates", "Правила и шаблоны"],
+        note: ["Custom presets are stored in the local catalog.", "Пользовательские пресеты хранятся в локальном каталоге."]
+      },
+      exports: {
+        label: ["Export history", "История экспорта"],
+        note: ["History and cleanup controls are planned.", "История и очистка экспортов запланированы."]
+      },
+      backups: {
+        label: ["Workspace backups", "Резервные копии"],
+        note: ["Local secret-safe workspace archives.", "Локальные архивы рабочего пространства без секретов."]
+      }
+    };
+    const value = values[item.key];
+    return value
+      ? { label: copy(...value.label), note: copy(...value.note) }
+      : { label: item.label, note: item.note };
+  }
+
+  function artifactCopy(item: StorageAuditResult["artifacts"][number]) {
+    const values: Record<string, { label: [string, string]; role: [string, string] }> = {
+      sqlite_database: {
+        label: ["SQLite workspace database", "База рабочего пространства SQLite"],
+        role: ["Primary local storage for desktop mode.", "Основное локальное хранилище Desktop."]
+      },
+      schema_migrations: {
+        label: ["SQLite migration ledger", "Журнал миграций SQLite"],
+        role: ["Tracks applied migrations and current schema metadata.", "Хранит применённые миграции и текущую версию схемы."]
+      },
+      rules_templates_sqlite: {
+        label: ["Rules and templates catalog", "Каталог правил и шаблонов"],
+        role: ["Local adapter-backed catalog for custom presets.", "Локальный каталог пользовательских пресетов через адаптер."]
+      },
+      rules_templates_json: {
+        label: ["Transition JSON catalog", "Переходный JSON-каталог"],
+        role: ["Compatibility backup while SQLite remains the primary catalog.", "Резерв совместимости, пока SQLite остаётся основным каталогом."]
+      },
+      workspace_backups: {
+        label: ["Workspace backup folder", "Папка резервных копий"],
+        role: ["Stores local JSON backups created from Settings.", "Хранит локальные JSON-копии, созданные из настроек."]
+      },
+      postgres_driver: {
+        label: ["PostgreSQL adapter", "Адаптер PostgreSQL"],
+        role: ["Optional developer adapter; desktop does not require it.", "Необязательный адаптер для разработки; Desktop от него не зависит."]
+      }
+    };
+    const value = values[item.key];
+    return value
+      ? { label: copy(...value.label), role: copy(...value.role) }
+      : { label: item.label, role: item.role };
+  }
+
+  function gapCopy(item: StorageAuditResult["gaps"][number]) {
+    const values: Record<string, { title: [string, string]; description: [string, string] }> = {
+      rules_templates_sqlite: {
+        title: ["Rules and templates still use JSON", "Правила и шаблоны ещё используют JSON"],
+        description: ["Move custom presets into SQLite before beta.", "Перенесите пользовательские пресеты в SQLite до beta-этапа."]
+      },
+      workspace_restore: {
+        title: ["Restore remains guarded", "Восстановление остаётся защищённым"],
+        description: ["Import and restore require a separate confirmation-heavy flow.", "Импорт и восстановление требуют отдельного сценария с явными подтверждениями."]
+      }
+    };
+    const value = values[item.key];
+    return value
+      ? { title: copy(...value.title), description: copy(...value.description) }
+      : { title: item.title, description: item.description };
+  }
+
+  function releaseCheckCopy(item: NonNullable<StorageAuditResult["releaseReadiness"]>["checks"][number]) {
+    const values: Record<string, { label: [string, string]; note: [string, string] }> = {
+      sqlite_first: {
+        label: ["SQLite-first storage", "Основное хранилище — SQLite"],
+        note: ["Normal Desktop mode uses the local SQLite adapter.", "Обычный режим Desktop использует локальный адаптер SQLite."]
+      },
+      database_ready: {
+        label: ["Workspace database exists", "База рабочего пространства создана"],
+        note: ["The local workspace database is available.", "Локальная база рабочего пространства доступна."]
+      },
+      schema_ready: {
+        label: ["Schema is up to date", "Схема базы актуальна"],
+        note: ["All known migrations are applied.", "Все известные миграции применены."]
+      },
+      rules_catalog_ready: {
+        label: ["Rules and templates use the adapter", "Правила и шаблоны используют адаптер"],
+        note: ["Custom presets are stored in the SQLite catalog.", "Пользовательские пресеты хранятся в каталоге SQLite."]
+      },
+      backup_export_ready: {
+        label: ["Backup export is available", "Экспорт резервной копии доступен"],
+        note: ["A local backup can be created from Settings.", "Локальную копию можно создать из настроек."]
+      },
+      backup_created: {
+        label: ["At least one backup exists", "Создана хотя бы одна копия"],
+        note: ["A recent workspace backup is available.", "Доступна недавняя резервная копия рабочего пространства."]
+      },
+      restore_guarded: {
+        label: ["Restore is guarded", "Восстановление защищено"],
+        note: ["Automatic import is intentionally disabled until a safe flow is ready.", "Автоматический импорт намеренно отключён до появления безопасного сценария."]
+      }
+    };
+    const value = values[item.key];
+    return value
+      ? { label: copy(...value.label), note: copy(...value.note) }
+      : { label: item.label, note: item.note };
+  }
+
+  function planCopy(item: StorageAuditResult["plan"][number]) {
+    const values: Record<string, { title: [string, string]; description: [string, string] }> = {
+      "12.1.1": {
+        title: ["Storage audit", "Аудит хранилища"],
+        description: ["Map local data and migration targets.", "Проверка локальных данных и целей миграции."]
+      },
+      "12.1.2": {
+        title: ["Schema versioning", "Версионирование схемы"],
+        description: ["Apply small and safe SQLite migrations.", "Небольшие и безопасные миграции SQLite."]
+      },
+      "12.2.1": {
+        title: ["Rules and templates catalog", "Каталог правил и шаблонов"],
+        description: ["Keep custom presets in adapter-backed SQLite storage.", "Хранение пользовательских пресетов в SQLite через адаптер."]
+      },
+      "12.3.1": {
+        title: ["Workspace backup export", "Экспорт резервной копии"],
+        description: ["Create a local secret-safe workspace archive.", "Создание локального архива рабочего пространства без секретов."]
+      },
+      "12.4": {
+        title: ["Release checks", "Проверки перед релизом"],
+        description: ["Keep a compact readiness checklist for Desktop storage.", "Компактная проверка готовности локального хранилища Desktop."]
+      }
+    };
+    const value = values[item.id];
+    return value
+      ? { title: copy(...value.title), description: copy(...value.description) }
+      : { title: item.title, description: item.description };
+  }
 
   async function handleExportBackup() {
     try {
@@ -1195,384 +1423,343 @@ function StorageSettingsPanel({
     }
   }
 
+  const backupCount = counts.find((item) => item.key === "backups")?.count ?? 0;
+
   return (
     <>
       <SectionHeader
         icon={<Server size={13} />}
-        label="Workspace"
-        title="Storage and desktop persistence"
-        description="Review where ContextForge stores local workspace data before deeper SQLite migrations and release-readiness work."
+        label={copy("Workspace", "Рабочее пространство")}
+        title={copy("Storage and local data", "Хранилище и локальные данные")}
+        description={copy("Review the local database, backups and diagnostics without mixing all storage details on one screen.", "Проверяйте локальную базу, резервные копии и диагностику без перегруженного единого отчёта.")}
       />
 
-      <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
-        <div className="space-y-5">
-          <SettingCard
-            icon={<Server size={18} />}
-            label="Storage audit"
-            title="SQLite-first workspace state"
-            description="Live local audit of projects, Task Packs, memory, rules/templates and the remaining migration gaps."
-          >
-            <div className="mb-5 flex flex-wrap items-center justify-between gap-3">
-              <div className="flex flex-wrap gap-2">
-                <span className="cf-badge">
-                  {audit?.driver ?? "sqlite"}
+      <HorizontalSlidingSelector
+        items={views}
+        activeIndex={views.findIndex((view) => view.id === activeView)}
+        getItemKey={(view) => view.id}
+        onSelect={(view) => setActiveView(view.id)}
+        ariaLabel={copy("Storage view", "Раздел хранилища")}
+        itemClassName="rounded-[0.95rem] text-left"
+        renderItem={(view, isActive) => {
+          const Icon = view.icon;
+          return (
+            <div className="flex h-full items-center gap-3 px-4 py-3 text-left">
+              <span className={[
+                "grid size-8 shrink-0 place-items-center rounded-xl border transition-colors",
+                isActive ? "border-black/10 bg-black/5 text-black" : "border-neutral-800 bg-neutral-950 text-neutral-500"
+              ].join(" ")}>
+                <Icon size={14} />
+              </span>
+              <span className="min-w-0">
+                <span className={[
+                  "block text-sm font-semibold",
+                  isActive ? "text-black" : "text-white"
+                ].join(" ")}>
+                  {view.label}
                 </span>
-                <span className="cf-badge">
-                  {audit?.sqliteFirst ? "SQLite-first" : "Non-default driver"}
+                <span className={[
+                  "mt-0.5 block text-xs",
+                  isActive ? "text-black/55" : "text-neutral-600"
+                ].join(" ")}>
+                  {view.description}
                 </span>
-                {audit?.databaseExists && <span className="cf-badge">Database found</span>}
-                {schema && (
-                  <span className="cf-badge">
-                    Schema v{schema.currentVersion}/{schema.latestVersion}
-                  </span>
-                )}
-              </div>
-
-              <SettingsActionButton
-                icon={RefreshCw}
-                label="Refresh audit"
-                loadingLabel="Refreshing"
-                loading={loading}
-                disabled={loading}
-                variant="secondary"
-                onClick={onRefresh}
-              />
+              </span>
             </div>
+          );
+        }}
+      />
 
-            {!audit ? (
-              <div className="rounded-2xl border border-neutral-900 bg-black/40 p-5">
-                <p className="text-sm font-medium text-white">
-                  {loading ? "Loading storage audit..." : "Storage audit is not loaded yet."}
-                </p>
-                <p className="mt-2 text-sm leading-6 text-neutral-500">
-                  Refresh this section to inspect local persistence before migration work.
-                </p>
-              </div>
-            ) : (
-              <div className="space-y-5">
-                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
-                  <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
-                    <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                      Driver
-                    </p>
-                    <p className="mt-2 text-xl font-semibold text-white">
-                      {audit.driver}
-                    </p>
-                    <p className="mt-1 text-xs text-neutral-600">
-                      active adapter
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
-                    <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                      Database
-                    </p>
-                    <p className="mt-2 text-xl font-semibold text-white">
-                      {audit.databaseExists ? "Ready" : "Missing"}
-                    </p>
-                    <p className="mt-1 text-xs text-neutral-600">
-                      {formatStorageBytes(audit.databaseSizeBytes)}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
-                    <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                      Schema
-                    </p>
-                    <p className="mt-2 text-xl font-semibold text-white">
-                      {schema ? `v${schema.currentVersion}` : "Unknown"}
-                    </p>
-                    <p className="mt-1 text-xs text-neutral-600">
-                      {schema
-                        ? schema.pendingCount > 0
-                          ? `${schema.pendingCount} pending`
-                          : "up to date"
-                        : "migration metadata"}
-                    </p>
-                  </div>
-
-                  <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
-                    <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                      Gaps
-                    </p>
-                    <p className="mt-2 text-xl font-semibold text-white">
-                      {gaps.length}
-                    </p>
-                    <p className="mt-1 text-xs text-neutral-600">
-                      migration items
-                    </p>
-                  </div>
-                </div>
-
-                {schema && (
-                  <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-3">
-                      <div>
-                        <p className="text-sm font-semibold text-white">
-                          SQLite schema versioning
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-neutral-600">
-                          Applied {schema.appliedCount} migration{schema.appliedCount === 1 ? "" : "s"}; latest schema target is v{schema.latestVersion}.
-                        </p>
-                      </div>
-                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(schema.status)}`}>
-                        {schema.status === "ready" ? "ready" : "needs migration"}
-                      </span>
+      {!audit ? (
+        <SettingCard
+          icon={<Server size={18} />}
+          label={copy("Storage audit", "Аудит хранилища")}
+          title={loading ? copy("Loading local data", "Загружаем локальные данные") : copy("Storage audit is not loaded", "Аудит хранилища не загружен")}
+          description={copy("Refresh the audit to inspect the local database and backups.", "Обновите аудит, чтобы проверить локальную базу и резервные копии.")}
+          storageId="storage-loading-v2"
+        >
+          <SettingsActionButton
+            icon={RefreshCw}
+            label={copy("Refresh audit", "Обновить аудит")}
+            loadingLabel={copy("Refreshing", "Обновляем")}
+            loading={loading}
+            disabled={loading}
+            variant="secondary"
+            onClick={onRefresh}
+          />
+        </SettingCard>
+      ) : (
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={activeView}
+            initial={{ opacity: 0, y: 6 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={{ opacity: 0, y: -4 }}
+            transition={PAGE_TRANSITION}
+            className="space-y-5"
+          >
+            {activeView === "overview" && (
+              <>
+                <SettingCard
+                  icon={<Server size={18} />}
+                  label={copy("Local database", "Локальная база")}
+                  title={copy("Workspace storage is ready", "Хранилище рабочего пространства готово")}
+                  description={copy("A compact overview of the active adapter, database, schema and stored workspace data.", "Компактный обзор активного адаптера, базы, схемы и сохранённых данных рабочего пространства.")}
+                  storageId="storage-overview-v2"
+                >
+                  <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                    <div className="flex flex-wrap gap-2">
+                      <span className="cf-badge">{audit.driver}</span>
+                      <span className="cf-badge">{audit.sqliteFirst ? copy("SQLite-first", "SQLite — основное") : copy("Custom driver", "Другой драйвер")}</span>
+                      <span className="cf-badge">{copy("Updated", "Обновлено")}: {formatDateTime(audit.generatedAt)}</span>
                     </div>
-                    {schema.latestMigration && (
-                      <p className="mt-3 text-xs leading-5 text-neutral-700">
-                        Latest: {schema.latestMigration.id} · {schema.latestMigration.name}
-                      </p>
-                    )}
-                  </div>
-                )}
-
-                <div className="grid gap-3 md:grid-cols-2">
-                  {counts.map((item) => (
-                    <div
-                      key={item.key}
-                      className="rounded-2xl border border-neutral-900 bg-black/40 p-4"
-                    >
-                      <div className="mb-3 flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-white">
-                            {item.label}
-                          </p>
-                          <p className="mt-1 text-xs leading-5 text-neutral-600">
-                            {item.note}
-                          </p>
-                        </div>
-                        <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(item.status)}`}>
-                          {item.status}
-                        </span>
-                      </div>
-
-                      <p className="text-2xl font-semibold text-white">
-                        {item.count === null ? "—" : item.count}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-
-                <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
-                  <div className="flex flex-wrap items-start justify-between gap-4">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-white">
-                        Workspace backup export
-                      </p>
-                      <p className="mt-1 max-w-2xl text-xs leading-5 text-neutral-600">
-                        Create a local JSON backup with projects, Task Packs, Project Memory, rules/templates and safe settings. API keys, provider URLs, source files and raw diffs are excluded.
-                      </p>
-                    </div>
-
                     <SettingsActionButton
-                      icon={Download}
-                      label="Export backup"
-                      loadingLabel="Exporting"
-                      loading={isBackupExporting}
-                      disabled={isBackupExporting}
-                      variant="primary"
-                      onClick={handleExportBackup}
+                      icon={RefreshCw}
+                      label={copy("Refresh", "Обновить")}
+                      loadingLabel={copy("Refreshing", "Обновляем")}
+                      loading={loading}
+                      disabled={loading}
+                      variant="secondary"
+                      onClick={onRefresh}
                     />
+                  </div>
+
+                  <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                    {[
+                      { label: copy("Adapter", "Адаптер"), value: audit.driver, note: copy("active storage", "активное хранилище") },
+                      { label: copy("Database", "База данных"), value: audit.databaseExists ? copy("Ready", "Готова") : copy("Missing", "Не найдена"), note: formatStorageBytes(audit.databaseSizeBytes) },
+                      { label: copy("Schema", "Схема"), value: schema ? `v${schema.currentVersion}` : "—", note: schema?.pendingCount ? copy(`${schema.pendingCount} pending`, `Ожидает: ${schema.pendingCount}`) : copy("up to date", "актуальна") },
+                      { label: copy("Attention", "Требует внимания"), value: String(gaps.length), note: copy("storage items", "пунктов хранилища") }
+                    ].map((item) => (
+                      <div key={item.label} className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{item.label}</p>
+                        <p className="mt-2 text-xl font-semibold text-white">{item.value}</p>
+                        <p className="mt-1 text-xs text-neutral-600">{item.note}</p>
+                      </div>
+                    ))}
+                  </div>
+
+                  <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    {counts.map((item) => {
+                      const localized = countCopy(item);
+                      return (
+                        <div key={item.key} className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div>
+                              <p className="text-sm font-semibold text-white">{localized.label}</p>
+                              <p className="mt-1 text-xs leading-5 text-neutral-600">{localized.note}</p>
+                            </div>
+                            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(item.status)}`}>
+                              {statusLabel(item.status)}
+                            </span>
+                          </div>
+                          <p className="mt-3 text-2xl font-semibold text-white">{item.count ?? "—"}</p>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </SettingCard>
+
+                {gaps.length > 0 && (
+                  <SettingCard
+                    icon={<ShieldCheck size={18} />}
+                    label={copy("Attention", "Требует внимания")}
+                    title={copy("Small storage tasks remain", "Остались небольшие задачи хранилища")}
+                    description={copy("These items do not block normal local work.", "Эти пункты не блокируют обычную локальную работу.")}
+                    defaultOpen={false}
+                    storageId="storage-attention-v2"
+                  >
+                    <div className="grid gap-3 md:grid-cols-2">
+                      {gaps.map((gap) => {
+                        const localized = gapCopy(gap);
+                        return (
+                          <div key={gap.key} className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                            <div className="flex items-start justify-between gap-3">
+                              <p className="text-sm font-semibold text-white">{localized.title}</p>
+                              <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(gap.priority === "now" ? "current" : gap.priority)}`}>
+                                {statusLabel(gap.priority)}
+                              </span>
+                            </div>
+                            <p className="mt-2 text-xs leading-5 text-neutral-600">{localized.description}</p>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </SettingCard>
+                )}
+              </>
+            )}
+
+            {activeView === "backups" && (
+              <>
+                <SettingCard
+                  icon={<Download size={18} />}
+                  label={copy("Workspace backup", "Резервная копия")}
+                  title={copy("Export local workspace data", "Экспортируйте локальные данные")}
+                  description={copy("Create a secret-safe JSON archive of projects, Task Packs, Project Memory, rules and settings.", "Создайте безопасный JSON-архив проектов, пакетов задач, памяти проектов, правил и настроек без секретов.")}
+                  storageId="storage-backup-v2"
+                >
+                  <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-neutral-900 bg-black/35 p-4">
+                    <div>
+                      <p className="text-sm font-semibold text-white">{copy("Available backups", "Доступно резервных копий")}</p>
+                      <p className="mt-1 text-2xl font-semibold text-white">{backupCount}</p>
+                    </div>
+                    <Button onClick={handleExportBackup} disabled={isBackupExporting}>
+                      {isBackupExporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
+                      {isBackupExporting ? copy("Creating backup", "Создаём копию") : copy("Create backup", "Создать резервную копию")}
+                    </Button>
                   </div>
 
                   {backupResult && (
                     <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-4">
-                      <div className="flex flex-wrap items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-semibold text-emerald-100">
-                            Backup created
-                          </p>
-                          <p className="mt-1 break-all text-xs leading-5 text-emerald-200/70">
-                            {backupResult.filePath}
-                          </p>
-                        </div>
-                        <span className="shrink-0 rounded-full border border-emerald-400/25 bg-emerald-400/10 px-2 py-0.5 text-[10px] text-emerald-200">
-                          {formatStorageBytes(backupResult.sizeBytes)}
-                        </span>
-                      </div>
-
-                      <div className="mt-3 grid gap-2 text-xs text-emerald-100/80 sm:grid-cols-2 lg:grid-cols-5">
-                        <span>Projects: {backupResult.counts.projects}</span>
-                        <span>Task Packs: {backupResult.counts.taskPacks}</span>
-                        <span>Memory: {backupResult.counts.projectMemories}</span>
-                        <span>Rules: {backupResult.counts.ruleTemplates}</span>
-                        <span>Settings: {backupResult.counts.settings}</span>
+                      <p className="text-sm font-semibold text-emerald-100">{copy("Backup created", "Резервная копия создана")}</p>
+                      <p className="mt-1 break-all text-xs leading-5 text-emerald-200/70">{backupResult.filePath}</p>
+                      <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-emerald-100/70">
+                        <span>{copy("Projects", "Проекты")}: {backupResult.counts.projects}</span>
+                        <span>{copy("Task Packs", "Пакеты задач")}: {backupResult.counts.taskPacks}</span>
+                        <span>{copy("Memory", "Память")}: {backupResult.counts.projectMemories}</span>
+                        <span>{copy("Rules", "Правила")}: {backupResult.counts.ruleTemplates}</span>
+                        <span>{copy("Settings", "Настройки")}: {backupResult.counts.settings}</span>
                       </div>
                     </div>
                   )}
 
                   {backupError && (
                     <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 p-4">
-                      <p className="text-sm font-semibold text-rose-100">
-                        Backup export failed
-                      </p>
-                      <p className="mt-1 text-xs leading-5 text-rose-200/70">
-                        {backupError}
-                      </p>
+                      <p className="text-sm font-semibold text-rose-100">{copy("Backup export failed", "Не удалось создать резервную копию")}</p>
+                      <p className="mt-1 text-xs leading-5 text-rose-200/70">{backupError}</p>
                     </div>
                   )}
-                </div>
+                </SettingCard>
 
                 {releaseReadiness && (
-                  <div className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
-                    <div className="flex flex-wrap items-start justify-between gap-4">
-                      <div className="min-w-0">
-                        <p className="text-sm font-semibold text-white">
-                          Desktop release readiness
-                        </p>
-                        <p className="mt-1 max-w-2xl text-xs leading-5 text-neutral-600">
-                          Compact local-storage checklist before onboarding, installer work and GitHub integration.
-                        </p>
-                      </div>
-                      <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(releaseReadiness.status)}`}>
-                        {releaseReadiness.status}
-                      </span>
+                  <SettingCard
+                    icon={<ShieldCheck size={18} />}
+                    label={copy("Desktop readiness", "Готовность Desktop")}
+                    title={copy("Local storage release checks", "Проверки локального хранилища перед релизом")}
+                    description={copy(`${releaseReadiness.passed} passed · ${releaseReadiness.warnings} warnings · ${releaseReadiness.failed} blocked`, `Пройдено: ${releaseReadiness.passed} · предупреждений: ${releaseReadiness.warnings} · заблокировано: ${releaseReadiness.failed}`)}
+                    defaultOpen={false}
+                    storageId="storage-release-checks-v2"
+                  >
+                    <div className="grid gap-2 md:grid-cols-2">
+                      {releaseReadiness.checks.map((check) => {
+                        const localized = releaseCheckCopy(check);
+                        return (
+                          <div key={check.key} className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
+                            <div className="flex items-start justify-between gap-3">
+                              <p className="text-xs font-semibold text-white">{localized.label}</p>
+                              <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(check.status)}`}>
+                                {statusLabel(check.status)}
+                              </span>
+                            </div>
+                            <p className="mt-1 text-xs leading-5 text-neutral-600">{localized.note}</p>
+                          </div>
+                        );
+                      })}
                     </div>
+                  </SettingCard>
+                )}
+              </>
+            )}
 
-                    <div className="mt-4 grid gap-3 sm:grid-cols-3">
-                      <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
-                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">Passed</p>
-                        <p className="mt-1 text-xl font-semibold text-emerald-200">{releaseReadiness.passed}</p>
+            {activeView === "diagnostics" && (
+              <>
+                <SettingCard
+                  icon={<Server size={18} />}
+                  label={copy("Database schema", "Схема базы")}
+                  title={copy("SQLite versioning and migrations", "Версионирование и миграции SQLite")}
+                  description={schema
+                    ? copy(`Schema v${schema.currentVersion} of v${schema.latestVersion}; ${schema.appliedCount} migrations applied.`, `Схема v${schema.currentVersion} из v${schema.latestVersion}; применено миграций: ${schema.appliedCount}.`)
+                    : copy("Schema metadata is unavailable for this adapter.", "Данные схемы недоступны для этого адаптера.")}
+                  storageId="storage-schema-v2"
+                >
+                  {schema ? (
+                    <div className="grid gap-3 sm:grid-cols-3">
+                      <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{copy("Current version", "Текущая версия")}</p>
+                        <p className="mt-2 text-xl font-semibold text-white">v{schema.currentVersion}</p>
                       </div>
-                      <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
-                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">Warnings</p>
-                        <p className="mt-1 text-xl font-semibold text-amber-200">{releaseReadiness.warnings}</p>
+                      <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{copy("Applied", "Применено")}</p>
+                        <p className="mt-2 text-xl font-semibold text-white">{schema.appliedCount}</p>
                       </div>
-                      <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
-                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">Blocked</p>
-                        <p className="mt-1 text-xl font-semibold text-rose-200">{releaseReadiness.failed}</p>
+                      <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{copy("Pending", "Ожидает")}</p>
+                        <p className="mt-2 text-xl font-semibold text-white">{schema.pendingCount}</p>
                       </div>
                     </div>
+                  ) : (
+                    <p className="text-sm text-neutral-500">{copy("No schema data.", "Нет данных схемы.")}</p>
+                  )}
+                </SettingCard>
 
-                    <div className="mt-4 grid gap-2 md:grid-cols-2">
-                      {releaseReadiness.checks.map((check) => (
-                        <div
-                          key={check.key}
-                          className="rounded-2xl border border-neutral-900 bg-black/35 p-3"
-                        >
-                          <div className="mb-1 flex items-start justify-between gap-3">
-                            <p className="text-xs font-semibold text-white">{check.label}</p>
-                            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(check.status)}`}>
-                              {check.status}
+                <SettingCard
+                  icon={<Layers3 size={18} />}
+                  label={copy("Local data sources", "Локальные источники")}
+                  title={copy("Files and adapters", "Файлы и адаптеры")}
+                  description={copy(`${artifacts.length} storage artifacts detected.`, `Обнаружено источников: ${artifacts.length}.`)}
+                  defaultOpen={false}
+                  storageId="storage-artifacts-v2"
+                >
+                  <div className="grid gap-3 md:grid-cols-2">
+                    {artifacts.map((artifact) => {
+                      const localized = artifactCopy(artifact);
+                      return (
+                        <div key={artifact.key} className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className="text-sm font-semibold text-white">{localized.label}</p>
+                              <p className="mt-1 break-all text-xs leading-5 text-neutral-700">{artifact.path}</p>
+                            </div>
+                            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(artifact.migrationStatus)}`}>
+                              {statusLabel(artifact.migrationStatus)}
                             </span>
                           </div>
-                          <p className="text-xs leading-5 text-neutral-600">{check.note}</p>
+                          <p className="mt-3 text-xs leading-5 text-neutral-600">{localized.role}</p>
+                          <p className="mt-2 text-xs text-neutral-700">{artifact.exists ? copy("Found", "Найдено") : copy("Not found", "Не найдено")} · {formatStorageBytes(artifact.sizeBytes)}</p>
                         </div>
-                      ))}
-                    </div>
+                      );
+                    })}
                   </div>
-                )}
-              </div>
+                </SettingCard>
+
+                <SettingCard
+                  icon={<Sparkles size={18} />}
+                  label={copy("Development plan", "План развития")}
+                  title={copy("Storage migration order", "Порядок развития хранилища")}
+                  description={copy("Small, reversible storage steps with visible status.", "Небольшие обратимые этапы развития хранилища с понятным статусом.")}
+                  defaultOpen={false}
+                  storageId="storage-plan-v2"
+                >
+                  <div className="space-y-2">
+                    {plan.map((step) => {
+                      const localized = planCopy(step);
+                      return (
+                        <div key={step.id} className="flex items-start justify-between gap-4 rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                          <div>
+                            <p className="text-sm font-semibold text-white">{step.id} · {localized.title}</p>
+                            <p className="mt-1 text-xs leading-5 text-neutral-600">{localized.description}</p>
+                          </div>
+                          <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(step.status)}`}>
+                            {statusLabel(step.status)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </SettingCard>
+              </>
             )}
-          </SettingCard>
-
-          <SettingCard
-            icon={<Layers3 size={18} />}
-            label="Migration targets"
-            title="Local data artifacts"
-            description="Current files and adapters that matter for desktop persistence."
-            defaultOpen={false}
-          >
-            <div className="space-y-3">
-              {artifacts.map((artifact) => (
-                <div
-                  key={artifact.key}
-                  className="rounded-2xl border border-neutral-900 bg-black/40 p-4"
-                >
-                  <div className="mb-2 flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-white">
-                        {artifact.label}
-                      </p>
-                      <p className="mt-1 break-all text-xs leading-5 text-neutral-600">
-                        {artifact.path}
-                      </p>
-                    </div>
-                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(artifact.migrationStatus)}`}>
-                      {artifact.migrationStatus}
-                    </span>
-                  </div>
-                  <p className="text-sm leading-6 text-neutral-500">
-                    {artifact.role}
-                  </p>
-                  <p className="mt-2 text-xs text-neutral-700">
-                    {artifact.exists ? "Found" : "Not found"} · {formatStorageBytes(artifact.sizeBytes)}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </SettingCard>
-        </div>
-
-        <div className="space-y-5">
-          <SettingCard
-            icon={<ShieldCheck size={18} />}
-            label="Gaps"
-            title="What remains before release readiness"
-            description="Small storage tasks to complete before ContextForge feels like a normal desktop app."
-          >
-            <div className="space-y-3">
-              {gaps.map((gap) => (
-                <div
-                  key={gap.key}
-                  className="rounded-2xl border border-neutral-900 bg-black/40 p-4"
-                >
-                  <div className="mb-2 flex items-start justify-between gap-3">
-                    <p className="text-sm font-semibold text-white">
-                      {gap.title}
-                    </p>
-                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(gap.priority === "now" ? "current" : gap.priority)}`}>
-                      {gap.priority}
-                    </span>
-                  </div>
-                  <p className="text-sm leading-6 text-neutral-500">
-                    {gap.description}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </SettingCard>
-
-          <SettingCard
-            icon={<Sparkles size={18} />}
-            label="12.x plan"
-            title="Migration order"
-            description="The next storage patches should stay small and reversible."
-            defaultOpen={false}
-          >
-            <div className="space-y-3">
-              {plan.map((step) => (
-                <div
-                  key={step.id}
-                  className="rounded-2xl border border-neutral-900 bg-black/40 p-4"
-                >
-                  <div className="mb-2 flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-sm font-semibold text-white">
-                        {step.id} · {step.title}
-                      </p>
-                    </div>
-                    <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] ${storageStatusClasses(step.status)}`}>
-                      {step.status}
-                    </span>
-                  </div>
-                  <p className="text-sm leading-6 text-neutral-500">
-                    {step.description}
-                  </p>
-                </div>
-              ))}
-            </div>
-          </SettingCard>
-        </div>
-      </div>
+          </motion.div>
+        </AnimatePresence>
+      )}
     </>
   );
 }
 
 export function SettingsPage() {
   const { t } = useTranslation();
-  const [activeSection, setActiveSection] = useState<SettingsSectionId>("ai");
+  const [activeSection, setActiveSection] = useState<SettingsSectionId>("general");
   const [settings, setSettings] = useState<AppSettings | null>(null);
   const [settingsDraft, setSettingsDraft] = useState<AppSettings | null>(null);
   const [ollamaStatus, setOllamaStatus] = useState<OllamaStatus | null>(null);
@@ -1582,15 +1769,30 @@ export function SettingsPage() {
   const [selectorDiagnosticsHistory, setSelectorDiagnosticsHistory] = useState<SelectorPipelineDiagnostics[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<"refresh" | "save" | null>(null);
+  const [isLanguageSaving, setIsLanguageSaving] = useState(false);
+  const [languageSaveFailed, setLanguageSaveFailed] = useState(false);
+  const languageSaveRequestRef = useRef(0);
 
   const hasUnsavedChanges = useMemo(() => {
     return !isSameSettings(settings, settingsDraft);
   }, [settings, settingsDraft]);
 
   const composerLimits = settingsDraft?.composerFileLimits ?? DEFAULT_COMPOSER_FILE_LIMITS;
-  const activePreset = getActivePreset(composerLimits);
+  const composerLimitValues = Object.values(composerLimits) as number[];
+  const activePresetId = getActivePreset(composerLimits)?.id;
   const currentLanguage = (settingsDraft?.language ?? "system") as AppLanguage;
   const resolvedLanguage = resolveAppLanguage(currentLanguage);
+  const settingsDateTimeFormatter = useMemo(
+    () => new Intl.DateTimeFormat(resolvedLanguage === "ru" ? "ru-RU" : "en-US", {
+      dateStyle: "medium",
+      timeStyle: "short"
+    }),
+    [resolvedLanguage]
+  );
+  const formatSettingsDateTime = (value: string | number | Date) => {
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? String(value) : settingsDateTimeFormatter.format(date);
+  };
   const defaultModelOptions = useMemo(() => {
     const currentModel = settingsDraft?.defaultOllamaModel ?? "";
     const hasCurrentModel = Boolean(currentModel) && models.some((model) => model.name === currentModel);
@@ -1646,23 +1848,51 @@ export function SettingsPage() {
     [t]
   );
 
-  const contextQualityOptions = [
+  const contextQualityOptions = useMemo(() => [
     {
       value: "advisory" as const,
-      label: "Warn only",
-      caption: "Fastest. Never blocks automatic Task Packs; weak context is shown as warnings."
+      label: t("settings.contextQualityAdvisory"),
+      caption: t("settings.contextQualityAdvisoryDesc")
     },
     {
       value: "balanced" as const,
-      label: "Balanced",
-      caption: "Recommended. Blocks only clearly unsafe context, allows plausible fallback selections."
+      label: t("settings.contextQualityBalanced"),
+      caption: t("settings.contextQualityBalancedDesc")
     },
     {
       value: "strict" as const,
-      label: "Strict",
-      caption: "Most careful. Blocks low-confidence selections more often."
+      label: t("settings.contextQualityStrict"),
+      caption: t("settings.contextQualityStrictDesc")
     }
-  ];
+  ], [t]);
+
+  const composerLimitPresets = useMemo(() =>
+    COMPOSER_LIMIT_PRESETS.map((preset) => ({
+      ...preset,
+      label: t(`settings.composerPreset.${preset.id}.label`),
+      caption: t(`settings.composerPreset.${preset.id}.caption`)
+    })),
+    [t]
+  );
+
+  const composerLimitRows = useMemo(() =>
+    COMPOSER_LIMIT_ROWS.map((row) => ({
+      ...row,
+      label: t(`settings.composerLimit.${row.key}.label`),
+      caption: t(`settings.composerLimit.${row.key}.caption`)
+    })),
+    [t]
+  );
+
+  const activePreset = composerLimitPresets.find((preset) => preset.id === activePresetId);
+
+  const targetToolOptions = useMemo(() =>
+    TARGET_TOOL_OPTIONS.map((option) => ({
+      ...option,
+      description: t(`settings.targetTool.${option.value}`)
+    })),
+    [t]
+  );
 
 
   const interfaceLanguageOptions = useMemo(
@@ -1745,9 +1975,58 @@ export function SettingsPage() {
       ? "first-run"
       : "every-launch";
 
-  function handleLanguageChange(language: AppLanguage) {
-    updateSettingsDraft({ language });
+  async function handleLanguageChange(language: AppLanguage) {
+    if (!settings || !settingsDraft || language === currentLanguage || isLanguageSaving) {
+      return;
+    }
+
+    const requestId = ++languageSaveRequestRef.current;
+    const previousLanguage = (settings.language ?? "system") as AppLanguage;
+    const nextPersistedSettings = withSettingsDefaults({
+      ...settings,
+      language
+    });
+
+    setLanguageSaveFailed(false);
+    setIsLanguageSaving(true);
+    setSettings(nextPersistedSettings);
+    setSettingsDraft((current) => current ? { ...current, language } : current);
     void applyAppLanguage(language);
+
+    try {
+      const updatedSettings = withSettingsDefaults(
+        await updateAppSettings(nextPersistedSettings)
+      );
+
+      if (languageSaveRequestRef.current !== requestId) {
+        return;
+      }
+
+      setSettings(updatedSettings);
+      setSettingsDraft((current) => current
+        ? { ...current, language: updatedSettings.language ?? language }
+        : updatedSettings
+      );
+      window.dispatchEvent(
+        new CustomEvent("contextforge:settings-updated", {
+          detail: updatedSettings
+        })
+      );
+    } catch (error) {
+      if (languageSaveRequestRef.current !== requestId) {
+        return;
+      }
+
+      console.error("Failed to save application language", error);
+      setLanguageSaveFailed(true);
+      setSettings((current) => current ? { ...current, language: previousLanguage } : current);
+      setSettingsDraft((current) => current ? { ...current, language: previousLanguage } : current);
+      void applyAppLanguage(previousLanguage);
+    } finally {
+      if (languageSaveRequestRef.current === requestId) {
+        setIsLanguageSaving(false);
+      }
+    }
   }
 
   function updateSettingsDraft(patch: Partial<AppSettings>) {
@@ -1881,28 +2160,16 @@ export function SettingsPage() {
 
   return (
     <section className="settings-page space-y-5 text-render-crisp">
-      <div className="overflow-hidden rounded-[2rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012)_48%,rgba(255,255,255,0.006))] p-6 shadow-[0_16px_52px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.045)]">
-        <div className="flex flex-col gap-6 xl:flex-row xl:items-end xl:justify-between">
-          <div className="min-w-0">
-            <div className="mb-4 flex flex-wrap gap-2">
-              <span className="cf-badge">
-                <Settings size={13} />
-                {t("settings.title")}
-              </span>
-              <span className="cf-badge">{t("settings.heroBadgeGithub")}</span>
-              <span className="cf-badge">{t("settings.heroBadgeLocal")}</span>
-            </div>
-
-            <h2 className="max-w-4xl text-[34px] font-semibold leading-[1.05] tracking-[-0.05em] text-white">
-              {t("settings.heroTitle")}
-            </h2>
-
-            <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-400">
-              {t("settings.heroDescription")}
-            </p>
-          </div>
-
-          <div className="flex flex-wrap gap-3">
+      <WorkspacePageHeader
+        icon={<Settings size={18} />}
+        eyebrow={t("settings.workspaceEyebrow")}
+        title={t("settings.workspaceTitle")}
+        description={t("settings.workspaceDescription")}
+        aside={
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <span className="hidden rounded-full border border-neutral-900 bg-black/35 px-3 py-1.5 text-xs text-neutral-600 2xl:inline-flex">
+              {getSettingsSectionLabel(SETTINGS_SECTIONS.find((section) => section.id === activeSection) ?? SETTINGS_SECTIONS[0], t)}
+            </span>
             <SettingsActionButton
               icon={RefreshCw}
               label={t("common.refresh")}
@@ -1912,21 +2179,44 @@ export function SettingsPage() {
               variant="secondary"
               onClick={loadOllamaInfo}
             />
-
-            <SettingsActionButton
-              icon={hasUnsavedChanges ? Save : Check}
-              label={hasUnsavedChanges ? t("common.saveChanges") : t("common.saved")}
-              loadingLabel={t("common.saving")}
-              loading={activeAction === "save"}
-              disabled={isLoading || !settingsDraft || !hasUnsavedChanges}
-              variant="primary"
-              pulse={hasUnsavedChanges}
-              onClick={handleSaveSettings}
-            />
+            <AnimatePresence mode="wait" initial={false}>
+              {hasUnsavedChanges ? (
+                <motion.div
+                  key="save-action"
+                  initial={{ opacity: 0, x: 6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 6 }}
+                  transition={{ duration: 0.16 }}
+                >
+                  <SettingsActionButton
+                    icon={Save}
+                    label={t("common.saveChanges")}
+                    loadingLabel={t("common.saving")}
+                    loading={activeAction === "save"}
+                    disabled={isLoading || isLanguageSaving || !settingsDraft}
+                    variant="primary"
+                    pulse
+                    onClick={handleSaveSettings}
+                  />
+                </motion.div>
+              ) : (
+                <motion.div
+                  key="saved-state"
+                  role="status"
+                  initial={{ opacity: 0, x: 6 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  exit={{ opacity: 0, x: 6 }}
+                  transition={{ duration: 0.16 }}
+                  className="inline-flex h-10 items-center gap-2 rounded-full border border-emerald-400/20 bg-emerald-400/10 px-4 text-sm text-emerald-200"
+                >
+                  <CheckCircle2 size={15} />
+                  {t("settings.allChangesSaved")}
+                </motion.div>
+              )}
+            </AnimatePresence>
           </div>
-        </div>
-      </div>
-
+        }
+      />
 
       <div className="grid gap-5 xl:grid-cols-[260px_minmax(0,1fr)]">
         <SettingsSidebar
@@ -1993,7 +2283,7 @@ export function SettingsPage() {
                         </p>
 
                         <p className="mt-3 text-sm leading-6 text-neutral-300">
-                          {ollamaStatus?.message ?? t("settings.checkingOllama")}
+                          {ollamaStatus?.online ? t("settings.ollamaAvailable") : (ollamaStatus?.message ?? t("settings.checkingOllama"))}
                         </p>
                       </div>
                     </div>
@@ -2095,7 +2385,7 @@ export function SettingsPage() {
                     description={t("settings.generationDescription")}
                   />
 
-                  <div className="grid items-start gap-5 xl:grid-cols-[minmax(0,1fr)_360px]">
+                  <div className="grid items-start gap-5">
                     <SettingCard
                       icon={<SlidersHorizontal size={18} />}
                       label={t("settings.generationPreferences")}
@@ -2144,7 +2434,7 @@ export function SettingsPage() {
                                   value as AppSettings["defaultTargetTool"]
                               })
                             }
-                            options={TARGET_TOOL_OPTIONS}
+                            options={targetToolOptions}
                           />
                         </div>
 
@@ -2162,51 +2452,15 @@ export function SettingsPage() {
                               })
                             }
                             options={[
-                              {
-                                value: "general",
-                                label: "General",
-                                description: "Universal task"
-                              },
-                              {
-                                value: "ui",
-                                label: "UI / UX",
-                                description: "Interface and interaction task"
-                              },
-                              {
-                                value: "backend",
-                                label: "Backend",
-                                description: "API, database, server logic"
-                              },
-                              {
-                                value: "fullstack",
-                                label: "Fullstack",
-                                description: "Client + API/server work"
-                              },
-                              {
-                                value: "build",
-                                label: "Build / Config",
-                                description: "Build, imports, config and tooling"
-                              },
-                              {
-                                value: "bugfix",
-                                label: "Bugfix",
-                                description: "Find and fix a problem"
-                              },
-                              {
-                                value: "refactor",
-                                label: "Refactor",
-                                description: "Improve code without changing behavior"
-                              },
-                              {
-                                value: "docs",
-                                label: "Docs",
-                                description: "Documentation task"
-                              },
-                              {
-                                value: "tests",
-                                label: "Tests",
-                                description: "Testing and verification task"
-                              }
+                              { value: "general", label: t("settings.taskType.general.label"), description: t("settings.taskType.general.description") },
+                              { value: "ui", label: t("settings.taskType.ui.label"), description: t("settings.taskType.ui.description") },
+                              { value: "backend", label: t("settings.taskType.backend.label"), description: t("settings.taskType.backend.description") },
+                              { value: "fullstack", label: t("settings.taskType.fullstack.label"), description: t("settings.taskType.fullstack.description") },
+                              { value: "build", label: t("settings.taskType.build.label"), description: t("settings.taskType.build.description") },
+                              { value: "bugfix", label: t("settings.taskType.bugfix.label"), description: t("settings.taskType.bugfix.description") },
+                              { value: "refactor", label: t("settings.taskType.refactor.label"), description: t("settings.taskType.refactor.description") },
+                              { value: "docs", label: t("settings.taskType.docs.label"), description: t("settings.taskType.docs.description") },
+                              { value: "tests", label: t("settings.taskType.tests.label"), description: t("settings.taskType.tests.description") }
                             ]}
                           />
                         </div>
@@ -2234,8 +2488,10 @@ export function SettingsPage() {
                       label={t("settings.generationModes")}
                       title={t("settings.templateVsOllama")}
                       description={t("settings.templateVsOllamaDesc")}
+                      defaultOpen={false}
+                      storageId="generation-mode-guide-v2"
                     >
-                      <div className="space-y-3">
+                      <div className="grid gap-3 md:grid-cols-2">
                         <div className="rounded-2xl border border-neutral-800 bg-neutral-950/70 p-4">
                           <div className="flex items-start gap-3">
                             <CheckCircle2
@@ -2288,7 +2544,6 @@ export function SettingsPage() {
                       label={t("settings.taskUnderstandingBehavior")}
                       title={t("settings.clarificationModeTitle")}
                       description={t("settings.clarificationModeDescription")}
-                      className="xl:col-span-2"
                     >
                       <HorizontalSlidingSelector
                         items={clarificationOptions}
@@ -2389,7 +2644,7 @@ export function SettingsPage() {
                               <p className="truncate text-xs font-medium text-neutral-300">
                                 {getSelectorModeCopy(record.requestedMode, t).label} · {record.effectivePipeline}
                               </p>
-                              <p className="mt-0.5 text-[10px] text-neutral-700">{new Date(record.timestamp).toLocaleString()}</p>
+                              <p className="mt-0.5 text-[10px] text-neutral-700">{formatSettingsDateTime(record.timestamp)}</p>
                             </div>
                             <span className="cf-badge shrink-0">{record.status}</span>
                           </div>
@@ -2400,9 +2655,9 @@ export function SettingsPage() {
 
                   <SettingCard
                     icon={<ShieldCheck size={18} />}
-                    label="Context safety"
-                    title="Context blocking mode"
-                    description="Control when ContextForge should stop automatic prompt generation and ask for manual file review."
+                    label={t("settings.contextSafety")}
+                    title={t("settings.contextBlockingMode")}
+                    description={t("settings.contextBlockingModeDesc")}
                   >
                     <HorizontalSlidingSelector
                       items={contextQualityOptions}
@@ -2417,7 +2672,7 @@ export function SettingsPage() {
                           contextQualityMode: option.value
                         })
                       }
-                      ariaLabel="Context blocking mode"
+                      ariaLabel={t("settings.contextBlockingMode")}
                       itemClassName="rounded-[0.95rem] text-left"
                       renderItem={(option, isActive) => (
                         <SettingsChoiceCardContent
@@ -2432,13 +2687,20 @@ export function SettingsPage() {
 
                   <SettingCard
                     icon={<WandSparkles size={18} />}
-                    label="Context Composer"
+                    label={t("settings.contextComposer")}
                     title={t("settings.fileCandidateLimits")}
-                    description={t("settings.fileCandidateLimitsDesc")}
+                    description={t("settings.fileCandidateLimitsSummary", {
+                      mode: activePreset?.label ?? t("settings.custom"),
+                      profiles: composerLimitRows.length,
+                      min: Math.min(...composerLimitValues),
+                      max: Math.max(...composerLimitValues)
+                    })}
+                    defaultOpen={false}
+                    storageId="composer-file-limits-v2"
                   >
                     <HorizontalSlidingSelector
-                      items={COMPOSER_LIMIT_PRESETS}
-                      activeIndex={COMPOSER_LIMIT_PRESETS.findIndex(
+                      items={composerLimitPresets}
+                      activeIndex={composerLimitPresets.findIndex(
                         (preset) => preset.id === activePreset?.id
                       )}
                       getItemKey={(preset) => preset.id}
@@ -2477,7 +2739,7 @@ export function SettingsPage() {
                     </div>
 
                     <div className="grid gap-3 lg:grid-cols-2">
-                      {COMPOSER_LIMIT_ROWS.map((row) => (
+                      {composerLimitRows.map((row) => (
                         <ComposerLimitRow
                           key={row.key}
                           label={row.label}
@@ -2491,13 +2753,13 @@ export function SettingsPage() {
                 </>
               )}
 
-              {activeSection === "interface" && (
+              {activeSection === "general" && (
                 <>
                   <SectionHeader
-                    icon={<PanelLeft size={13} />}
-                    label={t("settings.interface")}
-                    title={t("settings.interfaceWorkspaceTitle")}
-                    description={t("settings.interfaceWorkspaceDescription")}
+                    icon={<Settings size={15} />}
+                    label={t("settings.general")}
+                    title={t("settings.generalTitle")}
+                    description={t("settings.generalDescription")}
                   />
 
                   <SettingCard
@@ -2536,19 +2798,132 @@ export function SettingsPage() {
                           <p className="text-sm font-medium text-white">
                             {t("settings.languageCurrent")}: {resolvedLanguage.toUpperCase()}
                           </p>
-                          <p className="mt-0.5 text-xs text-neutral-600">
-                            {t("settings.languageSavedWithSettings")}
+                          <p className={[
+                            "mt-0.5 text-xs",
+                            languageSaveFailed ? "text-rose-300" : "text-neutral-600"
+                          ].join(" ")}>
+                            {languageSaveFailed
+                              ? t("settings.languageSaveFailed")
+                              : isLanguageSaving
+                                ? t("settings.languageSavingDescription")
+                                : t("settings.languageSavedAutomatically")}
                           </p>
                         </div>
                       </div>
 
-                      <span className="rounded-full border border-white/10 bg-white/[0.045] px-3 py-1 text-[10px] uppercase tracking-[0.14em] text-neutral-500">
-                        {t("settings.appliesImmediately")}
+                      <span className={[
+                        "rounded-full border px-3 py-1 text-[10px] uppercase tracking-[0.14em]",
+                        languageSaveFailed
+                          ? "border-rose-400/20 bg-rose-400/10 text-rose-200"
+                          : isLanguageSaving
+                            ? "border-white/10 bg-white/[0.045] text-neutral-400"
+                            : "border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
+                      ].join(" ")}>
+                        {languageSaveFailed
+                          ? t("settings.languageSaveErrorBadge")
+                          : isLanguageSaving
+                            ? t("settings.languageSavingBadge")
+                            : t("settings.languageSavedBadge")}
                       </span>
                     </div>
                   </SettingCard>
 
-                  <div className="grid items-start gap-5 2xl:grid-cols-[minmax(0,0.82fr)_minmax(0,1.18fr)]">
+                  <SettingCard
+                    icon={<Sparkles size={18} />}
+                      label={t("settings.onboarding")}
+                      title={t("settings.launchExperience")}
+                      description={t("settings.launchExperienceDescription")}
+                      defaultOpen={false}
+                    >
+                      <HorizontalSlidingSelector
+                        items={launchExperienceOptions}
+                        activeIndex={launchExperienceOptions.findIndex(
+                          (option) => option.value === launchExperienceMode
+                        )}
+                        getItemKey={(option) => option.value}
+                        onSelect={(option) => {
+                          if (option.value === "workspace") {
+                            updateSettingsDraft({
+                              onboardingEnabled: false,
+                              onboardingShowEveryLaunch: false
+                            });
+                            return;
+                          }
+
+                          updateSettingsDraft({
+                            onboardingEnabled: true,
+                            onboardingShowEveryLaunch:
+                              option.value === "every-launch"
+                          });
+                        }}
+                        ariaLabel={t("settings.launchExperience")}
+                        itemClassName="rounded-[0.95rem] text-left"
+                        renderItem={(option, isActive) => (
+                          <InterfaceChoiceContent
+                            icon={option.icon}
+                            label={option.label}
+                            caption={option.caption}
+                            meta={option.meta}
+                            isActive={isActive}
+                          />
+                        )}
+                      />
+
+                      <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/40 px-4 py-3">
+                        <p className="text-sm font-medium text-white">
+                          {launchExperienceMode === "workspace"
+                            ? t("settings.onboardingLaunchOff")
+                            : launchExperienceMode === "first-run"
+                              ? t("settings.onboardingFirstRunOnly")
+                              : t("settings.onboardingEveryLaunch")}
+                        </p>
+                        <p className="mt-1 text-xs leading-5 text-neutral-600">
+                          {t("settings.onboardingSavedWithSettings")}
+                        </p>
+                      </div>
+                  </SettingCard>
+
+                  <SettingCard
+                    icon={<Gauge size={18} />}
+                    label={t("settings.workspaceDefaults")}
+                    title={t("settings.workspaceDefaultsTitle")}
+                    description={t("settings.workspaceDefaultsDescription")}
+                    defaultOpen={false}
+                  >
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <PlannedInterfaceFeature
+                        icon={PanelLeft}
+                        title={t("settings.defaultStartPage")}
+                        description={t("settings.defaultStartPageDescription")}
+                        badge={t("settings.planned")}
+                      />
+                      <PlannedInterfaceFeature
+                        icon={MessageSquareText}
+                        title={t("settings.notificationPreferences")}
+                        description={t("settings.notificationPreferencesDescription")}
+                        badge={t("settings.planned")}
+                      />
+                      <PlannedInterfaceFeature
+                        icon={ShieldCheck}
+                        title={t("settings.confirmationPreferences")}
+                        description={t("settings.confirmationPreferencesDescription")}
+                        badge={t("settings.planned")}
+                      />
+                    </div>
+                  </SettingCard>
+                </>
+              )}
+
+              {activeSection === "interface" && (
+                <>
+                  <SectionHeader
+                    icon={<PanelLeft size={15} />}
+                    label={t("settings.interface")}
+                    title={t("settings.interfaceWorkspaceTitle")}
+                    description={t("settings.interfaceWorkspaceDescription")}
+                  />
+
+                  <div className="grid items-start gap-4">
                     <SettingCard
                       icon={<PanelLeft size={18} />}
                       label={t("settings.sidebar")}
@@ -2598,60 +2973,6 @@ export function SettingsPage() {
                         </div>
                       </div>
                     </SettingCard>
-
-                    <SettingCard
-                      icon={<Sparkles size={18} />}
-                      label={t("settings.onboarding")}
-                      title={t("settings.launchExperience")}
-                      description={t("settings.launchExperienceDescription")}
-                    >
-                      <HorizontalSlidingSelector
-                        items={launchExperienceOptions}
-                        activeIndex={launchExperienceOptions.findIndex(
-                          (option) => option.value === launchExperienceMode
-                        )}
-                        getItemKey={(option) => option.value}
-                        onSelect={(option) => {
-                          if (option.value === "workspace") {
-                            updateSettingsDraft({
-                              onboardingEnabled: false,
-                              onboardingShowEveryLaunch: false
-                            });
-                            return;
-                          }
-
-                          updateSettingsDraft({
-                            onboardingEnabled: true,
-                            onboardingShowEveryLaunch:
-                              option.value === "every-launch"
-                          });
-                        }}
-                        ariaLabel={t("settings.launchExperience")}
-                        itemClassName="rounded-[0.95rem] text-left"
-                        renderItem={(option, isActive) => (
-                          <InterfaceChoiceContent
-                            icon={option.icon}
-                            label={option.label}
-                            caption={option.caption}
-                            meta={option.meta}
-                            isActive={isActive}
-                          />
-                        )}
-                      />
-
-                      <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/40 px-4 py-3">
-                        <p className="text-sm font-medium text-white">
-                          {launchExperienceMode === "workspace"
-                            ? t("settings.onboardingLaunchOff")
-                            : launchExperienceMode === "first-run"
-                              ? t("settings.onboardingFirstRunOnly")
-                              : t("settings.onboardingEveryLaunch")}
-                        </p>
-                        <p className="mt-1 text-xs leading-5 text-neutral-600">
-                          {t("settings.onboardingSavedWithSettings")}
-                        </p>
-                      </div>
-                    </SettingCard>
                   </div>
 
                   <SettingCard
@@ -2659,6 +2980,7 @@ export function SettingsPage() {
                     label={t("settings.experienceLab")}
                     title={t("settings.experienceLabTitle")}
                     description={t("settings.experienceLabDescription")}
+                    defaultOpen={false}
                   >
                     <div className="grid gap-3 md:grid-cols-3">
                       <PlannedInterfaceFeature
@@ -2710,11 +3032,11 @@ export function SettingsPage() {
                           <div className="mb-2 flex items-start justify-between gap-3">
                             <div className="min-w-0">
                               <p className="truncate text-sm font-medium text-white">
-                                {shortcut.label}
+                                {t(`settings.shortcut.${shortcut.id}.label`)}
                               </p>
 
                               <p className="mt-1 text-sm leading-5 text-neutral-500">
-                                {shortcut.description}
+                                {t(`settings.shortcut.${shortcut.id}.description`)}
                               </p>
                             </div>
 
@@ -2744,10 +3066,22 @@ export function SettingsPage() {
                       ))}
                     </div>
                   </SettingCard>
-                </>
-              )}
 
-              {activeSection === "account" && <DesktopAccountPanel />}
+
+                  <SettingCard
+                    icon={<SlidersHorizontal size={18} />}
+                    label={t("settings.planned")}
+                    title={t("settings.shortcutEditor")}
+                    description={t("settings.shortcutEditorDescription")}
+                    defaultOpen={false}
+                  >
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <PlannedInterfaceFeature icon={Keyboard} title={t("settings.shortcutRemapping")} description={t("settings.shortcutRemappingDesc")} badge={t("settings.planned")} />
+                      <PlannedInterfaceFeature icon={ShieldCheck} title={t("settings.shortcutConflicts")} description={t("settings.shortcutConflictsDesc")} badge={t("settings.planned")} />
+                      <PlannedInterfaceFeature icon={Download} title={t("settings.shortcutProfiles")} description={t("settings.shortcutProfilesDesc")} badge={t("settings.planned")} />
+                    </div>
+                  </SettingCard>                </>
+              )}
 
               {(activeSection === "privacy" || activeSection === "updates") && (
                 <PlaceholderSettingsPanel sectionId={activeSection} />
@@ -2802,7 +3136,7 @@ export function SettingsPage() {
                       </div>
 
                       <p className="mt-5 text-sm leading-6 text-neutral-500">
-                        {appMeta.description}
+                        {t("settings.applicationDescription")}
                       </p>
                     </SettingCard>
 
@@ -2845,7 +3179,21 @@ export function SettingsPage() {
                       </div>
                     </SettingCard>
                   </div>
-                </>
+
+
+                  <SettingCard
+                    icon={<Server size={18} />}
+                    label={t("settings.planned")}
+                    title={t("settings.systemTools")}
+                    description={t("settings.systemToolsDescription")}
+                    defaultOpen={false}
+                  >
+                    <div className="grid gap-3 md:grid-cols-3">
+                      <PlannedInterfaceFeature icon={Download} title={t("settings.diagnosticsBundle")} description={t("settings.diagnosticsBundleDesc")} badge={t("settings.planned")} />
+                      <PlannedInterfaceFeature icon={Server} title={t("settings.dataLocation")} description={t("settings.dataLocationDesc")} badge={t("settings.planned")} />
+                      <PlannedInterfaceFeature icon={Trash2} title={t("settings.resetSettings")} description={t("settings.resetSettingsDesc")} badge={t("settings.planned")} />
+                    </div>
+                  </SettingCard>                </>
               )}
             </motion.div>
           </AnimatePresence>

@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import {
   BarChart3,
   Bot,
+  Cloud,
   ChevronLeft,
   ChevronRight,
   FileText,
@@ -34,6 +35,7 @@ export type AppPageId =
   | "integrations"
   | "github"
   | "reports"
+  | "accountSync"
   | "settings";
 
 export interface NavigationItem {
@@ -159,6 +161,15 @@ export const navigationSections: NavigationSection[] = [
     title: "System",
     titleKey: "nav.system",
     items: [
+      {
+        id: "accountSync",
+        label: "Account & Sync",
+        labelKey: "nav.accountSync",
+        description: "Website account, Desktop Link, device status and Task Pack handoff.",
+        descriptionKey: "nav.accountSyncDesc",
+        icon: Cloud,
+        status: "alpha"
+      },
       {
         id: "settings",
         label: "Settings",

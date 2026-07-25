@@ -34,6 +34,7 @@ import { useDashboardController } from "../hooks/useDashboardController";
 import { TaskPacksPage } from "./TaskPacksPage";
 import { ContextBuilderPage } from "./ContextBuilderPage";
 import { SettingsPage } from "./SettingsPage";
+import { AccountSyncPage } from "./AccountSyncPage";
 import { PlaceholderPage } from "./PlaceholderPage";
 import { ReportsPage } from "./ReportsPage";
 import { ScannersPage } from "./ScannersPage";
@@ -61,6 +62,7 @@ const PAGE_ORDER: AppPageId[] = [
   "templates",
   "integrations",
   "github",
+  "accountSync",
   "settings",
 ];
 
@@ -721,6 +723,10 @@ export function DashboardPage() {
           onTaskPackCreated={dashboard.handleExternalTaskPackCreated}
         />
       );
+    }
+
+    if (activePage === "accountSync") {
+      return <AccountSyncPage />;
     }
 
     if (activePage === "settings") {
