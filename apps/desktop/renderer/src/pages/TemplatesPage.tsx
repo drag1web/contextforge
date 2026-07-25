@@ -1,300 +1,140 @@
 import {
-  useCallback,
   useEffect,
-  useLayoutEffect,
   useMemo,
   useRef,
   useState,
-  type ReactNode
+  type ReactNode,
 } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { AnimatePresence, motion, useReducedMotion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
+  ArrowUpRight,
   BookOpen,
-  Bug,
   Check,
-  ClipboardCheck,
-  Code2,
+  CheckCircle2,
+  Clipboard,
   Copy,
-  FileText,
-  Pencil,
+  FileCode2,
+  Folder,
+  Globe2,
   Layers3,
+  ListChecks,
   Loader2,
-  Palette,
+  LockKeyhole,
+  MoreHorizontal,
+  Pencil,
   Plus,
   RefreshCcw,
-  Repeat2,
-  Rocket,
   Search,
-  ShieldAlert,
   ShieldCheck,
   SlidersHorizontal,
   Sparkles,
-  TestTube2,
   Trash2,
-  WandSparkles,
-  X
+  X,
 } from "lucide-react";
 
 import {
+  createAcceptanceCriteriaPreset,
+  createRuleItem,
   createRuleProfile,
   createTemplate,
+  deleteAcceptanceCriteriaPreset,
+  deleteRuleItem,
   deleteRuleProfile,
   deleteTemplate,
   getRuleProfilesCatalog,
   getTemplates,
+  updateAcceptanceCriteriaPreset,
+  updateRuleItem,
   updateRuleProfile,
-  updateTemplate
+  updateTemplate,
 } from "../api/client";
+import { AiToolLogo } from "../components/ai/AiToolLogo";
+import { Button } from "../components/ui/Button";
+import { CustomSelect, type SelectOption } from "../components/ui/CustomSelect";
+import { HorizontalSlidingSelector } from "../components/ui/SlidingSelectors";
 import type {
   AcceptanceCriteriaPreset,
   PromptTemplate,
+  RuleCategory,
   RuleItem,
   RuleProfile,
   TargetTool,
-  TemplateTaskType
+  TemplateTaskType,
 } from "../types";
-import { Button } from "../components/ui/Button";
-import { CustomSelect } from "../components/ui/CustomSelect";
-import { TARGET_TOOL_OPTIONS } from "../components/ai/aiToolOptions";
-
 import {
-  SegmentedFilter,
-  type SegmentedFilterOption
-} from "../components/ui/SegmentedFilter";
+  TEMPLATES_STUDIO_COPY,
+  type TemplatesStudioCopy,
+} from "./templatesStudioCopy";
 
-type TemplatesTab = "templates" | "profiles" | "rules" | "criteria";
-type CatalogTabOption = SegmentedFilterOption<TemplatesTab>;
-type TemplateEditorState =
-  | { kind: "template"; mode: "create"; source?: PromptTemplate }
-  | { kind: "template"; mode: "edit"; source: PromptTemplate }
-  | { kind: "profile"; mode: "create"; source?: RuleProfile }
-  | { kind: "profile"; mode: "edit"; source: RuleProfile }
+type StudioTab = "templates" | "profiles" | "rules" | "criteria";
+type SourceFilter = "all" | "custom" | "builtin";
+type EditorMode = "create" | "edit";
+type EditorStep = "setup" | "structure" | "preview";
+type CatalogEntity =
+  | { kind: "template"; data: PromptTemplate }
+  | { kind: "profile"; data: RuleProfile }
+  | { kind: "rule"; data: RuleItem }
+  | { kind: "criteria"; data: AcceptanceCriteriaPreset };
+
+type EditorState =
+  | { kind: "template"; mode: EditorMode; source?: PromptTemplate }
+  | { kind: "profile"; mode: EditorMode; source?: RuleProfile }
+  | { kind: "rule"; mode: EditorMode; source?: RuleItem }
+  | { kind: "criteria"; mode: EditorMode; source?: AcceptanceCriteriaPreset }
   | null;
 
-const TASK_TYPE_OPTIONS: Array<{
-  value: TemplateTaskType;
-  label: string;
-  description: string;
-}> = [
-    { value: "general", label: "General", description: "Universal task" },
-    { value: "ui", label: "UI / UX", description: "Interface changes" },
-    { value: "backend", label: "Backend", description: "API / DB / server" },
-    { value: "fullstack", label: "Fullstack", description: "UI + backend" },
-    { value: "build", label: "Build", description: "Build / config" },
-    { value: "bugfix", label: "Bugfix", description: "Minimal fix" },
-    { value: "refactor", label: "Refactor", description: "No behavior change" },
-    { value: "docs", label: "Docs", description: "Documentation" },
-    { value: "tests", label: "Tests", description: "Verification" }
-  ];
+type ToastState = {
+  tone: "success" | "warning" | "neutral";
+  message: string;
+} | null;
 
-interface TemplatePreset {
-  id: string;
-  title: string;
-  eyebrow: string;
-  description: string;
-  taskType: TemplateTaskType;
-  recommendedTargets: string;
-  icon: ReactNode;
-  focus: string[];
-  acceptance: string[];
-  outputContract: string;
-}
-
-type PresetIndicatorRect = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
-const TEMPLATE_PRESET_TRANSITION = {
-  type: "spring",
-  stiffness: 520,
-  damping: 44,
-  mass: 0.55
-} as const;
-
-const TEMPLATE_PRESETS: TemplatePreset[] = [
-  {
-    id: "ui-redesign",
-    title: "UI/UX redesign",
-    eyebrow: "Interface",
-    description:
-      "Improve layout, interaction states and visual hierarchy while preserving behavior.",
-    taskType: "ui",
-    recommendedTargets: "Codex, Cursor",
-    icon: <Palette size={16} />,
-    focus: [
-      "Use existing UI components and motion patterns.",
-      "Keep backend/API behavior unchanged.",
-      "Preserve routing, data flow and localization boundaries."
-    ],
-    acceptance: [
-      "Visual states are consistent with the current design system.",
-      "No backend contracts or persistence behavior were changed.",
-      "Final response lists changed UI files and manual checks."
-    ],
-    outputContract: "UI summary, changed files, screenshots/manual checks, risks"
-  },
-  {
-    id: "bug-fix",
-    title: "Bug fix",
-    eyebrow: "Repair",
-    description:
-      "Find the cause, apply a narrow fix and leave unrelated code untouched.",
-    taskType: "bugfix",
-    recommendedTargets: "Codex, Claude Code",
-    icon: <Bug size={16} />,
-    focus: [
-      "Start from reproduction steps and observed behavior.",
-      "Prefer the smallest safe code change.",
-      "Avoid broad refactors unless the bug requires it."
-    ],
-    acceptance: [
-      "Root cause is explained briefly.",
-      "Regression path is covered by a test or manual check.",
-      "No unrelated files were reformatted or rewritten."
-    ],
-    outputContract: "Root cause, patch summary, verification, remaining edge cases"
-  },
-  {
-    id: "backend-api",
-    title: "Backend API change",
-    eyebrow: "Server",
-    description:
-      "Change routes, services or persistence with validation and client compatibility in mind.",
-    taskType: "backend",
-    recommendedTargets: "Claude Code, Codex",
-    icon: <Code2 size={16} />,
-    focus: [
-      "Update API behavior intentionally and document response shape.",
-      "Validate input and keep safe error handling.",
-      "Touch client bridges/types only when contracts change."
-    ],
-    acceptance: [
-      "Request/response behavior is clear.",
-      "Validation and error states are handled.",
-      "Build or route-level verification is listed."
-    ],
-    outputContract: "API changes, affected clients, validation, verification"
-  },
-  {
-    id: "add-tests",
-    title: "Add tests",
-    eyebrow: "Verification",
-    description:
-      "Add focused tests using the project’s existing test style and commands.",
-    taskType: "tests",
-    recommendedTargets: "Codex, Cursor",
-    icon: <TestTube2 size={16} />,
-    focus: [
-      "Detect current test framework before adding files.",
-      "Prefer behavior-focused coverage over snapshot noise.",
-      "Do not invent test commands that are not in scripts/config."
-    ],
-    acceptance: [
-      "Tests follow existing naming and folder conventions.",
-      "Verification command is real and listed.",
-      "New tests cover the task’s risky behavior."
-    ],
-    outputContract: "Test files, covered behavior, command used, gaps"
-  },
-  {
-    id: "refactor-component",
-    title: "Refactor component",
-    eyebrow: "Cleanup",
-    description:
-      "Improve structure and readability without changing user-visible behavior.",
-    taskType: "refactor",
-    recommendedTargets: "Cursor, Codex",
-    icon: <Repeat2 size={16} />,
-    focus: [
-      "Keep public props, API contracts and behavior stable.",
-      "Split only when it reduces complexity.",
-      "Avoid cosmetic rewrites outside the target area."
-    ],
-    acceptance: [
-      "External behavior remains unchanged.",
-      "Refactor boundaries are explained.",
-      "Build/typecheck verification is listed."
-    ],
-    outputContract: "Refactor intent, files changed, preserved behavior, checks"
-  },
-  {
-    id: "docs-update",
-    title: "Docs update",
-    eyebrow: "Documentation",
-    description:
-      "Update docs from real project behavior, scripts and current architecture.",
-    taskType: "docs",
-    recommendedTargets: "Gemini, Claude Code",
-    icon: <BookOpen size={16} />,
-    focus: [
-      "Use real files, scripts and project metadata only.",
-      "Avoid claiming unsupported features.",
-      "Keep docs practical and developer-readable."
-    ],
-    acceptance: [
-      "Docs match current scripts/config.",
-      "No speculative roadmap is presented as shipped behavior.",
-      "Changed docs and assumptions are listed."
-    ],
-    outputContract: "Docs changed, source facts used, assumptions, checks"
-  },
-  {
-    id: "security-audit",
-    title: "Security audit",
-    eyebrow: "Safety",
-    description:
-      "Review sensitive surfaces, secrets, auth and unsafe changes before implementation.",
-    taskType: "backend",
-    recommendedTargets: "Claude Code, Gemini",
-    icon: <ShieldAlert size={16} />,
-    focus: [
-      "Inspect auth, validation, secrets and permission boundaries.",
-      "Prefer report-first guidance before changing code.",
-      "Do not weaken existing security checks."
-    ],
-    acceptance: [
-      "Findings are separated by severity.",
-      "No secrets are printed or copied into prompts.",
-      "Recommended fixes are scoped and verifiable."
-    ],
-    outputContract: "Findings, affected files, safe fixes, verification plan"
-  },
-  {
-    id: "release-checklist",
-    title: "Release checklist",
-    eyebrow: "Ship",
-    description:
-      "Prepare build, docs and verification steps for a clean desktop release.",
-    taskType: "build",
-    recommendedTargets: "Codex, Generic",
-    icon: <Rocket size={16} />,
-    focus: [
-      "Check build scripts, packaging notes and release docs.",
-      "Keep dev-only requirements away from end-user flow.",
-      "List verification commands and manual smoke checks."
-    ],
-    acceptance: [
-      "Build commands are explicit.",
-      "Release risks and manual checks are listed.",
-      "No product version bump happens unless requested."
-    ],
-    outputContract: "Release steps, commands, smoke checks, risks"
-  }
+const TASK_TYPES: TemplateTaskType[] = [
+  "general",
+  "ui",
+  "backend",
+  "fullstack",
+  "build",
+  "bugfix",
+  "refactor",
+  "docs",
+  "tests",
 ];
 
-const EMPTY_TEMPLATE_CONTENT = `# AI Task Pack
+const RULE_CATEGORIES: RuleCategory[] = [
+  "general",
+  "ui",
+  "backend",
+  "bugfix",
+  "refactor",
+  "docs",
+  "tests",
+  "assets",
+  "verification",
+];
+
+const TARGET_TOOLS: TargetTool[] = [
+  "codex",
+  "cursor",
+  "claude",
+  "gemini",
+  "generic",
+];
+
+const TARGET_LABELS: Record<TargetTool, string> = {
+  codex: "Codex",
+  cursor: "Cursor",
+  claude: "Claude Code",
+  gemini: "Gemini",
+  generic: "Generic",
+};
+
+const DEFAULT_TEMPLATE_CONTENT = `# AI Task Pack
 
 ## Target Tool
 
 {{targetToolLabel}}
-
-## Task Type
-
-{{taskType}}
 
 ## Task
 
@@ -303,13 +143,8 @@ const EMPTY_TEMPLATE_CONTENT = `# AI Task Pack
 ## Project Context
 
 - Project: {{projectName}}
-- Package manager: {{packageManager}}
 - Detected stack: {{detectedStack}}
 - Readiness score: {{readinessScore}}
-
-## Agent Instructions
-
-Inspect selected ContextForge files before editing. Keep the work focused and safe.
 
 ## Constraints
 
@@ -325,979 +160,1253 @@ Inspect selected ContextForge files before editing. Keep the work focused and sa
 
 ## Expected Final Response
 
-Return:
-- files changed
-- summary
-- verification
-- remaining risks
-`;
-
+Return changed files, a concise summary, verification and remaining risks.`;
 
 const DEFAULT_PROFILE_RULE_IDS = [
   "rule.general.no-invented-files",
   "rule.general.inspect-first",
   "rule.general.focused-scope",
-  "rule.verification.no-fake-tests"
+  "rule.verification.no-fake-tests",
 ];
 
-function getCopyName(name: string) {
-  return name.toLowerCase().startsWith("copy of ") ? name : `Copy of ${name}`;
-}
+const PANEL_TRANSITION = {
+  duration: 0.24,
+  ease: [0.16, 1, 0.3, 1],
+} as const;
 
-function getEditorKey(editor: TemplateEditorState) {
-  if (!editor) {
-    return "closed";
-  }
-
-  return `${editor.kind}:${editor.mode}:${editor.source?.id ?? "new"}`;
+function format(copy: string, values: Record<string, string | number>) {
+  return Object.entries(values).reduce(
+    (result, [key, value]) => result.replaceAll(`{{${key}}}`, String(value)),
+    copy,
+  );
 }
 
 function normalize(value: unknown) {
-  return String(value ?? "").toLowerCase();
+  return String(value ?? "").trim().toLowerCase();
 }
 
-function splitLines(value: string) {
+function uniqueLines(value: string, limit = 30) {
   return Array.from(
     new Set(
       value
         .split(/\r?\n/)
-        .map((line) => line.trim())
-        .filter(Boolean)
-    )
+        .map((item) => item.trim())
+        .filter(Boolean),
+    ),
+  ).slice(0, limit);
+}
+
+function getEntityName(entity: CatalogEntity) {
+  return entity.kind === "rule" ? entity.data.title : entity.data.name;
+}
+
+function getEntityDescription(entity: CatalogEntity, c: TemplatesStudioCopy) {
+  return entity.data.description || c.noDescription;
+}
+
+function isBuiltin(entity: CatalogEntity) {
+  return entity.data.isBuiltin;
+}
+
+function tabForKind(kind: CatalogEntity["kind"]): StudioTab {
+  if (kind === "template") return "templates";
+  if (kind === "profile") return "profiles";
+  if (kind === "rule") return "rules";
+  return "criteria";
+}
+
+function kindForTab(tab: StudioTab): CatalogEntity["kind"] {
+  if (tab === "templates") return "template";
+  if (tab === "profiles") return "profile";
+  if (tab === "rules") return "rule";
+  return "criteria";
+}
+
+function entityMatchesSource(entity: CatalogEntity, source: SourceFilter) {
+  if (source === "all") return true;
+  return source === "builtin" ? entity.data.isBuiltin : !entity.data.isBuiltin;
+}
+
+function getTemplateVariables(content: string) {
+  return Array.from(
+    new Set(
+      Array.from(content.matchAll(/{{\s*([a-zA-Z0-9_]+)\s*}}/g)).map(
+        (match) => match[1],
+      ),
+    ),
   );
 }
 
-function countCustom<T extends { isBuiltin: boolean }>(items: T[]) {
-  return items.filter((item) => !item.isBuiltin).length;
+function getTemplateSections(content: string) {
+  return Array.from(content.matchAll(/^#{1,3}\s+(.+)$/gm)).map((match) =>
+    match[1].trim(),
+  );
 }
 
-function getBadgeClass(isBuiltin: boolean) {
-  return isBuiltin
-    ? "border-white/12 bg-white/[0.075] text-white"
-    : "border-emerald-400/20 bg-emerald-400/10 text-emerald-300";
+function getCopyName(name: string, isRussian: boolean) {
+  const prefix = isRussian ? "Копия" : "Copy of";
+  return name.toLowerCase().startsWith(prefix.toLowerCase())
+    ? name
+    : `${prefix} ${name}`;
 }
 
-function getTaskTypeLabel(taskType: string) {
+function getDateLabel(
+  value: string | undefined,
+  locale: string,
+  fallback: string,
+) {
+  if (!value) return fallback;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return fallback;
+  return new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+  }).format(date);
+}
+
+function targetIcon(tool: TargetTool, size: "sm" | "md" | "lg" = "md") {
   return (
-    TASK_TYPE_OPTIONS.find((option) => option.value === taskType)?.label ??
-    taskType
+    <AiToolLogo
+      tool={tool === "claude" ? "claudecode" : tool}
+      size={size}
+      tone="monochrome"
+    />
   );
 }
 
-function getTargetToolLabel(targetTool: string) {
-  return (
-    TARGET_TOOL_OPTIONS.find((option) => option.value === targetTool)?.label ??
-    targetTool
-  );
-}
-
-function getTargetToolDescription(targetTool: string) {
-  return (
-    TARGET_TOOL_OPTIONS.find((option) => option.value === targetTool)?.description ??
-    "Target coding agent"
-  );
-}
-
-function getTargetToolIcon(targetTool: string) {
-  return TARGET_TOOL_OPTIONS.find((option) => option.value === targetTool)?.icon;
-}
-
-function sortTemplatesByTaskType(items: PromptTemplate[]) {
-  const order = new Map(
-    TASK_TYPE_OPTIONS.map((option, index) => [option.value, index])
-  );
-
-  return [...items].sort((a, b) => {
-    const taskDiff =
-      (order.get(a.taskType) ?? 99) - (order.get(b.taskType) ?? 99);
-
-    if (taskDiff !== 0) {
-      return taskDiff;
-    }
-
-    return a.name.localeCompare(b.name);
-  });
-}
-
-function EmptyState({
-  title,
-  description
+function SourceBadge({
+  builtin,
+  c,
 }: {
-  title: string;
-  description: string;
+  builtin: boolean;
+  c: TemplatesStudioCopy;
 }) {
-  return (
-    <div className="grid h-full min-h-[260px] place-items-center rounded-[1.5rem] border border-dashed border-neutral-800 bg-black/25 p-8 text-center">
-      <div>
-        <div className="mx-auto mb-4 grid size-11 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-500">
-          <Search size={18} />
-        </div>
-
-        <p className="text-base font-semibold text-white">{title}</p>
-
-        <p className="mt-2 max-w-md text-sm leading-6 text-neutral-500">
-          {description}
-        </p>
-      </div>
-    </div>
-  );
-}
-
-function Pill({
-  children,
-  tone = "default"
-}: {
-  children: ReactNode;
-  tone?: "default" | "success" | "muted";
-}) {
-  const className =
-    tone === "success"
-      ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
-      : tone === "muted"
-        ? "border-neutral-900 bg-black/40 text-neutral-600"
-        : "border-neutral-800 bg-neutral-950 text-neutral-300";
-
   return (
     <span
       className={[
-        "inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium",
-        className
+        "inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[10px] font-semibold uppercase tracking-[0.1em]",
+        builtin
+          ? "border-white/10 bg-white/[0.035] text-neutral-500"
+          : "border-emerald-400/20 bg-emerald-400/10 text-emerald-300",
       ].join(" ")}
     >
+      {builtin ? <LockKeyhole size={11} /> : <CheckCircle2 size={11} />}
+      {builtin ? c.builtIn : c.custom}
+    </span>
+  );
+}
+
+function CountBadge({ children }: { children: ReactNode }) {
+  return (
+    <span className="inline-flex h-6 items-center rounded-full border border-neutral-900 bg-black/45 px-2.5 text-[10px] font-medium text-neutral-500">
       {children}
     </span>
   );
 }
 
-function StatCard({
+function SummaryCell({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="min-w-[110px] border-l border-white/[0.07] px-4 first:border-l-0">
+      <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-semibold text-white">{value}</p>
+    </div>
+  );
+}
+
+function CatalogFilterPanel({
   icon,
-  label,
-  value,
-  caption
+  title,
+  caption,
+  children,
 }: {
   icon: ReactNode;
-  label: string;
-  value: number;
+  title: string;
   caption: string;
+  children: ReactNode;
 }) {
   return (
-    <article className="rounded-[1.25rem] border border-neutral-900 bg-black/35 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-            {label}
-          </p>
-
-          <p className="cf-display-font mt-1 text-2xl font-semibold text-white">
-            {value}
-          </p>
-        </div>
-
-        <div className="grid size-9 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-400">
+    <section className="flex min-h-[190px] flex-col rounded-[1.4rem] border border-neutral-900 bg-black/40 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] xl:h-[218px]">
+      <div className="flex items-center gap-2.5 border-b border-white/[0.055] pb-3">
+        <span className="grid size-7 shrink-0 place-items-center rounded-xl border border-neutral-900 bg-black/55 text-neutral-500">
           {icon}
+        </span>
+        <div className="min-w-0">
+          <h2 className="truncate text-xs font-semibold text-white">{title}</h2>
+          <p className="cf-tech-label mt-0.5 truncate text-[8px] uppercase text-neutral-700">
+            {caption}
+          </p>
         </div>
       </div>
-
-      <p className="mt-2 text-xs text-neutral-600">{caption}</p>
-    </article>
+      <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
+        {children}
+      </div>
+    </section>
   );
 }
 
-
-function TemplatePresetLibrary({
-  activePreset,
-  onSelect,
-  onApply
+function CatalogFilterButton({
+  active,
+  label,
+  count,
+  icon,
+  onClick,
 }: {
-  activePreset: TemplatePreset;
-  onSelect: (preset: TemplatePreset) => void;
-  onApply: (preset: TemplatePreset) => void;
+  active: boolean;
+  label: string;
+  count: number;
+  icon?: ReactNode;
+  onClick: () => void;
 }) {
-  const gridRef = useRef<HTMLDivElement | null>(null);
-  const itemRefs = useRef<Record<string, HTMLButtonElement | null>>({});
-  const [indicatorRect, setIndicatorRect] = useState<PresetIndicatorRect | null>(null);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={[
+        "group flex h-10 w-full items-center justify-between gap-3 rounded-xl border px-3 text-left transition duration-150",
+        active
+          ? "border-white bg-white text-black shadow-[0_8px_24px_rgba(255,255,255,0.08)]"
+          : "border-transparent text-neutral-500 hover:border-neutral-800 hover:bg-white/[0.025] hover:text-white",
+      ].join(" ")}
+    >
+      <span className="flex min-w-0 items-center gap-2.5">
+        {icon ? (
+          <span
+            className={[
+              "grid size-6 shrink-0 place-items-center rounded-lg border transition",
+              active
+                ? "border-black/10 bg-black/[0.04] text-black"
+                : "border-neutral-900 bg-black/35 text-neutral-600 group-hover:text-neutral-300",
+            ].join(" ")}
+          >
+            {icon}
+          </span>
+        ) : null}
+        <span className="truncate text-xs font-semibold">{label}</span>
+      </span>
+      <span
+        className={[
+          "shrink-0 font-mono text-[10px] tabular-nums",
+          active ? "text-black/55" : "text-neutral-700",
+        ].join(" ")}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
 
-  const updateIndicator = useCallback(() => {
-    const container = gridRef.current;
-    const activeItem = itemRefs.current[activePreset.id];
-
-    if (!container || !activeItem) {
-      return;
-    }
-
-    const containerRect = container.getBoundingClientRect();
-    const itemRect = activeItem.getBoundingClientRect();
-
-    setIndicatorRect({
-      x: itemRect.left - containerRect.left,
-      y: itemRect.top - containerRect.top,
-      width: itemRect.width,
-      height: itemRect.height
-    });
-  }, [activePreset.id]);
-
-  useLayoutEffect(() => {
-    updateIndicator();
-  }, [updateIndicator]);
+function ActionMenu({
+  entity,
+  c,
+  onOpen,
+  onDuplicate,
+  onEdit,
+  onDelete,
+  onCopyId,
+}: {
+  entity: CatalogEntity;
+  c: TemplatesStudioCopy;
+  onOpen: () => void;
+  onDuplicate: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onCopyId: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
-    updateIndicator();
+    if (!open) return;
 
-    if (typeof ResizeObserver === "undefined") {
-      window.addEventListener("resize", updateIndicator);
-      return () => window.removeEventListener("resize", updateIndicator);
-    }
-
-    const observer = new ResizeObserver(updateIndicator);
-
-    if (gridRef.current) {
-      observer.observe(gridRef.current);
-    }
-
-    Object.values(itemRefs.current).forEach((item) => {
-      if (item) {
-        observer.observe(item);
-      }
-    });
-
-    window.addEventListener("resize", updateIndicator);
-
-    return () => {
-      observer.disconnect();
-      window.removeEventListener("resize", updateIndicator);
+    const handlePointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Node)) return;
+      if (!rootRef.current?.contains(event.target)) setOpen(false);
     };
-  }, [updateIndicator]);
 
-  return (
-    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/45 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-      <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
-        <div>
-          <div className="mb-2 flex flex-wrap gap-2">
-            <Pill>
-              <ClipboardCheck size={12} />
-              Stage 9.2
-            </Pill>
-            <Pill>Template library</Pill>
-            <Pill>{TEMPLATE_PRESETS.length} presets</Pill>
-          </div>
-
-          <h2 className="text-xl font-semibold tracking-[-0.04em] text-white">
-            Pick a task preset before choosing the exact prompt template.
-          </h2>
-
-          <p className="mt-2 max-w-3xl text-xs leading-5 text-neutral-600">
-            Presets explain the job type, recommended agent fit and acceptance checks. Stage 9.3 will connect this directly to Context Builder.
-          </p>
-        </div>
-
-        <Button variant="secondary" onClick={() => onApply(activePreset)}>
-          <Search size={15} />
-          Show matching templates
-        </Button>
-      </div>
-
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_410px] xl:items-start">
-        <div
-          ref={gridRef}
-          className="relative grid gap-1.5 overflow-hidden rounded-[1.65rem] border border-white/10 bg-black/55 p-1.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.055)] sm:grid-cols-2 2xl:grid-cols-4"
-        >
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(255,255,255,0.055),rgba(255,255,255,0.01)_44%,rgba(255,255,255,0.004))]" />
-
-          {indicatorRect && (
-            <motion.span
-              aria-hidden="true"
-              className="absolute rounded-[1.35rem] bg-white shadow-[0_18px_46px_rgba(255,255,255,0.14)]"
-              initial={false}
-              animate={{
-                x: indicatorRect.x,
-                y: indicatorRect.y,
-                width: indicatorRect.width,
-                height: indicatorRect.height
-              }}
-              transition={TEMPLATE_PRESET_TRANSITION}
-              style={{ willChange: "transform,width,height" }}
-            />
-          )}
-
-          {TEMPLATE_PRESETS.map((preset) => {
-            const isActive = preset.id === activePreset.id;
-
-            return (
-              <button
-                key={preset.id}
-                ref={(node) => {
-                  itemRefs.current[preset.id] = node;
-                }}
-                type="button"
-                onClick={() => onSelect(preset)}
-                className={[
-                  "group relative z-10 min-h-[112px] rounded-[1.35rem] p-3.5 text-left transition-colors duration-150",
-                  isActive ? "text-black" : "text-neutral-500 hover:text-white"
-                ].join(" ")}
-              >
-                <span className="flex h-full flex-col justify-between gap-3">
-                  <span className="flex items-start justify-between gap-3">
-                    <span
-                      className={[
-                        "grid size-9 shrink-0 place-items-center rounded-xl border transition-colors duration-150",
-                        isActive
-                          ? "border-black/10 bg-black/[0.045] text-black"
-                          : "border-neutral-800 bg-neutral-950 text-neutral-500 group-hover:border-white/15 group-hover:text-white"
-                      ].join(" ")}
-                    >
-                      {preset.icon}
-                    </span>
-
-                    <span
-                      className={[
-                        "cf-tech-label rounded-full border px-2 py-1 text-[9px] uppercase transition-colors duration-150",
-                        isActive
-                          ? "border-black/10 bg-black/[0.035] text-neutral-600"
-                          : "border-neutral-900 bg-black/25 text-neutral-600 group-hover:text-neutral-500"
-                      ].join(" ")}
-                    >
-                      {preset.eyebrow}
-                    </span>
-                  </span>
-
-                  <span>
-                    <span
-                      className={[
-                        "block text-sm font-semibold transition-colors duration-150",
-                        isActive ? "text-black" : "text-white group-hover:text-white"
-                      ].join(" ")}
-                    >
-                      {preset.title}
-                    </span>
-
-                    <span
-                      className={[
-                        "mt-1 line-clamp-2 block text-xs leading-5 transition-colors duration-150",
-                        isActive ? "text-black/58" : "text-neutral-600 group-hover:text-neutral-400"
-                      ].join(" ")}
-                    >
-                      {preset.description}
-                    </span>
-                  </span>
-                </span>
-              </button>
-            );
-          })}
-        </div>
-
-        <motion.aside
-          initial={false}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.16 }}
-          className="rounded-2xl border border-neutral-900 bg-black/40 p-4"
-        >
-          <div className="flex items-start gap-3">
-            <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-400">
-              {activePreset.icon}
-            </span>
-
-            <div className="min-w-0">
-              <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                Selected preset
-              </p>
-
-              <h3 className="mt-1 truncate text-lg font-semibold tracking-[-0.035em] text-white">
-                {activePreset.title}
-              </h3>
-
-              <p className="mt-1 line-clamp-1 text-xs leading-5 text-neutral-500">
-                {activePreset.description}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-3 grid gap-2 sm:grid-cols-2">
-            <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
-              <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                Task type
-              </p>
-              <p className="mt-1 text-sm font-semibold text-white">
-                {TASK_TYPE_OPTIONS.find((option) => option.value === activePreset.taskType)?.label ?? activePreset.taskType}
-              </p>
-            </div>
-
-            <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
-              <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                Agent fit
-              </p>
-              <p className="mt-1 truncate text-sm font-semibold text-white">
-                {activePreset.recommendedTargets}
-              </p>
-            </div>
-          </div>
-
-          <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            <div>
-              <p className="mb-2 text-xs font-semibold text-white">
-                Focus
-              </p>
-              <ul className="space-y-1.5">
-                {activePreset.focus.map((item) => (
-                  <li
-                    key={item}
-                    className="flex gap-2 rounded-xl border border-neutral-900 bg-black/35 px-3 py-1.5 text-[11px] leading-4 text-neutral-400"
-                  >
-                    <Check size={12} className="mt-0.5 shrink-0 text-emerald-300" />
-                    <span className="line-clamp-2">{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-
-            <div>
-              <p className="mb-2 text-xs font-semibold text-white">
-                Checks
-              </p>
-              <ul className="space-y-1.5">
-                {activePreset.acceptance.slice(0, 2).map((item) => (
-                  <li
-                    key={item}
-                    className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-1.5 text-[11px] leading-4 text-neutral-500"
-                  >
-                    <span className="line-clamp-2">{item}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          </div>
-
-          <div className="mt-3 rounded-xl border border-white/10 bg-white/[0.035] p-3">
-            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-              Expected final response
-            </p>
-            <p className="mt-1 truncate text-xs leading-5 text-neutral-400">
-              {activePreset.outputContract}
-            </p>
-          </div>
-        </motion.aside>
-      </div>
-    </section>
-  );
-}
-
-function TemplateCard({
-  template,
-  onCopy,
-  onEdit,
-  onDelete
-}: {
-  template: PromptTemplate;
-  onCopy: (template: PromptTemplate) => void;
-  onEdit: (template: PromptTemplate) => void;
-  onDelete: (template: PromptTemplate) => void;
-}) {
-  return (
-    <motion.article
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6 }}
-      transition={{ duration: 0.14 }}
-      className="group flex min-h-[178px] flex-col rounded-[1.25rem] border border-neutral-900 bg-black/35 p-4 transition hover:border-white/15 hover:bg-white/[0.035]"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            <span
-              className={[
-                "rounded-full border px-2 py-0.5 text-[10px] font-medium",
-                getBadgeClass(template.isBuiltin)
-              ].join(" ")}
-            >
-              {template.isBuiltin ? "Built-in" : "Custom"}
-            </span>
-
-            <Pill>{getTaskTypeLabel(template.taskType)}</Pill>
-          </div>
-
-          <h3 className="line-clamp-1 text-sm font-semibold text-white">
-            {template.name}
-          </h3>
-
-          <p className="mt-1 line-clamp-2 min-h-10 text-xs leading-5 text-neutral-500">
-            {template.description || "Reusable Task Pack structure."}
-          </p>
-        </div>
-
-        <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500 transition group-hover:border-white/15 group-hover:text-white">
-          <FileText size={14} />
-        </span>
-      </div>
-
-      <div className="mt-3 rounded-2xl border border-neutral-900 bg-black/45 px-3 py-2">
-        <pre className="line-clamp-2 whitespace-pre-wrap font-mono text-[10px] leading-4 text-neutral-600">
-          {template.content}
-        </pre>
-      </div>
-
-      <div className="mt-auto flex items-center justify-between gap-3 pt-4">
-        <p className="min-w-0 truncate text-[11px] text-neutral-700">
-          {template.id}
-        </p>
-
-        <div className="flex shrink-0 items-center gap-1.5">
-          {!template.isBuiltin && (
-            <button
-              type="button"
-              onClick={() => onEdit(template)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-neutral-900 bg-black/45 px-3 text-[11px] font-semibold text-neutral-300 transition hover:border-white hover:bg-white hover:text-black"
-            >
-              <Pencil size={13} />
-              Edit
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => onCopy(template)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-neutral-900 bg-black/45 px-3 text-[11px] font-semibold text-neutral-300 transition hover:border-white hover:bg-white hover:text-black"
-          >
-            <Copy size={13} />
-            Copy
-          </button>
-
-          {!template.isBuiltin && (
-            <button
-              type="button"
-              onClick={() => onDelete(template)}
-              className="grid size-8 place-items-center rounded-full border border-neutral-900 bg-black/45 text-neutral-500 transition hover:border-red-300/40 hover:bg-red-500/10 hover:text-red-200"
-              aria-label={`Delete ${template.name}`}
-            >
-              <Trash2 size={13} />
-            </button>
-          )}
-        </div>
-      </div>
-    </motion.article>
-  );
-}
-
-function TemplateTargetGroup({
-  targetTool,
-  templates,
-  onCopy,
-  onEdit,
-  onDelete
-}: {
-  targetTool: string;
-  templates: PromptTemplate[];
-  onCopy: (template: PromptTemplate) => void;
-  onEdit: (template: PromptTemplate) => void;
-  onDelete: (template: PromptTemplate) => void;
-}) {
-  const icon = getTargetToolIcon(targetTool);
-
-  return (
-    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.026)]">
-      <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-400">
-            {icon ?? <FileText size={15} />}
-          </span>
-
-          <div className="min-w-0">
-            <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-              Agent template set
-            </p>
-
-            <h3 className="mt-1 truncate text-base font-semibold tracking-[-0.035em] text-white">
-              {getTargetToolLabel(targetTool)}
-            </h3>
-
-            <p className="mt-1 text-xs text-neutral-600">
-              {getTargetToolDescription(targetTool)}
-            </p>
-          </div>
-        </div>
-
-        <Pill>{templates.length} templates</Pill>
-      </div>
-
-      <div className="grid gap-3 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">
-        {sortTemplatesByTaskType(templates).map((template) => (
-          <TemplateCard
-            key={template.id}
-            template={template}
-            onCopy={onCopy}
-            onEdit={onEdit}
-            onDelete={onDelete}
-          />
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function ProfileCard({
-  profile,
-  ruleItems,
-  preset,
-  onCopy,
-  onEdit,
-  onDelete
-}: {
-  profile: RuleProfile;
-  ruleItems: RuleItem[];
-  preset?: AcceptanceCriteriaPreset;
-  onCopy: (profile: RuleProfile) => void;
-  onEdit: (profile: RuleProfile) => void;
-  onDelete: (profile: RuleProfile) => void;
-}) {
-  const enabledRules = ruleItems.filter((rule) =>
-    profile.enabledRuleIds.includes(rule.id)
-  );
-
-  return (
-    <motion.article
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6 }}
-      transition={{ duration: 0.14 }}
-      className="group flex min-h-[196px] flex-col rounded-[1.25rem] border border-neutral-900 bg-black/35 p-4 transition hover:border-white/15 hover:bg-white/[0.035]"
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="mb-2 flex flex-wrap gap-1.5">
-            <span
-              className={[
-                "rounded-full border px-2 py-0.5 text-[10px] font-medium",
-                getBadgeClass(profile.isBuiltin)
-              ].join(" ")}
-            >
-              {profile.isBuiltin ? "Built-in" : "Custom"}
-            </span>
-
-            <Pill>{getTaskTypeLabel(profile.taskType)}</Pill>
-            <Pill>{profile.enabledRuleIds.length} rules</Pill>
-          </div>
-
-          <h3 className="line-clamp-1 text-sm font-semibold text-white">
-            {profile.name}
-          </h3>
-
-          <p className="mt-1 line-clamp-2 min-h-10 text-xs leading-5 text-neutral-500">
-            {profile.description || "Reusable safety profile."}
-          </p>
-        </div>
-
-        <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500 transition group-hover:border-white/15 group-hover:text-white">
-          <ShieldCheck size={14} />
-        </span>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-1.5">
-        {preset && <Pill tone="success">{preset.name}</Pill>}
-
-        {enabledRules.slice(0, 4).map((rule) => (
-          <span
-            key={rule.id}
-            className="rounded-full border border-neutral-900 bg-neutral-950 px-2 py-1 text-[10px] text-neutral-500"
-          >
-            {rule.title}
-          </span>
-        ))}
-
-        {enabledRules.length > 4 && (
-          <span className="rounded-full border border-neutral-900 bg-neutral-950 px-2 py-1 text-[10px] text-neutral-600">
-            +{enabledRules.length - 4}
-          </span>
-        )}
-      </div>
-
-      <div className="mt-auto flex items-center justify-between gap-3 pt-4">
-        <p className="min-w-0 truncate text-[11px] text-neutral-700">
-          {profile.id}
-        </p>
-
-        <div className="flex shrink-0 items-center gap-1.5">
-          {!profile.isBuiltin && (
-            <button
-              type="button"
-              onClick={() => onEdit(profile)}
-              className="inline-flex h-8 items-center gap-1.5 rounded-full border border-neutral-900 bg-black/45 px-3 text-[11px] font-semibold text-neutral-300 transition hover:border-white hover:bg-white hover:text-black"
-            >
-              <Pencil size={13} />
-              Edit
-            </button>
-          )}
-
-          <button
-            type="button"
-            onClick={() => onCopy(profile)}
-            className="inline-flex h-8 items-center gap-1.5 rounded-full border border-neutral-900 bg-black/45 px-3 text-[11px] font-semibold text-neutral-300 transition hover:border-white hover:bg-white hover:text-black"
-          >
-            <Copy size={13} />
-            Copy
-          </button>
-
-          {!profile.isBuiltin && (
-            <button
-              type="button"
-              onClick={() => onDelete(profile)}
-              className="grid size-8 place-items-center rounded-full border border-neutral-900 bg-black/45 text-neutral-500 transition hover:border-red-300/40 hover:bg-red-500/10 hover:text-red-200"
-              aria-label={`Delete ${profile.name}`}
-            >
-              <Trash2 size={13} />
-            </button>
-          )}
-        </div>
-      </div>
-    </motion.article>
-  );
-}
-
-function RuleCard({ rule }: { rule: RuleItem }) {
-  return (
-    <motion.article
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6 }}
-      transition={{ duration: 0.14 }}
-      className="rounded-[1.25rem] border border-neutral-900 bg-black/35 p-4 transition hover:border-white/15 hover:bg-white/[0.035]"
-    >
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="mb-2 flex flex-wrap gap-2">
-            <span
-              className={[
-                "rounded-full border px-2.5 py-1 text-[10px] font-medium",
-                getBadgeClass(rule.isBuiltin)
-              ].join(" ")}
-            >
-              {rule.isBuiltin ? "Built-in" : "Custom"}
-            </span>
-
-            <Pill>{rule.category}</Pill>
-          </div>
-
-          <h3 className="line-clamp-1 text-sm font-semibold text-white">
-            {rule.title}
-          </h3>
-        </div>
-
-        <ShieldCheck size={16} className="shrink-0 text-neutral-600" />
-      </div>
-
-      <p className="line-clamp-2 text-xs leading-5 text-neutral-500">
-        {rule.description}
-      </p>
-
-      <div className="mt-3 rounded-2xl border border-neutral-900 bg-black/35 p-3">
-        <p className="line-clamp-3 text-xs leading-5 text-neutral-400">
-          {rule.content}
-        </p>
-      </div>
-    </motion.article>
-  );
-}
-
-function CriteriaCard({ preset }: { preset: AcceptanceCriteriaPreset }) {
-  return (
-    <motion.article
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      exit={{ opacity: 0, y: -6 }}
-      transition={{ duration: 0.14 }}
-      className="rounded-[1.25rem] border border-neutral-900 bg-black/35 p-4 transition hover:border-white/15 hover:bg-white/[0.035]"
-    >
-      <div className="mb-3 flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="mb-2 flex flex-wrap gap-2">
-            <span
-              className={[
-                "rounded-full border px-2.5 py-1 text-[10px] font-medium",
-                getBadgeClass(preset.isBuiltin)
-              ].join(" ")}
-            >
-              {preset.isBuiltin ? "Built-in" : "Custom"}
-            </span>
-
-            <Pill>{preset.taskType}</Pill>
-            <Pill>{preset.criteria.length} checks</Pill>
-          </div>
-
-          <h3 className="line-clamp-1 text-sm font-semibold text-white">
-            {preset.name}
-          </h3>
-        </div>
-
-        <Check size={16} className="shrink-0 text-neutral-600" />
-      </div>
-
-      <p className="line-clamp-2 text-xs leading-5 text-neutral-500">
-        {preset.description}
-      </p>
-
-      <ul className="mt-3 space-y-1.5">
-        {preset.criteria.slice(0, 4).map((criterion) => (
-          <li
-            key={criterion}
-            className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs leading-5 text-neutral-400"
-          >
-            {criterion}
-          </li>
-        ))}
-      </ul>
-    </motion.article>
-  );
-}
-
-function CreatePanel({
-  editor,
-  onClose,
-  ruleItems,
-  acceptancePresets,
-  onTemplateSaved,
-  onProfileSaved
-}: {
-  editor: TemplateEditorState;
-  onClose: () => void;
-  ruleItems: RuleItem[];
-  acceptancePresets: AcceptanceCriteriaPreset[];
-  onTemplateSaved: () => Promise<void> | void;
-  onProfileSaved: () => Promise<void> | void;
-}) {
-  if (!editor) {
-    return null;
-  }
-
-  const isTemplate = editor.kind === "template";
-  const isEditing = editor.mode === "edit";
-  const isCopy = editor.mode === "create" && Boolean(editor.source);
-  const sourceTemplate = isTemplate ? editor.source : undefined;
-  const sourceProfile = !isTemplate ? editor.source : undefined;
-
-  const getInitialName = () => {
-    if (isTemplate && sourceTemplate) {
-      return isCopy ? getCopyName(sourceTemplate.name) : sourceTemplate.name;
-    }
-
-    if (!isTemplate && sourceProfile) {
-      return isCopy ? getCopyName(sourceProfile.name) : sourceProfile.name;
-    }
-
-    return "";
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+
+    window.addEventListener("pointerdown", handlePointerDown, true);
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("pointerdown", handlePointerDown, true);
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  const run = (action: () => void) => {
+    action();
+    setOpen(false);
   };
 
-  const getInitialDescription = () =>
-    isTemplate ? sourceTemplate?.description ?? "" : sourceProfile?.description ?? "";
+  return (
+    <div ref={rootRef} className="relative z-20 shrink-0">
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          setOpen((current) => !current);
+        }}
+        className={[
+          "grid size-9 place-items-center rounded-xl border transition",
+          open
+            ? "border-white bg-white text-black"
+            : "border-neutral-900 bg-black/45 text-neutral-500 hover:border-white/20 hover:text-white",
+        ].join(" ")}
+        aria-label={c.actions}
+        aria-expanded={open}
+      >
+        <MoreHorizontal size={16} />
+      </button>
 
-  const getInitialTaskType = (): TemplateTaskType =>
-    (isTemplate ? sourceTemplate?.taskType : sourceProfile?.taskType) ?? "general";
+      <AnimatePresence>
+        {open ? (
+          <motion.div
+            initial={{ opacity: 0, y: -5, scale: 0.98 }}
+            animate={{ opacity: 1, y: 0, scale: 1 }}
+            exit={{ opacity: 0, y: -5, scale: 0.98 }}
+            transition={{ duration: 0.14 }}
+            className="absolute right-0 top-11 z-50 w-48 overflow-hidden rounded-2xl border border-neutral-800 bg-black/98 p-1.5 shadow-[0_24px_80px_rgba(0,0,0,0.75)] backdrop-blur-2xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <button
+              type="button"
+              onClick={() => run(onOpen)}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs text-neutral-300 transition hover:bg-white hover:text-black"
+            >
+              <BookOpen size={14} />
+              {c.open}
+            </button>
+            <button
+              type="button"
+              onClick={() => run(onDuplicate)}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs text-neutral-300 transition hover:bg-white hover:text-black"
+            >
+              <Copy size={14} />
+              {c.duplicate}
+            </button>
+            {!isBuiltin(entity) ? (
+              <button
+                type="button"
+                onClick={() => run(onEdit)}
+                className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs text-neutral-300 transition hover:bg-white hover:text-black"
+              >
+                <Pencil size={14} />
+                {c.edit}
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={() => run(onCopyId)}
+              className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs text-neutral-300 transition hover:bg-white hover:text-black"
+            >
+              <Clipboard size={14} />
+              {c.copyId}
+            </button>
+            {!isBuiltin(entity) ? (
+              <>
+                <div className="my-1 border-t border-neutral-900" />
+                <button
+                  type="button"
+                  onClick={() => run(onDelete)}
+                  className="flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-xs text-red-200 transition hover:bg-red-500/10"
+                >
+                  <Trash2 size={14} />
+                  {c.delete}
+                </button>
+              </>
+            ) : null}
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+    </div>
+  );
+}
 
-  const getInitialTargetTool = () => sourceTemplate?.targetTool ?? "codex";
-  const getInitialContent = () => sourceTemplate?.content ?? EMPTY_TEMPLATE_CONTENT;
-  const getInitialRuleIds = () => sourceProfile?.enabledRuleIds ?? DEFAULT_PROFILE_RULE_IDS;
-  const getInitialCustomRules = () => sourceProfile?.customRules?.join("\n") ?? "";
-  const getInitialAcceptancePreset = () =>
-    sourceProfile?.acceptanceCriteriaPresetId ?? "criteria.general-done";
+function EntityIcon({ entity }: { entity: CatalogEntity }) {
+  if (entity.kind === "template") return targetIcon(entity.data.targetTool, "md");
 
-  const [name, setName] = useState(getInitialName);
-  const [description, setDescription] = useState(getInitialDescription);
-  const [taskType, setTaskType] = useState<TemplateTaskType>(getInitialTaskType);
-  const [targetTool, setTargetTool] = useState<TargetTool>(getInitialTargetTool);
-  const [content, setContent] = useState(getInitialContent);
-  const [enabledRuleIds, setEnabledRuleIds] = useState<string[]>(getInitialRuleIds);
-  const [customRulesText, setCustomRulesText] = useState(getInitialCustomRules);
-  const [acceptanceCriteriaPresetId, setAcceptanceCriteriaPresetId] =
-    useState<string | null>(getInitialAcceptancePreset);
-  const [isSaving, setIsSaving] = useState(false);
-  const [message, setMessage] = useState("");
+  const commonClass =
+    "grid size-7 shrink-0 place-items-center rounded-xl border border-white/10 bg-white/[0.035] text-neutral-300";
 
-  const canSave =
-    name.trim().length >= 2 &&
-    (!isTemplate || content.trim().length >= 20);
-
-  const title = isTemplate
-    ? isEditing
-      ? "Edit prompt template"
-      : isCopy
-        ? "Customize template copy"
-        : "New prompt template"
-    : isEditing
-      ? "Edit rule profile"
-      : isCopy
-        ? "Customize profile copy"
-        : "New rule profile";
-
-  const eyebrow = isEditing ? "Edit custom" : isCopy ? "Customize copy" : "Create custom";
-  const saveLabel = isEditing ? "Update" : "Save";
-
-  function resetForm() {
-    setName(getInitialName());
-    setDescription(getInitialDescription());
-    setTaskType(getInitialTaskType());
-    setTargetTool(getInitialTargetTool());
-    setContent(getInitialContent());
-    setEnabledRuleIds(getInitialRuleIds());
-    setCustomRulesText(getInitialCustomRules());
-    setAcceptanceCriteriaPresetId(getInitialAcceptancePreset());
-    setMessage("");
-  }
-
-  function toggleRule(ruleId: string) {
-    setEnabledRuleIds((current) =>
-      current.includes(ruleId)
-        ? current.filter((item) => item !== ruleId)
-        : [...current, ruleId]
+  if (entity.kind === "profile") {
+    return (
+      <span className={commonClass}>
+        <ShieldCheck size={14} />
+      </span>
     );
   }
 
-  async function handleSave() {
-    if (!canSave || isSaving) {
-      return;
+  if (entity.kind === "rule") {
+    return (
+      <span className={commonClass}>
+        <SlidersHorizontal size={14} />
+      </span>
+    );
+  }
+
+  return (
+    <span className={commonClass}>
+      <ListChecks size={14} />
+    </span>
+  );
+}
+
+function EntityMeta({
+  entity,
+  c,
+}: {
+  entity: CatalogEntity;
+  c: TemplatesStudioCopy;
+}) {
+  if (entity.kind === "template") {
+    return (
+      <>
+        <CountBadge>{TARGET_LABELS[entity.data.targetTool]}</CountBadge>
+        <CountBadge>{c.taskTypes[entity.data.taskType]}</CountBadge>
+      </>
+    );
+  }
+
+  if (entity.kind === "profile") {
+    return (
+      <>
+        <CountBadge>{c.taskTypes[entity.data.taskType]}</CountBadge>
+        <CountBadge>
+          {format(c.itemCount, { count: entity.data.enabledRuleIds.length })}
+        </CountBadge>
+      </>
+    );
+  }
+
+  if (entity.kind === "rule") {
+    return <CountBadge>{c.categories[entity.data.category]}</CountBadge>;
+  }
+
+  return (
+    <>
+      <CountBadge>{c.taskTypes[entity.data.taskType]}</CountBadge>
+      <CountBadge>
+        {format(c.itemCount, { count: entity.data.criteria.length })}
+      </CountBadge>
+    </>
+  );
+}
+
+function CatalogRow({
+  entity,
+  selected,
+  c,
+  locale,
+  onSelect,
+  onDuplicate,
+  onEdit,
+  onDelete,
+  onCopyId,
+}: {
+  entity: CatalogEntity;
+  selected: boolean;
+  c: TemplatesStudioCopy;
+  locale: string;
+  onSelect: () => void;
+  onDuplicate: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onCopyId: () => void;
+}) {
+  const timestamp = entity.data.updatedAt ?? entity.data.createdAt;
+
+  return (
+    <motion.article
+      initial={{ opacity: 0, y: 7 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -5 }}
+      transition={{ duration: 0.16 }}
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onSelect();
+        }
+      }}
+      className={[
+        "group relative flex min-h-[92px] cursor-pointer items-start gap-3 overflow-hidden rounded-2xl border p-3.5 outline-none transition duration-150",
+        selected
+          ? "border-white/22 bg-white/[0.055] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
+          : "border-neutral-900 bg-black/35 hover:border-white/14 hover:bg-white/[0.025]",
+        "focus-visible:border-white/50 focus-visible:ring-4 focus-visible:ring-white/5",
+      ].join(" ")}
+    >
+      {selected ? (
+        <span className="absolute inset-y-3 left-0 w-px rounded-full bg-white/70" />
+      ) : null}
+      <EntityIcon entity={entity} />
+
+      <div className="min-w-0 flex-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h3 className="truncate text-sm font-semibold text-white">
+            {getEntityName(entity)}
+          </h3>
+          <SourceBadge builtin={entity.data.isBuiltin} c={c} />
+        </div>
+        <p className="mt-1 line-clamp-2 text-xs leading-5 text-neutral-600">
+          {getEntityDescription(entity, c)}
+        </p>
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <EntityMeta entity={entity} c={c} />
+          {timestamp ? (
+            <span className="ml-auto text-[10px] text-neutral-700">
+              {format(c.updated, {
+                date: getDateLabel(timestamp, locale, "—"),
+              })}
+            </span>
+          ) : null}
+        </div>
+      </div>
+
+      <ActionMenu
+        entity={entity}
+        c={c}
+        onOpen={onSelect}
+        onDuplicate={onDuplicate}
+        onEdit={onEdit}
+        onDelete={onDelete}
+        onCopyId={onCopyId}
+      />
+    </motion.article>
+  );
+}
+
+function EmptyCatalog({
+  c,
+  custom,
+  onCreate,
+}: {
+  c: TemplatesStudioCopy;
+  custom: boolean;
+  onCreate: () => void;
+}) {
+  return (
+    <div className="grid min-h-[360px] place-items-center rounded-[1.4rem] border border-dashed border-neutral-800 bg-black/25 p-8 text-center">
+      <div className="max-w-md">
+        <span className="mx-auto grid size-11 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-500">
+          <Search size={18} />
+        </span>
+        <h3 className="mt-4 text-base font-semibold text-white">
+          {custom ? c.emptyCustomTitle : c.emptyTitle}
+        </h3>
+        <p className="mt-2 text-sm leading-6 text-neutral-600">
+          {custom ? c.emptyCustomDescription : c.emptyDescription}
+        </p>
+        <Button variant="primary" className="mt-5" onClick={onCreate}>
+          <Plus size={15} />
+          {c.create}
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function DetailCell({
+  label,
+  value,
+}: {
+  label: string;
+  value: ReactNode;
+}) {
+  return (
+    <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3.5">
+      <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
+        {label}
+      </p>
+      <div className="mt-2 text-sm font-semibold text-white">{value}</div>
+    </div>
+  );
+}
+
+function MarketplaceCard({
+  c,
+  onOpenWebsite,
+}: {
+  c: TemplatesStudioCopy;
+  onOpenWebsite: () => void;
+}) {
+  return (
+    <section className="overflow-hidden rounded-[1.4rem] border border-white/10 bg-[linear-gradient(145deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012)_58%,rgba(255,255,255,0.025))] p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]">
+      <div className="flex items-start justify-between gap-3">
+        <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-black/55 text-neutral-300">
+          <Globe2 size={17} />
+        </span>
+        <CountBadge>{c.marketplace.planned}</CountBadge>
+      </div>
+      <p className="cf-tech-label mt-4 text-[9px] uppercase text-neutral-700">
+        {c.marketplace.eyebrow}
+      </p>
+      <h3 className="mt-2 text-base font-semibold leading-6 text-white">
+        {c.marketplace.title}
+      </h3>
+      <p className="mt-2 text-xs leading-5 text-neutral-600">
+        {c.marketplace.description}
+      </p>
+      <div className="mt-4 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-[11px] text-neutral-500">
+        {c.marketplace.localFirst}
+      </div>
+      <Button variant="secondary" className="mt-3 w-full" onClick={onOpenWebsite}>
+        <ArrowUpRight size={14} />
+        {c.marketplace.openWebsite}
+      </Button>
+    </section>
+  );
+}
+
+function Inspector({
+  entity,
+  c,
+  ruleItems,
+  profiles,
+  criteria,
+  onDuplicate,
+  onEdit,
+  onDelete,
+  onOpenWebsite,
+}: {
+  entity: CatalogEntity | null;
+  c: TemplatesStudioCopy;
+  ruleItems: RuleItem[];
+  profiles: RuleProfile[];
+  criteria: AcceptanceCriteriaPreset[];
+  onDuplicate: (entity: CatalogEntity) => void;
+  onEdit: (entity: CatalogEntity) => void;
+  onDelete: (entity: CatalogEntity) => void;
+  onOpenWebsite: () => void;
+}) {
+  if (!entity) {
+    return (
+      <aside className="space-y-4 xl:sticky xl:top-4">
+        <div className="grid min-h-[360px] place-items-center rounded-[1.5rem] border border-neutral-900 bg-black/35 p-6 text-center">
+          <div>
+            <span className="mx-auto grid size-11 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-500">
+              <BookOpen size={18} />
+            </span>
+            <h3 className="mt-4 text-base font-semibold text-white">
+              {c.inspector.selectTitle}
+            </h3>
+            <p className="mt-2 text-xs leading-5 text-neutral-600">
+              {c.inspector.selectDescription}
+            </p>
+          </div>
+        </div>
+        <MarketplaceCard c={c} onOpenWebsite={onOpenWebsite} />
+      </aside>
+    );
+  }
+
+  const entityName = getEntityName(entity);
+  const entityDescription = getEntityDescription(entity, c);
+  const usedByProfiles =
+    entity.kind === "rule"
+      ? profiles.filter((profile) => profile.enabledRuleIds.includes(entity.data.id))
+      : entity.kind === "criteria"
+        ? profiles.filter(
+            (profile) =>
+              profile.acceptanceCriteriaPresetId === entity.data.id,
+          )
+        : [];
+
+  return (
+    <aside className="space-y-4 xl:sticky xl:top-4">
+      <motion.section
+        key={`${entity.kind}:${entity.data.id}`}
+        initial={{ opacity: 0, x: 8 }}
+        animate={{ opacity: 1, x: 0 }}
+        transition={{ duration: 0.18 }}
+        className="overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/45 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]"
+      >
+        <div className="border-b border-neutral-900 p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex min-w-0 items-start gap-3">
+              <EntityIcon entity={entity} />
+              <div className="min-w-0">
+                <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
+                  {entity.kind === "template"
+                    ? c.inspector.selectedTemplate
+                    : entity.kind === "profile"
+                      ? c.inspector.selectedProfile
+                      : entity.kind === "rule"
+                        ? c.inspector.selectedRule
+                        : c.inspector.selectedCriteria}
+                </p>
+                <h2 className="mt-1 truncate text-xl font-semibold tracking-[-0.04em] text-white">
+                  {entityName}
+                </h2>
+              </div>
+            </div>
+            <SourceBadge builtin={entity.data.isBuiltin} c={c} />
+          </div>
+          <p className="mt-3 text-xs leading-5 text-neutral-600">
+            {entityDescription}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2">
+            <Button variant="primary" onClick={() => onDuplicate(entity)}>
+              <Copy size={14} />
+              {c.duplicate}
+            </Button>
+            {!entity.data.isBuiltin ? (
+              <Button variant="secondary" onClick={() => onEdit(entity)}>
+                <Pencil size={14} />
+                {c.edit}
+              </Button>
+            ) : null}
+            {!entity.data.isBuiltin ? (
+              <button
+                type="button"
+                onClick={() => onDelete(entity)}
+                className="grid size-10 place-items-center rounded-xl border border-red-400/15 bg-red-500/[0.035] text-red-200 transition hover:border-red-300/35 hover:bg-red-500/10"
+                aria-label={c.delete}
+              >
+                <Trash2 size={15} />
+              </button>
+            ) : null}
+          </div>
+        </div>
+
+        <div className="max-h-[calc(100vh-390px)] space-y-3 overflow-y-auto p-4">
+          {entity.kind === "template" ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <DetailCell
+                  label={c.inspector.target}
+                  value={
+                    <span className="flex items-center gap-2">
+                      {targetIcon(entity.data.targetTool, "sm")}
+                      {TARGET_LABELS[entity.data.targetTool]}
+                    </span>
+                  }
+                />
+                <DetailCell
+                  label={c.inspector.taskType}
+                  value={c.taskTypes[entity.data.taskType]}
+                />
+                <DetailCell
+                  label={c.inspector.variables}
+                  value={getTemplateVariables(entity.data.content).length}
+                />
+                <DetailCell
+                  label={c.inspector.sections}
+                  value={getTemplateSections(entity.data.content).length}
+                />
+              </div>
+              <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3.5">
+                <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
+                  {c.inspector.structure}
+                </p>
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {getTemplateSections(entity.data.content)
+                    .slice(0, 8)
+                    .map((section) => (
+                      <CountBadge key={section}>{section}</CountBadge>
+                    ))}
+                  {getTemplateSections(entity.data.content).length === 0 ? (
+                    <span className="text-xs text-neutral-600">
+                      {c.inspector.none}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3.5">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
+                    {c.inspector.content}
+                  </p>
+                  <CountBadge>{entity.data.content.length}</CountBadge>
+                </div>
+                <pre className="mt-3 max-h-64 overflow-auto whitespace-pre-wrap rounded-xl border border-neutral-900 bg-black/55 p-3 font-mono text-[11px] leading-5 text-neutral-400">
+                  {entity.data.content}
+                </pre>
+              </div>
+            </>
+          ) : null}
+
+          {entity.kind === "profile" ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <DetailCell
+                  label={c.inspector.taskType}
+                  value={c.taskTypes[entity.data.taskType]}
+                />
+                <DetailCell
+                  label={c.inspector.rules}
+                  value={entity.data.enabledRuleIds.length}
+                />
+              </div>
+              <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3.5">
+                <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
+                  {c.inspector.rules}
+                </p>
+                <div className="mt-3 space-y-2">
+                  {entity.data.enabledRuleIds.map((ruleId) => {
+                    const rule = ruleItems.find((item) => item.id === ruleId);
+                    return (
+                      <div
+                        key={ruleId}
+                        className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs text-neutral-400"
+                      >
+                        {rule?.title ?? ruleId}
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+              <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3.5">
+                <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
+                  {c.inspector.acceptancePreset}
+                </p>
+                <p className="mt-2 text-sm font-semibold text-white">
+                  {criteria.find(
+                    (item) => item.id === entity.data.acceptanceCriteriaPresetId,
+                  )?.name ?? c.inspector.none}
+                </p>
+              </div>
+              {entity.data.customRules.length > 0 ? (
+                <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3.5">
+                  <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
+                    {c.inspector.customRules}
+                  </p>
+                  <ul className="mt-3 space-y-2">
+                    {entity.data.customRules.map((rule) => (
+                      <li
+                        key={rule}
+                        className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs leading-5 text-neutral-400"
+                      >
+                        {rule}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {entity.kind === "rule" ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <DetailCell
+                  label={c.editor.category}
+                  value={c.categories[entity.data.category]}
+                />
+                <DetailCell
+                  label={c.inspector.usedBy}
+                  value={usedByProfiles.length}
+                />
+              </div>
+              <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3.5">
+                <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
+                  {c.editor.ruleContent}
+                </p>
+                <p className="mt-3 text-xs leading-6 text-neutral-300">
+                  {entity.data.content}
+                </p>
+              </div>
+              {usedByProfiles.length > 0 ? (
+                <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3.5">
+                  <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
+                    {c.inspector.usedBy}
+                  </p>
+                  <div className="mt-3 flex flex-wrap gap-1.5">
+                    {usedByProfiles.map((profile) => (
+                      <CountBadge key={profile.id}>{profile.name}</CountBadge>
+                    ))}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {entity.kind === "criteria" ? (
+            <>
+              <div className="grid grid-cols-2 gap-2">
+                <DetailCell
+                  label={c.inspector.taskType}
+                  value={c.taskTypes[entity.data.taskType]}
+                />
+                <DetailCell
+                  label={c.inspector.usedBy}
+                  value={usedByProfiles.length}
+                />
+              </div>
+              <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3.5">
+                <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
+                  {c.inspector.criteria}
+                </p>
+                <ol className="mt-3 space-y-2">
+                  {entity.data.criteria.map((criterion, index) => (
+                    <li
+                      key={`${criterion}:${index}`}
+                      className="flex gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2.5 text-xs leading-5 text-neutral-400"
+                    >
+                      <span className="grid size-5 shrink-0 place-items-center rounded-full border border-neutral-800 bg-neutral-950 text-[10px] text-neutral-400">
+                        {index + 1}
+                      </span>
+                      {criterion}
+                    </li>
+                  ))}
+                </ol>
+              </div>
+            </>
+          ) : null}
+
+          {entity.data.isBuiltin ? (
+            <div className="flex gap-3 rounded-2xl border border-white/10 bg-white/[0.03] p-3.5 text-xs leading-5 text-neutral-500">
+              <LockKeyhole size={15} className="mt-0.5 shrink-0" />
+              {c.inspector.safeNotice}
+            </div>
+          ) : null}
+        </div>
+      </motion.section>
+
+      {entity.kind === "template" ? (
+        <MarketplaceCard c={c} onOpenWebsite={onOpenWebsite} />
+      ) : null}
+    </aside>
+  );
+}
+
+function FieldLabel({
+  label,
+  hint,
+}: {
+  label: string;
+  hint?: string;
+}) {
+  return (
+    <div className="mb-2">
+      <p className="text-xs font-semibold text-neutral-300">{label}</p>
+      {hint ? (
+        <p className="mt-1 text-[11px] leading-4 text-neutral-700">{hint}</p>
+      ) : null}
+    </div>
+  );
+}
+
+function TextInput({
+  value,
+  onChange,
+  placeholder,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder?: string;
+}) {
+  return (
+    <input
+      value={value}
+      onChange={(event) => onChange(event.target.value)}
+      placeholder={placeholder}
+      className="h-11 w-full rounded-2xl border border-neutral-900 bg-black/55 px-4 text-sm text-white outline-none transition placeholder:text-neutral-700 hover:border-neutral-800 focus:border-white/30 focus:ring-4 focus:ring-white/5"
+    />
+  );
+}
+
+function StudioEditor({
+  editor,
+  c,
+  isRussian,
+  ruleItems,
+  acceptancePresets,
+  onClose,
+  onSaved,
+}: {
+  editor: Exclude<EditorState, null>;
+  c: TemplatesStudioCopy;
+  isRussian: boolean;
+  ruleItems: RuleItem[];
+  acceptancePresets: AcceptanceCriteriaPreset[];
+  onClose: () => void;
+  onSaved: (entity: CatalogEntity) => void;
+}) {
+  const reduceMotion = useReducedMotion();
+  const sourceTemplate =
+    editor.kind === "template" ? editor.source : undefined;
+  const sourceProfile = editor.kind === "profile" ? editor.source : undefined;
+  const sourceRule = editor.kind === "rule" ? editor.source : undefined;
+  const sourceCriteria =
+    editor.kind === "criteria" ? editor.source : undefined;
+  const source =
+    sourceTemplate ?? sourceProfile ?? sourceRule ?? sourceCriteria;
+  const copyMode = editor.mode === "create" && Boolean(source);
+  const editing = editor.mode === "edit";
+
+  const sourceName =
+    sourceRule?.title ??
+    sourceTemplate?.name ??
+    sourceProfile?.name ??
+    sourceCriteria?.name ??
+    "";
+  const initialName = copyMode && sourceName
+    ? getCopyName(sourceName, isRussian)
+    : sourceName;
+
+  const initialTaskType =
+    sourceTemplate?.taskType ??
+    sourceProfile?.taskType ??
+    sourceCriteria?.taskType ??
+    "general";
+  const initialContent =
+    sourceTemplate?.content ??
+    sourceRule?.content ??
+    (editor.kind === "template" ? DEFAULT_TEMPLATE_CONTENT : "");
+  const defaultEnabledRuleIds = DEFAULT_PROFILE_RULE_IDS.filter((ruleId) =>
+    ruleItems.some((rule) => rule.id === ruleId),
+  );
+
+  const [step, setStep] = useState<EditorStep>("setup");
+  const [name, setName] = useState(initialName);
+  const [description, setDescription] = useState(source?.description ?? "");
+  const [taskType, setTaskType] = useState<TemplateTaskType>(initialTaskType);
+  const [targetTool, setTargetTool] = useState<TargetTool>(
+    sourceTemplate?.targetTool ?? "codex",
+  );
+  const [category, setCategory] = useState<RuleCategory>(
+    sourceRule?.category ?? "general",
+  );
+  const [content, setContent] = useState(initialContent);
+  const [enabledRuleIds, setEnabledRuleIds] = useState<string[]>(
+    sourceProfile?.enabledRuleIds ?? defaultEnabledRuleIds,
+  );
+  const [customRulesText, setCustomRulesText] = useState(
+    sourceProfile?.customRules.join("\n") ?? "",
+  );
+  const [acceptancePresetId, setAcceptancePresetId] = useState(
+    sourceProfile?.acceptanceCriteriaPresetId ?? "",
+  );
+  const [criteriaText, setCriteriaText] = useState(
+    sourceCriteria?.criteria.join("\n") ?? "",
+  );
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState("");
+
+  const editorSteps = useMemo(
+    () => [
+      {
+        id: "setup" as const,
+        label: c.editor.steps.setup,
+        caption: c.editor.steps.setupCaption,
+      },
+      {
+        id: "structure" as const,
+        label: c.editor.steps.structure,
+        caption: c.editor.steps.structureCaption,
+      },
+      {
+        id: "preview" as const,
+        label: c.editor.steps.preview,
+        caption: c.editor.steps.previewCaption,
+      },
+    ],
+    [c],
+  );
+
+  const taskOptions = useMemo<SelectOption<TemplateTaskType>[]>(
+    () =>
+      TASK_TYPES.map((value) => ({
+        value,
+        label: c.taskTypes[value],
+      })),
+    [c],
+  );
+
+  const targetOptions = useMemo<SelectOption<TargetTool>[]>(
+    () =>
+      TARGET_TOOLS.map((value) => ({
+        value,
+        label: TARGET_LABELS[value],
+        icon: targetIcon(value, "sm"),
+      })),
+    [],
+  );
+
+  const categoryOptions = useMemo<SelectOption<RuleCategory>[]>(
+    () =>
+      RULE_CATEGORIES.map((value) => ({
+        value,
+        label: c.categories[value],
+      })),
+    [c],
+  );
+
+  const criteriaOptions = useMemo<SelectOption<string>[]>(
+    () => [
+      {
+        value: "",
+        label: c.editor.noPreset,
+        description: c.editor.noPresetDescription,
+      },
+      ...acceptancePresets.map((preset) => ({
+        value: preset.id,
+        label: preset.name,
+        description: `${c.taskTypes[preset.taskType]} · ${preset.criteria.length}`,
+      })),
+    ],
+    [acceptancePresets, c],
+  );
+
+  const reset = () => {
+    setName(initialName);
+    setDescription(source?.description ?? "");
+    setTaskType(initialTaskType);
+    setTargetTool(sourceTemplate?.targetTool ?? "codex");
+    setCategory(sourceRule?.category ?? "general");
+    setContent(initialContent);
+    setEnabledRuleIds(sourceProfile?.enabledRuleIds ?? defaultEnabledRuleIds);
+    setCustomRulesText(sourceProfile?.customRules.join("\n") ?? "");
+    setAcceptancePresetId(
+      sourceProfile?.acceptanceCriteriaPresetId ?? "",
+    );
+    setCriteriaText(sourceCriteria?.criteria.join("\n") ?? "");
+    setError("");
+  };
+
+  const validationMessage = useMemo(() => {
+    if (name.trim().length < 2) return c.editor.invalidName;
+    if (editor.kind === "template" && content.trim().length < 20) {
+      return c.editor.invalidTemplate;
     }
+    if (editor.kind === "rule" && content.trim().length < 10) {
+      return c.editor.invalidRule;
+    }
+    if (editor.kind === "criteria" && uniqueLines(criteriaText).length === 0) {
+      return c.editor.invalidCriteria;
+    }
+    return "";
+  }, [c, content, criteriaText, editor.kind, name]);
+
+  const canSave = !validationMessage && !saving;
+
+  const title =
+    editor.kind === "template"
+      ? editing
+        ? c.editor.templateEdit
+        : c.editor.templateCreate
+      : editor.kind === "profile"
+        ? editing
+          ? c.editor.profileEdit
+          : c.editor.profileCreate
+        : editor.kind === "rule"
+          ? editing
+            ? c.editor.ruleEdit
+            : c.editor.ruleCreate
+          : editing
+            ? c.editor.criteriaEdit
+            : c.editor.criteriaCreate;
+
+  const eyebrow = copyMode
+    ? c.editor.copyEyebrow
+    : editing
+      ? c.editor.editEyebrow
+      : c.editor.createEyebrow;
+
+  async function handleSave() {
+    if (!canSave) return;
 
     try {
-      setIsSaving(true);
-      setMessage("");
+      setSaving(true);
+      setError("");
+      let saved: CatalogEntity;
 
-      if (isTemplate) {
+      if (editor.kind === "template") {
         const payload = {
-          name,
-          description,
+          name: name.trim(),
+          description: description.trim(),
           targetTool,
           taskType,
-          content
+          content,
         };
-
-        if (isEditing && sourceTemplate) {
-          await updateTemplate(sourceTemplate.id, payload);
-        } else {
-          await createTemplate(payload);
-        }
-
-        await onTemplateSaved();
-      } else {
+        const data =
+          editing && sourceTemplate
+            ? await updateTemplate(sourceTemplate.id, payload)
+            : await createTemplate(payload);
+        saved = { kind: "template", data };
+      } else if (editor.kind === "profile") {
         const payload = {
-          name,
-          description,
+          name: name.trim(),
+          description: description.trim(),
           taskType,
           enabledRuleIds,
-          customRules: splitLines(customRulesText),
-          acceptanceCriteriaPresetId
+          customRules: uniqueLines(customRulesText, 20),
+          acceptanceCriteriaPresetId: acceptancePresetId || null,
         };
-
-        if (isEditing && sourceProfile) {
-          await updateRuleProfile(sourceProfile.id, payload);
-        } else {
-          await createRuleProfile(payload);
-        }
-
-        await onProfileSaved();
+        const data =
+          editing && sourceProfile
+            ? await updateRuleProfile(sourceProfile.id, payload)
+            : await createRuleProfile(payload);
+        saved = { kind: "profile", data };
+      } else if (editor.kind === "rule") {
+        const payload = {
+          title: name.trim(),
+          description: description.trim(),
+          category,
+          content,
+        };
+        const data =
+          editing && sourceRule
+            ? await updateRuleItem(sourceRule.id, payload)
+            : await createRuleItem(payload);
+        saved = { kind: "rule", data };
+      } else {
+        const payload = {
+          name: name.trim(),
+          description: description.trim(),
+          taskType,
+          criteria: uniqueLines(criteriaText),
+        };
+        const data =
+          editing && sourceCriteria
+            ? await updateAcceptanceCriteriaPreset(sourceCriteria.id, payload)
+            : await createAcceptanceCriteriaPreset(payload);
+        saved = { kind: "criteria", data };
       }
 
-      onClose();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "Failed to save.");
+      onSaved(saved);
+    } catch (saveError) {
+      setError(
+        saveError instanceof Error ? saveError.message : c.editor.saveFailed,
+      );
     } finally {
-      setIsSaving(false);
+      setSaving(false);
     }
   }
+
+  const structureMetrics =
+    editor.kind === "template"
+      ? [
+          format(c.editor.variableCount, {
+            count: getTemplateVariables(content).length,
+          }),
+          format(c.editor.sectionCount, {
+            count: getTemplateSections(content).length,
+          }),
+          format(c.editor.characters, { count: content.length }),
+        ]
+      : editor.kind === "profile"
+        ? [
+            format(c.itemCount, { count: enabledRuleIds.length }),
+            format(c.editor.lines, {
+              count: uniqueLines(customRulesText).length,
+            }),
+          ]
+        : editor.kind === "rule"
+          ? [format(c.editor.characters, { count: content.length })]
+          : [
+              format(c.editor.lines, {
+                count: uniqueLines(criteriaText).length,
+              }),
+            ];
 
   return (
     <>
@@ -1305,871 +1414,1084 @@ function CreatePanel({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-y-[42px] right-0 z-[78] w-full bg-black/45 backdrop-blur-[2px]"
+        className="fixed inset-y-[42px] right-0 z-[78] w-full bg-black/58 backdrop-blur-[3px]"
         onClick={onClose}
       />
-
       <motion.aside
-        initial={{ opacity: 0, x: 28 }}
+        initial={reduceMotion ? false : { opacity: 0, x: 42 }}
         animate={{ opacity: 1, x: 0 }}
-        exit={{ opacity: 0, x: 28 }}
-        transition={{ duration: 0.18, ease: [0.16, 1, 0.3, 1] }}
-        className="fixed bottom-0 right-0 top-[42px] z-[80] w-[min(780px,calc(100vw-24px))] overflow-hidden border-l border-neutral-900 bg-black/98 shadow-[0_0_90px_rgba(0,0,0,0.82)] backdrop-blur-xl"
+        exit={reduceMotion ? { opacity: 0 } : { opacity: 0, x: 42 }}
+        transition={PANEL_TRANSITION}
+        className="fixed bottom-0 right-0 top-[42px] z-[80] w-[min(820px,calc(100vw-24px))] overflow-hidden border-l border-white/10 bg-black/98 shadow-[0_0_100px_rgba(0,0,0,0.9)] backdrop-blur-2xl"
       >
-        <div className="flex h-full min-h-0 flex-col overflow-hidden">
-          <header className="shrink-0 border-b border-neutral-900 bg-black/95 px-5 py-4">
-            <div className="flex items-center justify-between gap-4">
+        <div className="flex h-full min-h-0 flex-col">
+          <header className="shrink-0 border-b border-neutral-900 bg-black/96 px-5 py-4">
+            <div className="flex items-start justify-between gap-4">
               <div className="min-w-0">
-                <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+                <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
                   {eyebrow}
                 </p>
-
                 <h2 className="mt-1 truncate text-xl font-semibold tracking-[-0.04em] text-white">
                   {title}
                 </h2>
-
-                <p className="mt-1 truncate text-xs text-neutral-600">
-                  {isEditing
-                    ? "Only custom items can be edited. Built-ins stay protected."
-                    : isCopy
-                      ? "Review the copy, adjust it, then save it as a custom item."
-                      : "Saved locally. Built-in items remain protected."}
+                <p className="mt-1 text-xs text-neutral-600">
+                  {copyMode ? c.editor.protectedSource : c.editor.localOnly}
                 </p>
               </div>
-
-              <div className="flex shrink-0 items-center gap-2">
-                <Button variant="secondary" onClick={resetForm} disabled={isSaving}>
-                  <RefreshCcw size={15} />
-                  Reset
-                </Button>
-
-                <Button
-                  variant="primary"
-                  onClick={handleSave}
-                  disabled={!canSave || isSaving}
-                >
-                  {isSaving ? (
-                    <Loader2 size={15} className="animate-spin" />
-                  ) : isEditing ? (
-                    <Check size={15} />
-                  ) : (
-                    <Plus size={15} />
-                  )}
-                  {saveLabel}
-                </Button>
-
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="grid size-9 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500 transition hover:border-white hover:bg-white hover:text-black"
-                  aria-label="Close panel"
-                >
-                  <X size={15} />
-                </button>
-              </div>
+              <button
+                type="button"
+                onClick={onClose}
+                className="grid size-10 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500 transition hover:border-white hover:bg-white hover:text-black"
+                aria-label={c.editor.close}
+              >
+                <X size={16} />
+              </button>
             </div>
-
-            {message && (
-              <div className="mt-3 rounded-2xl border border-red-400/20 bg-red-400/5 px-3 py-2 text-xs text-red-200">
-                {message}
-              </div>
-            )}
+            <HorizontalSlidingSelector
+              items={editorSteps}
+              activeIndex={editorSteps.findIndex((item) => item.id === step)}
+              getItemKey={(item) => item.id}
+              onSelect={(item) => setStep(item.id)}
+              renderItem={(item, active) => (
+                <span className="flex min-h-12 items-center justify-center gap-2 px-2 text-left">
+                  <span className="min-w-0">
+                    <span
+                      className={[
+                        "block truncate text-xs font-semibold",
+                        active ? "text-black" : "text-current",
+                      ].join(" ")}
+                    >
+                      {item.label}
+                    </span>
+                    <span
+                      className={[
+                        "mt-0.5 block truncate text-[10px]",
+                        active ? "text-black/55" : "text-neutral-700",
+                      ].join(" ")}
+                    >
+                      {item.caption}
+                    </span>
+                  </span>
+                </span>
+              )}
+              className="mt-4"
+              ariaLabel={title}
+            />
           </header>
 
-          <div className="grid min-h-0 flex-1 grid-rows-[auto_1fr] overflow-hidden p-5">
-            <div className="shrink-0 space-y-4">
-              <div className="grid gap-3 lg:grid-cols-2">
-                <div>
-                  <label className="mb-2 block text-xs text-neutral-500">
-                    Name
-                  </label>
-
-                  <input
-                    value={name}
-                    onChange={(event) => setName(event.target.value)}
-                    className="h-11 w-full rounded-2xl border border-neutral-900 bg-black/55 px-4 text-sm text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
-                    placeholder={
-                      isTemplate
-                        ? "My Codex UI template"
-                        : "Safe UI profile"
-                    }
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-xs text-neutral-500">
-                    Task type
-                  </label>
-
-                  <CustomSelect
-                    value={taskType}
-                    onChange={(value) => setTaskType(value as TemplateTaskType)}
-                    options={TASK_TYPE_OPTIONS}
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-2 block text-xs text-neutral-500">
-                  Description
-                </label>
-
-                <textarea
-                  value={description}
-                  onChange={(event) => setDescription(event.target.value)}
-                  className="h-16 w-full resize-none rounded-2xl border border-neutral-900 bg-black/55 p-3 text-sm leading-5 text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
-                  placeholder="Short note about when this item should be used."
-                />
-              </div>
-
-              {isTemplate && (
-                <div>
-                  <label className="mb-2 block text-xs text-neutral-500">
-                    Target tool
-                  </label>
-
-                  <CustomSelect
-                    value={targetTool}
-                    onChange={(value) => setTargetTool(value as TargetTool)}
-                    options={TARGET_TOOL_OPTIONS}
-                  />
-                </div>
-              )}
-            </div>
-
-            {isTemplate ? (
-              <div className="mt-4 flex min-h-0 flex-col overflow-hidden">
-                <div className="mb-2 flex shrink-0 items-center justify-between gap-4">
-                  <label className="block text-xs text-neutral-500">
-                    Template content
-                  </label>
-
-                  <Pill tone="muted">{content.length} chars</Pill>
-                </div>
-
-                <textarea
-                  value={content}
-                  onChange={(event) => setContent(event.target.value)}
-                  className="min-h-0 flex-1 resize-none rounded-2xl border border-neutral-900 bg-black/55 p-4 font-mono text-xs leading-6 text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
-                />
-              </div>
-            ) : (
-              <div className="mt-4 grid min-h-0 grid-rows-[1fr_auto_auto] gap-4 overflow-hidden">
-                <section className="min-h-0 overflow-hidden rounded-2xl border border-neutral-900 bg-black/35 p-4">
-                  <div className="mb-3 flex shrink-0 items-center justify-between gap-3">
-                    <div>
-                      <p className="text-sm font-semibold text-white">
-                        Enabled toggle rules
-                      </p>
-
-                      <p className="mt-1 text-xs text-neutral-600">
-                        Only this rules list scrolls.
-                      </p>
+          <div className="min-h-0 flex-1 overflow-y-auto p-5">
+            <AnimatePresence mode="wait" initial={false}>
+              {step === "setup" ? (
+                <motion.div
+                  key="setup"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.16 }}
+                  className="space-y-5"
+                >
+                  <section className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4">
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <div>
+                        <FieldLabel label={c.editor.name} />
+                        <TextInput
+                          value={name}
+                          onChange={setName}
+                          placeholder={
+                            editor.kind === "template"
+                              ? c.editor.nameTemplatePlaceholder
+                              : editor.kind === "profile"
+                                ? c.editor.nameProfilePlaceholder
+                                : editor.kind === "rule"
+                                  ? c.editor.nameRulePlaceholder
+                                  : c.editor.nameCriteriaPlaceholder
+                          }
+                        />
+                      </div>
+                      {editor.kind === "rule" ? (
+                        <div>
+                          <FieldLabel label={c.editor.category} />
+                          <CustomSelect
+                            value={category}
+                            onChange={(value) => setCategory(value as RuleCategory)}
+                            options={categoryOptions}
+                          />
+                        </div>
+                      ) : (
+                        <div>
+                          <FieldLabel label={c.editor.taskType} />
+                          <CustomSelect
+                            value={taskType}
+                            onChange={(value) => setTaskType(value as TemplateTaskType)}
+                            options={taskOptions}
+                          />
+                        </div>
+                      )}
                     </div>
+                    <div className="mt-4">
+                      <FieldLabel label={c.editor.description} />
+                      <textarea
+                        value={description}
+                        onChange={(event) => setDescription(event.target.value)}
+                        placeholder={c.editor.descriptionPlaceholder}
+                        className="h-24 w-full resize-none rounded-2xl border border-neutral-900 bg-black/55 p-3.5 text-sm leading-6 text-white outline-none transition placeholder:text-neutral-700 hover:border-neutral-800 focus:border-white/30 focus:ring-4 focus:ring-white/5"
+                      />
+                    </div>
+                    {editor.kind === "template" ? (
+                      <div className="mt-4">
+                        <FieldLabel label={c.editor.targetTool} />
+                        <CustomSelect
+                          value={targetTool}
+                          onChange={(value) => setTargetTool(value as TargetTool)}
+                          options={targetOptions}
+                        />
+                      </div>
+                    ) : null}
+                  </section>
 
-                    <Pill tone="success">{enabledRuleIds.length} enabled</Pill>
-                  </div>
+                  <section className="grid gap-3 md:grid-cols-3">
+                    {structureMetrics.map((metric) => (
+                      <div
+                        key={metric}
+                        className="rounded-2xl border border-neutral-900 bg-black/35 p-4 text-sm font-semibold text-white"
+                      >
+                        {metric}
+                      </div>
+                    ))}
+                  </section>
+                </motion.div>
+              ) : null}
 
-                  <div className="h-[calc(100%-58px)] space-y-2 overflow-y-auto pr-1">
-                    {ruleItems.map((rule) => {
-                      const checked = enabledRuleIds.includes(rule.id);
+              {step === "structure" ? (
+                <motion.div
+                  key="structure"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.16 }}
+                  className="space-y-4"
+                >
+                  {editor.kind === "template" ? (
+                    <section className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4">
+                      <FieldLabel
+                        label={c.editor.templateContent}
+                        hint={c.editor.templateHint}
+                      />
+                      <textarea
+                        value={content}
+                        onChange={(event) => setContent(event.target.value)}
+                        className="h-[500px] w-full resize-none rounded-2xl border border-neutral-900 bg-black/60 p-4 font-mono text-xs leading-6 text-white outline-none transition focus:border-white/30 focus:ring-4 focus:ring-white/5"
+                      />
+                    </section>
+                  ) : null}
 
-                      return (
-                        <button
-                          key={rule.id}
-                          type="button"
-                          onClick={() => toggleRule(rule.id)}
-                          className={[
-                            "flex w-full items-start gap-3 rounded-xl border p-3 text-left transition",
-                            checked
-                              ? "border-white/20 bg-white/[0.055]"
-                              : "border-neutral-900 bg-black/25 hover:border-white/20"
-                          ].join(" ")}
-                        >
-                          <span
-                            className={[
-                              "mt-0.5 grid size-5 shrink-0 place-items-center rounded-md border",
-                              checked
-                                ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
-                                : "border-neutral-800 bg-neutral-950 text-neutral-700"
-                            ].join(" ")}
+                  {editor.kind === "profile" ? (
+                    <>
+                      <section className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4">
+                        <FieldLabel
+                          label={c.editor.enabledRules}
+                          hint={c.editor.enabledRulesHint}
+                        />
+                        <div className="grid max-h-[390px] gap-2 overflow-y-auto pr-1 md:grid-cols-2">
+                          {ruleItems.map((rule) => {
+                            const checked = enabledRuleIds.includes(rule.id);
+                            return (
+                              <button
+                                key={rule.id}
+                                type="button"
+                                onClick={() =>
+                                  setEnabledRuleIds((current) =>
+                                    checked
+                                      ? current.filter((id) => id !== rule.id)
+                                      : [...current, rule.id],
+                                  )
+                                }
+                                className={[
+                                  "flex items-start gap-3 rounded-2xl border p-3 text-left transition",
+                                  checked
+                                    ? "border-white/20 bg-white/[0.055]"
+                                    : "border-neutral-900 bg-black/35 hover:border-white/15",
+                                ].join(" ")}
+                              >
+                                <span
+                                  className={[
+                                    "mt-0.5 grid size-5 shrink-0 place-items-center rounded-md border",
+                                    checked
+                                      ? "border-white bg-white text-black"
+                                      : "border-neutral-800 bg-neutral-950 text-neutral-700",
+                                  ].join(" ")}
+                                >
+                                  {checked ? <Check size={12} /> : null}
+                                </span>
+                                <span className="min-w-0">
+                                  <span className="block text-xs font-semibold text-white">
+                                    {rule.title}
+                                  </span>
+                                  <span className="mt-1 line-clamp-2 block text-[11px] leading-4 text-neutral-600">
+                                    {rule.description}
+                                  </span>
+                                </span>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </section>
+                      <section className="grid gap-4 md:grid-cols-2">
+                        <div className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4">
+                          <FieldLabel label={c.editor.acceptancePreset} />
+                          <CustomSelect
+                            value={acceptancePresetId}
+                            onChange={setAcceptancePresetId}
+                            options={criteriaOptions}
+                          />
+                        </div>
+                        <div className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4">
+                          <FieldLabel
+                            label={c.editor.customRules}
+                            hint={c.editor.customRulesHint}
+                          />
+                          <textarea
+                            value={customRulesText}
+                            onChange={(event) =>
+                              setCustomRulesText(event.target.value)
+                            }
+                            className="h-40 w-full resize-none rounded-2xl border border-neutral-900 bg-black/55 p-3 font-mono text-xs leading-6 text-white outline-none transition focus:border-white/30 focus:ring-4 focus:ring-white/5"
+                          />
+                        </div>
+                      </section>
+                    </>
+                  ) : null}
+
+                  {editor.kind === "rule" ? (
+                    <section className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4">
+                      <FieldLabel
+                        label={c.editor.ruleContent}
+                        hint={c.editor.ruleContentHint}
+                      />
+                      <textarea
+                        value={content}
+                        onChange={(event) => setContent(event.target.value)}
+                        className="h-[420px] w-full resize-none rounded-2xl border border-neutral-900 bg-black/60 p-4 text-sm leading-7 text-white outline-none transition focus:border-white/30 focus:ring-4 focus:ring-white/5"
+                      />
+                    </section>
+                  ) : null}
+
+                  {editor.kind === "criteria" ? (
+                    <section className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4">
+                      <FieldLabel
+                        label={c.editor.criteria}
+                        hint={c.editor.criteriaHint}
+                      />
+                      <textarea
+                        value={criteriaText}
+                        onChange={(event) => setCriteriaText(event.target.value)}
+                        className="h-[420px] w-full resize-none rounded-2xl border border-neutral-900 bg-black/60 p-4 text-sm leading-7 text-white outline-none transition focus:border-white/30 focus:ring-4 focus:ring-white/5"
+                      />
+                    </section>
+                  ) : null}
+                </motion.div>
+              ) : null}
+
+              {step === "preview" ? (
+                <motion.div
+                  key="preview"
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.16 }}
+                  className="space-y-4"
+                >
+                  <section className="rounded-[1.4rem] border border-white/10 bg-white/[0.03] p-5">
+                    <div className="flex items-start gap-3">
+                      <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+                        <CheckCircle2 size={17} />
+                      </span>
+                      <div>
+                        <h3 className="text-base font-semibold text-white">
+                          {c.editor.reviewTitle}
+                        </h3>
+                        <p className="mt-1 text-xs leading-5 text-neutral-600">
+                          {c.editor.reviewDescription}
+                        </p>
+                      </div>
+                    </div>
+                  </section>
+
+                  <section className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <SourceBadge builtin={false} c={c} />
+                      {editor.kind === "template" ? (
+                        <CountBadge>{TARGET_LABELS[targetTool]}</CountBadge>
+                      ) : null}
+                      {editor.kind !== "rule" ? (
+                        <CountBadge>{c.taskTypes[taskType]}</CountBadge>
+                      ) : (
+                        <CountBadge>{c.categories[category]}</CountBadge>
+                      )}
+                    </div>
+                    <h3 className="mt-4 text-xl font-semibold tracking-[-0.04em] text-white">
+                      {name || "—"}
+                    </h3>
+                    <p className="mt-2 text-sm leading-6 text-neutral-600">
+                      {description || c.noDescription}
+                    </p>
+                  </section>
+
+                  {editor.kind === "template" ? (
+                    <section className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-sm font-semibold text-white">
+                          {c.inspector.structure}
+                        </p>
+                        <CountBadge>{content.length}</CountBadge>
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {getTemplateVariables(content).map((variable) => (
+                          <CountBadge key={variable}>{`{{${variable}}}`}</CountBadge>
+                        ))}
+                      </div>
+                      <pre className="mt-4 max-h-[360px] overflow-auto whitespace-pre-wrap rounded-2xl border border-neutral-900 bg-black/60 p-4 font-mono text-xs leading-6 text-neutral-400">
+                        {content}
+                      </pre>
+                    </section>
+                  ) : null}
+
+                  {editor.kind === "profile" ? (
+                    <section className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4">
+                      <p className="text-sm font-semibold text-white">
+                        {c.inspector.rules}
+                      </p>
+                      <div className="mt-3 flex flex-wrap gap-1.5">
+                        {enabledRuleIds.map((ruleId) => (
+                          <CountBadge key={ruleId}>
+                            {ruleItems.find((rule) => rule.id === ruleId)?.title ??
+                              ruleId}
+                          </CountBadge>
+                        ))}
+                      </div>
+                    </section>
+                  ) : null}
+
+                  {editor.kind === "rule" ? (
+                    <section className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4">
+                      <p className="text-sm font-semibold text-white">
+                        {c.editor.ruleContent}
+                      </p>
+                      <p className="mt-3 text-sm leading-7 text-neutral-400">
+                        {content || "—"}
+                      </p>
+                    </section>
+                  ) : null}
+
+                  {editor.kind === "criteria" ? (
+                    <section className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4">
+                      <p className="text-sm font-semibold text-white">
+                        {c.inspector.criteria}
+                      </p>
+                      <ol className="mt-3 space-y-2">
+                        {uniqueLines(criteriaText).map((criterion, index) => (
+                          <li
+                            key={`${criterion}:${index}`}
+                            className="flex gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2.5 text-xs leading-5 text-neutral-400"
                           >
-                            {checked && <Check size={12} />}
-                          </span>
-
-                          <span className="min-w-0">
-                            <span className="block text-xs font-semibold text-white">
-                              {rule.title}
+                            <span className="grid size-5 shrink-0 place-items-center rounded-full border border-neutral-800 bg-neutral-950 text-[10px]">
+                              {index + 1}
                             </span>
-
-                            <span className="mt-1 block text-[11px] leading-4 text-neutral-600">
-                              {rule.category} · {rule.description}
-                            </span>
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </section>
-
-                <div>
-                  <label className="mb-2 block text-xs text-neutral-500">
-                    Acceptance preset
-                  </label>
-
-                  <CustomSelect
-                    value={acceptanceCriteriaPresetId ?? ""}
-                    onChange={(value) =>
-                      setAcceptanceCriteriaPresetId(value || null)
-                    }
-                    options={[
-                      {
-                        value: "",
-                        label: "No preset",
-                        description: "Custom rules only"
-                      },
-                      ...acceptancePresets.map((preset) => ({
-                        value: preset.id,
-                        label: preset.name,
-                        description: `${preset.taskType} · ${preset.criteria.length} criteria`
-                      }))
-                    ]}
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-2 block text-xs text-neutral-500">
-                    Profile custom rules
-                  </label>
-
-                  <textarea
-                    value={customRulesText}
-                    onChange={(event) => setCustomRulesText(event.target.value)}
-                    className="h-28 w-full resize-none rounded-2xl border border-neutral-900 bg-black/55 p-3 text-sm leading-5 text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
-                    placeholder="One custom rule per line."
-                  />
-                </div>
-              </div>
-            )}
+                            {criterion}
+                          </li>
+                        ))}
+                      </ol>
+                    </section>
+                  ) : null}
+                </motion.div>
+              ) : null}
+            </AnimatePresence>
           </div>
+
+          <footer className="shrink-0 border-t border-neutral-900 bg-black/96 px-5 py-4">
+            {error || validationMessage ? (
+              <div className="mb-3 flex gap-2 rounded-xl border border-red-400/15 bg-red-500/[0.035] px-3 py-2 text-xs text-red-200">
+                <AlertTriangle size={14} className="mt-0.5 shrink-0" />
+                {error || validationMessage}
+              </div>
+            ) : null}
+            <div className="flex items-center justify-between gap-3">
+              <Button variant="secondary" onClick={reset} disabled={saving}>
+                <RefreshCcw size={14} />
+                {c.editor.reset}
+              </Button>
+              <Button variant="primary" onClick={handleSave} disabled={!canSave}>
+                {saving ? (
+                  <Loader2 size={15} className="animate-spin" />
+                ) : (
+                  <Check size={15} />
+                )}
+                {saving ? c.editor.saving : c.editor.save}
+              </Button>
+            </div>
+          </footer>
         </div>
       </motion.aside>
     </>
   );
 }
 
+function DeleteDialog({
+  entity,
+  c,
+  onClose,
+  onConfirm,
+}: {
+  entity: CatalogEntity;
+  c: TemplatesStudioCopy;
+  onClose: () => void;
+  onConfirm: () => Promise<void>;
+}) {
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState("");
+
+  async function confirm() {
+    try {
+      setDeleting(true);
+      setError("");
+      await onConfirm();
+    } catch (deleteError) {
+      const message =
+        deleteError instanceof Error ? deleteError.message : c.deleteDialog.failed;
+      setError(
+        /used by|profile|reference|preset/i.test(message)
+          ? `${c.deleteDialog.dependency} ${message}`
+          : message,
+      );
+    } finally {
+      setDeleting(false);
+    }
+  }
+
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[100] grid place-items-center bg-black/72 p-4 backdrop-blur-sm"
+      onClick={onClose}
+    >
+      <motion.div
+        initial={{ opacity: 0, y: 12, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 8, scale: 0.98 }}
+        transition={PANEL_TRANSITION}
+        className="w-full max-w-md rounded-[1.5rem] border border-red-400/15 bg-black/98 p-5 shadow-[0_28px_100px_rgba(0,0,0,0.85)]"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <span className="grid size-10 place-items-center rounded-2xl border border-red-400/15 bg-red-500/[0.06] text-red-200">
+          <Trash2 size={16} />
+        </span>
+        <p className="cf-tech-label mt-4 text-[9px] uppercase text-red-300/70">
+          {c.deleteDialog.eyebrow}
+        </p>
+        <h2 className="mt-2 text-xl font-semibold tracking-[-0.04em] text-white">
+          {format(c.deleteDialog.title, { name: getEntityName(entity) })}
+        </h2>
+        <p className="mt-2 text-sm leading-6 text-neutral-600">
+          {c.deleteDialog.description}
+        </p>
+        {error ? (
+          <div className="mt-4 rounded-xl border border-red-400/20 bg-red-500/[0.05] px-3 py-2 text-xs leading-5 text-red-200">
+            {error}
+          </div>
+        ) : null}
+        <div className="mt-5 flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose} disabled={deleting}>
+            {c.deleteDialog.cancel}
+          </Button>
+          <button
+            type="button"
+            onClick={confirm}
+            disabled={deleting}
+            className="inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-red-300/20 bg-red-500/10 px-4 text-sm font-semibold text-red-100 transition hover:border-red-200/40 hover:bg-red-500/15 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {deleting ? (
+              <Loader2 size={15} className="animate-spin" />
+            ) : (
+              <Trash2 size={15} />
+            )}
+            {deleting ? c.deleteDialog.deleting : c.deleteDialog.confirm}
+          </button>
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
 export function TemplatesPage() {
+  const { i18n } = useTranslation();
+  const isRussian = i18n.resolvedLanguage?.startsWith("ru") ?? false;
+  const c = isRussian
+    ? TEMPLATES_STUDIO_COPY.ru
+    : TEMPLATES_STUDIO_COPY.en;
+  const locale = isRussian ? "ru-RU" : "en-US";
+
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
-  const [ruleProfiles, setRuleProfiles] = useState<RuleProfile[]>([]);
-  const [ruleItems, setRuleItems] = useState<RuleItem[]>([]);
-  const [acceptancePresets, setAcceptancePresets] = useState<
-    AcceptanceCriteriaPreset[]
-  >([]);
-  const [activeTab, setActiveTab] = useState<TemplatesTab>("templates");
-  const [activePresetId, setActivePresetId] = useState("ui-redesign");
+  const [profiles, setProfiles] = useState<RuleProfile[]>([]);
+  const [rules, setRules] = useState<RuleItem[]>([]);
+  const [criteria, setCriteria] = useState<AcceptanceCriteriaPreset[]>([]);
+  const [activeTab, setActiveTab] = useState<StudioTab>("templates");
+  const [sourceFilter, setSourceFilter] = useState<SourceFilter>("all");
+  const [scopeFilter, setScopeFilter] = useState("all");
   const [query, setQuery] = useState("");
-  const [taskTypeFilter, setTaskTypeFilter] = useState("all");
-  const [editor, setEditor] = useState<TemplateEditorState>(null);
-  const [status, setStatus] = useState("Loading rules and templates...");
-  const [isLoading, setIsLoading] = useState(false);
-  const [toast, setToast] = useState("");
+  const [selectedId, setSelectedId] = useState("");
+  const [editor, setEditor] = useState<EditorState>(null);
+  const [deleteTarget, setDeleteTarget] = useState<CatalogEntity | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState<ToastState>({
+    tone: "neutral",
+    message: c.status.loading,
+  });
+
+  useEffect(() => {
+    setStatus((current) =>
+      current?.tone === "neutral"
+        ? { tone: "neutral", message: c.status.loading }
+        : current,
+    );
+  }, [c.status.loading]);
 
   async function loadCatalog() {
     try {
-      setIsLoading(true);
-      setStatus("Loading rules and templates...");
-
-      const [templatesData, ruleCatalog] = await Promise.all([
+      setLoading(true);
+      setStatus({ tone: "neutral", message: c.status.loading });
+      const [templateData, catalog] = await Promise.all([
         getTemplates(),
-        getRuleProfilesCatalog()
+        getRuleProfilesCatalog(),
       ]);
-
-      setTemplates(templatesData);
-      setRuleProfiles(ruleCatalog.ruleProfiles);
-      setRuleItems(ruleCatalog.ruleItems);
-      setAcceptancePresets(ruleCatalog.acceptanceCriteriaPresets);
-      setStatus("Rules and templates loaded.");
+      setTemplates(templateData);
+      setProfiles(catalog.ruleProfiles);
+      setRules(catalog.ruleItems);
+      setCriteria(catalog.acceptanceCriteriaPresets);
+      setStatus({ tone: "success", message: c.status.ready });
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Failed to load catalog.");
+      setStatus({
+        tone: "warning",
+        message:
+          error instanceof Error ? error.message : c.status.loadFailed,
+      });
     } finally {
-      setIsLoading(false);
+      setLoading(false);
     }
   }
 
   useEffect(() => {
-    loadCatalog();
+    void loadCatalog();
   }, []);
 
-  const normalizedQuery = normalize(query).trim();
+  const entities = useMemo<CatalogEntity[]>(() => {
+    if (activeTab === "templates") {
+      return templates.map((data) => ({ kind: "template" as const, data }));
+    }
+    if (activeTab === "profiles") {
+      return profiles.map((data) => ({ kind: "profile" as const, data }));
+    }
+    if (activeTab === "rules") {
+      return rules.map((data) => ({ kind: "rule" as const, data }));
+    }
+    return criteria.map((data) => ({ kind: "criteria" as const, data }));
+  }, [activeTab, criteria, profiles, rules, templates]);
 
-  const catalogTabOptions = useMemo<CatalogTabOption[]>(
+  const filteredEntities = useMemo(() => {
+    const normalizedQuery = normalize(query);
+    return entities
+      .filter((entity) => entityMatchesSource(entity, sourceFilter))
+      .filter((entity) => {
+        if (scopeFilter === "all") return true;
+        if (entity.kind === "template") {
+          return entity.data.targetTool === scopeFilter;
+        }
+        if (entity.kind === "rule") {
+          return entity.data.category === scopeFilter;
+        }
+        return entity.data.taskType === scopeFilter;
+      })
+      .filter((entity) => {
+        if (!normalizedQuery) return true;
+        const haystack = [
+          getEntityName(entity),
+          getEntityDescription(entity, c),
+          entity.data.id,
+          entity.kind === "template" ? entity.data.content : "",
+          entity.kind === "rule" ? entity.data.content : "",
+          entity.kind === "criteria" ? entity.data.criteria.join(" ") : "",
+          entity.kind === "profile" ? entity.data.customRules.join(" ") : "",
+        ]
+          .map(normalize)
+          .join(" ");
+        return haystack.includes(normalizedQuery);
+      })
+      .sort((left, right) => {
+        if (left.data.isBuiltin !== right.data.isBuiltin) {
+          return left.data.isBuiltin ? 1 : -1;
+        }
+        return getEntityName(left).localeCompare(getEntityName(right));
+      });
+  }, [c, entities, query, scopeFilter, sourceFilter]);
+
+  useEffect(() => {
+    if (
+      filteredEntities.length > 0 &&
+      !filteredEntities.some((entity) => entity.data.id === selectedId)
+    ) {
+      setSelectedId(filteredEntities[0].data.id);
+    }
+    if (filteredEntities.length === 0 && selectedId) {
+      setSelectedId("");
+    }
+  }, [filteredEntities, selectedId]);
+
+  const selectedEntity =
+    filteredEntities.find((entity) => entity.data.id === selectedId) ?? null;
+
+  const customTemplateCount = templates.filter((item) => !item.isBuiltin).length;
+  const protectedCount =
+    templates.filter((item) => item.isBuiltin).length +
+    profiles.filter((item) => item.isBuiltin).length +
+    rules.filter((item) => item.isBuiltin).length +
+    criteria.filter((item) => item.isBuiltin).length;
+
+  const tabItems = useMemo(
     () => [
       {
-        value: "templates",
-        label: "Templates",
-        description: `${templates.length} item(s)`
+        id: "templates" as const,
+        label: c.tabs.templates,
+        caption: c.tabs.templatesCaption,
+        count: templates.length,
+        icon: FileCode2,
       },
       {
-        value: "profiles",
-        label: "Profiles",
-        description: `${ruleProfiles.length} item(s)`
+        id: "profiles" as const,
+        label: c.tabs.profiles,
+        caption: c.tabs.profilesCaption,
+        count: profiles.length,
+        icon: ShieldCheck,
       },
       {
-        value: "rules",
-        label: "Rules",
-        description: `${ruleItems.length} item(s)`
+        id: "rules" as const,
+        label: c.tabs.rules,
+        caption: c.tabs.rulesCaption,
+        count: rules.length,
+        icon: SlidersHorizontal,
       },
       {
-        value: "criteria",
-        label: "Criteria",
-        description: `${acceptancePresets.length} item(s)`
-      }
+        id: "criteria" as const,
+        label: c.tabs.criteria,
+        caption: c.tabs.criteriaCaption,
+        count: criteria.length,
+        icon: ListChecks,
+      },
     ],
-    [acceptancePresets.length, ruleItems.length, ruleProfiles.length, templates.length]
+    [c, criteria.length, profiles.length, rules.length, templates.length],
   );
 
-  const filteredTemplates = useMemo(
-    () =>
-      templates.filter((template) => {
-        const matchesQuery =
-          !normalizedQuery ||
-          normalize(
-            [
-              template.name,
-              template.description,
-              template.targetTool,
-              template.taskType,
-              template.content
-            ].join(" ")
-          ).includes(normalizedQuery);
-
-        const matchesTask =
-          taskTypeFilter === "all" || template.taskType === taskTypeFilter;
-
-        return matchesQuery && matchesTask;
-      }),
-    [normalizedQuery, taskTypeFilter, templates]
-  );
-
-  const templateGroups = useMemo(() => {
-    const order = TARGET_TOOL_OPTIONS.map((option) => String(option.value));
-    const groups = filteredTemplates.reduce<Record<string, PromptTemplate[]>>(
-      (acc, template) => {
-        const key = template.targetTool || "generic";
-        acc[key] = acc[key] ?? [];
-        acc[key].push(template);
-        return acc;
+  const sourceItems = useMemo(
+    () => [
+      {
+        id: "all" as const,
+        label: c.allItems,
+        count: entities.length,
+        icon: Layers3,
       },
-      {}
-    );
-
-    return Object.entries(groups).sort(([a], [b]) => {
-      const aIndex = order.indexOf(a);
-      const bIndex = order.indexOf(b);
-
-      return (aIndex === -1 ? 99 : aIndex) - (bIndex === -1 ? 99 : bIndex);
-    });
-  }, [filteredTemplates]);
-
-  const filteredProfiles = useMemo(
-    () =>
-      ruleProfiles.filter((profile) => {
-        const matchesQuery =
-          !normalizedQuery ||
-          normalize(
-            [
-              profile.name,
-              profile.description,
-              profile.taskType,
-              profile.enabledRuleIds.join(" "),
-              profile.customRules.join(" ")
-            ].join(" ")
-          ).includes(normalizedQuery);
-
-        const matchesTask =
-          taskTypeFilter === "all" || profile.taskType === taskTypeFilter;
-
-        return matchesQuery && matchesTask;
-      }),
-    [normalizedQuery, ruleProfiles, taskTypeFilter]
+      {
+        id: "custom" as const,
+        label: c.customItems,
+        count: entities.filter((entity) => !entity.data.isBuiltin).length,
+        icon: Sparkles,
+      },
+      {
+        id: "builtin" as const,
+        label: c.builtinItems,
+        count: entities.filter((entity) => entity.data.isBuiltin).length,
+        icon: LockKeyhole,
+      },
+    ],
+    [c, entities],
   );
 
-  const filteredRules = useMemo(
-    () =>
-      ruleItems.filter((rule) => {
-        const matchesQuery =
-          !normalizedQuery ||
-          normalize(
-            [rule.title, rule.description, rule.category, rule.content].join(" ")
-          ).includes(normalizedQuery);
-
-        const matchesTask =
-          taskTypeFilter === "all" ||
-          rule.category === taskTypeFilter ||
-          rule.category === "general" ||
-          rule.category === "verification" ||
-          rule.category === "assets";
-
-        return matchesQuery && matchesTask;
-      }),
-    [normalizedQuery, ruleItems, taskTypeFilter]
-  );
-
-  const filteredCriteria = useMemo(
-    () =>
-      acceptancePresets.filter((preset) => {
-        const matchesQuery =
-          !normalizedQuery ||
-          normalize(
-            [
-              preset.name,
-              preset.description,
-              preset.taskType,
-              preset.criteria.join(" ")
-            ].join(" ")
-          ).includes(normalizedQuery);
-
-        const matchesTask =
-          taskTypeFilter === "all" || preset.taskType === taskTypeFilter;
-
-        return matchesQuery && matchesTask;
-      }),
-    [acceptancePresets, normalizedQuery, taskTypeFilter]
-  );
-
-  function handleCopyTemplate(template: PromptTemplate) {
-    setEditor({ kind: "template", mode: "create", source: template });
-    setToast("Review the copy and save it as a custom template.");
-  }
-
-  function handleEditTemplate(template: PromptTemplate) {
-    if (template.isBuiltin) {
-      setToast("Built-in templates are protected. Copy one before editing.");
-      return;
+  const scopeItems = useMemo(() => {
+    if (activeTab === "templates") {
+      return TARGET_TOOLS.map((id) => ({
+        id,
+        label: TARGET_LABELS[id],
+        count: templates.filter((item) => item.targetTool === id).length,
+      }));
     }
-
-    setEditor({ kind: "template", mode: "edit", source: template });
-  }
-
-  function handleCopyProfile(profile: RuleProfile) {
-    setEditor({ kind: "profile", mode: "create", source: profile });
-    setToast("Review the copy and save it as a custom profile.");
-  }
-
-  function handleEditProfile(profile: RuleProfile) {
-    if (profile.isBuiltin) {
-      setToast("Built-in profiles are protected. Copy one before editing.");
-      return;
+    if (activeTab === "rules") {
+      return RULE_CATEGORIES.map((id) => ({
+        id,
+        label: c.categories[id],
+        count: rules.filter((item) => item.category === id).length,
+      }));
     }
+    const source = activeTab === "profiles" ? profiles : criteria;
+    return TASK_TYPES.map((id) => ({
+      id,
+      label: c.taskTypes[id],
+      count: source.filter((item) => item.taskType === id).length,
+    })).filter((item) => item.count > 0);
+  }, [activeTab, c, criteria, profiles, rules, templates]);
 
-    setEditor({ kind: "profile", mode: "edit", source: profile });
-  }
-
-  async function handleDeleteTemplate(template: PromptTemplate) {
-    if (template.isBuiltin) {
-      return;
-    }
-
-    try {
-      await deleteTemplate(template.id);
-      setToast(`Deleted template: ${template.name}`);
-      await loadCatalog();
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : "Failed to delete template.");
-    }
-  }
-
-  async function handleDeleteProfile(profile: RuleProfile) {
-    if (profile.isBuiltin) {
-      return;
-    }
-
-    try {
-      await deleteRuleProfile(profile.id);
-      setToast(`Deleted profile: ${profile.name}`);
-      await loadCatalog();
-    } catch (error) {
-      setToast(error instanceof Error ? error.message : "Failed to delete profile.");
-    }
-  }
-
-  const activePreset =
-    TEMPLATE_PRESETS.find((preset) => preset.id === activePresetId) ??
-    TEMPLATE_PRESETS[0];
-
-  function handleApplyPreset(preset: TemplatePreset) {
-    setActivePresetId(preset.id);
-    setActiveTab("templates");
-    setTaskTypeFilter(preset.taskType);
-    setQuery("");
-    setToast(`Showing ${preset.title} templates`);
-  }
-
-  const visibleCount =
+  const createLabel =
     activeTab === "templates"
-      ? filteredTemplates.length
+      ? c.createTemplate
       : activeTab === "profiles"
-        ? filteredProfiles.length
+        ? c.createProfile
         : activeTab === "rules"
-          ? filteredRules.length
-          : filteredCriteria.length;
+          ? c.createRule
+          : c.createCriteria;
+
+  function openCreate(kind = kindForTab(activeTab)) {
+    if (kind === "template") setEditor({ kind, mode: "create" });
+    if (kind === "profile") setEditor({ kind, mode: "create" });
+    if (kind === "rule") setEditor({ kind, mode: "create" });
+    if (kind === "criteria") setEditor({ kind, mode: "create" });
+  }
+
+  function openDuplicate(entity: CatalogEntity) {
+    if (entity.kind === "template") {
+      setEditor({ kind: "template", mode: "create", source: entity.data });
+    } else if (entity.kind === "profile") {
+      setEditor({ kind: "profile", mode: "create", source: entity.data });
+    } else if (entity.kind === "rule") {
+      setEditor({ kind: "rule", mode: "create", source: entity.data });
+    } else {
+      setEditor({ kind: "criteria", mode: "create", source: entity.data });
+    }
+    setStatus({ tone: "neutral", message: c.status.copyReady });
+  }
+
+  function openEdit(entity: CatalogEntity) {
+    if (entity.data.isBuiltin) return;
+    if (entity.kind === "template") {
+      setEditor({ kind: "template", mode: "edit", source: entity.data });
+    } else if (entity.kind === "profile") {
+      setEditor({ kind: "profile", mode: "edit", source: entity.data });
+    } else if (entity.kind === "rule") {
+      setEditor({ kind: "rule", mode: "edit", source: entity.data });
+    } else {
+      setEditor({ kind: "criteria", mode: "edit", source: entity.data });
+    }
+  }
+
+  async function handleCopyId(entity: CatalogEntity) {
+    try {
+      await navigator.clipboard.writeText(entity.data.id);
+      setStatus({ tone: "success", message: c.copied });
+    } catch {
+      setStatus({ tone: "warning", message: entity.data.id });
+    }
+  }
+
+  async function handleSaved(entity: CatalogEntity) {
+    setEditor(null);
+    setActiveTab(tabForKind(entity.kind));
+    setSourceFilter("all");
+    setScopeFilter("all");
+    setQuery("");
+    await loadCatalog();
+    setSelectedId(entity.data.id);
+    setStatus({ tone: "success", message: c.status.saved });
+  }
+
+  async function handleDeleteConfirmed(entity: CatalogEntity) {
+    if (entity.kind === "template") await deleteTemplate(entity.data.id);
+    if (entity.kind === "profile") await deleteRuleProfile(entity.data.id);
+    if (entity.kind === "rule") await deleteRuleItem(entity.data.id);
+    if (entity.kind === "criteria") {
+      await deleteAcceptanceCriteriaPreset(entity.data.id);
+    }
+    setDeleteTarget(null);
+    setSelectedId("");
+    await loadCatalog();
+    setStatus({ tone: "success", message: c.status.deleted });
+  }
+
+  async function openWebsite() {
+    const url = "https://contextforge.dev/templates";
+    if (window.contextforge?.openExternalUrl) {
+      await window.contextforge.openExternalUrl(url);
+      return;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
 
   return (
-    <section className="space-y-4 pb-8">
-      <div className="grid shrink-0 gap-4 xl:grid-cols-[minmax(0,1fr)_420px]">
-        <div className="rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012))] p-5 shadow-[0_16px_52px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.045)]">
-          <div className="mb-4 flex flex-wrap gap-2">
-            <Pill>
-              <Layers3 size={12} />
-              v0.5 Rules & Templates
-            </Pill>
-
-            <Pill>Local-first catalog</Pill>
-            <Pill>Built-ins protected</Pill>
-          </div>
-
-          <div className="flex flex-col gap-4 2xl:flex-row 2xl:items-end 2xl:justify-between">
-            <div>
-              <h1 className="max-w-3xl text-[30px] font-semibold leading-[1.04] tracking-[-0.055em] text-white">
-                Templates, profiles, toggle rules and acceptance criteria.
+    <section className="space-y-4 pb-8 text-render-crisp">
+      <header className="rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.042),rgba(255,255,255,0.012))] p-5 shadow-[0_18px_58px_rgba(0,0,0,0.34),inset_0_1px_0_rgba(255,255,255,0.045)]">
+        <div className="flex flex-col gap-5 2xl:flex-row 2xl:items-center 2xl:justify-between">
+          <div className="flex min-w-0 items-start gap-3">
+            <span className="grid size-10 shrink-0 place-items-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-300">
+              <Layers3 size={17} />
+            </span>
+            <div className="min-w-0">
+              <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
+                {c.eyebrow}
+              </p>
+              <h1 className="mt-1 text-2xl font-semibold tracking-[-0.045em] text-white">
+                {c.title}
               </h1>
-
-              <p className="mt-3 max-w-3xl text-sm leading-6 text-neutral-500">
-                Build reusable Task Pack contracts for Codex, Cursor, Claude and
-                generic coding agents.
+              <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-600">
+                {c.description}
               </p>
             </div>
+          </div>
 
-            <div className="flex shrink-0 flex-wrap gap-2">
-              <Button variant="secondary" onClick={loadCatalog} disabled={isLoading}>
-                {isLoading ? (
-                  <Loader2 size={15} className="animate-spin" />
-                ) : (
-                  <RefreshCcw size={15} />
-                )}
-                Refresh
-              </Button>
-
-              <Button variant="secondary" onClick={() => setEditor({ kind: "profile", mode: "create" })}>
-                <ShieldCheck size={15} />
-                New profile
-              </Button>
-
-              <Button variant="primary" onClick={() => setEditor({ kind: "template", mode: "create" })}>
-                <Plus size={15} />
-                New template
-              </Button>
+          <div className="flex flex-wrap items-center justify-end gap-3">
+            <div className="flex overflow-hidden rounded-2xl border border-neutral-900 bg-black/45 py-2">
+              <SummaryCell label={c.summary.templates} value={templates.length} />
+              <SummaryCell label={c.summary.custom} value={customTemplateCount} />
+              <SummaryCell label={c.summary.profiles} value={profiles.length} />
+              <SummaryCell label={c.summary.protected} value={protectedCount} />
             </div>
+            <Button variant="secondary" onClick={loadCatalog} disabled={loading}>
+              {loading ? (
+                <Loader2 size={15} className="animate-spin" />
+              ) : (
+                <RefreshCcw size={15} />
+              )}
+              {loading ? c.refreshing : c.refresh}
+            </Button>
+            <Button variant="primary" onClick={() => openCreate()}>
+              <Plus size={15} />
+              {createLabel}
+            </Button>
           </div>
         </div>
+      </header>
 
-        <div className="grid gap-3 sm:grid-cols-2">
-          <StatCard
-            icon={<FileText size={15} />}
-            label="Templates"
-            value={templates.length}
-            caption={`${countCustom(templates)} custom`}
-          />
-
-          <StatCard
-            icon={<ShieldCheck size={15} />}
-            label="Profiles"
-            value={ruleProfiles.length}
-            caption={`${countCustom(ruleProfiles)} custom`}
-          />
-
-          <StatCard
-            icon={<WandSparkles size={15} />}
-            label="Rules"
-            value={ruleItems.length}
-            caption="toggle rules"
-          />
-
-          <StatCard
-            icon={<Check size={15} />}
-            label="Criteria"
-            value={acceptancePresets.length}
-            caption="acceptance presets"
-          />
-        </div>
-      </div>
-
-      <TemplatePresetLibrary
-        activePreset={activePreset}
-        onSelect={(preset) => setActivePresetId(preset.id)}
-        onApply={handleApplyPreset}
+      <HorizontalSlidingSelector
+        items={tabItems}
+        activeIndex={tabItems.findIndex((item) => item.id === activeTab)}
+        getItemKey={(item) => item.id}
+        onSelect={(item) => {
+          setActiveTab(item.id);
+          setSourceFilter("all");
+          setScopeFilter("all");
+          setQuery("");
+          setSelectedId("");
+        }}
+        renderItem={(item, active) => {
+          const Icon = item.icon;
+          return (
+            <span className="flex min-h-14 items-center justify-center gap-2.5 px-3 text-left">
+              <Icon size={15} />
+              <span className="min-w-0">
+                <span
+                  className={[
+                    "block truncate text-xs font-semibold",
+                    active ? "text-black" : "text-current",
+                  ].join(" ")}
+                >
+                  {item.label}
+                </span>
+                <span
+                  className={[
+                    "mt-0.5 block truncate text-[10px]",
+                    active ? "text-black/55" : "text-neutral-700",
+                  ].join(" ")}
+                >
+                  {item.caption} · {item.count}
+                </span>
+              </span>
+            </span>
+          );
+        }}
+        ariaLabel={c.title}
       />
 
-      <div className="shrink-0 rounded-[1.5rem] border border-neutral-900 bg-black/45 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-        <div className="mb-4 flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex items-center gap-3">
-            <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500">
-              <SlidersHorizontal size={15} />
-            </span>
-
-            <div>
-              <p className="text-sm font-semibold text-white">
-                Catalog console
-              </p>
-
-              <p className="mt-1 text-xs text-neutral-600">
-                {status}
-              </p>
-            </div>
-          </div>
-
-          <motion.span
-            key={`${activeTab}:${visibleCount}`}
-            initial={{ opacity: 0, y: 4 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.16 }}
-            className="cf-badge"
+      <div className="grid items-start gap-4 xl:grid-cols-[220px_minmax(0,1fr)_390px]">
+        <aside className="space-y-4 xl:sticky xl:top-4">
+          <CatalogFilterPanel
+            icon={<Folder size={13} />}
+            title={c.library}
+            caption={c.collections}
           >
-            {visibleCount} visible
-          </motion.span>
-        </div>
+            {sourceItems.map((item) => {
+              const Icon = item.icon;
+              return (
+                <CatalogFilterButton
+                  key={item.id}
+                  active={sourceFilter === item.id}
+                  label={item.label}
+                  count={item.count}
+                  icon={<Icon size={12} />}
+                  onClick={() => {
+                    setSourceFilter(item.id);
+                    setSelectedId("");
+                  }}
+                />
+              );
+            })}
+          </CatalogFilterPanel>
 
-        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_320px]">
-          <div className="relative">
-            <Search
-              size={16}
-              className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-neutral-600"
+          <CatalogFilterPanel
+            icon={
+              activeTab === "templates" ? (
+                <Layers3 size={13} />
+              ) : activeTab === "rules" ? (
+                <SlidersHorizontal size={13} />
+              ) : (
+                <ListChecks size={13} />
+              )
+            }
+            title={
+              activeTab === "templates"
+                ? c.agents
+                : activeTab === "rules"
+                  ? c.filterByCategory
+                  : c.filterByTask
+            }
+            caption={tabItems.find((item) => item.id === activeTab)?.caption ?? ""}
+          >
+            <CatalogFilterButton
+              active={scopeFilter === "all"}
+              label={
+                activeTab === "templates"
+                  ? c.allAgents
+                  : activeTab === "rules"
+                    ? c.allCategories
+                    : c.allTaskTypes
+              }
+              count={entities.length}
+              icon={<Layers3 size={12} />}
+              onClick={() => {
+                setScopeFilter("all");
+                setSelectedId("");
+              }}
             />
+            {scopeItems.map((item) => (
+              <CatalogFilterButton
+                key={item.id}
+                active={scopeFilter === item.id}
+                label={item.label}
+                count={item.count}
+                icon={
+                  activeTab === "templates"
+                    ? targetIcon(item.id as TargetTool, "sm")
+                    : undefined
+                }
+                onClick={() => {
+                  setScopeFilter(item.id);
+                  setSelectedId("");
+                }}
+              />
+            ))}
+          </CatalogFilterPanel>
+        </aside>
 
-            <input
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Search catalog..."
-              className="h-12 w-full rounded-2xl border border-neutral-900 bg-black/45 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-neutral-700 hover:border-neutral-800 focus:border-white/40 focus:bg-black/70 focus:ring-4 focus:ring-white/5"
-            />
-          </div>
-
-          <CustomSelect
-            value={taskTypeFilter}
-            onChange={setTaskTypeFilter}
-            options={[
-              {
-                value: "all",
-                label: "All task types",
-                description: "Do not filter by task type"
-              },
-              ...TASK_TYPE_OPTIONS
-            ]}
-          />
-        </div>
-
-        <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/30 p-3">
-          <div className="mb-3 flex items-center justify-between gap-4">
-            <div>
-              <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                Catalog section
-              </p>
-
-              <p className="mt-1 text-xs text-neutral-600">
-                Switch between templates, profiles, rules and criteria.
-              </p>
+        <main className="min-w-0 rounded-[1.5rem] border border-neutral-900 bg-black/38 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative min-w-0 flex-1">
+              <Search
+                size={15}
+                className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-neutral-700"
+              />
+              <input
+                value={query}
+                onChange={(event) => {
+                  setQuery(event.target.value);
+                  setSelectedId("");
+                }}
+                placeholder={c.searchPlaceholder}
+                className="h-11 w-full rounded-2xl border border-neutral-900 bg-black/55 pl-11 pr-4 text-sm text-white outline-none transition placeholder:text-neutral-700 hover:border-neutral-800 focus:border-white/30 focus:ring-4 focus:ring-white/5"
+              />
             </div>
-
-            {toast && (
-              <button
-                type="button"
-                onClick={() => setToast("")}
-                className="inline-flex h-8 max-w-[320px] items-center gap-2 rounded-full border border-neutral-900 bg-black/35 px-3 text-xs text-neutral-500 transition hover:border-white hover:bg-white hover:text-black"
-              >
-                <AlertTriangle size={13} />
-                <span className="truncate">{toast}</span>
-                <X size={13} />
-              </button>
-            )}
+            <div className="flex items-center gap-2">
+              <CountBadge>
+                {format(c.itemCount, { count: filteredEntities.length })}
+              </CountBadge>
+              {status ? (
+                <span
+                  className={[
+                    "inline-flex h-7 max-w-[250px] items-center gap-2 rounded-full border px-3 text-[10px] font-medium",
+                    status.tone === "success"
+                      ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
+                      : status.tone === "warning"
+                        ? "border-amber-400/20 bg-amber-400/10 text-amber-200"
+                        : "border-neutral-900 bg-black/45 text-neutral-600",
+                  ].join(" ")}
+                >
+                  <span className="size-1.5 shrink-0 rounded-full bg-current" />
+                  <span className="truncate">{status.message}</span>
+                </span>
+              ) : null}
+            </div>
           </div>
 
-          <SegmentedFilter
-            value={activeTab}
-            options={catalogTabOptions}
-            onChange={(value) => setActiveTab(value as TemplatesTab)}
-          />
-        </div>
-      </div>
-
-      <div className="min-h-[420px]">
-          {activeTab === "templates" && (
-            <motion.div
-              key="templates"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.16 }}
-              className="space-y-3"
-            >
-              <div className="mb-3 shrink-0">
-                <Pill>
-                  <Sparkles size={12} />
-                  Prompt templates
-                </Pill>
-
-                <h2 className="mt-3 text-xl font-semibold tracking-[-0.035em] text-white">
-                  Base structure for generated Task Packs.
-                </h2>
-              </div>
-
-              <div className="pr-2">
-                {filteredTemplates.length === 0 ? (
-                  <EmptyState
-                    title="No templates found"
-                    description="Try another search query or task type filter."
+          <div className="mt-4 max-h-[calc(100vh-310px)] min-h-[560px] space-y-2 overflow-y-auto overscroll-contain pr-1">
+            <AnimatePresence mode="popLayout" initial={false}>
+              {filteredEntities.length === 0 ? (
+                <EmptyCatalog
+                  key="empty"
+                  c={c}
+                  custom={sourceFilter === "custom"}
+                  onCreate={() => openCreate()}
+                />
+              ) : (
+                filteredEntities.map((entity) => (
+                  <CatalogRow
+                    key={`${entity.kind}:${entity.data.id}`}
+                    entity={entity}
+                    selected={selectedId === entity.data.id}
+                    c={c}
+                    locale={locale}
+                    onSelect={() => setSelectedId(entity.data.id)}
+                    onDuplicate={() => openDuplicate(entity)}
+                    onEdit={() => openEdit(entity)}
+                    onDelete={() => setDeleteTarget(entity)}
+                    onCopyId={() => void handleCopyId(entity)}
                   />
-                ) : (
-                  <div className="space-y-4">
-                    {templateGroups.map(([targetTool, items]) => (
-                      <TemplateTargetGroup
-                        key={targetTool}
-                        targetTool={targetTool}
-                        templates={items}
-                        onCopy={handleCopyTemplate}
-                        onEdit={handleEditTemplate}
-                        onDelete={handleDeleteTemplate}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
+                ))
+              )}
+            </AnimatePresence>
+          </div>
+        </main>
 
-          {activeTab === "profiles" && (
-            <motion.div
-              key="profiles"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.16 }}
-              className="space-y-3"
-            >
-              <div className="mb-3 shrink-0">
-                <Pill>
-                  <ShieldCheck size={12} />
-                  Rule profiles
-                </Pill>
-
-                <h2 className="mt-3 text-xl font-semibold tracking-[-0.035em] text-white">
-                  Bundles of toggle rules and acceptance presets.
-                </h2>
-              </div>
-
-              <div className="pr-2">
-                {filteredProfiles.length === 0 ? (
-                  <EmptyState
-                    title="No profiles found"
-                    description="Try another search query or task type filter."
-                  />
-                ) : (
-                  <div className="grid gap-3 lg:grid-cols-2 2xl:grid-cols-3">
-                    {filteredProfiles.map((profile) => (
-                      <ProfileCard
-                        key={profile.id}
-                        profile={profile}
-                        ruleItems={ruleItems}
-                        preset={acceptancePresets.find(
-                          (preset) => preset.id === profile.acceptanceCriteriaPresetId
-                        )}
-                        onCopy={handleCopyProfile}
-                        onEdit={handleEditProfile}
-                        onDelete={handleDeleteProfile}
-                      />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {activeTab === "rules" && (
-            <motion.div
-              key="rules"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.16 }}
-              className="space-y-3"
-            >
-              <div className="mb-3 shrink-0">
-                <Pill>
-                  <WandSparkles size={12} />
-                  Toggle rules
-                </Pill>
-
-                <h2 className="mt-3 text-xl font-semibold tracking-[-0.035em] text-white">
-                  Backend-validated instructions inserted into Task Packs.
-                </h2>
-              </div>
-
-              <div className="pr-2">
-                {filteredRules.length === 0 ? (
-                  <EmptyState
-                    title="No rules found"
-                    description="Try another search query or task type filter."
-                  />
-                ) : (
-                  <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
-                    {filteredRules.map((rule) => (
-                      <RuleCard key={rule.id} rule={rule} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
-
-          {activeTab === "criteria" && (
-            <motion.div
-              key="criteria"
-              initial={{ opacity: 0, y: 8 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -8 }}
-              transition={{ duration: 0.16 }}
-              className="space-y-3"
-            >
-              <div className="mb-3 shrink-0">
-                <Pill>
-                  <Check size={12} />
-                  Acceptance criteria
-                </Pill>
-
-                <h2 className="mt-3 text-xl font-semibold tracking-[-0.035em] text-white">
-                  Presets for checking generated work.
-                </h2>
-              </div>
-
-              <div className="pr-2">
-                {filteredCriteria.length === 0 ? (
-                  <EmptyState
-                    title="No criteria found"
-                    description="Try another search query or task type filter."
-                  />
-                ) : (
-                  <div className="grid gap-3 xl:grid-cols-2 2xl:grid-cols-3">
-                    {filteredCriteria.map((preset) => (
-                      <CriteriaCard key={preset.id} preset={preset} />
-                    ))}
-                  </div>
-                )}
-              </div>
-            </motion.div>
-          )}
+        <Inspector
+          entity={selectedEntity}
+          c={c}
+          ruleItems={rules}
+          profiles={profiles}
+          criteria={criteria}
+          onDuplicate={openDuplicate}
+          onEdit={openEdit}
+          onDelete={setDeleteTarget}
+          onOpenWebsite={() => void openWebsite()}
+        />
       </div>
 
       <AnimatePresence>
-        {editor && (
-          <CreatePanel
-            key={getEditorKey(editor)}
+        {editor ? (
+          <StudioEditor
+            key={`${editor.kind}:${editor.mode}:${editor.source?.id ?? "new"}`}
             editor={editor}
+            c={c}
+            isRussian={isRussian}
+            ruleItems={rules}
+            acceptancePresets={criteria}
             onClose={() => setEditor(null)}
-            ruleItems={ruleItems}
-            acceptancePresets={acceptancePresets}
-            onTemplateSaved={loadCatalog}
-            onProfileSaved={loadCatalog}
+            onSaved={(entity) => void handleSaved(entity)}
           />
-        )}
+        ) : null}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {deleteTarget ? (
+          <DeleteDialog
+            key={`${deleteTarget.kind}:${deleteTarget.data.id}`}
+            entity={deleteTarget}
+            c={c}
+            onClose={() => setDeleteTarget(null)}
+            onConfirm={() => handleDeleteConfirmed(deleteTarget)}
+          />
+        ) : null}
       </AnimatePresence>
     </section>
   );

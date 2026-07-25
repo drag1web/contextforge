@@ -11,6 +11,7 @@ import { readRulesAndTemplatesStore, writeRulesAndTemplatesStore } from "./rules
 import type {
   AcceptanceCriteriaPreset,
   PromptTemplate,
+  RuleCategory,
   RuleItem,
   RuleProfile,
   TargetTool,
@@ -18,6 +19,18 @@ import type {
 } from "./types.js";
 
 const VALID_TARGET_TOOLS: TargetTool[] = ["codex", "cursor", "claude", "gemini", "generic"];
+
+const VALID_RULE_CATEGORIES: RuleCategory[] = [
+  "general",
+  "ui",
+  "backend",
+  "bugfix",
+  "refactor",
+  "docs",
+  "tests",
+  "assets",
+  "verification"
+];
 
 const VALID_TASK_TYPES: TemplateTaskType[] = [
   "general",
@@ -78,6 +91,12 @@ function normalizeTargetTool(value: string): TargetTool {
 function normalizeTaskType(value: string): TemplateTaskType {
   return VALID_TASK_TYPES.includes(value as TemplateTaskType)
     ? (value as TemplateTaskType)
+    : "general";
+}
+
+function normalizeRuleCategory(value: string): RuleCategory {
+  return VALID_RULE_CATEGORIES.includes(value as RuleCategory)
+    ? (value as RuleCategory)
     : "general";
 }
 
@@ -395,6 +414,199 @@ export async function deleteTemplate(id: string) {
   }
 
   store.templates = nextTemplates;
+  await writeRulesAndTemplatesStore(store);
+
+  return true;
+}
+
+export async function createRuleItem(input: {
+  title: string;
+  description?: string;
+  category: string;
+  content: string;
+}) {
+  const store = await getCustomStore();
+
+  const ruleItem: RuleItem = {
+    id: `custom.rule.${crypto.randomUUID()}`,
+    title: sanitizeText(input.title, 120),
+    description: sanitizeText(input.description, 500),
+    category: normalizeRuleCategory(input.category),
+    content: sanitizeText(input.content, 2_000),
+    isBuiltin: false,
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  };
+
+  store.ruleItems.push(ruleItem);
+  await writeRulesAndTemplatesStore(store);
+
+  return ruleItem;
+}
+
+export async function updateRuleItem(id: string, input: Partial<RuleItem>) {
+  const builtInIds = new Set(BUILT_IN_RULE_ITEMS.map((rule) => rule.id));
+  ensureNotBuiltin(id, builtInIds, "rule");
+
+  const store = await getCustomStore();
+  const index = store.ruleItems.findIndex((rule) => rule.id === id);
+
+  if (index === -1) {
+    throw new RulesServiceError("Rule not found.", 404);
+  }
+
+  const current = store.ruleItems[index];
+  const updated: RuleItem = {
+    ...current,
+    title: input.title === undefined ? current.title : sanitizeText(input.title, 120),
+    description:
+      input.description === undefined
+        ? current.description
+        : sanitizeText(input.description, 500),
+    category:
+      input.category === undefined
+        ? current.category
+        : normalizeRuleCategory(input.category),
+    content:
+      input.content === undefined
+        ? current.content
+        : sanitizeText(input.content, 2_000),
+    isBuiltin: false,
+    updatedAt: nowIso()
+  };
+
+  store.ruleItems[index] = updated;
+  await writeRulesAndTemplatesStore(store);
+
+  return updated;
+}
+
+export async function deleteRuleItem(id: string) {
+  const builtInIds = new Set(BUILT_IN_RULE_ITEMS.map((rule) => rule.id));
+  ensureNotBuiltin(id, builtInIds, "rule");
+
+  const profiles = await getRuleProfiles();
+  const usedByProfiles = profiles.filter((profile) =>
+    profile.enabledRuleIds.includes(id)
+  );
+
+  if (usedByProfiles.length > 0) {
+    throw new RulesServiceError(
+      `Rule is used by ${usedByProfiles.length} profile(s). Remove it from those profiles first.`,
+      409
+    );
+  }
+
+  const store = await getCustomStore();
+  const nextRules = store.ruleItems.filter((rule) => rule.id !== id);
+
+  if (nextRules.length === store.ruleItems.length) {
+    throw new RulesServiceError("Rule not found.", 404);
+  }
+
+  store.ruleItems = nextRules;
+  await writeRulesAndTemplatesStore(store);
+
+  return true;
+}
+
+export async function createAcceptanceCriteriaPreset(input: {
+  name: string;
+  description?: string;
+  taskType: string;
+  criteria?: string[];
+}) {
+  const store = await getCustomStore();
+
+  const preset: AcceptanceCriteriaPreset = {
+    id: `custom.criteria.${crypto.randomUUID()}`,
+    name: sanitizeText(input.name, 120),
+    description: sanitizeText(input.description, 500),
+    taskType: normalizeTaskType(input.taskType),
+    criteria: sanitizeTextList(input.criteria ?? [], 30, 700),
+    isBuiltin: false,
+    createdAt: nowIso(),
+    updatedAt: nowIso()
+  };
+
+  store.acceptanceCriteriaPresets.push(preset);
+  await writeRulesAndTemplatesStore(store);
+
+  return preset;
+}
+
+export async function updateAcceptanceCriteriaPreset(
+  id: string,
+  input: Partial<AcceptanceCriteriaPreset>
+) {
+  const builtInIds = new Set(
+    BUILT_IN_ACCEPTANCE_CRITERIA_PRESETS.map((preset) => preset.id)
+  );
+  ensureNotBuiltin(id, builtInIds, "acceptance criteria preset");
+
+  const store = await getCustomStore();
+  const index = store.acceptanceCriteriaPresets.findIndex(
+    (preset) => preset.id === id
+  );
+
+  if (index === -1) {
+    throw new RulesServiceError("Acceptance criteria preset not found.", 404);
+  }
+
+  const current = store.acceptanceCriteriaPresets[index];
+  const updated: AcceptanceCriteriaPreset = {
+    ...current,
+    name: input.name === undefined ? current.name : sanitizeText(input.name, 120),
+    description:
+      input.description === undefined
+        ? current.description
+        : sanitizeText(input.description, 500),
+    taskType:
+      input.taskType === undefined
+        ? current.taskType
+        : normalizeTaskType(input.taskType),
+    criteria:
+      input.criteria === undefined
+        ? current.criteria
+        : sanitizeTextList(input.criteria, 30, 700),
+    isBuiltin: false,
+    updatedAt: nowIso()
+  };
+
+  store.acceptanceCriteriaPresets[index] = updated;
+  await writeRulesAndTemplatesStore(store);
+
+  return updated;
+}
+
+export async function deleteAcceptanceCriteriaPreset(id: string) {
+  const builtInIds = new Set(
+    BUILT_IN_ACCEPTANCE_CRITERIA_PRESETS.map((preset) => preset.id)
+  );
+  ensureNotBuiltin(id, builtInIds, "acceptance criteria preset");
+
+  const profiles = await getRuleProfiles();
+  const usedByProfiles = profiles.filter(
+    (profile) => profile.acceptanceCriteriaPresetId === id
+  );
+
+  if (usedByProfiles.length > 0) {
+    throw new RulesServiceError(
+      `Acceptance criteria preset is used by ${usedByProfiles.length} profile(s). Choose another preset in those profiles first.`,
+      409
+    );
+  }
+
+  const store = await getCustomStore();
+  const nextPresets = store.acceptanceCriteriaPresets.filter(
+    (preset) => preset.id !== id
+  );
+
+  if (nextPresets.length === store.acceptanceCriteriaPresets.length) {
+    throw new RulesServiceError("Acceptance criteria preset not found.", 404);
+  }
+
+  store.acceptanceCriteriaPresets = nextPresets;
   await writeRulesAndTemplatesStore(store);
 
   return true;

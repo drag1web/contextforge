@@ -550,7 +550,6 @@ export async function createTaskPack(input: {
   return data.taskPack;
 }
 
-
 export async function createGitHubIssueFromTaskPack(
   taskPackId: number,
   input: {
@@ -816,6 +815,84 @@ export async function updateRuleProfile(
 
 export async function deleteRuleProfile(id: string): Promise<void> {
   await request<{ ok: true }>(`/rule-profiles/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function createRuleItem(input: {
+  title: string;
+  description?: string;
+  category: string;
+  content: string;
+}): Promise<RuleItem> {
+  const data = await request<{ ok: true; ruleItem: RuleItem }>(
+    "/rule-profiles/rules",
+    {
+      method: "POST",
+      body: JSON.stringify(input),
+    },
+  );
+
+  return data.ruleItem;
+}
+
+export async function updateRuleItem(
+  id: string,
+  input: Partial<Pick<RuleItem, "title" | "description" | "category" | "content">>,
+): Promise<RuleItem> {
+  const data = await request<{ ok: true; ruleItem: RuleItem }>(
+    `/rule-profiles/rules/${id}`,
+    {
+      method: "PUT",
+      body: JSON.stringify(input),
+    },
+  );
+
+  return data.ruleItem;
+}
+
+export async function deleteRuleItem(id: string): Promise<void> {
+  await request<{ ok: true }>(`/rule-profiles/rules/${id}`, {
+    method: "DELETE",
+  });
+}
+
+export async function createAcceptanceCriteriaPreset(input: {
+  name: string;
+  description?: string;
+  taskType: string;
+  criteria: string[];
+}): Promise<AcceptanceCriteriaPreset> {
+  const data = await request<{
+    ok: true;
+    acceptanceCriteriaPreset: AcceptanceCriteriaPreset;
+  }>("/rule-profiles/criteria", {
+    method: "POST",
+    body: JSON.stringify(input),
+  });
+
+  return data.acceptanceCriteriaPreset;
+}
+
+export async function updateAcceptanceCriteriaPreset(
+  id: string,
+  input: Partial<
+    Pick<AcceptanceCriteriaPreset, "name" | "description" | "taskType" | "criteria">
+  >,
+): Promise<AcceptanceCriteriaPreset> {
+  const data = await request<{
+    ok: true;
+    acceptanceCriteriaPreset: AcceptanceCriteriaPreset;
+  }>(`/rule-profiles/criteria/${id}`, {
+    method: "PUT",
+    body: JSON.stringify(input),
+  });
+
+  return data.acceptanceCriteriaPreset;
+}
+
+export async function deleteAcceptanceCriteriaPreset(id: string): Promise<void> {
+  await request<{ ok: true }>(`/rule-profiles/criteria/${id}`, {
     method: "DELETE",
   });
 }
