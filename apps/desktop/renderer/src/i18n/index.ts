@@ -1381,6 +1381,560 @@ const resources = {
           save: "Failed to save the integration.",
         },
       },
+      agentsWorkspace: {
+        header: {
+          eyebrow: "Agent studio",
+          title: "Agents",
+          description:
+            "Compare coding-agent profiles, preview how each one reshapes a Task Pack and choose the handoff style before opening Context Builder or Templates.",
+          profiles: "Profiles",
+          selected: "Selected",
+          output: "Output",
+          taskPack: "Task Pack",
+        },
+        selector: {
+          ariaLabel: "Coding agent profiles",
+        },
+        readiness: {
+          primary: "Primary profile",
+          ide: "IDE workflow",
+          cli: "CLI workflow",
+          experimental: "Exploration",
+          fallback: "Portable fallback",
+        },
+        showcase: {
+          orbitContext: "Selected context",
+          orbitRules: "Prompt rules",
+          orbitChecks: "Verification",
+          activeProfile: "Active profile",
+          profilePreview: "Profile preview",
+          guidanceEyebrow: "Handoff guidance",
+          guidanceTitle: "How ContextForge should shape this package",
+        },
+        actions: {
+          openContext: "Open Context Builder",
+          openTemplates: "View Templates",
+        },
+        signals: {
+          context: "Context shape",
+          instructions: "Instruction style",
+          response: "Expected response",
+        },
+        blueprint: {
+          fitEyebrow: "Best fit",
+          fitTitle: "Where this agent is strongest",
+          promptEyebrow: "Prompt architecture",
+          promptTitle: "How to write the Task Pack",
+          verifyEyebrow: "Verification contract",
+          verifyTitle: "What the agent should return",
+        },
+        limits: {
+          eyebrow: "Boundaries",
+          title: "Keep the handoff focused and safe",
+        },
+        boundary: {
+          eyebrow: "Clear responsibility",
+          title: "A profile changes the package, not the provider.",
+          description:
+            "Providers run optional AI refinement inside ContextForge. Agent profiles only describe how the exported Task Pack should be structured for the external coding tool.",
+          provider: "Provider: optional analysis and prompt refinement",
+          agent: "Agent profile: exported instructions and response contract",
+          preview: "This page previews guidance; it does not start generation",
+        },
+        workflow: {
+          eyebrow: "Handoff route",
+          title: "One visible path from local context to an external agent",
+          description:
+            "The repository stays local. ContextForge selects evidence, applies the profile and exports a reviewable package.",
+          contextTitle: "Local context",
+          contextCaption: "Scanner evidence, project memory and selected files.",
+          profileCaption: "Target-specific framing, boundaries and checks.",
+          packageTitle: "Task Pack",
+          packageCaption: "Portable instructions ready for the chosen coding agent.",
+        },
+        footer: {
+          title: "Agent profiles are guidance, not hidden automation.",
+          description:
+            "The selected preview never sends code, changes the provider or writes to a project.",
+          context: "Context",
+          taskPack: "Task Pack",
+        },
+        profiles: {
+          codex: {
+            name: "Codex",
+            role: "OpenAI coding agent",
+            summary:
+              "A focused implementation profile for repository-aware fixes, bounded features and concise verification reports.",
+            guidance:
+              "Use Codex when the task already has a precise goal, clear edit candidates and explicit build or test commands.",
+            signals: {
+              context: {
+                value: "Focused",
+                caption: "Edit candidates first, supporting files second.",
+              },
+              instructions: {
+                value: "Direct",
+                caption: "Goal, boundaries and acceptance criteria stay visible.",
+              },
+              response: {
+                value: "Patch report",
+                caption: "Changed files, checks, skipped work and risks.",
+              },
+            },
+            bestFor: {
+              1: "Focused feature implementation",
+              2: "Bug fixes with clear reproduction steps",
+              3: "Small-to-medium refactors",
+              4: "Task Packs with strict acceptance criteria",
+            },
+            promptStyle: {
+              1: "State the precise goal before implementation details.",
+              2: "Separate edit candidates from inspect-only context.",
+              3: "Request a final report with changed files, verification and risks.",
+            },
+            verification: {
+              1: "Run the named build or test commands",
+              2: "Mention checks that could not be executed",
+              3: "Keep the patch inside the authorised scope",
+            },
+            limitations: {
+              1: "Unrelated context can weaken the edit plan.",
+              2: "Broad redesigns should be split into smaller packages.",
+              3: "Verification commands should be explicit, not implied.",
+            },
+            templates: {
+              1: "Bug fix",
+              2: "UI / UX redesign",
+              3: "Refactor component",
+            },
+          },
+          cursor: {
+            name: "Cursor",
+            role: "IDE coding agent",
+            summary:
+              "An interactive editor profile for fast visual iteration, component work and developer-guided changes.",
+            guidance:
+              "Use Cursor when the developer will inspect the result in the IDE and actively steer file-level or visual decisions.",
+            signals: {
+              context: {
+                value: "Compact",
+                caption: "Open files, routes and visual references take priority.",
+              },
+              instructions: {
+                value: "Interactive",
+                caption: "Short constraints stay easy to revisit in the editor.",
+              },
+              response: {
+                value: "UI checks",
+                caption: "Touched files, screen states and manual review notes.",
+              },
+            },
+            bestFor: {
+              1: "UI polish while inspecting live files",
+              2: "Component-level refactoring",
+              3: "Fast iteration inside an IDE",
+              4: "Tasks that benefit from manual steering",
+            },
+            promptStyle: {
+              1: "Keep instructions compact enough for editor iteration.",
+              2: "Point to exact files and expected visual behaviour.",
+              3: "Place non-negotiable constraints near the top.",
+            },
+            verification: {
+              1: "Open and review the affected route",
+              2: "Run the renderer or workspace build",
+              3: "Compare important loading, empty and active states",
+            },
+            limitations: {
+              1: "Loose prompts can drift beyond the intended files.",
+              2: "Large architecture changes need stronger decomposition.",
+              3: "Visual details still require human review.",
+            },
+            templates: {
+              1: "UI / UX redesign",
+              2: "Refactor component",
+              3: "Bug fix",
+            },
+          },
+          claude: {
+            name: "Claude Code",
+            role: "Anthropic CLI coding agent",
+            summary:
+              "A structured multi-file profile for careful reasoning, constrained cleanup and reviewable execution plans.",
+            guidance:
+              "Use Claude Code when several files, architectural rules or sensitive boundaries must remain visible throughout the task.",
+            signals: {
+              context: {
+                value: "Detailed",
+                caption: "Rules, project memory and architecture notes matter.",
+              },
+              instructions: {
+                value: "Structured",
+                caption: "Plan, implementation and verification are separated.",
+              },
+              response: {
+                value: "Reviewable",
+                caption: "Trade-offs, checks and remaining concerns stay explicit.",
+              },
+            },
+            bestFor: {
+              1: "Multi-file changes with strict constraints",
+              2: "Architecture cleanup and code organisation",
+              3: "Safety-sensitive implementation work",
+              4: "Tasks that benefit from a short plan first",
+            },
+            promptStyle: {
+              1: "State protected areas before implementation details.",
+              2: "Ask for a concise plan, then the patch, then verification.",
+              3: "Include relevant project-memory and decision constraints.",
+            },
+            verification: {
+              1: "Run focused checks for every touched area",
+              2: "Explain important trade-offs",
+              3: "Flag risky areas intentionally left untouched",
+            },
+            limitations: {
+              1: "Open-ended tasks can produce too much planning.",
+              2: "Generated sections need explicit boundaries.",
+              3: "Large contexts should be organised into clear sections.",
+            },
+            templates: {
+              1: "Backend API change",
+              2: "Security audit",
+              3: "Add tests",
+            },
+          },
+          gemini: {
+            name: "Gemini",
+            role: "Google AI coding agent",
+            summary:
+              "An exploratory profile for broad code understanding, option comparison and task decomposition before implementation.",
+            guidance:
+              "Use Gemini when the problem needs alternatives, a clearer decomposition or broad understanding before a narrower editing pass.",
+            signals: {
+              context: {
+                value: "Exploratory",
+                caption: "Summaries and scanner signals can precede exact files.",
+              },
+              instructions: {
+                value: "Comparative",
+                caption: "Ask for options, risks and a recommended path.",
+              },
+              response: {
+                value: "Plan first",
+                caption: "Treat the result as structured input for execution.",
+              },
+            },
+            bestFor: {
+              1: "Explaining an unfamiliar project area",
+              2: "Comparing implementation options",
+              3: "Decomposing larger tasks",
+              4: "Creating first-pass checklists",
+            },
+            promptStyle: {
+              1: "Request decomposition and risks before edits.",
+              2: "Keep the final requested output concrete.",
+              3: "Use scanner signals and reports to frame the problem.",
+            },
+            verification: {
+              1: "Validate the chosen option against project evidence",
+              2: "Run the relevant project checks",
+              3: "Review assumptions before implementation",
+            },
+            limitations: {
+              1: "Exact patch work may need tighter file boundaries.",
+              2: "Provider and model behaviour may vary.",
+              3: "Broad suggestions are input, not final implementation.",
+            },
+            templates: {
+              1: "Documentation update",
+              2: "Release checklist",
+              3: "Security audit",
+            },
+          },
+          generic: {
+            name: "Generic",
+            role: "Universal coding assistant",
+            summary:
+              "A portable fallback profile for unknown tools, manual copy-and-paste workflows and conservative exports.",
+            guidance:
+              "Use Generic when ContextForge cannot safely assume tool-specific commands, capabilities or response conventions.",
+            signals: {
+              context: {
+                value: "Portable",
+                caption: "Plain Markdown and explicit paths are safest.",
+              },
+              instructions: {
+                value: "Neutral",
+                caption: "No assumptions about tools, terminals or editor UI.",
+              },
+              response: {
+                value: "Manual",
+                caption: "Human review and explicit checks matter most.",
+              },
+            },
+            bestFor: {
+              1: "Unknown or unsupported coding tools",
+              2: "Manual copy-and-paste handoffs",
+              3: "Basic documentation and checklist work",
+              4: "Conservative portable prompt exports",
+            },
+            promptStyle: {
+              1: "Avoid tool-specific assumptions.",
+              2: "Use plain Markdown sections and direct instructions.",
+              3: "Make verification and final response format explicit.",
+            },
+            verification: {
+              1: "Review the package manually",
+              2: "Run the project commands outside ContextForge",
+              3: "Confirm scope boundaries before accepting changes",
+            },
+            limitations: {
+              1: "Tool-specific behaviour cannot be assumed.",
+              2: "More manual file navigation may be required.",
+              3: "Output quality depends on the external assistant.",
+            },
+            templates: {
+              1: "Documentation update",
+              2: "Bug fix",
+              3: "Release checklist",
+            },
+          },
+        },
+      },
+      reportsWorkspace: {
+        eyebrow: "Workspace reports",
+        title: "Reports",
+        description:
+          "Review project readiness, recurring context gaps, Task Pack activity and validation runs without turning the page into one long report.",
+        tabs: {
+          ariaLabel: "Report workspace sections",
+          overview: "Overview",
+          overviewCaption: "Health and priorities",
+          readiness: "Readiness",
+          readinessCaption: "Projects and recurring gaps",
+          activity: "Activity",
+          activityCaption: "Task Packs and targets",
+          validation: "Validation Lab",
+          validationCaption: "Manifest test runner",
+        },
+        summary: {
+          projects: "Projects",
+          readiness: "Readiness",
+          taskPacks: "Task Packs",
+        },
+        metrics: {
+          projects: "Projects",
+          projectsCaption: "scanned locally",
+          attention: "Need attention",
+          attentionCaption: "below 50/100",
+          taskPacks: "Task Packs",
+          taskPacksCaption: "saved locally",
+          missingAgents: "Missing AGENTS",
+          missingAgentsCaption: "projects without rules",
+        },
+        overview: {
+          healthEyebrow: "Workspace health",
+          healthTitle: "A compact view of the whole workspace",
+          healthDescription:
+            "Readiness, recurring gaps and prompt activity are summarized here. Open a focused section only when you need the underlying details.",
+          average: "Average readiness",
+          scoreCaption: "Average across scanned local projects",
+          actionsEyebrow: "Next best actions",
+          actionsTitle: "What to improve first",
+          actionsDescription:
+            "Priorities are derived from the weakest project and the most frequent readiness gaps.",
+          signalsEyebrow: "Workspace signals",
+          signalsTitle: "Current workflow profile",
+          signalsDescription:
+            "A few stable signals that explain how this workspace is being used.",
+          topStack: "Top stack",
+          topTarget: "Top target",
+          aiRuns: "AI-assisted runs",
+          templateFallback: "Template fallback",
+        },
+        readiness: {
+          labels: {
+            empty: "No scan data",
+            ready: "Ready",
+            stable: "Stable",
+            attention: "Needs attention",
+            weak: "Weak context",
+          },
+          mapEyebrow: "Readiness map",
+          mapTitle: "Projects by context quality",
+          mapDescription:
+            "Choose a lens, compare scores and open Projects when a repository needs rescanning, AGENTS.md or a focused Task Pack.",
+          lensAria: "Project readiness filters",
+          lensAll: "All projects",
+          lensAllCaption: "Whole workspace",
+          lensAttention: "Needs attention",
+          lensAttentionCaption: "Below 50",
+          lensReady: "Ready",
+          lensReadyCaption: "80 and higher",
+          noProjectsTitle: "No projects have been scanned",
+          noProjectsDescription:
+            "Add a local repository to start building workspace-level readiness analytics.",
+          addProject: "Add or scan project",
+          emptyLensTitle: "No projects in this view",
+          emptyLensDescription:
+            "Choose another filter or rescan projects after improving their context.",
+          noIssue: "No important readiness gap was detected.",
+          issuesEyebrow: "Recurring gaps",
+          issuesTitle: "Most frequent readiness issues",
+          issuesDescription:
+            "Repeated gaps are usually the fastest way to improve several projects at once.",
+          signalCount: "Signals: {{signalCount}}",
+          noIssuesTitle: "No recurring issues yet",
+          noIssuesDescription:
+            "Rescan projects to collect readiness evidence. Recurring gaps will be ranked here.",
+          distributionEyebrow: "Distribution",
+          distributionTitle: "Readiness spread",
+          distributionDescription: "Score ranges across the local workspace.",
+          bandWeak: "Weak",
+          bandAttention: "Needs work",
+          bandStable: "Stable",
+          bandReady: "Ready",
+        },
+        activity: {
+          recentEyebrow: "Recent activity",
+          recentTitle: "Latest generated Task Packs",
+          recentDescription:
+            "Open a saved package to review the task, target and generation mode.",
+          openArchive: "Open archive",
+          emptyTitle: "No Task Packs yet",
+          emptyDescription:
+            "Create a Task Pack to start building local prompt activity and target analytics.",
+          pickProject: "Pick a project",
+          unknownProject: "Project #{{id}}",
+          targetsEyebrow: "Agent targets",
+          targetsTitle: "Where packages are going",
+          noTargets: "No target usage yet.",
+          typesEyebrow: "Task categories",
+          typesTitle: "What kind of work is requested",
+          noTypes: "No task type history yet.",
+          modesEyebrow: "Generation modes",
+          modesTitle: "How packages were prepared",
+          modesDescription:
+            "AI-assisted generation and deterministic fallback stay visible as separate signals.",
+          assistedCaption: "generated with a local model",
+          fallbackCaption: "AI request used safe fallback",
+          templateCaption: "deterministic package output",
+          refreshTitle: "Refresh by rescanning",
+          refreshDescription:
+            "Reports use local metadata. Rescan when README, scripts, tests or AGENTS.md change.",
+          localTitle: "Local-first analytics",
+          localDescription:
+            "Source code, Project Memory, Task Packs and readiness evidence stay on this device unless you explicitly export them.",
+        },
+        actions: {
+          lowest: "Improve {{name}} first: it has the lowest readiness score ({{score}}/100).",
+          issue: "Fix “{{label}}” across {{count}} projects.",
+          issue_one: "Fix “{{label}}” in {{count}} project.",
+          issue_other: "Fix “{{label}}” across {{count}} projects.",
+          empty: "Scan projects or create Task Packs to build useful workspace analytics.",
+          openProjects: "Open projects",
+          openTaskPacks: "Open Task Packs",
+        },
+        taskPackMode: {
+          assisted: "AI-assisted",
+          fallback: "AI fallback",
+          template: "Template",
+        },
+        taskTypes: {
+          unknown: "Unknown",
+          general: "General",
+          ui: "UI / UX",
+          backend: "Backend",
+          fullstack: "Fullstack",
+          build: "Build",
+          bugfix: "Bug fix",
+          refactor: "Refactoring",
+          docs: "Documentation",
+          tests: "Tests",
+        },
+        issueLabels: {
+          readme: "README",
+          agents: "AI agent instructions",
+          buildCommand: "Build command",
+          devCommand: "Development command",
+          testCommand: "Test command",
+          environmentExample: "Environment example",
+          typescriptConfig: "TypeScript configuration",
+          testStructure: "Test structure",
+          documentation: "Documentation",
+          ciWorkflow: "CI workflow",
+        },
+        export: {
+          title: "Export a workspace snapshot",
+          description:
+            "Download a local Markdown or text report with readiness gaps, next actions and Task Pack activity.",
+          markdown: "Export .md",
+          text: "Export .txt",
+          completed: "Exported {{fileName}}",
+        },
+        validation: {
+          eyebrow: "Validation Lab",
+          title: "Run a complete manifest without retyping tasks",
+          description:
+            "Upload a JSON or text manifest and run each case through the real Task Understanding and Context Composer preview pipeline. The runner contains no repository-specific rules.",
+          readOnly: "Read-only",
+          sequential: "Sequential runner",
+          upload: "Upload manifest",
+          template: "Manifest template",
+          downloadLast: "Download last archive",
+          suite: "Suite",
+          cases: "Cases",
+          enabled: "Enabled: {{caseCount}}",
+          total: "Total: {{caseCount}} · max 50",
+          mode: "Mode",
+          analyzeOnly: "Analyze only",
+          noGeneration: "No Task Pack generation",
+          emptyManifest:
+            "Upload a manifest or download the project-neutral template to define the test suite.",
+          project: "Project under test",
+          noProjects: "No scanned projects",
+          runSummary: "Current run setup",
+          readyToRun: "Manifest is ready",
+          waitingManifest: "Waiting for a manifest",
+          summaryProject: "Selected project",
+          summaryCases: "Enabled cases",
+          summaryMode: "Execution mode",
+          safeTitle: "Source-safe execution",
+          safeDescription:
+            "The runner analyzes inventory and preview context only. It never writes to the selected project, creates Task Packs or executes generated code.",
+          stop: "Stop after current case",
+          runSuite: "Run test suite",
+          runCases: "Run {{caseCount}} cases",
+          running: "Running {{id}}",
+          preparing: "Preparing the next case",
+          files: "Files: {{fileCount}}",
+          failedChecks: "Failed checks: {{checkCount}}",
+          status: {
+            passed: "Passed",
+            failed: "Failed",
+            error: "Error",
+            skipped: "Skipped",
+          },
+          messages: {
+            loaded: "Loaded {{caseCount}} cases from {{fileName}}.",
+            templateDownloaded: "Downloaded a project-neutral validation manifest template.",
+            archiveDownloaded: "Downloaded {{fileName}}.",
+            disabled: "Disabled by the manifest.",
+            cancelledCase: "Skipped after cancellation was requested.",
+            cancelRequested: "Cancellation requested. The current case will finish safely.",
+            partialComplete: "Partial run complete. Downloaded {{fileName}}.",
+            complete: "Run complete. Downloaded {{fileName}}.",
+          },
+          errors: {
+            tooLarge: "The manifest is larger than 1 MB.",
+            read: "Could not read the validation manifest.",
+            unexpected: "Unexpected validation error.",
+            archive: "Run completed, but archive export failed: {{message}}",
+            archiveUnknown: "Run completed, but archive export failed.",
+          },
+        },
+      },
       githubWorkspace: {
         eyebrow: "GitHub workspace",
         title: "GitHub",
@@ -3607,6 +4161,562 @@ const resources = {
         errors: {
           load: "Не удалось загрузить интеграции.",
           save: "Не удалось сохранить интеграцию.",
+        },
+      },
+      agentsWorkspace: {
+        header: {
+          eyebrow: "Студия агентов",
+          title: "Агенты",
+          description:
+            "Сравнивайте профили coding-агентов, смотрите, как каждый из них меняет структуру пакета задачи, и выбирайте формат передачи до открытия Context Builder или шаблонов.",
+          profiles: "Профили",
+          selected: "Выбран",
+          output: "Результат",
+          taskPack: "Пакет задачи",
+        },
+        selector: {
+          ariaLabel: "Профили coding-агентов",
+        },
+        readiness: {
+          primary: "Основной профиль",
+          ide: "Работа в IDE",
+          cli: "Работа через CLI",
+          experimental: "Исследование",
+          fallback: "Универсальный fallback",
+        },
+        showcase: {
+          orbitContext: "Выбранный контекст",
+          orbitRules: "Правила промпта",
+          orbitChecks: "Проверка результата",
+          activeProfile: "Активный профиль",
+          profilePreview: "Предпросмотр профиля",
+          guidanceEyebrow: "Правила передачи",
+          guidanceTitle: "Как ContextForge должен подготовить этот пакет",
+        },
+        actions: {
+          openContext: "Открыть Context Builder",
+          openTemplates: "Открыть шаблоны",
+        },
+        signals: {
+          context: "Форма контекста",
+          instructions: "Стиль инструкций",
+          response: "Ожидаемый ответ",
+        },
+        blueprint: {
+          fitEyebrow: "Лучшее применение",
+          fitTitle: "Где этот агент особенно полезен",
+          promptEyebrow: "Архитектура промпта",
+          promptTitle: "Как написать пакет задачи",
+          verifyEyebrow: "Контракт проверки",
+          verifyTitle: "Что агент должен вернуть",
+        },
+        limits: {
+          eyebrow: "Границы",
+          title: "Сохраняйте передачу точной и безопасной",
+        },
+        boundary: {
+          eyebrow: "Разделение ответственности",
+          title: "Профиль меняет пакет, а не провайдера.",
+          description:
+            "Провайдер выполняет опциональное AI-уточнение внутри ContextForge. Профиль агента только определяет, как должен быть оформлен экспортируемый пакет задачи для внешнего coding-инструмента.",
+          provider: "Провайдер: опциональный анализ и улучшение промпта",
+          agent: "Профиль агента: экспортируемые инструкции и формат ответа",
+          preview: "Эта страница показывает правила и не запускает генерацию",
+        },
+        workflow: {
+          eyebrow: "Маршрут передачи",
+          title: "Один понятный путь от локального контекста к внешнему агенту",
+          description:
+            "Репозиторий остаётся локально. ContextForge выбирает доказательства, применяет профиль и экспортирует проверяемый пакет.",
+          contextTitle: "Локальный контекст",
+          contextCaption: "Доказательства сканера, память проекта и выбранные файлы.",
+          profileCaption: "Формат цели, границы и проверки под выбранного агента.",
+          packageTitle: "Пакет задачи",
+          packageCaption: "Переносимые инструкции, готовые для выбранного coding-агента.",
+        },
+        footer: {
+          title: "Профили агентов — это инструкции, а не скрытая автоматизация.",
+          description:
+            "Выбор профиля не отправляет код, не меняет провайдера и не записывает файлы в проект.",
+          context: "Контекст",
+          taskPack: "Пакет задачи",
+        },
+        profiles: {
+          codex: {
+            name: "Codex",
+            role: "Coding-агент OpenAI",
+            summary:
+              "Сфокусированный профиль для точных изменений в репозитории, ограниченных фич и коротких отчётов о проверке.",
+            guidance:
+              "Используйте Codex, когда у задачи уже есть точная цель, понятные кандидаты на изменение и явные команды сборки или тестирования.",
+            signals: {
+              context: {
+                value: "Сфокусированный",
+                caption: "Сначала изменяемые файлы, затем поддерживающий контекст.",
+              },
+              instructions: {
+                value: "Прямые",
+                caption: "Цель, границы и критерии приёмки остаются на виду.",
+              },
+              response: {
+                value: "Отчёт о патче",
+                caption: "Изменённые файлы, проверки, пропуски и риски.",
+              },
+            },
+            bestFor: {
+              1: "Реализация сфокусированных фич",
+              2: "Исправление ошибок с понятным воспроизведением",
+              3: "Небольшой и средний рефакторинг",
+              4: "Пакеты задач со строгими критериями приёмки",
+            },
+            promptStyle: {
+              1: "Сначала сформулируйте точную цель, затем детали реализации.",
+              2: "Отделите кандидатов на изменение от контекста только для чтения.",
+              3: "Попросите итоговый отчёт с файлами, проверками и рисками.",
+            },
+            verification: {
+              1: "Запустить указанные команды сборки или тестирования",
+              2: "Указать проверки, которые не удалось выполнить",
+              3: "Сохранить патч внутри разрешённой области",
+            },
+            limitations: {
+              1: "Лишний контекст может ослабить план изменений.",
+              2: "Широкий редизайн лучше делить на несколько пакетов.",
+              3: "Команды проверки должны быть явными, а не подразумеваемыми.",
+            },
+            templates: {
+              1: "Исправление ошибки",
+              2: "UI / UX редизайн",
+              3: "Рефакторинг компонента",
+            },
+          },
+          cursor: {
+            name: "Cursor",
+            role: "Coding-агент внутри IDE",
+            summary:
+              "Интерактивный профиль для быстрой визуальной итерации, работы с компонентами и изменений под управлением разработчика.",
+            guidance:
+              "Используйте Cursor, когда разработчик будет проверять результат в IDE и вручную направлять решения по файлам или интерфейсу.",
+            signals: {
+              context: {
+                value: "Компактный",
+                caption: "Приоритет у открытых файлов, маршрутов и визуальных примеров.",
+              },
+              instructions: {
+                value: "Интерактивные",
+                caption: "Короткие ограничения удобно сверять прямо в редакторе.",
+              },
+              response: {
+                value: "UI-проверки",
+                caption: "Затронутые файлы, состояния экрана и ручная проверка.",
+              },
+            },
+            bestFor: {
+              1: "Полировка UI с одновременным просмотром файлов",
+              2: "Рефакторинг на уровне компонентов",
+              3: "Быстрые итерации внутри IDE",
+              4: "Задачи, которым нужно ручное направление",
+            },
+            promptStyle: {
+              1: "Держите инструкции достаточно компактными для итераций в IDE.",
+              2: "Указывайте точные файлы и ожидаемое визуальное поведение.",
+              3: "Размещайте обязательные ограничения в начале.",
+            },
+            verification: {
+              1: "Открыть и проверить затронутый маршрут",
+              2: "Запустить сборку renderer или всего workspace",
+              3: "Сравнить загрузку, пустые и активные состояния",
+            },
+            limitations: {
+              1: "Размытый промпт может вывести изменения за нужные файлы.",
+              2: "Крупные архитектурные задачи требуют декомпозиции.",
+              3: "Визуальные детали всё равно требуют ручной проверки.",
+            },
+            templates: {
+              1: "UI / UX редизайн",
+              2: "Рефакторинг компонента",
+              3: "Исправление ошибки",
+            },
+          },
+          claude: {
+            name: "Claude Code",
+            role: "CLI coding-агент Anthropic",
+            summary:
+              "Структурированный профиль для многофайловых изменений, аккуратного анализа и проверяемого плана выполнения.",
+            guidance:
+              "Используйте Claude Code, когда в задаче несколько файлов, архитектурные правила или чувствительные границы, которые нельзя терять по ходу работы.",
+            signals: {
+              context: {
+                value: "Подробный",
+                caption: "Важны правила, память проекта и архитектурные заметки.",
+              },
+              instructions: {
+                value: "Структурированные",
+                caption: "План, реализация и проверка отделены друг от друга.",
+              },
+              response: {
+                value: "Проверяемый",
+                caption: "Компромиссы, проверки и оставшиеся вопросы явны.",
+              },
+            },
+            bestFor: {
+              1: "Многофайловые изменения со строгими ограничениями",
+              2: "Очистка архитектуры и структуры кода",
+              3: "Изменения с повышенными требованиями к безопасности",
+              4: "Задачи, где полезен короткий план перед реализацией",
+            },
+            promptStyle: {
+              1: "Сначала перечислите защищённые области, затем детали реализации.",
+              2: "Попросите короткий план, после него патч и отчёт о проверке.",
+              3: "Добавьте релевантную память проекта и принятые решения.",
+            },
+            verification: {
+              1: "Запустить целевые проверки для каждой затронутой области",
+              2: "Объяснить важные компромиссы",
+              3: "Отметить рискованные области, которые намеренно не менялись",
+            },
+            limitations: {
+              1: "Слишком открытая задача может привести к лишнему планированию.",
+              2: "Сгенерированные области требуют явных границ.",
+              3: "Большой контекст нужно делить на понятные разделы.",
+            },
+            templates: {
+              1: "Изменение backend API",
+              2: "Аудит безопасности",
+              3: "Добавление тестов",
+            },
+          },
+          gemini: {
+            name: "Gemini",
+            role: "Coding-агент Google AI",
+            summary:
+              "Исследовательский профиль для широкого понимания кода, сравнения вариантов и декомпозиции задачи перед реализацией.",
+            guidance:
+              "Используйте Gemini, когда сначала нужны альтернативы, более ясная декомпозиция или широкое понимание области проекта.",
+            signals: {
+              context: {
+                value: "Исследовательский",
+                caption: "Сводки и сигналы сканера могут идти раньше точных файлов.",
+              },
+              instructions: {
+                value: "Сравнительные",
+                caption: "Запрашивайте варианты, риски и рекомендуемый путь.",
+              },
+              response: {
+                value: "Сначала план",
+                caption: "Используйте ответ как структурированную основу реализации.",
+              },
+            },
+            bestFor: {
+              1: "Объяснение незнакомой области проекта",
+              2: "Сравнение вариантов реализации",
+              3: "Декомпозиция крупных задач",
+              4: "Создание первичного чек-листа",
+            },
+            promptStyle: {
+              1: "Запросите декомпозицию и риски до изменений.",
+              2: "Оставьте конечный ожидаемый результат конкретным.",
+              3: "Используйте сигналы сканера и отчётов для постановки задачи.",
+            },
+            verification: {
+              1: "Сверить выбранный вариант с доказательствами проекта",
+              2: "Запустить релевантные проверки проекта",
+              3: "Проверить предположения до реализации",
+            },
+            limitations: {
+              1: "Для точного патча могут понадобиться более строгие границы файлов.",
+              2: "Поведение провайдера и модели может различаться.",
+              3: "Широкие предложения — это входные данные, а не готовая реализация.",
+            },
+            templates: {
+              1: "Обновление документации",
+              2: "Чек-лист релиза",
+              3: "Аудит безопасности",
+            },
+          },
+          generic: {
+            name: "Generic",
+            role: "Универсальный coding-ассистент",
+            summary:
+              "Переносимый fallback-профиль для неизвестных инструментов, ручной передачи промпта и консервативного экспорта.",
+            guidance:
+              "Используйте Generic, когда ContextForge не может безопасно предположить команды, возможности или формат ответа конкретного инструмента.",
+            signals: {
+              context: {
+                value: "Переносимый",
+                caption: "Безопаснее всего обычный Markdown и явные пути.",
+              },
+              instructions: {
+                value: "Нейтральные",
+                caption: "Без предположений об инструментах, терминале или IDE.",
+              },
+              response: {
+                value: "Ручной",
+                caption: "Главную роль играют ручная проверка и явные команды.",
+              },
+            },
+            bestFor: {
+              1: "Неизвестные или неподдерживаемые coding-инструменты",
+              2: "Ручная передача через копирование промпта",
+              3: "Простые задачи по документации и чек-листам",
+              4: "Консервативный переносимый экспорт",
+            },
+            promptStyle: {
+              1: "Не делайте предположений о конкретном инструменте.",
+              2: "Используйте обычные Markdown-разделы и прямые инструкции.",
+              3: "Явно задайте проверку и формат итогового ответа.",
+            },
+            verification: {
+              1: "Проверить пакет вручную",
+              2: "Запустить команды проекта вне ContextForge",
+              3: "Подтвердить границы задачи до принятия изменений",
+            },
+            limitations: {
+              1: "Нельзя полагаться на поведение конкретного инструмента.",
+              2: "Может потребоваться больше ручной навигации по файлам.",
+              3: "Качество результата зависит от внешнего ассистента.",
+            },
+            templates: {
+              1: "Обновление документации",
+              2: "Исправление ошибки",
+              3: "Чек-лист релиза",
+            },
+          },
+        },
+      },
+      reportsWorkspace: {
+        eyebrow: "Рабочая область отчётов",
+        title: "Отчёты",
+        description:
+          "Проверяйте готовность проектов, повторяющиеся пробелы контекста, активность пакетов задач и тестовые прогоны без одного бесконечного отчёта.",
+        tabs: {
+          ariaLabel: "Разделы рабочей области отчётов",
+          overview: "Обзор",
+          overviewCaption: "Состояние и приоритеты",
+          readiness: "Готовность",
+          readinessCaption: "Проекты и повторяющиеся пробелы",
+          activity: "Активность",
+          activityCaption: "Пакеты задач и цели",
+          validation: "Validation Lab",
+          validationCaption: "Запуск тестовых манифестов",
+        },
+        summary: {
+          projects: "Проекты",
+          readiness: "Готовность",
+          taskPacks: "Пакеты задач",
+        },
+        metrics: {
+          projects: "Проекты",
+          projectsCaption: "просканировано локально",
+          attention: "Требуют внимания",
+          attentionCaption: "ниже 50/100",
+          taskPacks: "Пакеты задач",
+          taskPacksCaption: "сохранено локально",
+          missingAgents: "Нет AGENTS.md",
+          missingAgentsCaption: "проекты без инструкций",
+        },
+        overview: {
+          healthEyebrow: "Состояние workspace",
+          healthTitle: "Компактный обзор всего рабочего пространства",
+          healthDescription:
+            "Готовность, повторяющиеся проблемы и активность промптов собраны здесь. Подробности открываются только в нужном разделе.",
+          average: "Средняя готовность",
+          scoreCaption: "Среднее значение по локально просканированным проектам",
+          actionsEyebrow: "Следующие действия",
+          actionsTitle: "Что улучшить в первую очередь",
+          actionsDescription:
+            "Приоритеты рассчитаны по самому слабому проекту и самым частым пробелам готовности.",
+          signalsEyebrow: "Сигналы workspace",
+          signalsTitle: "Текущий профиль работы",
+          signalsDescription:
+            "Несколько устойчивых показателей, объясняющих, как используется рабочее пространство.",
+          topStack: "Основной стек",
+          topTarget: "Основная цель",
+          aiRuns: "AI-прогоны",
+          templateFallback: "Fallback на шаблон",
+        },
+        readiness: {
+          labels: {
+            empty: "Нет данных сканирования",
+            ready: "Готово",
+            stable: "Стабильно",
+            attention: "Требует внимания",
+            weak: "Слабый контекст",
+          },
+          mapEyebrow: "Карта готовности",
+          mapTitle: "Проекты по качеству контекста",
+          mapDescription:
+            "Выберите представление, сравните оценки и откройте «Проекты», когда нужен новый скан, AGENTS.md или сфокусированный пакет задачи.",
+          lensAria: "Фильтры готовности проектов",
+          lensAll: "Все проекты",
+          lensAllCaption: "Весь workspace",
+          lensAttention: "Требуют внимания",
+          lensAttentionCaption: "Ниже 50",
+          lensReady: "Готовые",
+          lensReadyCaption: "80 и выше",
+          noProjectsTitle: "Проекты ещё не просканированы",
+          noProjectsDescription:
+            "Добавьте локальный репозиторий, чтобы собрать аналитику готовности рабочего пространства.",
+          addProject: "Добавить или просканировать проект",
+          emptyLensTitle: "В этом представлении нет проектов",
+          emptyLensDescription:
+            "Выберите другой фильтр или пересканируйте проекты после улучшения контекста.",
+          noIssue: "Важных пробелов готовности не обнаружено.",
+          issuesEyebrow: "Повторяющиеся пробелы",
+          issuesTitle: "Самые частые проблемы готовности",
+          issuesDescription:
+            "Повторяющиеся пробелы обычно позволяют быстрее всего улучшить сразу несколько проектов.",
+          signalCount: "Сигналов: {{signalCount}}",
+          noIssuesTitle: "Повторяющихся проблем пока нет",
+          noIssuesDescription:
+            "Пересканируйте проекты для сбора доказательств готовности. Частые пробелы появятся здесь.",
+          distributionEyebrow: "Распределение",
+          distributionTitle: "Разброс готовности",
+          distributionDescription: "Диапазоны оценок локального рабочего пространства.",
+          bandWeak: "Слабая",
+          bandAttention: "Нужна работа",
+          bandStable: "Стабильная",
+          bandReady: "Готовая",
+        },
+        activity: {
+          recentEyebrow: "Последняя активность",
+          recentTitle: "Недавние пакеты задач",
+          recentDescription:
+            "Откройте сохранённый пакет, чтобы проверить задачу, цель и режим генерации.",
+          openArchive: "Открыть архив",
+          emptyTitle: "Пакетов задач пока нет",
+          emptyDescription:
+            "Создайте пакет задачи, чтобы появилась локальная аналитика промптов и целей.",
+          pickProject: "Выбрать проект",
+          unknownProject: "Проект №{{id}}",
+          targetsEyebrow: "Цели AI-агентов",
+          targetsTitle: "Куда направляются пакеты",
+          noTargets: "Истории целей пока нет.",
+          typesEyebrow: "Категории задач",
+          typesTitle: "Какая работа запрашивается",
+          noTypes: "Истории типов задач пока нет.",
+          modesEyebrow: "Режимы генерации",
+          modesTitle: "Как подготавливались пакеты",
+          modesDescription:
+            "Генерация с локальным AI и детерминированный fallback показаны как отдельные сигналы.",
+          assistedCaption: "создано локальной моделью",
+          fallbackCaption: "AI-запрос перешёл на безопасный fallback",
+          templateCaption: "детерминированный вывод пакета",
+          refreshTitle: "Обновление через пересканирование",
+          refreshDescription:
+            "Отчёты используют локальные метаданные. Пересканируйте проект после изменений README, скриптов, тестов или AGENTS.md.",
+          localTitle: "Локальная аналитика",
+          localDescription:
+            "Исходный код, память проектов, пакеты задач и доказательства готовности остаются на устройстве до явного экспорта.",
+        },
+        actions: {
+          lowest: "Сначала улучшите {{name}}: у него самая низкая готовность — {{score}}/100.",
+          issue: "Исправьте «{{label}}» в {{count}} проектах.",
+          issue_one: "Исправьте «{{label}}» в {{count}} проекте.",
+          issue_few: "Исправьте «{{label}}» в {{count}} проектах.",
+          issue_many: "Исправьте «{{label}}» в {{count}} проектах.",
+          issue_other: "Исправьте «{{label}}» в {{count}} проектах.",
+          empty: "Просканируйте проекты или создайте пакеты задач, чтобы собрать полезную аналитику.",
+          openProjects: "Открыть проекты",
+          openTaskPacks: "Открыть пакеты задач",
+        },
+        taskPackMode: {
+          assisted: "С локальным AI",
+          fallback: "AI fallback",
+          template: "Шаблон",
+        },
+        taskTypes: {
+          unknown: "Неизвестно",
+          general: "Общая",
+          ui: "UI / UX",
+          backend: "Backend",
+          fullstack: "Fullstack",
+          build: "Сборка",
+          bugfix: "Исправление",
+          refactor: "Рефакторинг",
+          docs: "Документация",
+          tests: "Тесты",
+        },
+        issueLabels: {
+          readme: "README",
+          agents: "Инструкции для AI-агентов",
+          buildCommand: "Команда сборки",
+          devCommand: "Команда разработки",
+          testCommand: "Команда тестирования",
+          environmentExample: "Пример окружения",
+          typescriptConfig: "Конфигурация TypeScript",
+          testStructure: "Структура тестов",
+          documentation: "Документация",
+          ciWorkflow: "CI-процесс",
+        },
+        export: {
+          title: "Экспортировать снимок workspace",
+          description:
+            "Скачайте локальный отчёт Markdown или TXT с пробелами готовности, следующими действиями и активностью пакетов задач.",
+          markdown: "Экспорт .md",
+          text: "Экспорт .txt",
+          completed: "Экспортирован файл {{fileName}}",
+        },
+        validation: {
+          eyebrow: "Validation Lab",
+          title: "Запустите полный манифест без повторного ввода задач",
+          description:
+            "Загрузите JSON- или TXT-манифест и проведите каждый кейс через реальные Task Understanding и Context Composer preview. В runner нет правил конкретного репозитория.",
+          readOnly: "Только чтение",
+          sequential: "Последовательный запуск",
+          upload: "Загрузить манифест",
+          template: "Шаблон манифеста",
+          downloadLast: "Скачать последний архив",
+          suite: "Набор",
+          cases: "Кейсы",
+          enabled: "Включено: {{caseCount}}",
+          total: "Всего: {{caseCount}} · максимум 50",
+          mode: "Режим",
+          analyzeOnly: "Только анализ",
+          noGeneration: "Без генерации пакетов задач",
+          emptyManifest:
+            "Загрузите манифест или скачайте нейтральный шаблон проекта, чтобы определить тестовый набор.",
+          project: "Тестируемый проект",
+          noProjects: "Нет просканированных проектов",
+          runSummary: "Текущая конфигурация запуска",
+          readyToRun: "Манифест готов к запуску",
+          waitingManifest: "Ожидание манифеста",
+          summaryProject: "Выбранный проект",
+          summaryCases: "Активные кейсы",
+          summaryMode: "Режим выполнения",
+          safeTitle: "Безопасный запуск для исходников",
+          safeDescription:
+            "Runner анализирует только инвентарь и предпросмотр контекста. Он не пишет в проект, не создаёт пакеты задач и не выполняет сгенерированный код.",
+          stop: "Остановить после текущего кейса",
+          runSuite: "Запустить тестовый набор",
+          runCases: "Запустить кейсы: {{caseCount}}",
+          running: "Выполняется {{id}}",
+          preparing: "Подготовка следующего кейса",
+          files: "Файлов: {{fileCount}}",
+          failedChecks: "Провалено проверок: {{checkCount}}",
+          status: {
+            passed: "Пройден",
+            failed: "Провален",
+            error: "Ошибка",
+            skipped: "Пропущен",
+          },
+          messages: {
+            loaded: "Загружено кейсов: {{caseCount}} из файла {{fileName}}.",
+            templateDownloaded: "Скачан нейтральный шаблон validation-манифеста.",
+            archiveDownloaded: "Скачан файл {{fileName}}.",
+            disabled: "Отключено в манифесте.",
+            cancelledCase: "Пропущено после запроса остановки.",
+            cancelRequested: "Запрошена остановка. Текущий кейс завершится безопасно.",
+            partialComplete: "Частичный прогон завершён. Скачан файл {{fileName}}.",
+            complete: "Прогон завершён. Скачан файл {{fileName}}.",
+          },
+          errors: {
+            tooLarge: "Размер манифеста превышает 1 МБ.",
+            read: "Не удалось прочитать validation-манифест.",
+            unexpected: "Непредвиденная ошибка validation-прогона.",
+            archive: "Прогон завершён, но экспорт архива не удался: {{message}}",
+            archiveUnknown: "Прогон завершён, но экспорт архива не удался.",
+          },
         },
       },
       githubWorkspace: {

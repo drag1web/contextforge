@@ -29,6 +29,7 @@ interface AiToolLogoProps {
   className?: string;
   size?: "sm" | "md" | "lg";
   contrast?: "default" | "onLight";
+  tone?: "brand" | "monochrome";
 }
 
 const OPENAI_ICON: SimpleIconData = {
@@ -155,7 +156,8 @@ function GenericAiLogo({
   className = "",
   size = "md",
   contrast = "default",
-}: Pick<AiToolLogoProps, "className" | "size" | "contrast">) {
+  tone = "brand",
+}: Pick<AiToolLogoProps, "className" | "size" | "contrast" | "tone">) {
   const sizeClasses = getSizeClasses(size);
 
   return (
@@ -164,7 +166,9 @@ function GenericAiLogo({
         "grid shrink-0 place-items-center border",
         contrast === "onLight"
           ? "border-black/10 bg-black/5 text-black/70"
-          : "border-violet-400/25 bg-violet-400/10 text-violet-300",
+          : tone === "monochrome"
+            ? "border-white/15 bg-white/[0.045] text-neutral-100"
+            : "border-violet-400/25 bg-violet-400/10 text-violet-300",
         sizeClasses.box,
         className,
       ].join(" ")}
@@ -194,17 +198,28 @@ export function AiToolLogo({
   className = "",
   size = "md",
   contrast = "default",
+  tone = "brand",
 }: AiToolLogoProps) {
   const icon = getSimpleIcon(tool);
   const sizeClasses = getSizeClasses(size);
 
   if (!icon) {
     return (
-      <GenericAiLogo size={size} contrast={contrast} className={className} />
+      <GenericAiLogo
+        size={size}
+        contrast={contrast}
+        tone={tone}
+        className={className}
+      />
     );
   }
 
-  const color = getBrandColor(tool, icon, contrast);
+  const color =
+    tone === "monochrome"
+      ? contrast === "onLight"
+        ? "#18181b"
+        : "#f5f5f5"
+      : getBrandColor(tool, icon, contrast);
 
   return (
     <span

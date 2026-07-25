@@ -369,9 +369,9 @@ export function DashboardPage() {
     setAppSettings((currentSettings) =>
       currentSettings
         ? {
-            ...currentSettings,
-            onboardingCompleted: true,
-          }
+          ...currentSettings,
+          onboardingCompleted: true,
+        }
         : currentSettings,
     );
 
@@ -692,7 +692,6 @@ export function DashboardPage() {
           projects={dashboard.projects}
           taskPacks={dashboard.taskPacks}
           readinessScore={dashboard.readinessScore}
-          statusMessage={dashboard.statusMessage}
           onOpenProjects={() => handleNavigate("projects")}
           onOpenTaskPacks={() => handleNavigate("taskPacks")}
           onOpenTaskPack={dashboard.setGeneratedTaskPack}
