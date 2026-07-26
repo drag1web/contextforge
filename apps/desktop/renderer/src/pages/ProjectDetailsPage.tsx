@@ -14,6 +14,7 @@ import {
   XCircle
 } from "lucide-react";
 import { useEffect, useMemo, useState, type ReactNode } from "react";
+import { useTranslation } from "react-i18next";
 
 import type { Project } from "../types";
 import { GitContextCard } from "../components/projects/GitContextCard";
@@ -22,6 +23,7 @@ import {
   ProjectReadinessReport,
   ProjectScannerSignalsPanel
 } from "../components/projects/ProjectReadinessReport";
+import { buildLocalizedReadinessPriorities } from "../components/projects/projectDetailsI18n";
 import { Button } from "../components/ui/Button";
 import { HorizontalSlidingSelector } from "../components/ui/SlidingSelectors";
 
@@ -38,54 +40,15 @@ interface ProjectDetailsPageProps {
 type ProjectDetailsView = "overview" | "readiness" | "changes";
 type LocalChangesView = "working-tree" | "review";
 
-const DETAILS_VIEWS = [
-  {
-    id: "overview" as const,
-    label: "Overview",
-    caption: "Summary and next step",
-    icon: LayoutDashboard
-  },
-  {
-    id: "readiness" as const,
-    label: "Readiness",
-    caption: "Checks and scanner evidence",
-    icon: ShieldCheck
-  },
-  {
-    id: "changes" as const,
-    label: "Local changes",
-    caption: "Git status and diff review",
-    icon: GitBranch
-  }
-] as const;
-
-const LOCAL_CHANGES_VIEWS = [
-  {
-    id: "working-tree" as const,
-    label: "Working tree",
-    caption: "Branch, commit, and file state",
-    icon: GitBranch
-  },
-  {
-    id: "review" as const,
-    label: "Change review",
-    caption: "Diff scope and Task Pack alignment",
-    icon: ScanSearch
-  }
-] as const;
-
-function formatDate(value: string | null, neverLabel = "Never") {
+function formatDate(value: string | null, locale: string, neverLabel: string) {
   if (!value) {
     return neverLabel;
   }
 
-  return new Date(value).toLocaleString();
-}
-
-function getReadinessLabel(score: number) {
-  if (score >= 80) return "Ready";
-  if (score >= 50) return "Needs polish";
-  return "Needs attention";
+  return new Intl.DateTimeFormat(locale, {
+    dateStyle: "medium",
+    timeStyle: "short"
+  }).format(new Date(value));
 }
 
 function getReadinessTone(score: number) {
@@ -132,22 +95,32 @@ function SummaryMetric({
 }
 
 function ProjectProfile({ project }: { project: Project }) {
-  const stackItems = project.detectedStack.length > 0 ? project.detectedStack : ["Unknown stack"];
+  const { t, i18n } = useTranslation();
+  const locale = i18n.resolvedLanguage?.startsWith("ru") ? "ru-RU" : "en-US";
+  const stackItems =
+    project.detectedStack.length > 0
+      ? project.detectedStack
+      : [t("projectDetailsPage.profile.unknownStack")];
   const visibleStack = stackItems.slice(0, 6);
   const hiddenStackCount = Math.max(0, stackItems.length - visibleStack.length);
+  const scriptCount = Object.keys(project.scripts ?? {}).length;
 
   const rows = [
     {
-      label: "Package manager",
-      value: project.packageManager ?? "Not detected"
+      label: t("projectDetailsPage.profile.packageManager"),
+      value: project.packageManager ?? t("projectDetailsPage.notDetected")
     },
     {
-      label: "Last scan",
-      value: formatDate(project.lastScanAt)
+      label: t("projectDetailsPage.profile.lastScan"),
+      value: formatDate(
+        project.lastScanAt,
+        locale,
+        t("projectDetailsPage.never")
+      )
     },
     {
-      label: "Package scripts",
-      value: `${Object.keys(project.scripts ?? {}).length} detected`
+      label: t("projectDetailsPage.profile.packageScripts"),
+      value: t("projectDetailsPage.counts.detected", { count: scriptCount })
     }
   ];
 
@@ -158,9 +131,11 @@ function ProjectProfile({ project }: { project: Project }) {
           <Package size={17} />
         </div>
         <div>
-          <p className="text-sm font-semibold text-white">Project profile</p>
+          <p className="text-sm font-semibold text-white">
+            {t("projectDetailsPage.profile.title")}
+          </p>
           <p className="mt-1 text-sm leading-5 text-neutral-600">
-            Stable project facts used across scanning, context selection, and Task Pack generation.
+            {t("projectDetailsPage.profile.description")}
           </p>
         </div>
       </div>
@@ -178,7 +153,9 @@ function ProjectProfile({ project }: { project: Project }) {
       </div>
 
       <div className="mt-4">
-        <p className="cf-tech-label mb-2 text-[9px] uppercase text-neutral-600">Detected stack</p>
+        <p className="cf-tech-label mb-2 text-[9px] uppercase text-neutral-600">
+          {t("projectDetailsPage.profile.detectedStack")}
+        </p>
         <div className="flex flex-wrap gap-2">
           {visibleStack.map((item) => (
             <span key={item} className="cf-badge">
@@ -201,56 +178,103 @@ export function ProjectDetailsPage({
   onCreateTaskPack,
   onCreateTaskPackFromChanges
 }: ProjectDetailsPageProps) {
+  const { t } = useTranslation();
   const [activeView, setActiveView] = useState<ProjectDetailsView>("overview");
-  const [localChangesView, setLocalChangesView] = useState<LocalChangesView>("working-tree");
+  const [localChangesView, setLocalChangesView] =
+    useState<LocalChangesView>("working-tree");
+
+  const detailsViews = useMemo(
+    () => [
+      {
+        id: "overview" as const,
+        label: t("projectDetailsPage.tabs.overview"),
+        caption: t("projectDetailsPage.tabs.overviewDesc"),
+        icon: LayoutDashboard
+      },
+      {
+        id: "readiness" as const,
+        label: t("projectDetailsPage.tabs.readiness"),
+        caption: t("projectDetailsPage.tabs.readinessDesc"),
+        icon: ShieldCheck
+      },
+      {
+        id: "changes" as const,
+        label: t("projectDetailsPage.tabs.changes"),
+        caption: t("projectDetailsPage.tabs.changesDesc"),
+        icon: GitBranch
+      }
+    ],
+    [t]
+  );
+
+  const localChangesViews = useMemo(
+    () => [
+      {
+        id: "working-tree" as const,
+        label: t("projectDetailsPage.localTabs.workingTree"),
+        caption: t("projectDetailsPage.localTabs.workingTreeDesc"),
+        icon: GitBranch
+      },
+      {
+        id: "review" as const,
+        label: t("projectDetailsPage.localTabs.review"),
+        caption: t("projectDetailsPage.localTabs.reviewDesc"),
+        icon: ScanSearch
+      }
+    ],
+    [t]
+  );
 
   useEffect(() => {
     setActiveView("overview");
     setLocalChangesView("working-tree");
   }, [project.id]);
 
-  const readinessLabel = getReadinessLabel(project.readinessScore);
-  const passedChecks = project.readinessReport.checks.filter((check) => check.passed).length;
+  const readinessLabel =
+    project.readinessScore >= 80
+      ? t("projectDetailsPage.readiness.ready")
+      : project.readinessScore >= 50
+        ? t("projectDetailsPage.readiness.needsPolish")
+        : t("projectDetailsPage.readiness.needsAttention");
+  const passedChecks = project.readinessReport.checks.filter(
+    (check) => check.passed
+  ).length;
   const scriptsCount = Object.keys(project.scripts ?? {}).length;
-  const issueCount = project.readinessReport.issues.length;
-  const activeViewIndex = DETAILS_VIEWS.findIndex((view) => view.id === activeView);
-  const localChangesViewIndex = LOCAL_CHANGES_VIEWS.findIndex((view) => view.id === localChangesView);
-
-  const attentionItems = useMemo(() => {
-    const issueItems = project.readinessReport.issues.map((message) => ({
-      key: `issue-${message}`,
-      title: message,
-      caption: "Recommended improvement",
-      icon: AlertTriangle
-    }));
-
-    const failedCheckItems = project.readinessReport.checks.filter((check) => !check.passed).map((check) => ({
-      key: `check-${check.key}`,
-      title: check.label,
-      caption: check.message,
-      icon: XCircle
-    }));
-
-    return [...issueItems, ...failedCheckItems]
-      .filter((item, index, items) => items.findIndex((candidate) => candidate.title === item.title) === index)
-      .slice(0, 4);
-  }, [project.readinessReport]);
+  const allAttentionItems = useMemo(
+    () => buildLocalizedReadinessPriorities(t, project.readinessReport),
+    [project.readinessReport, t]
+  );
+  const attentionItems = allAttentionItems.slice(0, 4);
+  const issueCount = allAttentionItems.length;
+  const activeViewIndex = detailsViews.findIndex((view) => view.id === activeView);
+  const localChangesViewIndex = localChangesViews.findIndex(
+    (view) => view.id === localChangesView
+  );
 
   return (
     <section className="space-y-4">
       <header className="rounded-[1.75rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),rgba(255,255,255,0.01)_52%,rgba(255,255,255,0.004))] p-5 shadow-[0_18px_55px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.045)]">
         <div className="flex flex-wrap items-start justify-between gap-4">
           <div className="flex min-w-0 items-start gap-3">
-            <Button type="button" variant="ghost" onClick={onBack} className="mt-0.5 shrink-0 px-2.5">
+            <Button
+              type="button"
+              variant="ghost"
+              onClick={onBack}
+              className="mt-0.5 shrink-0 px-2.5"
+            >
               <ArrowLeft size={15} />
-              Projects
+              {t("projectDetailsPage.projects")}
             </Button>
 
             <div className="min-w-0">
               <div className="mb-2 flex flex-wrap items-center gap-2">
-                <span className="cf-tech-label text-[9px] uppercase text-neutral-600">Project workspace</span>
+                <span className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                  {t("projectDetailsPage.workspace")}
+                </span>
                 <span className="size-1 rounded-full bg-neutral-800" />
-                <span className="text-xs text-neutral-600">Local repository</span>
+                <span className="text-xs text-neutral-600">
+                  {t("projectDetailsPage.localRepository")}
+                </span>
               </div>
               <h2 className="truncate text-[31px] font-semibold leading-none tracking-[-0.045em] text-white">
                 {project.name}
@@ -267,7 +291,7 @@ export function ProjectDetailsPage({
               onClick={() => onCreateTaskPack(project)}
             >
               <WandSparkles size={15} />
-              Create Task Pack
+              {t("projectDetailsPage.actions.createTaskPack")}
             </Button>
             <Button
               type="button"
@@ -285,7 +309,7 @@ export function ProjectDetailsPage({
               onClick={() => onRescan(project)}
             >
               <RefreshCw size={15} />
-              Rescan
+              {t("projectDetailsPage.actions.rescan")}
             </Button>
           </div>
         </div>
@@ -293,21 +317,21 @@ export function ProjectDetailsPage({
         <div className="mt-5 grid gap-3 xl:grid-cols-[minmax(0,1fr)_330px]">
           <div className="grid gap-3 sm:grid-cols-3">
             <SummaryMetric
-              label="Checks"
+              label={t("projectDetailsPage.summary.checks")}
               value={`${passedChecks}/${project.readinessReport.checks.length}`}
-              caption="passed"
+              caption={t("projectDetailsPage.summary.passed")}
               icon={<ShieldCheck size={15} />}
             />
             <SummaryMetric
-              label="Attention"
+              label={t("projectDetailsPage.summary.attention")}
               value={issueCount}
-              caption={issueCount === 1 ? "issue" : "issues"}
+              caption={t("projectDetailsPage.counts.issue", { count: issueCount })}
               icon={<AlertTriangle size={15} />}
             />
             <SummaryMetric
-              label="Scripts"
+              label={t("projectDetailsPage.summary.scripts")}
               value={scriptsCount}
-              caption="detected"
+              caption={t("projectDetailsPage.summary.detected")}
               icon={<Package size={15} />}
             />
           </div>
@@ -315,7 +339,9 @@ export function ProjectDetailsPage({
           <aside className="rounded-2xl border border-neutral-900 bg-black/35 px-4 py-3">
             <div className="flex items-start justify-between gap-3">
               <div>
-                <p className="cf-tech-label text-[9px] uppercase text-neutral-600">AI readiness</p>
+                <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                  {t("projectDetailsPage.readiness.aiReadiness")}
+                </p>
                 <p className="mt-1 text-sm font-medium text-white">{readinessLabel}</p>
               </div>
               <p className="cf-display-font text-3xl font-semibold leading-none text-white">
@@ -325,7 +351,10 @@ export function ProjectDetailsPage({
             <div className="mt-3 rounded-full border border-neutral-800/80 bg-black p-1">
               <div className="cf-health-track">
                 <div
-                  className={["cf-health-fill", getReadinessTone(project.readinessScore)].join(" ")}
+                  className={[
+                    "cf-health-fill",
+                    getReadinessTone(project.readinessScore)
+                  ].join(" ")}
                   style={{ width: getReadinessWidth(project.readinessScore) }}
                 />
               </div>
@@ -335,11 +364,11 @@ export function ProjectDetailsPage({
       </header>
 
       <HorizontalSlidingSelector
-        items={DETAILS_VIEWS}
+        items={detailsViews}
         activeIndex={activeViewIndex}
         getItemKey={(view) => view.id}
         onSelect={(view) => setActiveView(view.id)}
-        ariaLabel="Project details view"
+        ariaLabel={t("projectDetailsPage.aria.detailsView")}
         className="rounded-[1.35rem]"
         itemClassName="min-h-[64px] px-4 py-2"
         renderItem={(view, isActive) => {
@@ -359,7 +388,13 @@ export function ProjectDetailsPage({
               </span>
               <span className="min-w-0">
                 <span className="block truncate text-sm font-semibold">{view.label}</span>
-                <span className={isActive ? "block truncate text-xs text-black/50" : "block truncate text-xs text-neutral-700"}>
+                <span
+                  className={
+                    isActive
+                      ? "block truncate text-xs text-black/50"
+                      : "block truncate text-xs text-neutral-700"
+                  }
+                >
                   {view.caption}
                 </span>
               </span>
@@ -375,50 +410,60 @@ export function ProjectDetailsPage({
               <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
                 <div className="flex items-start gap-3">
                   <div className="grid size-10 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-                    {attentionItems.length > 0 ? <AlertTriangle size={17} /> : <CheckCircle2 size={17} />}
+                    {attentionItems.length > 0 ? (
+                      <AlertTriangle size={17} />
+                    ) : (
+                      <CheckCircle2 size={17} />
+                    )}
                   </div>
                   <div>
-                    <p className="text-sm font-semibold text-white">What needs attention</p>
+                    <p className="text-sm font-semibold text-white">
+                      {t("projectDetailsPage.attention.title")}
+                    </p>
                     <p className="mt-1 text-sm leading-5 text-neutral-600">
                       {attentionItems.length > 0
-                        ? "The most useful gaps to review before starting broad implementation work."
-                        : "No major readiness gaps were detected. The project is ready for a scoped task."}
+                        ? t("projectDetailsPage.attention.description")
+                        : t("projectDetailsPage.attention.clearDescription")}
                     </p>
                   </div>
                 </div>
 
                 <span className="cf-badge">
-                  {attentionItems.length > 0 ? `${attentionItems.length} priority items` : "No blockers"}
+                  {attentionItems.length > 0
+                    ? t("projectDetailsPage.counts.priorityItem", {
+                        count: issueCount
+                      })
+                    : t("projectDetailsPage.attention.noBlockers")}
                 </span>
               </div>
 
               {attentionItems.length > 0 ? (
                 <div className="grid gap-2">
-                  {attentionItems.map((item, index) => {
-                    const Icon = item.icon;
-
-                    return (
-                      <article
-                        key={item.key}
-                        className="flex min-w-0 items-start gap-3 rounded-2xl border border-neutral-900 bg-black/30 px-4 py-3"
-                      >
-                        <span className="grid size-7 shrink-0 place-items-center rounded-full border border-neutral-800 bg-neutral-950 text-neutral-500">
-                          {index + 1}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <div className="flex min-w-0 items-center gap-2">
-                            <Icon size={14} className="shrink-0 text-neutral-500" />
-                            <p className="truncate text-sm font-medium text-neutral-200">{item.title}</p>
-                          </div>
-                          <p className="mt-1 line-clamp-2 text-xs leading-5 text-neutral-600">{item.caption}</p>
+                  {attentionItems.map((item, index) => (
+                    <article
+                      key={item.key}
+                      className="flex min-w-0 items-start gap-3 rounded-2xl border border-neutral-900 bg-black/30 px-4 py-3"
+                    >
+                      <span className="grid size-7 shrink-0 place-items-center rounded-full border border-neutral-800 bg-neutral-950 text-neutral-500">
+                        {index + 1}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <div className="flex min-w-0 items-center gap-2">
+                          <XCircle size={14} className="shrink-0 text-neutral-500" />
+                          <p className="truncate text-sm font-medium text-neutral-200">
+                            {item.title}
+                          </p>
                         </div>
-                      </article>
-                    );
-                  })}
+                        <p className="mt-1 line-clamp-2 text-xs leading-5 text-neutral-600">
+                          {item.caption}
+                        </p>
+                      </div>
+                    </article>
+                  ))}
                 </div>
               ) : (
                 <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.06] p-4 text-sm leading-6 text-emerald-100/75">
-                  Continue with a focused Task Pack. ContextForge will still apply task-level safety and context checks during generation.
+                  {t("projectDetailsPage.attention.readyCallout")}
                 </div>
               )}
             </section>
@@ -426,7 +471,10 @@ export function ProjectDetailsPage({
             <ProjectProfile project={project} />
           </div>
 
-          <ProjectScannerSignalsPanel signals={project.readinessReport.signals} compact />
+          <ProjectScannerSignalsPanel
+            signals={project.readinessReport.signals}
+            compact
+          />
         </div>
       )}
 
@@ -438,19 +486,25 @@ export function ProjectDetailsPage({
                 <Gauge size={17} />
               </div>
               <div>
-                <p className="text-sm font-semibold text-white">Readiness evidence</p>
+                <p className="text-sm font-semibold text-white">
+                  {t("projectDetailsPage.readiness.evidenceTitle")}
+                </p>
                 <p className="mt-1 text-sm leading-5 text-neutral-600">
-                  Review the checks and scanner evidence behind the current readiness score.
+                  {t("projectDetailsPage.readiness.evidenceDescription")}
                 </p>
               </div>
             </div>
 
             <div className="flex items-center gap-3 rounded-2xl border border-neutral-900 bg-black/30 px-4 py-3">
               <div>
-                <p className="cf-tech-label text-[9px] uppercase text-neutral-600">Current score</p>
+                <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
+                  {t("projectDetailsPage.readiness.currentScore")}
+                </p>
                 <p className="mt-1 text-sm text-neutral-300">{readinessLabel}</p>
               </div>
-              <p className="cf-display-font text-3xl font-semibold text-white">{project.readinessScore}</p>
+              <p className="cf-display-font text-3xl font-semibold text-white">
+                {project.readinessScore}
+              </p>
             </div>
           </div>
 
@@ -466,9 +520,11 @@ export function ProjectDetailsPage({
                 <GitBranch size={17} />
               </div>
               <div>
-                <p className="text-sm font-semibold text-white">Local development state</p>
+                <p className="text-sm font-semibold text-white">
+                  {t("projectDetailsPage.localChanges.title")}
+                </p>
                 <p className="mt-1 max-w-2xl text-sm leading-5 text-neutral-600">
-                  Inspect the local working tree and compare the current diff with the latest saved Task Pack. Nothing is committed or pushed from this page.
+                  {t("projectDetailsPage.localChanges.description")}
                 </p>
               </div>
             </div>
@@ -481,16 +537,16 @@ export function ProjectDetailsPage({
               className="shrink-0"
             >
               <ScanSearch size={15} />
-              Create from changes
+              {t("projectDetailsPage.actions.createFromChanges")}
             </Button>
           </div>
 
           <HorizontalSlidingSelector
-            items={LOCAL_CHANGES_VIEWS}
+            items={localChangesViews}
             activeIndex={localChangesViewIndex}
             getItemKey={(view) => view.id}
             onSelect={(view) => setLocalChangesView(view.id)}
-            ariaLabel="Local changes view"
+            ariaLabel={t("projectDetailsPage.aria.localChangesView")}
             className="mt-5 rounded-[1.2rem]"
             itemClassName="min-h-[58px] px-4 py-2"
             renderItem={(view, isActive) => {
@@ -509,8 +565,16 @@ export function ProjectDetailsPage({
                     <Icon size={15} />
                   </span>
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-semibold">{view.label}</span>
-                    <span className={isActive ? "block truncate text-xs text-black/50" : "block truncate text-xs text-neutral-700"}>
+                    <span className="block truncate text-sm font-semibold">
+                      {view.label}
+                    </span>
+                    <span
+                      className={
+                        isActive
+                          ? "block truncate text-xs text-black/50"
+                          : "block truncate text-xs text-neutral-700"
+                      }
+                    >
                       {view.caption}
                     </span>
                   </span>
@@ -519,8 +583,12 @@ export function ProjectDetailsPage({
             }}
           />
 
-          {localChangesView === "working-tree" && <GitContextCard projectId={project.id} enabled />}
-          {localChangesView === "review" && <GitDiffSummaryCard projectId={project.id} enabled />}
+          {localChangesView === "working-tree" && (
+            <GitContextCard projectId={project.id} enabled />
+          )}
+          {localChangesView === "review" && (
+            <GitDiffSummaryCard projectId={project.id} enabled />
+          )}
         </section>
       )}
     </section>

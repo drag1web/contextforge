@@ -730,6 +730,52 @@ export interface AiProviderModel {
   description?: string;
 }
 
+export interface ContextForgeMcpTestResult {
+  ok: boolean;
+  testedAt: string;
+  durationMs: number;
+  protocolVersion: string | null;
+  server: { name: string; version: string } | null;
+  tools: string[];
+  resources: string[];
+  resourceTemplates: string[];
+  prompts: string[];
+  message: string;
+}
+
+export interface ContextForgeMcpStatus {
+  supported: boolean;
+  enabled: boolean;
+  transport: "stdio";
+  serverName: "contextforge";
+  version: string;
+  readOnly: boolean;
+  permissions: {
+    readProjects: boolean;
+    readProjectMemory: boolean;
+    readTaskPacks: boolean;
+    allowCreateTaskPacks: boolean;
+  };
+  allowCreateTaskPacks: boolean;
+  entrypoint: {
+    ready: boolean;
+    sourceReady: boolean;
+    status: "ready" | "needs_build";
+  };
+  databasePathConfigured: boolean;
+  command: string;
+  args: string[];
+  envKeys: string[];
+  codexRegistrationCommand: string;
+  codexConfigSnippet: string;
+  warnings: string[];
+  expected: {
+    tools: string[];
+    prompts: string[];
+  };
+  lastTest: ContextForgeMcpTestResult | null;
+}
+
 export interface GitHubIntegrationStatus {
   configured: boolean;
   connected: boolean;

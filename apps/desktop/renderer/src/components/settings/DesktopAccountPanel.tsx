@@ -672,6 +672,12 @@ export function DesktopAccountPanel() {
     }
   }
 
+  useEffect(() => {
+    if (feedbackMessage) {
+      showStatusToast(feedbackMessage);
+    }
+  }, [feedbackMessage]);
+
   if (!bridge) {
     return (
       <div className="rounded-[2rem] border border-neutral-900 bg-neutral-950/60 p-6">
@@ -739,12 +745,6 @@ export function DesktopAccountPanel() {
         }
       ]
     : [];
-
-  useEffect(() => {
-    if (feedbackMessage) {
-      showStatusToast(feedbackMessage);
-    }
-  }, [feedbackMessage]);
 
   return (
     <div className="space-y-5">

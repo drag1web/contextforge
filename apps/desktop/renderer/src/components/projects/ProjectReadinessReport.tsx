@@ -19,6 +19,11 @@ import { useEffect, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import type { ReadinessReport, ScannerSignals } from "../../types";
 import { HorizontalSlidingSelector } from "../ui/SlidingSelectors";
+import {
+  buildLocalizedReadinessPriorities,
+  localizeReadinessCheckLabel,
+  localizeReadinessCheckMessage
+} from "./projectDetailsI18n";
 
 interface ProjectReadinessReportProps {
   report: ReadinessReport;
@@ -26,26 +31,7 @@ interface ProjectReadinessReportProps {
 
 type ReadinessView = "priorities" | "checks" | "scanner";
 
-const READINESS_VIEWS = [
-  {
-    id: "priorities" as const,
-    label: "Priorities",
-    caption: "What needs attention first",
-    icon: AlertTriangle
-  },
-  {
-    id: "checks" as const,
-    label: "Checks",
-    caption: "All readiness criteria",
-    icon: ListChecks
-  },
-  {
-    id: "scanner" as const,
-    label: "Scanner",
-    caption: "Detected project evidence",
-    icon: ScanSearch
-  }
-] as const;
+
 
 type SignalTone = "success" | "warning" | "muted";
 
@@ -199,27 +185,31 @@ export function ProjectScannerSignalsPanel({
     const testEvidenceCount = signals.testFiles.length + signals.testConfigs.length;
     const compactSignals = [
       {
-        label: "Packages",
+        label: t("projectDetailsPage.scanner.packages"),
         value: signals.packageFiles.length,
-        hint: signals.packageFiles[0] ?? "No package manifest",
+        hint: signals.packageFiles[0] ?? t("projectDetailsPage.scanner.noPackageManifest"),
         tone: signals.packageFiles.length > 0 ? "success" : "muted"
       },
       {
-        label: "Commands",
+        label: t("projectDetailsPage.scanner.commands"),
         value: `${detectedCommandCount}/5`,
-        hint: commandRows.filter((item) => item.passed).map((item) => item.label).join(" · ") || "No commands detected",
+        hint: commandRows.filter((item) => item.passed).map((item) => item.label).join(" · ") || t("projectDetailsPage.scanner.noCommands"),
         tone: detectedCommandCount >= 2 ? "success" : "warning"
       },
       {
-        label: "Tests",
+        label: t("projectDetailsPage.scanner.tests"),
         value: testEvidenceCount,
-        hint: signals.commands.test ? `Script: ${signals.commands.test}` : testEvidenceCount > 0 ? "Evidence found" : "Not detected",
+        hint: signals.commands.test
+          ? t("projectDetailsPage.scanner.script", { command: signals.commands.test })
+          : testEvidenceCount > 0
+            ? t("projectDetailsPage.scanner.evidenceFound")
+            : t("projectDetailsPage.notDetected"),
         tone: signals.commands.test || testEvidenceCount > 0 ? "success" : "muted"
       },
       {
-        label: "CI",
+        label: t("projectDetailsPage.scanner.ci"),
         value: signals.ciFiles.length,
-        hint: signals.ciFiles[0] ?? "Optional for local MVP",
+        hint: signals.ciFiles[0] ?? t("projectDetailsPage.scanner.ciOptional"),
         tone: signals.ciFiles.length > 0 ? "success" : "muted"
       }
     ] as const;
@@ -229,10 +219,10 @@ export function ProjectScannerSignalsPanel({
         <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
           <div>
             <p className="cf-tech-label mb-1 text-[10px] uppercase text-neutral-600">
-              Scanner snapshot
+              {t("projectDetailsPage.scanner.snapshot")}
             </p>
             <p className="text-sm leading-5 text-neutral-500">
-              Compact scanner evidence. Open the Scanners page for the full signal breakdown.
+              {t("projectDetailsPage.scanner.snapshotDescription")}
             </p>
           </div>
 
@@ -369,36 +359,37 @@ export function ProjectScannerSignalsPanel({
 }
 
 export function ProjectReadinessReport({ report }: ProjectReadinessReportProps) {
+  const { t } = useTranslation();
   const [activeView, setActiveView] = useState<ReadinessView>("priorities");
   const passedChecks = report.checks.filter((check) => check.passed);
   const failedChecks = report.checks.filter((check) => !check.passed);
-  const activeViewIndex = READINESS_VIEWS.findIndex((view) => view.id === activeView);
+  const readinessViews = [
+    {
+      id: "priorities" as const,
+      label: t("projectDetailsPage.readinessPanel.tabs.priorities"),
+      caption: t("projectDetailsPage.readinessPanel.tabs.prioritiesDesc"),
+      icon: AlertTriangle
+    },
+    {
+      id: "checks" as const,
+      label: t("projectDetailsPage.readinessPanel.tabs.checks"),
+      caption: t("projectDetailsPage.readinessPanel.tabs.checksDesc"),
+      icon: ListChecks
+    },
+    {
+      id: "scanner" as const,
+      label: t("projectDetailsPage.readinessPanel.tabs.scanner"),
+      caption: t("projectDetailsPage.readinessPanel.tabs.scannerDesc"),
+      icon: ScanSearch
+    }
+  ];
+  const activeViewIndex = readinessViews.findIndex((view) => view.id === activeView);
 
   useEffect(() => {
     setActiveView("priorities");
   }, [report.score, report.checks.length, report.issues.length]);
 
-  const issueItems = report.issues.map((issue) => ({
-    key: `issue-${issue}`,
-    title: issue,
-    caption: "Recommended improvement",
-    points: null as number | null
-  }));
-
-  const failedCheckItems = failedChecks.map((check) => ({
-    key: `check-${check.key}`,
-    title: check.label,
-    caption: check.message,
-    points: check.points
-  }));
-
-  const priorityItems = [...issueItems, ...failedCheckItems].filter(
-    (item, index, items) =>
-      items.findIndex(
-        (candidate) =>
-          candidate.title.trim().toLowerCase() === item.title.trim().toLowerCase()
-      ) === index
-  );
+  const priorityItems = buildLocalizedReadinessPriorities(t, report);
 
   const renderCheckRows = (checks: ReadinessReport["checks"]) => (
     <div className="divide-y divide-neutral-900">
@@ -414,12 +405,16 @@ export function ProjectReadinessReport({ report }: ProjectReadinessReportProps) 
 
           <div className="min-w-0 flex-1">
             <div className="flex min-w-0 items-center justify-between gap-3">
-              <p className="truncate text-sm font-medium text-neutral-200">{check.label}</p>
+              <p className="truncate text-sm font-medium text-neutral-200">
+                {localizeReadinessCheckLabel(t, check)}
+              </p>
               <span className="shrink-0 text-xs text-neutral-600">
                 {check.passed ? `+${check.points}` : `0/${check.points}`}
               </span>
             </div>
-            <p className="mt-1 text-xs leading-5 text-neutral-600">{check.message}</p>
+            <p className="mt-1 text-xs leading-5 text-neutral-600">
+              {localizeReadinessCheckMessage(t, report, check)}
+            </p>
           </div>
         </article>
       ))}
@@ -429,11 +424,11 @@ export function ProjectReadinessReport({ report }: ProjectReadinessReportProps) 
   return (
     <div>
       <HorizontalSlidingSelector
-        items={READINESS_VIEWS}
+        items={readinessViews}
         activeIndex={activeViewIndex}
         getItemKey={(view) => view.id}
         onSelect={(view) => setActiveView(view.id)}
-        ariaLabel="Readiness evidence view"
+        ariaLabel={t("projectDetailsPage.aria.readinessView")}
         className="rounded-[1.2rem]"
         itemClassName="min-h-[58px] px-4 py-2"
         renderItem={(view, isActive) => {
@@ -453,7 +448,13 @@ export function ProjectReadinessReport({ report }: ProjectReadinessReportProps) 
               </span>
               <span className="min-w-0">
                 <span className="block truncate text-sm font-semibold">{view.label}</span>
-                <span className={isActive ? "block truncate text-xs text-black/50" : "block truncate text-xs text-neutral-700"}>
+                <span
+                  className={
+                    isActive
+                      ? "block truncate text-xs text-black/50"
+                      : "block truncate text-xs text-neutral-700"
+                  }
+                >
                   {view.caption}
                 </span>
               </span>
@@ -467,19 +468,21 @@ export function ProjectReadinessReport({ report }: ProjectReadinessReportProps) 
           <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
             <div>
               <p className="cf-tech-label mb-1 text-[10px] uppercase text-neutral-600">
-                Next priorities
+                {t("projectDetailsPage.readinessPanel.nextPriorities")}
               </p>
               <p className="text-sm text-neutral-500">
                 {priorityItems.length > 0
-                  ? "Focus on these gaps before broad implementation work."
-                  : "No major readiness gaps were detected."}
+                  ? t("projectDetailsPage.readinessPanel.prioritiesDescription")
+                  : t("projectDetailsPage.readinessPanel.noGaps")}
               </p>
             </div>
 
             <span className="cf-badge">
               {priorityItems.length > 0
-                ? `${priorityItems.length} attention item${priorityItems.length === 1 ? "" : "s"}`
-                : "Ready for scoped work"}
+                ? t("projectDetailsPage.counts.attentionItem", {
+                    count: priorityItems.length
+                  })
+                : t("projectDetailsPage.readinessPanel.readyForScopedWork")}
             </span>
           </div>
 
@@ -498,19 +501,23 @@ export function ProjectReadinessReport({ report }: ProjectReadinessReportProps) 
                   </span>
                   <div className="min-w-0 flex-1">
                     <div className="flex min-w-0 items-center justify-between gap-3">
-                      <p className="truncate text-sm font-medium text-neutral-200">{item.title}</p>
-                      {item.points !== null && (
-                        <span className="shrink-0 text-xs text-neutral-600">0/{item.points}</span>
-                      )}
+                      <p className="truncate text-sm font-medium text-neutral-200">
+                        {item.title}
+                      </p>
+                      <span className="shrink-0 text-xs text-neutral-600">
+                        0/{item.points}
+                      </span>
                     </div>
-                    <p className="mt-1 text-xs leading-5 text-neutral-600">{item.caption}</p>
+                    <p className="mt-1 text-xs leading-5 text-neutral-600">
+                      {item.caption}
+                    </p>
                   </div>
                 </article>
               ))}
             </div>
           ) : (
             <div className="rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.06] p-4 text-sm leading-6 text-emerald-100/75">
-              All readiness checks passed or no actionable gaps were reported. Continue with a focused Task Pack.
+              {t("projectDetailsPage.readinessPanel.allPassedCallout")}
             </div>
           )}
         </div>
@@ -521,8 +528,12 @@ export function ProjectReadinessReport({ report }: ProjectReadinessReportProps) 
           <section className="overflow-hidden rounded-2xl border border-neutral-900 bg-black/35">
             <div className="flex items-center justify-between gap-3 border-b border-neutral-900 px-4 py-3">
               <div>
-                <p className="text-sm font-medium text-white">Needs attention</p>
-                <p className="mt-0.5 text-xs text-neutral-600">Failed readiness criteria</p>
+                <p className="text-sm font-medium text-white">
+                  {t("projectDetailsPage.readinessPanel.needsAttention")}
+                </p>
+                <p className="mt-0.5 text-xs text-neutral-600">
+                  {t("projectDetailsPage.readinessPanel.failedCriteria")}
+                </p>
               </div>
               <SignalBadge tone={failedChecks.length > 0 ? "warning" : "success"}>
                 {failedChecks.length}
@@ -531,22 +542,30 @@ export function ProjectReadinessReport({ report }: ProjectReadinessReportProps) 
             {failedChecks.length > 0 ? (
               renderCheckRows(failedChecks)
             ) : (
-              <p className="px-4 py-5 text-sm text-neutral-600">No failed checks.</p>
+              <p className="px-4 py-5 text-sm text-neutral-600">
+                {t("projectDetailsPage.readinessPanel.noFailedChecks")}
+              </p>
             )}
           </section>
 
           <section className="overflow-hidden rounded-2xl border border-neutral-900 bg-black/35">
             <div className="flex items-center justify-between gap-3 border-b border-neutral-900 px-4 py-3">
               <div>
-                <p className="text-sm font-medium text-white">Passed</p>
-                <p className="mt-0.5 text-xs text-neutral-600">Verified project capabilities</p>
+                <p className="text-sm font-medium text-white">
+                  {t("projectDetailsPage.readinessPanel.passed")}
+                </p>
+                <p className="mt-0.5 text-xs text-neutral-600">
+                  {t("projectDetailsPage.readinessPanel.verifiedCapabilities")}
+                </p>
               </div>
               <SignalBadge tone="success">{passedChecks.length}</SignalBadge>
             </div>
             {passedChecks.length > 0 ? (
               renderCheckRows(passedChecks)
             ) : (
-              <p className="px-4 py-5 text-sm text-neutral-600">No checks have passed yet.</p>
+              <p className="px-4 py-5 text-sm text-neutral-600">
+                {t("projectDetailsPage.readinessPanel.noPassedChecks")}
+              </p>
             )}
           </section>
         </div>

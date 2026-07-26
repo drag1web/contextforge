@@ -45,6 +45,7 @@ import {
   getAiToolLabel,
 } from "../components/ai/aiToolOptions";
 import { WorkspacePageHeader } from "../components/layout/WorkspacePageHeader";
+import { McpIntegrationPanel } from "../components/integrations/McpIntegrationPanel";
 import { Button } from "../components/ui/Button";
 import { CustomSelect, type SelectOption } from "../components/ui/CustomSelect";
 import { HorizontalSlidingSelector } from "../components/ui/SlidingSelectors";
@@ -55,7 +56,12 @@ import type {
   AppSettings,
 } from "../types";
 
-type IntegrationTab = "overview" | "providers" | "connections" | "security";
+type IntegrationTab =
+  | "overview"
+  | "providers"
+  | "connections"
+  | "mcp"
+  | "security";
 
 const TAB_TRANSITION = {
   duration: 0.22,
@@ -619,6 +625,7 @@ export function IntegrationsPage({
       { id: "overview" as const, label: t("integrationsHub.tabs.overview"), icon: <Layers3 size={14} /> },
       { id: "providers" as const, label: t("integrationsHub.tabs.providers"), icon: <Server size={14} /> },
       { id: "connections" as const, label: t("integrationsHub.tabs.connections"), icon: <PlugZap size={14} /> },
+      { id: "mcp" as const, label: t("integrationsHub.tabs.mcp"), icon: <Puzzle size={14} /> },
       { id: "security" as const, label: t("integrationsHub.tabs.security"), icon: <ShieldCheck size={14} /> },
     ],
     [t],
@@ -1148,11 +1155,13 @@ export function IntegrationsPage({
                   />
                   <ConnectionCard
                     icon={<Puzzle size={16} />}
-                    iconTone="neutral"
-                    title={t("integrationsHub.connections.futureTitle")}
-                    description={t("integrationsHub.connections.futureDescription")}
-                    status={t("common.planned")}
-                    statusTone="neutral"
+                    iconTone="emerald"
+                    title={t("integrationsHub.future.mcpTitle")}
+                    description={t("integrationsHub.future.mcpDescription")}
+                    status={t("integrationsHub.status.available")}
+                    statusTone="positive"
+                    actionLabel={t("integrationsHub.actions.configure")}
+                    onAction={() => setActiveTab("mcp")}
                   />
                 </div>
               </SurfaceCard>
@@ -1449,7 +1458,6 @@ export function IntegrationsPage({
               >
                 <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
                   {([
-                    { id: "mcp", icon: <Puzzle size={16} /> },
                     { id: "cli", icon: <TerminalSquare size={16} /> },
                     { id: "issues", icon: <GitBranch size={16} /> },
                     { id: "cloud", icon: <Cloud size={16} /> },
@@ -1469,6 +1477,8 @@ export function IntegrationsPage({
               </SurfaceCard>
             </div>
           ) : null}
+
+          {activeTab === "mcp" ? <McpIntegrationPanel /> : null}
 
           {activeTab === "security" ? (
             <div className="space-y-5">

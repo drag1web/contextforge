@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
+import type { TFunction } from "i18next";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   CheckCircle2,
@@ -44,28 +46,24 @@ interface TaskPackDiffAlignment {
   selectedOnlyCount: number;
 }
 
-const SCOPE_LABELS: Record<GitDiffFileSummary["scope"], string> = {
-  staged: "staged",
-  unstaged: "unstaged",
-  untracked: "untracked"
+const SCOPE_LABEL_KEYS: Record<GitDiffFileSummary["scope"], string> = {
+  staged: "projectDetailsPage.diff.scope.staged",
+  unstaged: "projectDetailsPage.diff.scope.unstaged",
+  untracked: "projectDetailsPage.diff.scope.untracked"
 };
 
-const STATUS_LABELS: Record<GitDiffFileSummary["status"], string> = {
-  added: "added",
-  modified: "modified",
-  deleted: "deleted",
-  renamed: "renamed",
-  copied: "copied",
-  unmerged: "unmerged",
-  untracked: "new",
-  unknown: "changed"
+const STATUS_LABEL_KEYS: Record<GitDiffFileSummary["status"], string> = {
+  added: "projectDetailsPage.diff.status.added",
+  modified: "projectDetailsPage.diff.status.modified",
+  deleted: "projectDetailsPage.diff.status.deleted",
+  renamed: "projectDetailsPage.diff.status.renamed",
+  copied: "projectDetailsPage.diff.status.copied",
+  unmerged: "projectDetailsPage.diff.status.unmerged",
+  untracked: "projectDetailsPage.diff.status.new",
+  unknown: "projectDetailsPage.diff.status.changed"
 };
 
-const VERDICT_OPTIONS: Array<{ id: ReviewVerdict; label: string; caption: string }> = [
-  { id: "looks-good", label: "Looks good", caption: "Ready to continue" },
-  { id: "needs-changes", label: "Needs changes", caption: "Review before export" },
-  { id: "blocked", label: "Blocked", caption: "Do not continue yet" }
-];
+
 
 function DiffBadge({ children, tone = "muted" }: { children: ReactNode; tone?: DiffBadgeTone }) {
   const toneClass =
@@ -78,7 +76,7 @@ function DiffBadge({ children, tone = "muted" }: { children: ReactNode; tone?: D
           : "border-neutral-800 bg-black/35 text-neutral-400";
 
   return (
-    <span className={["inline-flex min-w-0 items-center gap-1 rounded-full border px-2 py-1 text-[11px]", toneClass].join(" ")}> 
+    <span className={["inline-flex min-w-0 items-center gap-1 rounded-full border px-2 py-1 text-[11px]", toneClass].join(" ")}>
       {children}
     </span>
   );
@@ -112,23 +110,25 @@ function formatLineCount(value: number | null, prefix: string) {
   return `${prefix}${value}`;
 }
 
-function getLineStatLabel(file: GitDiffFileSummary) {
+function getLineStatLabel(file: GitDiffFileSummary, t: TFunction) {
   if (file.additions === null || file.deletions === null) {
-    return file.binary ? "binary" : "not measured";
+    return file.binary
+      ? t("projectDetailsPage.diff.lineStats.binary")
+      : t("projectDetailsPage.diff.lineStats.notMeasured");
   }
 
   if (file.status === "untracked") {
-    return "not measured";
+    return t("projectDetailsPage.diff.lineStats.notMeasured");
   }
 
   return null;
 }
 
-function buildScopeSummary(diffSummary: GitDiffSummaryResult) {
+function buildScopeSummary(diffSummary: GitDiffSummaryResult, t: TFunction) {
   const parts = [
-    `${diffSummary.totals.stagedFiles} staged`,
-    `${diffSummary.totals.unstagedFiles} unstaged`,
-    `${diffSummary.totals.untrackedFiles} untracked`
+    t("projectDetailsPage.diff.scopeCount.staged", { count: diffSummary.totals.stagedFiles }),
+    t("projectDetailsPage.diff.scopeCount.unstaged", { count: diffSummary.totals.unstagedFiles }),
+    t("projectDetailsPage.diff.scopeCount.untracked", { count: diffSummary.totals.untrackedFiles })
   ];
 
   return parts.join(" · ");
@@ -259,26 +259,26 @@ function buildTaskPackAlignment(
   };
 }
 
-function getAlignmentCopy(alignment: TaskPackDiffAlignment): { label: string; caption: string; tone: DiffBadgeTone } {
+function getAlignmentCopy(alignment: TaskPackDiffAlignment, t: TFunction): { label: string; caption: string; tone: DiffBadgeTone } {
   switch (alignment.status) {
     case "loading":
-      return { label: "Checking alignment", caption: "Reading the latest saved Task Pack for this project.", tone: "muted" };
+      return { label: t("projectDetailsPage.diff.alignment.checking"), caption: t("projectDetailsPage.diff.alignment.checkingDesc"), tone: "muted" };
     case "no-task-pack":
-      return { label: "No Task Pack yet", caption: "Generate a Task Pack to compare planned context with local changes.", tone: "muted" };
+      return { label: t("projectDetailsPage.diff.alignment.noTaskPack"), caption: t("projectDetailsPage.diff.alignment.noTaskPackDesc"), tone: "muted" };
     case "no-context":
-      return { label: "No selected context", caption: "The latest Task Pack has no parsed file candidates to compare.", tone: "warning" };
+      return { label: t("projectDetailsPage.diff.alignment.noContext"), caption: t("projectDetailsPage.diff.alignment.noContextDesc"), tone: "warning" };
     case "aligned":
-      return { label: "Aligned", caption: "Changed files match the latest Task Pack context.", tone: "success" };
+      return { label: t("projectDetailsPage.diff.alignment.aligned"), caption: t("projectDetailsPage.diff.alignment.alignedDesc"), tone: "success" };
     case "partial":
-      return { label: "Partially aligned", caption: "Some local changes are outside the latest Task Pack context.", tone: "warning" };
+      return { label: t("projectDetailsPage.diff.alignment.partial"), caption: t("projectDetailsPage.diff.alignment.partialDesc"), tone: "warning" };
     case "outside":
-      return { label: "Outside context", caption: "Local changes do not overlap with the latest Task Pack context.", tone: "warning" };
+      return { label: t("projectDetailsPage.diff.alignment.outside"), caption: t("projectDetailsPage.diff.alignment.outsideDesc"), tone: "warning" };
     case "clean":
-      return { label: "No local diff", caption: "There are no local changed files to compare.", tone: "success" };
+      return { label: t("projectDetailsPage.diff.alignment.clean"), caption: t("projectDetailsPage.diff.alignment.cleanDesc"), tone: "success" };
     case "unavailable":
-      return { label: "Alignment unavailable", caption: "Task Pack history could not be loaded for comparison.", tone: "muted" };
+      return { label: t("projectDetailsPage.diff.alignment.unavailable"), caption: t("projectDetailsPage.diff.alignment.unavailableDesc"), tone: "muted" };
     default:
-      return { label: "Alignment", caption: "Compare local changes with the latest Task Pack.", tone: "muted" };
+      return { label: t("projectDetailsPage.diff.alignment.title"), caption: t("projectDetailsPage.diff.alignment.description"), tone: "muted" };
   }
 }
 
@@ -352,15 +352,15 @@ function touchesProtectedOrConfig(file: GitDiffFileSummary) {
   );
 }
 
-function buildReviewSignals(diffSummary: GitDiffSummaryResult): DiffReviewSignal[] {
+function buildReviewSignals(diffSummary: GitDiffSummaryResult, t: TFunction): DiffReviewSignal[] {
   if (!diffSummary.isGitRepo) return [];
 
   if (!diffSummary.dirty) {
     return [
       {
         id: "clean",
-        label: "Clean working tree",
-        description: "No staged, unstaged, or untracked changes were detected.",
+        label: t("projectDetailsPage.diff.signals.clean"),
+        description: t("projectDetailsPage.diff.signals.cleanDesc"),
         tone: "success"
       }
     ];
@@ -379,8 +379,8 @@ function buildReviewSignals(diffSummary: GitDiffSummaryResult): DiffReviewSignal
   if (hasLargeDiff) {
     signals.push({
       id: "large-diff",
-      label: "Large diff",
-      description: "The local change set is broad. Review the scope before asking an AI agent to continue.",
+      label: t("projectDetailsPage.diff.signals.large"),
+      description: t("projectDetailsPage.diff.signals.largeDesc"),
       tone: "warning"
     });
   }
@@ -388,8 +388,8 @@ function buildReviewSignals(diffSummary: GitDiffSummaryResult): DiffReviewSignal
   if (hasCoreOrApi) {
     signals.push({
       id: "core-api",
-      label: "Core/API touched",
-      description: "Backend, API, data, selector, composer, or pipeline files appear in the local changes.",
+      label: t("projectDetailsPage.diff.signals.coreApi"),
+      description: t("projectDetailsPage.diff.signals.coreApiDesc"),
       tone: "warning"
     });
   }
@@ -397,8 +397,8 @@ function buildReviewSignals(diffSummary: GitDiffSummaryResult): DiffReviewSignal
   if (hasProtectedOrConfig) {
     signals.push({
       id: "protected-config",
-      label: "Config/protected files",
-      description: "Project config, lockfiles, env files, CI workflows, or AI instruction files appear in the local changes.",
+      label: t("projectDetailsPage.diff.signals.protected"),
+      description: t("projectDetailsPage.diff.signals.protectedDesc"),
       tone: "warning"
     });
   }
@@ -406,8 +406,8 @@ function buildReviewSignals(diffSummary: GitDiffSummaryResult): DiffReviewSignal
   if (!hasTests) {
     signals.push({
       id: "no-tests",
-      label: "No tests changed",
-      description: "No obvious test/spec files were changed. Run existing verification manually if needed.",
+      label: t("projectDetailsPage.diff.signals.noTests"),
+      description: t("projectDetailsPage.diff.signals.noTestsDesc"),
       tone: "muted"
     });
   }
@@ -415,8 +415,8 @@ function buildReviewSignals(diffSummary: GitDiffSummaryResult): DiffReviewSignal
   if (hasUntracked) {
     signals.push({
       id: "untracked",
-      label: "Untracked files",
-      description: "New files are present locally. Confirm they are intentional before exporting or committing.",
+      label: t("projectDetailsPage.diff.signals.untracked"),
+      description: t("projectDetailsPage.diff.signals.untrackedDesc"),
       tone: "warning"
     });
   }
@@ -424,8 +424,8 @@ function buildReviewSignals(diffSummary: GitDiffSummaryResult): DiffReviewSignal
   if (hasBinary) {
     signals.push({
       id: "binary",
-      label: "Binary changes",
-      description: "Binary changes cannot be summarized by line additions and deletions.",
+      label: t("projectDetailsPage.diff.signals.binary"),
+      description: t("projectDetailsPage.diff.signals.binaryDesc"),
       tone: "muted"
     });
   }
@@ -433,8 +433,8 @@ function buildReviewSignals(diffSummary: GitDiffSummaryResult): DiffReviewSignal
   if (signals.length === 0) {
     signals.push({
       id: "small-diff",
-      label: "Small local diff",
-      description: "The current change set looks compact from metadata only.",
+      label: t("projectDetailsPage.diff.signals.small"),
+      description: t("projectDetailsPage.diff.signals.smallDesc"),
       tone: "success"
     });
   }
@@ -442,7 +442,7 @@ function buildReviewSignals(diffSummary: GitDiffSummaryResult): DiffReviewSignal
   return signals;
 }
 
-function buildSuggestedChecks(diffSummary: GitDiffSummaryResult, signals: DiffReviewSignal[]) {
+function buildSuggestedChecks(diffSummary: GitDiffSummaryResult, signals: DiffReviewSignal[], t: TFunction) {
   if (!diffSummary.isGitRepo || !diffSummary.dirty) return [];
 
   const files = diffSummary.files;
@@ -452,32 +452,38 @@ function buildSuggestedChecks(diffSummary: GitDiffSummaryResult, signals: DiffRe
   const signalIds = new Set(signals.map((signal) => signal.id));
   const checks: string[] = [];
 
-  checks.push("Run the existing build or test command before exporting the Task Pack.");
+  checks.push(t("projectDetailsPage.diff.verification.buildOrTest"));
 
   if (hasUi) {
-    checks.push("Open affected UI screens/components and check the layout manually.");
+    checks.push(t("projectDetailsPage.diff.verification.ui"));
   }
 
   if (hasCoreOrApi) {
-    checks.push("Verify backend/API behavior and response contracts if these changes continue.");
+    checks.push(t("projectDetailsPage.diff.verification.backend"));
   }
 
   if (hasProtectedOrConfig) {
-    checks.push("Review config, env, lockfile, CI, or AGENTS.md changes before sharing or exporting context.");
+    checks.push(t("projectDetailsPage.diff.verification.config"));
   }
 
   if (signalIds.has("large-diff")) {
-    checks.push("Add a precise task note if the AI should review only part of this change set.");
+    checks.push(t("projectDetailsPage.diff.verification.scope"));
   }
 
   if (signalIds.has("untracked")) {
-    checks.push("Confirm untracked files are intentional before committing or sharing context.");
+    checks.push(t("projectDetailsPage.diff.verification.untracked"));
   }
 
   return checks.slice(0, 4);
 }
 
 export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardProps) {
+  const { t } = useTranslation();
+  const verdictOptions: Array<{ id: ReviewVerdict; label: string; caption: string }> = [
+    { id: "looks-good", label: t("projectDetailsPage.diff.verdict.looksGood"), caption: t("projectDetailsPage.diff.verdict.looksGoodDesc") },
+    { id: "needs-changes", label: t("projectDetailsPage.diff.verdict.needsChanges"), caption: t("projectDetailsPage.diff.verdict.needsChangesDesc") },
+    { id: "blocked", label: t("projectDetailsPage.diff.verdict.blocked"), caption: t("projectDetailsPage.diff.verdict.blockedDesc") }
+  ];
   const [diffSummary, setDiffSummary] = useState<GitDiffSummaryResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(false);
@@ -503,7 +509,7 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
           .then((items) => ({ ok: true as const, items }))
           .catch((requestError) => ({
             ok: false as const,
-            message: requestError instanceof Error ? requestError.message : "Failed to read Task Pack history"
+            message: requestError instanceof Error ? requestError.message : t("projectDetailsPage.diff.taskPackHistoryError")
           }))
       ]);
 
@@ -519,13 +525,13 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
 
       setHasRequested(true);
     } catch (requestError) {
-      setError(requestError instanceof Error ? requestError.message : "Failed to read local diff summary");
+      setError(requestError instanceof Error ? requestError.message : t("projectDetailsPage.diff.readError"));
       setHasRequested(true);
     } finally {
       setIsLoading(false);
       setIsLoadingTaskPacks(false);
     }
-  }, [enabled, projectId]);
+  }, [enabled, projectId, t]);
 
   useEffect(() => {
     if (!enabled || hasRequested) return;
@@ -548,17 +554,17 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
     [diffSummary]
   );
   const hiddenCount = diffSummary ? Math.max(0, diffSummary.totals.filesChanged - previewFiles.length) : 0;
-  const reviewSignals = useMemo(() => (diffSummary?.isGitRepo ? buildReviewSignals(diffSummary) : []), [diffSummary]);
+  const reviewSignals = useMemo(() => (diffSummary?.isGitRepo ? buildReviewSignals(diffSummary, t) : []), [diffSummary, t]);
   const suggestedChecks = useMemo(
-    () => (diffSummary?.isGitRepo ? buildSuggestedChecks(diffSummary, reviewSignals) : []),
-    [diffSummary, reviewSignals]
+    () => (diffSummary?.isGitRepo ? buildSuggestedChecks(diffSummary, reviewSignals, t) : []),
+    [diffSummary, reviewSignals, t]
   );
   const primarySignals = reviewSignals.slice(0, 3);
   const taskPackAlignment = useMemo(
     () => buildTaskPackAlignment(diffSummary, taskPacks, projectId, isLoadingTaskPacks, taskPackError),
     [diffSummary, isLoadingTaskPacks, projectId, taskPackError, taskPacks]
   );
-  const alignmentCopy = useMemo(() => getAlignmentCopy(taskPackAlignment), [taskPackAlignment]);
+  const alignmentCopy = useMemo(() => getAlignmentCopy(taskPackAlignment, t), [taskPackAlignment, t]);
 
   return (
     <section className="mt-4 rounded-[1.35rem] border border-neutral-900 bg-black/30 p-4">
@@ -570,23 +576,23 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
 
           <div className="min-w-0">
             <div className="mb-1 flex flex-wrap items-center gap-2">
-              <p className="text-sm font-medium text-white">Diff summary</p>
+              <p className="text-sm font-medium text-white">{t("projectDetailsPage.diff.title")}</p>
               <DiffBadge tone={diffSummary?.dirty ? "warning" : diffSummary?.isGitRepo ? "success" : "muted"}>
                 {isLoading && !diffSummary ? <Loader2 size={12} className="animate-spin" /> : null}
                 {diffSummary
                   ? diffSummary.isGitRepo
                     ? diffSummary.dirty
-                      ? `${diffSummary.totals.filesChanged} file summaries`
-                      : "No local diff"
-                    : "No Git repo"
+                      ? t("projectDetailsPage.counts.fileSummary", { count: diffSummary.totals.filesChanged })
+                      : t("projectDetailsPage.diff.noLocalDiff")
+                    : t("projectDetailsPage.gitStatus.noRepo")
                   : isLoading
-                    ? "Reading diff"
-                    : "Not loaded"}
+                    ? t("projectDetailsPage.diff.reading")
+                    : t("projectDetailsPage.gitStatus.notLoaded")}
               </DiffBadge>
             </div>
 
             <p className="text-xs leading-5 text-neutral-600">
-              Metadata-only local diff summary. Raw patch content is not sent or shown here.
+              {t("projectDetailsPage.diff.description")}
             </p>
           </div>
         </div>
@@ -599,7 +605,7 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
           className="shrink-0"
         >
           <RefreshCw size={14} className={isLoading ? "animate-spin" : ""} />
-          Refresh
+          {t("projectDetailsPage.actions.refresh")}
         </Button>
       </div>
 
@@ -607,7 +613,7 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
         <div className="rounded-2xl border border-red-400/15 bg-red-400/10 p-4 text-sm leading-5 text-red-100">
           <div className="mb-1 flex items-center gap-2 font-medium">
             <AlertTriangle size={15} />
-            Diff summary unavailable
+            {t("projectDetailsPage.diff.unavailable")}
           </div>
           {error}
         </div>
@@ -615,7 +621,7 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
 
       {!error && !diffSummary && (
         <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4 text-sm leading-5 text-neutral-500">
-          {isLoading ? "Reading local diff summary…" : "Open this section to load local diff metadata."}
+          {isLoading ? t("projectDetailsPage.diff.readingLocal") : t("projectDetailsPage.diff.openToLoad")}
         </div>
       )}
 
@@ -623,10 +629,10 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
         <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
           <div className="mb-2 flex items-center gap-2 text-sm font-medium text-white">
             <GitCompareArrows size={15} />
-            No local Git repository detected
+            {t("projectDetailsPage.gitStatus.noRepoTitle")}
           </div>
           <p className="text-sm leading-5 text-neutral-500">
-            Diff Review Lite needs a local Git working tree. ContextForge can still build Task Packs from scanner data.
+            {t("projectDetailsPage.diff.noRepoDescription")}
           </p>
         </div>
       )}
@@ -634,10 +640,10 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
       {!error && diffSummary?.isGitRepo && (
         <div className="space-y-3">
           <div className="grid overflow-hidden rounded-2xl border border-neutral-900 bg-black/35 sm:grid-cols-2 lg:grid-cols-4">
-            <DiffMetric label="Files" value={diffSummary.totals.filesChanged} caption={buildScopeSummary(diffSummary)} />
-            <DiffMetric label="Added" value={`+${diffSummary.totals.additions}`} caption="tracked line additions" withDivider />
-            <DiffMetric label="Deleted" value={`-${diffSummary.totals.deletions}`} caption="tracked line deletions" withDivider />
-            <DiffMetric label="Binary" value={diffSummary.totals.binaryFiles} caption="binary file changes" withDivider />
+            <DiffMetric label={t("projectDetailsPage.diff.metrics.files")} value={diffSummary.totals.filesChanged} caption={buildScopeSummary(diffSummary, t)} />
+            <DiffMetric label={t("projectDetailsPage.diff.metrics.added")} value={`+${diffSummary.totals.additions}`} caption={t("projectDetailsPage.diff.metrics.addedDesc")} withDivider />
+            <DiffMetric label={t("projectDetailsPage.diff.metrics.deleted")} value={`-${diffSummary.totals.deletions}`} caption={t("projectDetailsPage.diff.metrics.deletedDesc")} withDivider />
+            <DiffMetric label={t("projectDetailsPage.diff.metrics.binary")} value={diffSummary.totals.binaryFiles} caption={t("projectDetailsPage.diff.metrics.binaryDesc")} withDivider />
           </div>
 
           <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
@@ -648,18 +654,18 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
                 </span>
                 <div className="min-w-0">
                   <div className="mb-1 flex flex-wrap items-center gap-2">
-                    <p className="text-xs font-medium text-white">Task Pack alignment</p>
+                    <p className="text-xs font-medium text-white">{t("projectDetailsPage.diff.alignment.title")}</p>
                     <DiffBadge tone={alignmentCopy.tone}>
                       {taskPackAlignment.status === "loading" ? <Loader2 size={12} className="animate-spin" /> : null}
                       {alignmentCopy.label}
                     </DiffBadge>
                   </div>
                   <p className="text-xs leading-5 text-neutral-600">
-                    Compares this local diff with the latest saved Task Pack context. Metadata only; it does not judge code quality.
+                    {t("projectDetailsPage.diff.alignment.description")}
                   </p>
                   {taskPackAlignment.taskPack && (
                     <p className="mt-1 truncate text-[11px] text-neutral-700">
-                      Latest: {truncateText(taskPackAlignment.taskPack.title)}
+                      {t("projectDetailsPage.diff.latestTaskPack", { title: truncateText(taskPackAlignment.taskPack.title) })}
                     </p>
                   )}
                 </div>
@@ -667,15 +673,15 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
 
               <div className="grid w-full gap-2 sm:w-auto sm:grid-cols-3">
                 <div className="rounded-xl border border-neutral-900 bg-black/25 px-3 py-2">
-                  <p className="cf-tech-label text-[9px] uppercase text-neutral-700">Overlap</p>
+                  <p className="cf-tech-label text-[9px] uppercase text-neutral-700">{t("projectDetailsPage.diff.alignment.overlap")}</p>
                   <p className="mt-1 text-sm font-semibold text-white">{taskPackAlignment.overlapPaths.length}</p>
                 </div>
                 <div className="rounded-xl border border-neutral-900 bg-black/25 px-3 py-2">
-                  <p className="cf-tech-label text-[9px] uppercase text-neutral-700">Outside</p>
+                  <p className="cf-tech-label text-[9px] uppercase text-neutral-700">{t("projectDetailsPage.diff.alignment.outsideCount")}</p>
                   <p className="mt-1 text-sm font-semibold text-white">{taskPackAlignment.outsidePaths.length}</p>
                 </div>
                 <div className="rounded-xl border border-neutral-900 bg-black/25 px-3 py-2">
-                  <p className="cf-tech-label text-[9px] uppercase text-neutral-700">Context</p>
+                  <p className="cf-tech-label text-[9px] uppercase text-neutral-700">{t("projectDetailsPage.diff.alignment.context")}</p>
                   <p className="mt-1 text-sm font-semibold text-white">{taskPackAlignment.selectedPaths.length}</p>
                 </div>
               </div>
@@ -685,8 +691,8 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
               {alignmentCopy.caption}
               {taskPackAlignment.outsidePaths.length > 0 && (
                 <span className="mt-2 block text-neutral-600">
-                  Outside latest context: {taskPackAlignment.outsidePaths.slice(0, 3).map((filePath) => truncateText(filePath, 44)).join(", ")}
-                  {taskPackAlignment.outsidePaths.length > 3 ? `, +${taskPackAlignment.outsidePaths.length - 3} more` : ""}
+                  {t("projectDetailsPage.diff.outsideLatestContext", { files: taskPackAlignment.outsidePaths.slice(0, 3).map((filePath) => truncateText(filePath, 44)).join(", ") })}
+                  {taskPackAlignment.outsidePaths.length > 3 ? `, ${t("projectDetailsPage.counts.more", { count: taskPackAlignment.outsidePaths.length - 3 })}` : ""}
                 </span>
               )}
               {taskPackError && <span className="mt-2 block text-amber-100/70">{taskPackError}</span>}
@@ -697,7 +703,7 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
             <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
-                  <span className="cf-tech-label mr-1 text-[10px] uppercase text-neutral-600">Review signals</span>
+                  <span className="cf-tech-label mr-1 text-[10px] uppercase text-neutral-600">{t("projectDetailsPage.diff.reviewSignals")}</span>
                   {primarySignals.map((signal) => (
                     <DiffBadge key={signal.id} tone={signal.tone}>
                       {signal.tone === "success" ? <CheckCircle2 size={12} /> : signal.tone === "danger" || signal.tone === "warning" ? <AlertTriangle size={12} /> : <ShieldCheck size={12} />}
@@ -705,7 +711,7 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
                     </DiffBadge>
                   ))}
                   {reviewSignals.length > primarySignals.length && (
-                    <span className="text-xs text-neutral-600">+{reviewSignals.length - primarySignals.length} more</span>
+                    <span className="text-xs text-neutral-600">+{t("projectDetailsPage.counts.more", { count: reviewSignals.length - primarySignals.length })}</span>
                   )}
                 </div>
 
@@ -716,14 +722,14 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
                   className="shrink-0"
                 >
                   <ShieldCheck size={14} />
-                  {isReviewOpen ? "Hide review" : "Review changes"}
+                  {isReviewOpen ? t("projectDetailsPage.diff.hideReview") : t("projectDetailsPage.diff.reviewChanges")}
                 </Button>
               </div>
 
               {isReviewOpen && (
                 <div className="mt-3 grid gap-3 lg:grid-cols-[1fr_1fr_1.1fr]">
                   <div className="rounded-xl border border-neutral-900 bg-black/25 p-3">
-                    <p className="mb-2 text-xs font-medium text-white">Signals</p>
+                    <p className="mb-2 text-xs font-medium text-white">{t("projectDetailsPage.diff.signalsTitle")}</p>
                     <div className="space-y-2">
                       {reviewSignals.map((signal) => (
                         <div key={signal.id} className="rounded-lg border border-neutral-900 bg-black/25 p-2">
@@ -738,7 +744,7 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
                   </div>
 
                   <div className="rounded-xl border border-neutral-900 bg-black/25 p-3">
-                    <p className="mb-2 text-xs font-medium text-white">Suggested verification</p>
+                    <p className="mb-2 text-xs font-medium text-white">{t("projectDetailsPage.diff.suggestedVerification")}</p>
                     {suggestedChecks.length > 0 ? (
                       <ul className="space-y-2 text-xs leading-5 text-neutral-400">
                         {suggestedChecks.map((check) => (
@@ -749,17 +755,17 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
                         ))}
                       </ul>
                     ) : (
-                      <p className="text-xs leading-5 text-neutral-600">No extra verification hints for this clean working tree.</p>
+                      <p className="text-xs leading-5 text-neutral-600">{t("projectDetailsPage.diff.noExtraVerification")}</p>
                     )}
                   </div>
 
                   <div className="rounded-xl border border-neutral-900 bg-black/25 p-3">
-                    <p className="mb-2 text-xs font-medium text-white">Manual verdict</p>
+                    <p className="mb-2 text-xs font-medium text-white">{t("projectDetailsPage.diff.manualVerdict")}</p>
                     <p className="mb-3 text-xs leading-5 text-neutral-600">
-                      Local marker only. It does not commit, push, or change project files.
+                      {t("projectDetailsPage.diff.manualVerdictDescription")}
                     </p>
                     <div className="grid gap-2 sm:grid-cols-3 lg:grid-cols-1 xl:grid-cols-3">
-                      {VERDICT_OPTIONS.map((option) => {
+                      {verdictOptions.map((option) => {
                         const isSelected = reviewVerdict === option.id;
                         return (
                           <button
@@ -794,27 +800,27 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
             <div className="mb-3 flex flex-wrap items-start justify-between gap-3">
               <div>
                 <p className="cf-tech-label mb-1 text-[10px] uppercase text-neutral-600">
-                  Local diff files
+                  {t("projectDetailsPage.diff.localFiles")}
                 </p>
                 <p className="text-xs leading-5 text-neutral-600">
-                  Use this to review what is already changed before asking an AI agent for follow-up work.
+                  {t("projectDetailsPage.diff.localFilesDescription")}
                 </p>
               </div>
               <DiffBadge tone={diffSummary.dirty ? "warning" : "success"}>
                 <ShieldCheck size={12} />
-                {diffSummary.dirty ? "Review suggested" : "Clean"}
+                {diffSummary.dirty ? t("projectDetailsPage.diff.reviewSuggested") : t("projectDetailsPage.gitStatus.clean")}
               </DiffBadge>
             </div>
 
             {previewFiles.length === 0 ? (
               <div className="rounded-xl border border-emerald-400/15 bg-emerald-400/10 px-3 py-2 text-sm text-emerald-100">
                 <CheckCircle2 size={14} className="mr-2 inline" />
-                No staged or unstaged diff detected.
+                {t("projectDetailsPage.diff.noTrackedDiff")}
               </div>
             ) : (
               <div className="space-y-2">
                 {previewFiles.map((file, index) => {
-                  const lineStatLabel = getLineStatLabel(file);
+                  const lineStatLabel = getLineStatLabel(file, t);
                   const additionsLabel = formatLineCount(file.additions, "+");
                   const deletionsLabel = formatLineCount(file.deletions, "-");
 
@@ -828,7 +834,7 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
                         <div className="min-w-0">
                           <p className="truncate text-xs text-neutral-300">{file.path}</p>
                           {file.originalPath && (
-                            <p className="truncate text-[11px] text-neutral-700">from {file.originalPath}</p>
+                            <p className="truncate text-[11px] text-neutral-700">{t("projectDetailsPage.diff.fromPath", { path: file.originalPath })}</p>
                           )}
                         </div>
                       </div>
@@ -850,10 +856,10 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
                           </>
                         )}
                         <span className="rounded-full border border-neutral-800 bg-black/35 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-neutral-500">
-                          {SCOPE_LABELS[file.scope]}
+                          {t(SCOPE_LABEL_KEYS[file.scope])}
                         </span>
                         <span className="rounded-full border border-neutral-800 bg-black/35 px-2 py-0.5 text-[10px] uppercase tracking-[0.14em] text-neutral-500">
-                          {STATUS_LABELS[file.status]}
+                          {t(STATUS_LABEL_KEYS[file.status])}
                         </span>
                       </div>
                     </div>
@@ -862,7 +868,7 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
 
                 {hiddenCount > 0 && (
                   <p className="px-1 text-xs text-neutral-600">
-                    +{hiddenCount} more changed file summaries hidden from this compact preview.
+                    {t("projectDetailsPage.diff.hiddenSummaries", { count: hiddenCount })}
                   </p>
                 )}
               </div>
@@ -873,7 +879,7 @@ export function GitDiffSummaryCard({ projectId, enabled }: GitDiffSummaryCardPro
             <div className="rounded-2xl border border-amber-300/15 bg-amber-300/10 p-4">
               <div className="mb-2 flex items-center gap-2 text-sm font-medium text-amber-100">
                 <AlertTriangle size={15} />
-                Diff notes
+                {t("projectDetailsPage.diff.notes")}
               </div>
               <ul className="space-y-1 text-sm leading-5 text-amber-100/80">
                 {diffSummary.warnings.slice(0, 3).map((warning) => (

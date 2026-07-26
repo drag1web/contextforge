@@ -15,6 +15,8 @@ import type {
   GitStatusResult,
   AiProviderModel,
   AiProviderStatus,
+  ContextForgeMcpStatus,
+  ContextForgeMcpTestResult,
   OllamaModel,
   OllamaStatus,
   Project,
@@ -115,6 +117,35 @@ export async function signOutGitHub(): Promise<GitHubIntegrationStatus> {
   );
 
   return data.status;
+}
+
+export async function getContextForgeMcpStatus(): Promise<ContextForgeMcpStatus> {
+  const data = await request<{ ok: true; status: ContextForgeMcpStatus }>(
+    "/integrations/mcp/status",
+  );
+  return data.status;
+}
+
+export async function updateContextForgeMcpSettings(input: {
+  enabled?: boolean;
+  allowCreateTaskPacks?: boolean;
+}): Promise<ContextForgeMcpStatus> {
+  const data = await request<{ ok: true; status: ContextForgeMcpStatus }>(
+    "/integrations/mcp/settings",
+    {
+      method: "PUT",
+      body: JSON.stringify(input),
+    },
+  );
+  return data.status;
+}
+
+export async function testContextForgeMcpConnection(): Promise<ContextForgeMcpTestResult> {
+  const data = await request<{ ok: true; result: ContextForgeMcpTestResult }>(
+    "/integrations/mcp/test",
+    { method: "POST" },
+  );
+  return data.result;
 }
 
 export async function getProjects(): Promise<Project[]> {

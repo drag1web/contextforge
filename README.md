@@ -1,5 +1,7 @@
 # ContextForge
 
+Local stdio MCP support, permissions, Codex setup, and troubleshooting are documented in [docs/mcp.md](docs/mcp.md).
+
 **ContextForge** is a desktop devtool for preparing software projects for AI coding agents.
 
 It scans local repositories, detects stack and scripts, builds project context, generates `AGENTS.md`, and creates structured Task Packs for tools like **Codex**, **Cursor**, **Claude Code**, and other AI coding assistants.

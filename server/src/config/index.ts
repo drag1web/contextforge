@@ -1,14 +1,19 @@
 import fs from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import dotenv from "dotenv";
 
 import type { StorageDriver } from "../storage/types.js";
 
+const moduleDirectory = path.dirname(fileURLToPath(import.meta.url));
+
+export const applicationRoot = path.resolve(moduleDirectory, "..", "..", "..");
+export const serverRoot = path.join(applicationRoot, "server");
+
 function loadLocalEnv() {
-  const cwd = process.cwd();
   const candidates = [
-    path.resolve(cwd, ".env"),
-    path.resolve(cwd, "..", ".env")
+    path.join(applicationRoot, ".env"),
+    path.join(serverRoot, ".env")
   ];
 
   const loaded = new Set<string>();
@@ -20,7 +25,8 @@ function loadLocalEnv() {
 
     dotenv.config({
       path: envPath,
-      override: true
+      override: false,
+      quiet: true
     });
     loaded.add(envPath);
   }
@@ -32,12 +38,34 @@ function readStorageDriver(): StorageDriver {
   return process.env.STORAGE_DRIVER === "postgres" ? "postgres" : "sqlite";
 }
 
+function resolveFromApplicationRoot(value: string) {
+  return path.isAbsolute(value)
+    ? path.normalize(value)
+    : path.resolve(applicationRoot, value);
+}
+
+function resolveContextForgeDataDirectory() {
+  const configuredDirectory = process.env.CONTEXTFORGE_DATA_DIR?.trim();
+
+  return configuredDirectory
+    ? resolveFromApplicationRoot(configuredDirectory)
+    : path.join(applicationRoot, "data");
+}
+
+function resolveSqliteDatabasePath() {
+  const configuredPath = process.env.SQLITE_DB_PATH?.trim();
+
+  return configuredPath
+    ? resolveFromApplicationRoot(configuredPath)
+    : path.join(resolveContextForgeDataDirectory(), "contextforge.sqlite");
+}
+
 export const config = {
   appVersion: process.env.APP_VERSION ?? "0.6.7-alpha",
   port: Number(process.env.SERVER_PORT ?? 4000),
   storageDriver: readStorageDriver(),
-  sqliteDatabasePath:
-    process.env.SQLITE_DB_PATH ?? path.resolve(process.cwd(), "data", "contextforge.sqlite"),
+  contextForgeDataDirectory: resolveContextForgeDataDirectory(),
+  sqliteDatabasePath: resolveSqliteDatabasePath(),
   databaseUrl:
     process.env.DATABASE_URL ??
     "postgresql://contextforge:contextforge@127.0.0.1:5433/contextforge",

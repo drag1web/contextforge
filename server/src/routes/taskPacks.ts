@@ -254,7 +254,7 @@ const understandTaskPackSchema = z.object({
   understandingSnapshotId: z.string().trim().uuid().optional(),
 });
 
-const createTaskPackSchema = z.object({
+export const createTaskPackSchema = z.object({
   projectId: z.number().int().positive(),
   rawTask: z.string().min(3),
   taskType: z.string().default("general"),
@@ -279,6 +279,8 @@ const createTaskPackSchema = z.object({
     .optional(),
   githubIssueSource: githubIssueTaskPackSourceSchema.optional(),
 });
+
+export type CreateTaskPackRequest = z.infer<typeof createTaskPackSchema>;
 
 interface ProjectReadinessReport {
   issues: string[];
@@ -2064,27 +2066,17 @@ taskPacksRouter.post("/understand", async (req, res) => {
   }
 });
 
-taskPacksRouter.post("/", async (req, res) => {
-  const parsed = createTaskPackSchema.safeParse(req.body);
-
-  if (!parsed.success) {
-    res.status(400).json({
-      ok: false,
-      message: "Invalid request body",
-      issues: parsed.error.issues,
-    });
-    return;
-  }
-
-  try {
+export async function createTaskPackWithPipeline(
+  input: CreateTaskPackRequest,
+) {
+    const parsed = { data: createTaskPackSchema.parse(input) };
     const project = await getProjectById(parsed.data.projectId);
 
     if (!project) {
-      res.status(404).json({
-        ok: false,
-        message: "Project not found",
-      });
-      return;
+      return {
+        kind: "project_not_found" as const,
+        projectId: parsed.data.projectId,
+      };
     }
 
     const sessionId =
@@ -2390,6 +2382,9 @@ taskPacksRouter.post("/", async (req, res) => {
 
           return {
             kind: "blocked" as const,
+            blockType: requiredClarificationBlocksGeneration
+              ? ("clarification_required" as const)
+              : ("context_selection_blocked" as const),
             message: selectionBlockedMessage,
             selectionQuality,
             selectorDiagnostics,
@@ -2590,15 +2585,15 @@ taskPacksRouter.post("/", async (req, res) => {
     );
 
     if (traced.value.kind === "blocked") {
-      res.status(422).json({
-        ok: false,
-        code: "CONTEXT_SELECTION_BLOCKED",
+      return {
+        kind: traced.value.blockType === "clarification_required"
+          ? ("clarification_required" as const)
+          : ("blocked" as const),
         message: traced.value.message,
         selectionQuality: traced.value.selectionQuality,
         selectorDiagnostics: traced.value.selectorDiagnostics,
         performanceDiagnostics: traced.sessionDiagnostics,
-      });
-      return;
+      };
     }
 
     const finalGenerationRecipe: TaskPackGenerationRecipe = {
@@ -2611,13 +2606,54 @@ taskPacksRouter.post("/", async (req, res) => {
     );
     const taskPack = updatedTaskPack ?? traced.value.taskPack;
 
-    res.json({
-      ok: true,
+    return {
+      kind: "created" as const,
       taskPack: {
         ...taskPack,
         generationRecipe: finalGenerationRecipe,
         projectName: project.name,
       },
+    };
+}
+
+taskPacksRouter.post("/", async (req, res) => {
+  const parsed = createTaskPackSchema.safeParse(req.body);
+
+  if (!parsed.success) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid request body",
+      issues: parsed.error.issues,
+    });
+    return;
+  }
+
+  try {
+    const result = await createTaskPackWithPipeline(parsed.data);
+
+    if (result.kind === "project_not_found") {
+      res.status(404).json({
+        ok: false,
+        message: "Project not found",
+      });
+      return;
+    }
+
+    if (result.kind === "blocked" || result.kind === "clarification_required") {
+      res.status(422).json({
+        ok: false,
+        code: "CONTEXT_SELECTION_BLOCKED",
+        message: result.message,
+        selectionQuality: result.selectionQuality,
+        selectorDiagnostics: result.selectorDiagnostics,
+        performanceDiagnostics: result.performanceDiagnostics,
+      });
+      return;
+    }
+
+    res.json({
+      ok: true,
+      taskPack: result.taskPack,
     });
   } catch (error) {
     console.error("Failed to create task pack:", error);

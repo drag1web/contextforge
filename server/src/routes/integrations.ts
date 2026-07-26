@@ -11,8 +11,73 @@ import {
   pollGitHubDeviceAuth,
   startGitHubDeviceAuth
 } from "../github/githubAuthService.js";
+import {
+  getContextForgeMcpStatus,
+  testContextForgeMcpConnection,
+  updateContextForgeMcpSettings,
+} from "../mcp/mcpIntegrationService.js";
 
 export const integrationsRouter = Router();
+
+const mcpSettingsSchema = z
+  .object({
+    enabled: z.boolean().optional(),
+    allowCreateTaskPacks: z.boolean().optional(),
+  })
+  .refine(
+    (value) =>
+      value.enabled !== undefined || value.allowCreateTaskPacks !== undefined,
+    { message: "At least one MCP setting is required." },
+  );
+
+integrationsRouter.get("/mcp/status", async (_req, res) => {
+  try {
+    res.json({ ok: true, status: await getContextForgeMcpStatus() });
+  } catch {
+    res.status(500).json({
+      ok: false,
+      message: "Failed to read ContextForge MCP status",
+    });
+  }
+});
+
+integrationsRouter.put("/mcp/settings", async (req, res) => {
+  const parsed = mcpSettingsSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid MCP settings payload",
+      issues: parsed.error.issues,
+    });
+    return;
+  }
+
+  try {
+    res.json({
+      ok: true,
+      status: await updateContextForgeMcpSettings(parsed.data),
+    });
+  } catch {
+    res.status(500).json({
+      ok: false,
+      message: "Failed to update ContextForge MCP settings",
+    });
+  }
+});
+
+integrationsRouter.post("/mcp/test", async (_req, res) => {
+  try {
+    res.json({ ok: true, result: await testContextForgeMcpConnection() });
+  } catch (error) {
+    res.status(409).json({
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "ContextForge MCP connection test failed",
+    });
+  }
+});
 
 integrationsRouter.get("/ai/status", async (_req, res) => {
   try {
