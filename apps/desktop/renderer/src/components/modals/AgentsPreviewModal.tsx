@@ -4,9 +4,7 @@ import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import {
-  Bot,
   Check,
-  Clock3,
   Code2,
   Copy,
   Edit3,
