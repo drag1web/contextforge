@@ -51,10 +51,16 @@ export interface DesktopSyncStatus {
 }
 
 export interface DesktopSyncPairInput {
-  pairingCode: string;
+  pairingCode?: string;
+  launchToken?: string;
   siteUrl: string;
   deviceName: string;
   channel: "alpha" | "beta" | "stable";
+}
+
+export interface DesktopSyncLaunchRequest {
+  launchToken: string;
+  siteUrl: string;
 }
 
 export interface DesktopSyncTaskPackUpload {

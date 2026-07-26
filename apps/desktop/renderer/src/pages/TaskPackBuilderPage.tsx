@@ -8,6 +8,7 @@ import {
   type ReactNode
 } from "react";
 import { useTranslation } from "react-i18next";
+import i18n from "../i18n";
 import { motion } from "framer-motion";
 import {
   AlertTriangle,
@@ -76,6 +77,42 @@ import {
   buildLocalChangesNote,
   mergeLocalChangesNote
 } from "../utils/localChangesNote";
+
+function workspaceText(key: string, values?: Record<string, unknown>) {
+  return String(i18n.t(`taskPackBuilder.workspace.${key}`, values));
+}
+
+const PRESET_COPY_KEYS: Record<string, string> = {
+  default: "default",
+  "ui-redesign": "uiRedesign",
+  "bug-fix": "bugFix",
+  "backend-api": "backendApi",
+  "add-tests": "addTests",
+  refactor: "refactor",
+  "docs-update": "docsUpdate",
+  "security-audit": "securityAudit",
+  "release-checklist": "releaseChecklist"
+};
+
+function localizeTaskPreset(preset: BuilderTaskPreset): BuilderTaskPreset {
+  const copyKey = PRESET_COPY_KEYS[preset.id];
+
+  if (!copyKey) {
+    return preset;
+  }
+
+  const baseKey = `presets.items.${copyKey}`;
+
+  return {
+    ...preset,
+    title: workspaceText(`${baseKey}.title`),
+    eyebrow: workspaceText(`${baseKey}.eyebrow`),
+    description: workspaceText(`${baseKey}.description`),
+    focus: workspaceText(`${baseKey}.focus`),
+    starterTask: workspaceText(`${baseKey}.starterTask`),
+    acceptanceText: workspaceText(`${baseKey}.acceptanceText`)
+  };
+}
 
 function createPerformanceSessionId() {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -443,7 +480,7 @@ function getLinesCount(value?: string) {
 }
 
 function getTaskTypeLabel(value: string) {
-  return TASK_TYPE_OPTIONS.find((option) => option.value === value)?.label ?? value;
+  return workspaceText(`taskTypes.${value}.label`) || value;
 }
 
 function getTargetToolLabel(value: string) {
@@ -521,8 +558,8 @@ function LocalChangesCompactStrip({
 }) {
   const canAddNote = Boolean(status?.isGitRepo && status.summary.totalChanged > 0);
   const branchLabel = status?.isDetachedHead
-    ? "Detached HEAD"
-    : status?.branch ?? "No branch";
+    ? workspaceText("local.detachedHead")
+    : status?.branch ?? workspaceText("local.noBranch");
 
   if (error) {
     return (
@@ -533,13 +570,13 @@ function LocalChangesCompactStrip({
           </span>
           <div className="min-w-0">
             <p className="cf-tech-label text-[9px] uppercase text-red-200/70">
-              Local state
+              {workspaceText("local.eyebrow")}
             </p>
             <p className="mt-1 truncate text-sm font-semibold text-red-100">
-              Git status unavailable
+              {workspaceText("local.unavailable")}
             </p>
             <p className="mt-1 text-[11px] text-red-100/55">
-              Retry without leaving the task editor.
+              {workspaceText("local.retryDescription")}
             </p>
           </div>
         </div>
@@ -550,21 +587,25 @@ function LocalChangesCompactStrip({
           className="mt-3 inline-flex h-7 w-fit items-center gap-1.5 rounded-full border border-red-300/20 bg-black/20 px-2.5 text-[11px] font-medium text-red-100 transition hover:border-red-200/40"
         >
           <RotateCcw size={11} />
-          Retry
+          {workspaceText("common.retry")}
         </button>
       </section>
     );
   }
 
   const stateLabel = isLoading
-    ? "Checking working tree..."
+    ? workspaceText("local.checking")
     : status?.isGitRepo
-      ? `${branchLabel} · ${status.summary.totalChanged} changed`
-      : "No local Git repository";
+      ? workspaceText("local.changed", { branch: branchLabel, count: status.summary.totalChanged })
+      : workspaceText("local.noRepository");
 
   const stateCaption = status?.isGitRepo && !isLoading
-    ? `${status.summary.stagedCount} staged · ${status.summary.unstagedCount} unstaged · ${status.summary.untrackedCount} untracked`
-    : "Background awareness only";
+    ? workspaceText("local.details", {
+        staged: status.summary.stagedCount,
+        unstaged: status.summary.unstagedCount,
+        untracked: status.summary.untrackedCount
+      })
+    : workspaceText("local.awarenessOnly");
 
   return (
     <section className="flex min-h-[104px] min-w-0 flex-col justify-between rounded-2xl border border-neutral-900 bg-black/25 p-3">
@@ -575,7 +616,7 @@ function LocalChangesCompactStrip({
 
         <div className="min-w-0">
           <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-            Local state
+            {workspaceText("local.eyebrow")}
           </p>
           <p className="mt-1 truncate text-sm font-semibold text-white">
             {stateLabel}
@@ -594,7 +635,7 @@ function LocalChangesCompactStrip({
           className="inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-400 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
         >
           <RotateCcw size={11} />
-          Refresh
+          {workspaceText("common.refresh")}
         </button>
 
         <button
@@ -603,7 +644,7 @@ function LocalChangesCompactStrip({
           className="inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-400 transition hover:border-white/20 hover:text-white"
         >
           <Eye size={11} />
-          Review
+          {workspaceText("local.review")}
         </button>
 
         <button
@@ -613,7 +654,7 @@ function LocalChangesCompactStrip({
           className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
         >
           <PlusCircle size={12} />
-          {hasNote ? "Update note" : "Add note"}
+          {hasNote ? workspaceText("local.updateNote") : workspaceText("local.addNote")}
         </button>
       </div>
     </section>
@@ -638,22 +679,26 @@ function ContextLocalStateBar({
 }) {
   const canAddNote = Boolean(status?.isGitRepo && status.summary.totalChanged > 0);
   const branchLabel = status?.isDetachedHead
-    ? "Detached HEAD"
-    : status?.branch ?? "No branch";
+    ? workspaceText("local.detachedHead")
+    : status?.branch ?? workspaceText("local.noBranch");
 
   const stateLabel = error
-    ? "Local Git state unavailable"
+    ? workspaceText("local.unavailableShort")
     : isLoading
-      ? "Checking working tree..."
+      ? workspaceText("local.checking")
       : status?.isGitRepo
-        ? `${branchLabel} · ${status.summary.totalChanged} changed`
-        : "No local Git repository";
+        ? workspaceText("local.changed", { branch: branchLabel, count: status.summary.totalChanged })
+        : workspaceText("local.noRepository");
 
   const stateCaption = error
-    ? "Context analysis can still run without Git metadata."
+    ? workspaceText("local.contextStillRuns")
     : status?.isGitRepo && !isLoading
-      ? `${status.summary.stagedCount} staged · ${status.summary.unstagedCount} unstaged · ${status.summary.untrackedCount} untracked`
-      : "Repository state is supporting context only.";
+      ? workspaceText("local.details", {
+        staged: status.summary.stagedCount,
+        unstaged: status.summary.unstagedCount,
+        untracked: status.summary.untrackedCount
+      })
+      : workspaceText("local.supportingOnly");
 
   return (
     <section
@@ -701,7 +746,7 @@ function ContextLocalStateBar({
           className="inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-400 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-60"
         >
           <RotateCcw size={11} />
-          {error ? "Retry" : "Refresh"}
+          {error ? workspaceText("common.retry") : workspaceText("common.refresh")}
         </button>
 
         <button
@@ -711,7 +756,7 @@ function ContextLocalStateBar({
           className="inline-flex h-7 items-center gap-1.5 rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
         >
           <PlusCircle size={12} />
-          {hasNote ? "Update note" : "Add note"}
+          {hasNote ? workspaceText("local.updateNote") : workspaceText("local.addNote")}
         </button>
       </div>
     </section>
@@ -758,19 +803,10 @@ function getContextFileMode(file: ContextComposerFileReference): ContextFileMode
 }
 
 function getContextModeLabel(mode: ContextFileMode) {
-  if (mode === "edit") {
-    return "Edit candidate";
-  }
-
-  if (mode === "create") {
-    return "Create / edit";
-  }
-
-  if (mode === "reference") {
-    return "Reference";
-  }
-
-  return "Inspect-only";
+  if (mode === "edit") return workspaceText("context.modeEdit");
+  if (mode === "create") return workspaceText("context.modeCreate");
+  if (mode === "reference") return workspaceText("context.modeReference");
+  return workspaceText("context.modeInspect");
 }
 
 function getContextModeTone(mode: ContextFileMode) {
@@ -820,8 +856,8 @@ function buildContextReviewSummary(preview?: ContextComposerPreview | null): Con
   if (!preview) {
     return {
       isAnalyzed: false,
-      label: "Not analyzed",
-      summary: "Run Analyze Context to see selected files, reasons and context budget before exporting.",
+      label: workspaceText("context.notAnalyzed"),
+      summary: workspaceText("context.notAnalyzedSummary"),
       status: "empty",
       files: [],
       editCount: 0,
@@ -829,9 +865,9 @@ function buildContextReviewSummary(preview?: ContextComposerPreview | null): Con
       referenceCount: 0,
       snippetsCount: 0,
       budgetScore: 0,
-      budgetLabel: "Pending",
-      source: "Not started",
-      riskLabel: "Unknown"
+      budgetLabel: workspaceText("common.pending"),
+      source: workspaceText("context.notStarted"),
+      riskLabel: workspaceText("taskTypes.unknown.label")
     };
   }
 
@@ -854,10 +890,14 @@ function buildContextReviewSummary(preview?: ContextComposerPreview | null): Con
 
   return {
     isAnalyzed: true,
-    label: status === "ready" ? "Context ready" : status === "blocked" ? "Manual review needed" : "Review suggested",
+    label: status === "ready"
+      ? workspaceText("context.contextReady")
+      : status === "blocked"
+        ? workspaceText("context.manualReview")
+        : workspaceText("context.reviewSuggested"),
     summary: status === "ready"
-      ? "Selected files are ready to review before generating the Task Pack."
-      : "Context was analyzed, but warnings should be reviewed before exporting.",
+      ? workspaceText("context.readySummary")
+      : workspaceText("context.warningSummary"),
     status,
     files,
     editCount,
@@ -865,8 +905,14 @@ function buildContextReviewSummary(preview?: ContextComposerPreview | null): Con
     referenceCount,
     snippetsCount,
     budgetScore,
-    budgetLabel: budgetScore >= 75 ? "Detailed" : budgetScore >= 40 ? "Standard" : "Compact",
-    source: preview.fileSelection.usedFallback ? "Fallback selector" : preview.fileSelection.source,
+    budgetLabel: budgetScore >= 75
+      ? workspaceText("budget.detailed")
+      : budgetScore >= 40
+        ? workspaceText("budget.standard")
+        : workspaceText("budget.compact"),
+    source: preview.fileSelection.usedFallback
+      ? workspaceText("context.fallbackSelector")
+      : preview.fileSelection.source,
     riskLabel: preview.taskIntent.riskLevel || preview.selectionQuality.status
   };
 }
@@ -884,18 +930,24 @@ function getFileReason(file: ContextComposerFileReference, preview?: ContextComp
   const mode = getContextFileMode(file);
 
   if (mode === "edit" || mode === "create") {
-    return `Selected as a likely ${taskArea} edit candidate from the scanned project inventory.`;
+    return workspaceText("context.fileReasonEdit", { area: taskArea });
   }
 
   if (mode === "reference") {
-    return "Included as supporting configuration or project metadata for the generated Task Pack.";
+    return workspaceText("context.fileReasonReference");
   }
 
-  return "Included for inspection so the coding agent can understand nearby behavior without editing it directly.";
+  return workspaceText("context.fileReasonInspect");
 }
 
 function getContextFileMetaLine(file: ContextComposerFileReference) {
-  const parts = [file.kind || "file", formatConfidence(file.confidence), file.canReadText ? "snippet readable" : "snippet unavailable"];
+  const parts = [
+    file.kind || "file",
+    formatConfidence(file.confidence),
+    file.canReadText
+      ? workspaceText("context.snippetReadable")
+      : workspaceText("context.snippetUnavailable")
+  ];
   return parts.join(" · ");
 }
 
@@ -915,11 +967,11 @@ function getCompactContextWarning(message: string) {
   const normalized = message.toLowerCase();
 
   if (normalized.includes("fallback")) {
-    return "Fallback selector was used. Review file choices before exporting.";
+    return workspaceText("context.warningFallback");
   }
 
   if (normalized.includes("invalid output") || normalized.includes("failed")) {
-    return "AI file selector did not return a safe result; ranked fallback context was used.";
+    return workspaceText("context.warningInvalid");
   }
 
   return message;
@@ -942,34 +994,34 @@ function getBudgetModeFromLabel(label: string): ContextBudgetMode {
 function getContextBudgetGuidance(mode: ContextBudgetMode) {
   if (mode === "compact") {
     return {
-      title: "Compact",
-      description: "Best for small fixes. Keeps only high-confidence edit files and essential references.",
-      target: "2–4 files",
-      risk: "Lowest noise"
+      title: workspaceText("budget.compact"),
+      description: workspaceText("budget.compactDescription"),
+      target: workspaceText("budget.compactTarget"),
+      risk: workspaceText("budget.lowestNoise")
     };
   }
 
   if (mode === "detailed") {
     return {
-      title: "Detailed",
-      description: "Best when the task spans several areas. Adds more references, but review noise carefully.",
-      target: "8–14 files",
-      risk: "Higher context load"
+      title: workspaceText("budget.detailed"),
+      description: workspaceText("budget.detailedDescription"),
+      target: workspaceText("budget.detailedTarget"),
+      risk: workspaceText("budget.higherLoad")
     };
   }
 
   return {
-    title: "Standard",
-    description: "Balanced mode for most Task Packs. Keeps edit candidates plus nearby inspect-only context.",
-    target: "5–8 files",
-    risk: "Balanced"
+    title: workspaceText("budget.standard"),
+    description: workspaceText("budget.standardDescription"),
+    target: workspaceText("budget.standardTarget"),
+    risk: workspaceText("budget.balanced")
   };
 }
 
 function getBudgetPressureTone(score: number) {
   if (score >= 90) {
     return {
-      label: "High pressure",
+      label: workspaceText("budget.highPressure"),
       text: "text-red-200",
       bar: "bg-red-300",
       border: "border-red-400/20",
@@ -979,7 +1031,7 @@ function getBudgetPressureTone(score: number) {
 
   if (score >= 65) {
     return {
-      label: "Review load",
+      label: workspaceText("budget.reviewLoad"),
       text: "text-white",
       bar: "bg-white",
       border: "border-white/15",
@@ -988,7 +1040,7 @@ function getBudgetPressureTone(score: number) {
   }
 
   return {
-    label: "Light context",
+    label: workspaceText("budget.lightContext"),
     text: "text-emerald-200",
     bar: "bg-emerald-300",
     border: "border-emerald-400/20",
@@ -1073,11 +1125,11 @@ function ContextBudgetPanel({
           </div>
 
           <h3 className="mt-1 text-base font-semibold text-white">
-            {summary.budgetLabel} · {summary.budgetScore}% context pressure
+            {workspaceText("budget.pressure", { label: summary.budgetLabel, score: summary.budgetScore })}
           </h3>
 
           <p className="mt-2 max-w-2xl text-xs leading-5 text-neutral-500">
-            Budget is a local estimate of how much context the Task Pack will carry. It does not change generation yet, but it helps decide whether the pack is too sparse or too noisy.
+            {workspaceText("budget.description")}
           </p>
         </div>
 
@@ -1085,7 +1137,21 @@ function ContextBudgetPanel({
           <SegmentedFilter
             value={selectedMode}
             onChange={(value) => onModeChange(value as ContextBudgetMode)}
-            options={CONTEXT_BUDGET_MODE_OPTIONS}
+            options={CONTEXT_BUDGET_MODE_OPTIONS.map((option) => ({
+              ...option,
+              label:
+                option.value === "compact"
+                  ? workspaceText("budget.compact")
+                  : option.value === "detailed"
+                    ? workspaceText("budget.detailed")
+                    : workspaceText("budget.standard"),
+              description:
+                option.value === "compact"
+                  ? workspaceText("budget.compactShort")
+                  : option.value === "detailed"
+                    ? workspaceText("budget.detailedShort")
+                    : workspaceText("budget.standardShort")
+            }))}
             className="h-11"
           />
         </div>
@@ -1094,24 +1160,24 @@ function ContextBudgetPanel({
       <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
         <div className="grid gap-3 sm:grid-cols-2">
           <ContextBudgetBar
-            label="Files"
+            label={workspaceText("budget.files")}
             value={filePressure}
-            caption={`${summary.files.length} selected · ${summary.editCount} edit candidates`}
+            caption={workspaceText("budget.filesCaption", { count: summary.files.length, edit: summary.editCount })}
           />
           <ContextBudgetBar
-            label="Snippets"
+            label={workspaceText("budget.snippets")}
             value={snippetPressure}
-            caption={`${summary.snippetsCount} readable snippets`}
+            caption={workspaceText("budget.snippetsCaption", { count: summary.snippetsCount })}
           />
           <ContextBudgetBar
-            label="Rules & checks"
+            label={workspaceText("budget.rulesChecks")}
             value={rulePressure}
-            caption={`${enabledRulesCount} rules · ${criteriaCount} checks`}
+            caption={workspaceText("budget.rulesChecksCaption", { rules: enabledRulesCount, checks: criteriaCount })}
           />
           <ContextBudgetBar
-            label="Inspect-only load"
+            label={workspaceText("budget.inspectLoad")}
             value={inspectPressure}
-            caption={`${summary.inspectCount + summary.referenceCount} read-only references`}
+            caption={workspaceText("budget.inspectLoadCaption", { count: summary.inspectCount + summary.referenceCount })}
           />
         </div>
 
@@ -1119,7 +1185,7 @@ function ContextBudgetPanel({
           <div className="flex items-center justify-between gap-3">
             <div>
               <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                Planning mode
+                {workspaceText("budget.planningMode")}
               </p>
               <h4 className="mt-1 text-sm font-semibold text-white">
                 {guidance.title}
@@ -1127,7 +1193,7 @@ function ContextBudgetPanel({
             </div>
 
             <span className="rounded-full border border-neutral-800 bg-neutral-950 px-2 py-1 text-[10px] text-neutral-400">
-              {recommendedMode === selectedMode ? "recommended" : "preview"}
+              {recommendedMode === selectedMode ? workspaceText("budget.recommended") : workspaceText("budget.preview")}
             </span>
           </div>
 
@@ -1136,12 +1202,12 @@ function ContextBudgetPanel({
           </p>
 
           <div className="mt-3 grid grid-cols-2 gap-2">
-            <CompactMetric label="Target" value={guidance.target} caption="future budget" />
-            <CompactMetric label="Noise" value={guidance.risk} caption="expected" />
+            <CompactMetric label={workspaceText("budget.target")} value={guidance.target} caption={workspaceText("budget.futureBudget")} />
+            <CompactMetric label={workspaceText("budget.noise")} value={guidance.risk} caption={workspaceText("budget.expected")} />
           </div>
 
           <p className="mt-3 text-[10px] leading-4 text-neutral-600">
-            Stage 10.4 is UI-only: selector behavior stays unchanged until budget modes are wired into core selection.
+            {workspaceText("budget.note")}
           </p>
         </div>
       </div>
@@ -1386,15 +1452,15 @@ function PackStatusCard({
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 pt-1">
           <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-            Pack status
+            {workspaceText("quality.packStatus")}
           </p>
 
           <h2 className="mt-1 text-base font-semibold text-white">
-            {quality.label}
+            {workspaceText(`quality.status.${quality.status}.label`)}
           </h2>
 
           <p className="mt-1 line-clamp-2 text-xs leading-5 text-neutral-600">
-            {quality.summary}
+            {workspaceText(`quality.status.${quality.status}.summary`)}
           </p>
         </div>
 
@@ -1455,11 +1521,11 @@ function PackStatusCard({
         className="cf-invert-action mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-full px-3 text-xs"
       >
         <Lightbulb size={13} />
-        View quality details
+        {workspaceText("quality.viewDetails")}
       </button>
 
       <p className={["mt-3 text-[10px] leading-4", classes.muted].join(" ")}>
-        Local readiness only · generation logic is unchanged.
+        {workspaceText("quality.readinessNote")}
       </p>
     </section>
   );
@@ -1501,6 +1567,64 @@ function getIntentStatusClasses(status: TaskPackIntentStatus) {
   };
 }
 
+function localizeIntentLabel(intent: TaskPackIntentResult) {
+  if (intent.label === "Intent needs review") {
+    return workspaceText("intent.warningLabel");
+  }
+  if (intent.label === "Review recipe fit") {
+    return workspaceText("intent.reviewLabel");
+  }
+  if (intent.label === "Recipe-guided intent") {
+    return workspaceText("intent.recipeGuidedLabel");
+  }
+  return intent.label;
+}
+
+function localizeIntentSummary(summary: string) {
+  if (summary === "Dynamic analyzer output and the selected setup may conflict. Review before exporting.") {
+    return workspaceText("intent.warningSummary");
+  }
+  if (summary === "Recipe metadata needs a quick review before export.") {
+    return workspaceText("intent.reviewSummary");
+  }
+  if (summary === "Analyzed project intent and selected setup look aligned.") {
+    return workspaceText("intent.matchSummary");
+  }
+  if (summary === "No dynamic context analysis has run yet; this card is checking selected recipe metadata only.") {
+    return workspaceText("intent.noDynamicAnalysisSummary");
+  }
+  return summary;
+}
+
+function localizeIntentSignalLabel(label: string) {
+  if (label === "Mode") return workspaceText("intent.mode");
+  if (label === "Analyzed") return workspaceText("intent.analyzed");
+  if (label === "Selected") return workspaceText("intent.selected");
+  if (label === "Confidence") return workspaceText("intent.confidence");
+  return label;
+}
+
+function localizeIntentSignalValue(value: string) {
+  const taskTypeByLabel: Record<string, string> = {
+    General: "general",
+    "UI / UX": "ui",
+    Backend: "backend",
+    Fullstack: "fullstack",
+    Build: "build",
+    "Bug fix": "bugfix",
+    Refactor: "refactor",
+    Docs: "docs",
+    Tests: "tests",
+  };
+
+  if (value === "Recipe metadata") {
+    return workspaceText("intent.recipeMetadata");
+  }
+
+  const taskType = taskTypeByLabel[value];
+  return taskType ? getTaskTypeLabel(taskType) : value;
+}
+
 function TaskIntentCard({
   intent,
   onOpenRecipe,
@@ -1531,7 +1655,7 @@ function TaskIntentCard({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                Task understanding
+                {workspaceText("intent.eyebrow")}
               </p>
               <span className={["rounded-full border px-2 py-0.5 text-[9px] font-semibold", classes.pill].join(" ")}>
                 {intent.confidence}%
@@ -1539,11 +1663,11 @@ function TaskIntentCard({
             </div>
 
             <h3 className="mt-1 truncate text-sm font-semibold text-white">
-              {intent.label}
+              {localizeIntentLabel(intent)}
             </h3>
 
             <p className="mt-1 line-clamp-1 text-xs leading-5 text-neutral-500">
-              {intent.summary}
+              {localizeIntentSummary(intent.summary)}
             </p>
           </div>
         </div>
@@ -1552,7 +1676,7 @@ function TaskIntentCard({
           {intent.signals.map((signal) => (
             <div key={signal.label} className="rounded-xl border border-neutral-900 bg-black/35 px-2.5 py-2">
               <p className="cf-tech-label truncate text-[8px] uppercase text-neutral-700">
-                {signal.label}
+                {localizeIntentSignalLabel(signal.label)}
               </p>
               <p
                 className={[
@@ -1564,7 +1688,7 @@ function TaskIntentCard({
                       : "text-white"
                 ].join(" ")}
               >
-                {signal.value}
+                {localizeIntentSignalValue(signal.value)}
               </p>
             </div>
           ))}
@@ -1594,7 +1718,7 @@ function TaskIntentCard({
               onClick={onOpenRecipe}
               className="cf-invert-action inline-flex h-7 items-center rounded-full px-2.5 text-[11px]"
             >
-              Open recipe
+              {workspaceText("intent.openRecipe")}
             </button>
 
             {hasContextMismatch && (
@@ -1603,14 +1727,14 @@ function TaskIntentCard({
                 onClick={onOpenContext}
                 className="inline-flex h-7 items-center rounded-full border border-neutral-800 bg-neutral-950 px-2.5 text-[11px] font-medium text-neutral-300 transition hover:border-white/20 hover:text-white"
               >
-                Review context
+                {workspaceText("intent.reviewContext")}
               </button>
             )}
           </div>
         </div>
       ) : (
         <div className="mt-3 border-t border-emerald-400/10 pt-3 text-[11px] leading-5 text-emerald-200/75">
-          Recipe and task intent look aligned. Keep boundaries and verification visible before exporting.
+          {workspaceText("intent.aligned")}
         </div>
       )}
     </article>
@@ -1690,19 +1814,19 @@ function BackendTaskUnderstandingCard({
 
         <div className="grid shrink-0 grid-cols-4 gap-1.5 xl:w-[430px]">
           <div className="rounded-xl border border-neutral-900 bg-black/35 px-2.5 py-2">
-            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">Action</p>
+            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">{workspaceText("intent.action")}</p>
             <p className="mt-1 truncate text-[11px] font-semibold text-white">{understanding.action}</p>
           </div>
           <div className="rounded-xl border border-neutral-900 bg-black/35 px-2.5 py-2">
-            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">Targets</p>
+            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">{workspaceText("intent.targets")}</p>
             <p className="mt-1 text-[11px] font-semibold text-white">{understanding.targetHints.length}</p>
           </div>
           <div className="rounded-xl border border-neutral-900 bg-black/35 px-2.5 py-2">
-            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">Values</p>
+            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">{workspaceText("intent.values")}</p>
             <p className="mt-1 text-[11px] font-semibold text-white">{understanding.explicitValues.length}</p>
           </div>
           <div className="rounded-xl border border-neutral-900 bg-black/35 px-2.5 py-2">
-            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">Questions</p>
+            <p className="cf-tech-label text-[8px] uppercase text-neutral-700">{workspaceText("intent.questions")}</p>
             <p className="mt-1 text-[11px] font-semibold text-white">{response.clarifications.length}</p>
           </div>
         </div>
@@ -1756,11 +1880,7 @@ function getQualitySuggestionSection(message: string): BuilderSection {
 }
 
 function getBuilderSectionLabel(section: BuilderSection) {
-  if (section === "recipe") return "Recipe";
-  if (section === "rules") return "Rules";
-  if (section === "acceptance") return "Acceptance";
-  if (section === "context") return "Context";
-  return "Task";
+  return workspaceText(`sections.${section}`);
 }
 
 function QualityDetailsModal({
@@ -1795,19 +1915,19 @@ function QualityDetailsModal({
 
   return (
     <Modal
-      title="Task Pack Quality"
-      eyebrow="Stage 10.1"
+      title={workspaceText("quality.modalTitle")}
+      eyebrow={workspaceText("quality.modalEyebrow")}
       maxWidth="max-w-4xl"
       scrollable={true}
       onClose={onClose}
       footer={
         <div className="flex w-full items-center justify-between gap-3">
           <p className="hidden text-xs text-neutral-600 md:block">
-            Local readiness score · choose an item to open the relevant workflow step.
+            {workspaceText("quality.modalFooter")}
           </p>
 
           <Button variant="primary" onClick={onClose}>
-            Done
+            {workspaceText("common.done")}
           </Button>
         </div>
       }
@@ -1820,24 +1940,24 @@ function QualityDetailsModal({
 
               <div className="min-w-0">
                 <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                  Quality overview
+                  {workspaceText("quality.overview")}
                 </p>
 
                 <h3 className="mt-1 text-xl font-semibold tracking-[-0.04em] text-white">
-                  {quality.label}
+                  {workspaceText(`quality.status.${quality.status}.label`)}
                 </h3>
 
                 <p className="mt-1 max-w-xl text-sm leading-6 text-neutral-500">
-                  {quality.summary}
+                  {workspaceText(`quality.status.${quality.status}.summary`)}
                 </p>
               </div>
             </div>
 
             <div className="grid min-w-[280px] grid-cols-4 gap-2 lg:max-w-sm">
-              <CompactMetric label="Checks" value={`${passedChecks}/${quality.checks.length}`} caption="passed" />
-              <CompactMetric label="Task" value={quality.stats.taskWords} caption="words" />
-              <CompactMetric label="Rules" value={quality.stats.enabledRules} caption="enabled" />
-              <CompactMetric label="Criteria" value={quality.stats.criteria} caption="checks" />
+              <CompactMetric label={workspaceText("quality.checks")} value={`${passedChecks}/${quality.checks.length}`} caption={workspaceText("quality.passed")} />
+              <CompactMetric label={workspaceText("quality.task")} value={quality.stats.taskWords} caption={workspaceText("common.words")} />
+              <CompactMetric label={workspaceText("quality.rules")} value={quality.stats.enabledRules} caption={workspaceText("common.enabled")} />
+              <CompactMetric label={workspaceText("quality.criteria")} value={quality.stats.criteria} caption={workspaceText("common.checks")} />
             </div>
           </div>
         </section>
@@ -1846,16 +1966,16 @@ function QualityDetailsModal({
           <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
             <div>
               <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                Next best actions
+                {workspaceText("quality.nextActions")}
               </p>
 
               <h3 className="mt-1 text-base font-semibold text-white">
-                Fix the strongest gaps first.
+                {workspaceText("quality.fixGaps")}
               </h3>
             </div>
 
             <span className="inline-flex h-7 items-center rounded-full border border-white/10 bg-white/[0.04] px-3 text-[11px] text-neutral-400">
-              {nextActions.length > 0 ? `${nextActions.length} suggested` : "No blockers"}
+              {nextActions.length > 0 ? workspaceText("quality.suggested", { count: nextActions.length }) : workspaceText("quality.noBlockers")}
             </span>
           </div>
 
@@ -1893,7 +2013,7 @@ function QualityDetailsModal({
                           {action.label}
                         </p>
                         <p className="mt-2 text-[10px] font-semibold text-neutral-600 transition group-hover:text-white">
-                          Open {getBuilderSectionLabel(action.section)} →
+                          {workspaceText("quality.openSection", { section: getBuilderSectionLabel(action.section) })}
                         </p>
                       </div>
                     </div>
@@ -1904,11 +2024,11 @@ function QualityDetailsModal({
               <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.06] p-3 lg:col-span-3">
                 <div className="flex items-center gap-2 text-sm font-semibold text-emerald-300">
                   <CheckCircle2 size={15} />
-                  Looks ready
+                  {workspaceText("quality.looksReady")}
                 </div>
 
                 <p className="mt-1 text-xs leading-5 text-emerald-200/70">
-                  The Task Pack has clear setup, constraints and enough verification signals.
+                  {workspaceText("quality.looksReadyDescription")}
                 </p>
               </div>
             )}
@@ -1919,11 +2039,11 @@ function QualityDetailsModal({
           <div className="mb-4 flex items-center justify-between gap-3">
             <div>
               <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                Readiness checks
+                {workspaceText("quality.readinessChecks")}
               </p>
 
               <h3 className="mt-1 text-base font-semibold text-white">
-                What the score is based on
+                {workspaceText("quality.scoreBasis")}
               </h3>
             </div>
 
@@ -1960,7 +2080,19 @@ function QualityDetailsModal({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center justify-between gap-3">
                         <p className="truncate text-sm font-semibold text-white">
-                          {check.label}
+                          {workspaceText(`quality.checkLabels.${
+                          check.id === "task-clarity"
+                            ? "taskClarity"
+                            : check.id === "scope-control"
+                              ? "scopeControl"
+                              : check.id === "recipe"
+                                ? "recipe"
+                                : check.id === "constraints"
+                                  ? "constraints"
+                                  : check.id === "verification"
+                                    ? "verification"
+                                    : "safety"
+                        }`)}
                         </p>
 
                         <span className="shrink-0 text-[11px] text-neutral-500">
@@ -2077,18 +2209,18 @@ function TaskPresetSelector({
           <div className="mb-2 flex flex-wrap gap-2">
             <Pill>
               <ClipboardCheckIcon />
-              Stage 9.3
+              {workspaceText("presets.badge")}
             </Pill>
-            <Pill>Template preset</Pill>
+            <Pill>{workspaceText("presets.templatePreset")}</Pill>
           </div>
 
           <h3 className="text-sm font-semibold text-white">
-            Choose a task preset to auto-wire template, profile and checks.
+            {workspaceText("presets.title")}
           </h3>
         </div>
 
         <p className="max-w-sm text-[11px] leading-4 text-neutral-600">
-          Presets update the recipe only. Your written task stays untouched unless it is empty.
+          {workspaceText("presets.description")}
         </p>
       </div>
 
@@ -2114,7 +2246,8 @@ function TaskPresetSelector({
           />
         )}
 
-        {BUILDER_TASK_PRESETS.map((preset) => {
+        {BUILDER_TASK_PRESETS.map((basePreset) => {
+          const preset = localizeTaskPreset(basePreset);
           const isActive = preset.id === activePreset.id;
 
           return (
@@ -2176,12 +2309,12 @@ function TaskPresetSelector({
 
       <div className="mt-3 grid gap-2 lg:grid-cols-[minmax(0,1fr)_170px]">
         <div className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2">
-          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">Preset focus</p>
+          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">{workspaceText("presets.focus")}</p>
           <p className="mt-1 truncate text-xs text-neutral-400">{activePreset.focus}</p>
         </div>
 
         <div className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2">
-          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">Auto recipe</p>
+          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">{workspaceText("presets.autoRecipe")}</p>
           <p className="mt-1 truncate text-xs font-semibold text-white">
             {getTaskTypeLabel(activePreset.taskType)} · {getTargetToolLabel(activePreset.targetTool)}
           </p>
@@ -2209,25 +2342,25 @@ function PresetPickerModal({
 }) {
   return (
     <Modal
-      title="Choose task preset"
-      eyebrow="Stage 9.3"
+      title={workspaceText("presets.chooseTitle")}
+      eyebrow={workspaceText("presets.modalEyebrow")}
       maxWidth="max-w-6xl"
       scrollable={false}
       onClose={onClose}
       footer={
         <div className="flex w-full items-center justify-between gap-3">
           <p className="hidden text-xs text-neutral-600 md:block">
-            Presets update the recipe. Existing task text stays untouched.
+            {workspaceText("presets.modalDescription")}
           </p>
 
           <div className="flex shrink-0 items-center gap-3">
             <Button variant="secondary" onClick={onResetDefaults}>
               <RotateCcw size={15} />
-              Reset defaults
+              {workspaceText("presets.resetDefaults")}
             </Button>
 
             <Button variant="primary" onClick={onClose}>
-              Done
+              {workspaceText("common.done")}
             </Button>
           </div>
         </div>
@@ -2263,7 +2396,7 @@ function RecipeSetupModal({
   onClose
 }: {
   draft: TaskPackDraft;
-  taskTypeOptions: typeof TASK_TYPE_OPTIONS;
+  taskTypeOptions: Array<{ value: TemplateTaskType; label: string; description: string }>;
   targetToolOptions: typeof TARGET_TOOL_OPTIONS;
   templateOptions: Array<{ value: string; label: string; description: string }>;
   profileOptions: Array<{ value: string; label: string; description: string }>;
@@ -2280,19 +2413,19 @@ function RecipeSetupModal({
 }) {
   return (
     <Modal
-      title="Recipe setup"
-      eyebrow="Templates & rules"
+      title={workspaceText("recipeModal.title")}
+      eyebrow={workspaceText("recipeModal.eyebrow")}
       maxWidth="max-w-5xl"
       scrollable={false}
       onClose={onClose}
       footer={
         <div className="flex w-full items-center justify-between gap-3">
           <p className="hidden text-xs text-neutral-600 md:block">
-            This controls the generated Task Pack format, rule profile and checks.
+            {workspaceText("recipeModal.footer")}
           </p>
 
           <Button variant="primary" onClick={onClose}>
-            Done
+            {workspaceText("common.done")}
           </Button>
         </div>
       }
@@ -2306,11 +2439,11 @@ function RecipeSetupModal({
 
             <div>
               <h3 className="text-base font-semibold text-white">
-                Template and rule profile
+                {workspaceText("recipeModal.sectionTitle")}
               </h3>
 
               <p className="mt-1 max-w-2xl text-xs leading-5 text-neutral-600">
-                Choose the task type, target coding agent, prompt template and rule profile for this pack.
+                {workspaceText("recipeModal.sectionDescription")}
               </p>
             </div>
           </div>
@@ -2318,7 +2451,7 @@ function RecipeSetupModal({
           <div className="grid gap-4 md:grid-cols-2">
             <div>
               <label className="mb-2 block text-xs text-neutral-500">
-                Task type
+                {workspaceText("recipe.taskType")}
               </label>
 
               <CustomSelect
@@ -2330,7 +2463,7 @@ function RecipeSetupModal({
 
             <div>
               <label className="mb-2 block text-xs text-neutral-500">
-                Target AI tool
+                {workspaceText("recipe.targetTool")}
               </label>
 
               <CustomSelect
@@ -2342,7 +2475,7 @@ function RecipeSetupModal({
 
             <div>
               <label className="mb-2 block text-xs text-neutral-500">
-                Prompt template
+                {workspaceText("recipe.promptTemplate")}
               </label>
 
               <CustomSelect
@@ -2354,7 +2487,7 @@ function RecipeSetupModal({
 
             <div>
               <label className="mb-2 block text-xs text-neutral-500">
-                Rule profile
+                {workspaceText("recipe.ruleProfile")}
               </label>
 
               <CustomSelect
@@ -2368,57 +2501,57 @@ function RecipeSetupModal({
 
         <aside className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-5">
           <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-            Applied recipe
+            {workspaceText("recipeModal.applied")}
           </p>
 
           <h3 className="mt-1 text-base font-semibold text-white">
-            What will be inserted
+            {workspaceText("recipeModal.inserted")}
           </h3>
 
           <div className="mt-4 grid grid-cols-2 gap-2">
             <CompactMetric
-              label="Task"
+              label={workspaceText("quality.task")}
               value={getTaskTypeLabel(draft.taskType)}
               caption={getTargetToolLabel(draft.targetTool)}
             />
 
             <CompactMetric
-              label="Rules"
+              label={workspaceText("quality.rules")}
               value={enabledRulesCount}
-              caption="toggle"
+              caption={workspaceText("recipeModal.toggle")}
             />
 
             <CompactMetric
-              label="Custom"
+              label={workspaceText("recipeModal.custom")}
               value={customRulesCount}
-              caption="rules"
+              caption={workspaceText("quality.rules")}
             />
 
             <CompactMetric
-              label="Checks"
+              label={workspaceText("quality.checks")}
               value={totalCriteriaCount}
-              caption="criteria"
+              caption={workspaceText("recipeModal.criteria")}
             />
           </div>
 
           <div className="mt-4 space-y-2">
             <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
               <p className="text-xs font-semibold text-white">
-                {selectedTemplate?.name ?? "No template selected"}
+                {selectedTemplate?.name ?? workspaceText("noTemplateSelected")}
               </p>
 
               <p className="mt-1 truncate text-[11px] text-neutral-600">
-                Prompt template
+                {workspaceText("recipe.promptTemplate")}
               </p>
             </div>
 
             <div className="rounded-2xl border border-neutral-900 bg-black/35 p-3">
               <p className="text-xs font-semibold text-white">
-                {selectedProfile?.name ?? "No rule profile selected"}
+                {selectedProfile?.name ?? workspaceText("noProfileSelected")}
               </p>
 
               <p className="mt-1 truncate text-[11px] text-neutral-600">
-                Rule profile
+                {workspaceText("recipe.ruleProfile")}
               </p>
             </div>
           </div>
@@ -2547,7 +2680,7 @@ function RulesManagerModal({
 
   return (
     <Modal
-      title="Manage enabled rules"
+      title={workspaceText("rulesModal.title")}
       eyebrow="Rules & Templates"
       maxWidth="max-w-7xl"
       scrollable={false}
@@ -2560,7 +2693,7 @@ function RulesManagerModal({
             </p>
 
             <p className="mt-0.5 text-[11px] text-neutral-600">
-              Backend validates selected rule IDs before rendering the final prompt.
+              {workspaceText("rulesModal.footerDescription")}
             </p>
           </div>
 
@@ -2571,11 +2704,11 @@ function RulesManagerModal({
               disabled={!selectedProfile}
             >
               <RotateCcw size={15} />
-              Profile defaults
+              {workspaceText("rulesModal.profileDefaults")}
             </Button>
 
             <Button variant="primary" onClick={onClose}>
-              Done
+              {workspaceText("common.done")}
             </Button>
           </div>
         </div>
@@ -2595,15 +2728,15 @@ function RulesManagerModal({
             </div>
 
             <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-              Current selection
+              {workspaceText("rulesModal.currentSelection")}
             </p>
 
             <h3 className="mt-1 text-xl font-semibold tracking-[-0.04em] text-white">
-              Selected constraints
+              {workspaceText("rulesModal.selectedConstraints")}
             </h3>
 
             <p className="mt-2 text-xs leading-5 text-neutral-600">
-              This list is exactly what the generated Task Pack will receive as toggle rules.
+              {workspaceText("rulesModal.selectedDescription")}
             </p>
 
             {selectedProfile && (
@@ -2648,11 +2781,11 @@ function RulesManagerModal({
                 <div className="grid h-full place-items-center rounded-xl border border-dashed border-neutral-800 p-5 text-center">
                   <div>
                     <p className="text-sm font-semibold text-white">
-                      No rules enabled
+                      {workspaceText("rulesModal.noneTitle")}
                     </p>
 
                     <p className="mt-2 text-xs leading-5 text-neutral-600">
-                      Select rules from the right panel or restore profile defaults.
+                      {workspaceText("rulesModal.noneDescription")}
                     </p>
                   </div>
                 </div>
@@ -2670,15 +2803,15 @@ function RulesManagerModal({
                 </div>
 
                 <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                  Available rules
+                  {workspaceText("rulesModal.available")}
                 </p>
 
                 <h3 className="mt-1 text-xl font-semibold tracking-[-0.04em] text-white">
-                  Toggle workflow constraints
+                  {workspaceText("rulesModal.toggleTitle")}
                 </h3>
 
                 <p className="mt-2 max-w-2xl text-xs leading-5 text-neutral-600">
-                  Pick only the rules that matter for this task. Keep the enabled set focused to avoid prompt noise.
+                  {workspaceText("rulesModal.toggleDescription")}
                 </p>
               </div>
 
@@ -2686,7 +2819,7 @@ function RulesManagerModal({
                 <CompactMetric
                   label="Visible"
                   value={filteredRules.length}
-                  caption="rules"
+                  caption={workspaceText("quality.rules")}
                 />
 
                 <CompactMetric
@@ -2713,7 +2846,7 @@ function RulesManagerModal({
                 <input
                   value={query}
                   onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Search rules..."
+                  placeholder={workspaceText("rulesModal.searchPlaceholder")}
                   className="h-11 w-full rounded-2xl border border-neutral-900 bg-black/45 pl-10 pr-4 text-sm text-white outline-none transition placeholder:text-neutral-700 hover:border-neutral-800 focus:border-white/30 focus:bg-black/70 focus:ring-4 focus:ring-white/5"
                 />
               </div>
@@ -2724,13 +2857,13 @@ function RulesManagerModal({
                 options={[
                   {
                     value: "all",
-                    label: "All categories",
-                    description: "Show all visible rules"
+                    label: workspaceText("rulesModal.allCategories"),
+                    description: workspaceText("rulesModal.allCategoriesDescription")
                   },
                   ...categories.map((category) => ({
                     value: category,
                     label: category,
-                    description: "Rule category"
+                    description: workspaceText("rulesModal.categoryDescription")
                   }))
                 ]}
               />
@@ -2754,11 +2887,11 @@ function RulesManagerModal({
                 <div className="grid h-full place-items-center rounded-xl border border-dashed border-neutral-800 p-8 text-center">
                   <div>
                     <p className="text-sm font-semibold text-white">
-                      No rules found
+                      {workspaceText("rulesModal.noneFound")}
                     </p>
 
                     <p className="mt-2 text-xs leading-5 text-neutral-600">
-                      Try a different search query or category filter.
+                      {workspaceText("rulesModal.noneFoundDescription")}
                     </p>
                   </div>
                 </div>
@@ -2787,7 +2920,8 @@ export function TaskPackBuilderPage({
   const [ruleProfiles, setRuleProfiles] = useState<RuleProfile[]>([]);
   const [ruleItems, setRuleItems] = useState<RuleItem[]>([]);
   const [acceptancePresets, setAcceptancePresets] = useState<AcceptanceCriteriaPreset[]>([]);
-  const [catalogStatus, setCatalogStatus] = useState("Loading rules and templates...");
+  const [catalogStatus, setCatalogStatus] = useState<"loading" | "ready" | "error">("loading");
+  const [catalogError, setCatalogError] = useState("");
   const [isRulesModalOpen, setIsRulesModalOpen] = useState(false);
   const [isPresetModalOpen, setIsPresetModalOpen] = useState(false);
   const [isRecipeModalOpen, setIsRecipeModalOpen] = useState(false);
@@ -2823,9 +2957,29 @@ export function TaskPackBuilderPage({
   const selectedPreset = acceptancePresets.find(
     (preset) => preset.id === draft.acceptanceCriteriaPresetId
   );
-  const activeTaskPreset =
+  const activeTaskPreset = localizeTaskPreset(
     BUILDER_TASK_PRESETS.find((preset) => preset.id === activeTaskPresetId) ??
-    getBuilderPresetForTaskType(draft.taskType);
+      getBuilderPresetForTaskType(draft.taskType)
+  );
+
+  const localizedTaskTypeOptions = useMemo(
+    () =>
+      TASK_TYPE_OPTIONS.map((option) => ({
+        ...option,
+        label: workspaceText(`taskTypes.${option.value}.label`),
+        description: workspaceText(`taskTypes.${option.value}.description`)
+      })),
+    [t]
+  );
+
+  const localizedTargetToolOptions = useMemo(
+    () =>
+      TARGET_TOOL_OPTIONS.map((option) => ({
+        ...option,
+        description: workspaceText(`targetDescriptions.${option.value}`)
+      })),
+    [t]
+  );
 
   const enabledRuleIds = draft.enabledRuleIds ?? [];
   const enabledRuleIdSet = useMemo(() => new Set(enabledRuleIds), [enabledRuleIds]);
@@ -2864,46 +3018,46 @@ export function TaskPackBuilderPage({
 
   const contextSummary = useMemo(
     () => buildContextReviewSummary(contextPreview),
-    [contextPreview]
+    [contextPreview, t]
   );
 
   const builderSectionItems = useMemo<BuilderSectionNavigationItem[]>(
     () => [
       {
         value: "task",
-        label: "Task",
+        label: workspaceText("sections.task"),
         description:
           taskLength >= 120
-            ? "Ready"
+            ? workspaceText("sections.ready")
             : taskLength >= 3
-              ? "Needs detail"
-              : "Start here",
+              ? workspaceText("sections.needsDetail")
+              : workspaceText("sections.startHere"),
         icon: <Sparkles size={14} />
       },
       {
         value: "recipe",
-        label: "Recipe",
+        label: workspaceText("sections.recipe"),
         description: `${getTaskTypeLabel(draft.taskType)} · ${getTargetToolLabel(draft.targetTool)}`,
         icon: <Settings2 size={14} />
       },
       {
         value: "rules",
-        label: "Rules",
-        description: `${enabledRuleIds.length} enabled`,
+        label: workspaceText("sections.rules"),
+        description: workspaceText("sections.enabledCount", { count: enabledRuleIds.length }),
         icon: <ShieldCheck size={14} />
       },
       {
         value: "acceptance",
-        label: "Acceptance",
-        description: `${totalCriteriaCount} ${totalCriteriaCount === 1 ? "check" : "checks"}`,
+        label: workspaceText("sections.acceptance"),
+        description: workspaceText("sections.checksCount", { count: totalCriteriaCount }),
         icon: <CheckCircle2 size={14} />
       },
       {
         value: "context",
-        label: "Context",
+        label: workspaceText("sections.context"),
         description: contextSummary.isAnalyzed
-          ? `${contextSummary.files.length} files`
-          : "Not analyzed",
+          ? workspaceText("sections.filesCount", { count: contextSummary.files.length })
+          : workspaceText("sections.notAnalyzed"),
         icon: <Search size={14} />
       }
     ],
@@ -2914,7 +3068,8 @@ export function TaskPackBuilderPage({
       draft.taskType,
       enabledRuleIds.length,
       taskLength,
-      totalCriteriaCount
+      totalCriteriaCount,
+      t
     ]
   );
 
@@ -2927,48 +3082,52 @@ export function TaskPackBuilderPage({
     () => [
       {
         section: "task",
-        label: "Task",
+        label: workspaceText("sections.task"),
         value:
           taskLength >= 120
-            ? "Ready"
+            ? workspaceText("common.ready")
             : taskLength >= 3
-              ? "Needs detail"
-              : "Empty",
-        caption: `${taskLength} characters`,
+              ? workspaceText("sections.needsDetail")
+              : workspaceText("common.empty"),
+        caption: workspaceText("sections.taskCaption", { count: taskLength }),
         tone: taskLength >= 120 ? "ready" : taskLength >= 3 ? "warning" : "pending",
         icon: <Sparkles size={14} />
       },
       {
         section: "recipe",
-        label: "Setup",
-        value: selectedTemplate && selectedProfile ? "Configured" : "Review",
+        label: workspaceText("sections.setup"),
+        value: selectedTemplate && selectedProfile
+          ? workspaceText("common.configured")
+          : workspaceText("common.review"),
         caption: `${getTargetToolLabel(draft.targetTool)} · ${getTaskTypeLabel(draft.taskType)}`,
         tone: selectedTemplate && selectedProfile ? "ready" : "warning",
         icon: <Settings2 size={14} />
       },
       {
         section: "rules",
-        label: "Rules",
-        value: `${enabledRuleIds.length} enabled`,
-        caption: `${customRulesCount} custom`,
+        label: workspaceText("sections.rules"),
+        value: workspaceText("sections.enabledCount", { count: enabledRuleIds.length }),
+        caption: workspaceText("rules.customCount", { count: customRulesCount }),
         tone: enabledRuleIds.length > 0 ? "ready" : "pending",
         icon: <ShieldCheck size={14} />
       },
       {
         section: "acceptance",
-        label: "Acceptance",
-        value: `${totalCriteriaCount} checks`,
-        caption: totalCriteriaCount > 0 ? "Final verification" : "Add criteria",
+        label: workspaceText("sections.acceptance"),
+        value: workspaceText("sections.checksCount", { count: totalCriteriaCount }),
+        caption: totalCriteriaCount > 0
+          ? workspaceText("sections.acceptanceCaptionReady")
+          : workspaceText("sections.acceptanceCaptionMissing"),
         tone: totalCriteriaCount > 0 ? "ready" : "warning",
         icon: <CheckCircle2 size={14} />
       },
       {
         section: "context",
-        label: "Context",
+        label: workspaceText("sections.context"),
         value: contextSummary.label,
         caption: contextSummary.isAnalyzed
-          ? `${contextSummary.files.length} files · ${contextSummary.editCount} edit`
-          : "Analyze before export",
+          ? `${workspaceText("sections.filesCount", { count: contextSummary.files.length })} · ${contextSummary.editCount} ${workspaceText("common.edit")}`
+          : workspaceText("sections.contextCaptionMissing"),
         tone: !contextSummary.isAnalyzed
           ? "pending"
           : contextSummary.status === "ready"
@@ -2990,7 +3149,8 @@ export function TaskPackBuilderPage({
       selectedProfile,
       selectedTemplate,
       taskLength,
-      totalCriteriaCount
+      totalCriteriaCount,
+      t
     ]
   );
 
@@ -3074,30 +3234,39 @@ export function TaskPackBuilderPage({
     () => [
       {
         value: "all",
-        label: "All",
-        description: `${contextSummary.files.length} files`,
+        label: workspaceText("context.filterAll"),
+        description: workspaceText("context.filterAllDescription", { count: contextSummary.files.length }),
         icon: <FileText size={13} />
       },
       {
         value: "edit",
-        label: "Edit",
-        description: `${contextSummary.editCount} candidates`,
+        label: workspaceText("context.filterEdit"),
+        description: workspaceText("context.filterEditDescription", { count: contextSummary.editCount }),
         icon: <WandSparkles size={13} />
       },
       {
         value: "inspect",
-        label: "Inspect",
-        description: `${contextSummary.inspectCount + contextSummary.referenceCount} read-only`,
+        label: workspaceText("context.filterInspect"),
+        description: workspaceText("context.filterInspectDescription", {
+          count: contextSummary.inspectCount + contextSummary.referenceCount
+        }),
         icon: <Eye size={13} />
       },
       {
         value: "warnings",
-        label: "Warnings",
-        description: `${contextWarnings.length} signals`,
+        label: workspaceText("context.filterWarnings"),
+        description: workspaceText("context.filterWarningsDescription", { count: contextWarnings.length }),
         icon: <AlertTriangle size={13} />
       }
     ],
-    [contextSummary.editCount, contextSummary.files.length, contextSummary.inspectCount, contextSummary.referenceCount, contextWarnings.length]
+    [
+      contextSummary.editCount,
+      contextSummary.files.length,
+      contextSummary.inspectCount,
+      contextSummary.referenceCount,
+      contextWarnings.length,
+      t
+    ]
   );
 
   const visibleContextFiles = useMemo(() => {
@@ -3302,6 +3471,21 @@ export function TaskPackBuilderPage({
     }
   }, [onOpenContextComposer]);
 
+  const contextReviewItems = useMemo(
+    () =>
+      CONTEXT_REVIEW_ITEMS.map((item) => ({
+        ...item,
+        label: workspaceText(`context.tab${item.value[0].toUpperCase()}${item.value.slice(1)}`),
+        description:
+          item.value === "files"
+            ? workspaceText("context.selectedContext")
+            : item.value === "budget"
+              ? workspaceText("context.pressure")
+              : workspaceText("context.warningsSource")
+      })),
+    [t]
+  );
+
   const visibleRuleItems = useMemo(() => {
     const taskType = draft.taskType;
 
@@ -3329,7 +3513,15 @@ export function TaskPackBuilderPage({
               ? t("taskPackBuilder.exampleBugfix")
               : example.label === "Refactor"
                 ? t("taskPackBuilder.exampleRefactor")
-                : t("taskPackBuilder.exampleBackend")
+                : t("taskPackBuilder.exampleBackend"),
+        value:
+          example.label === "UI polish"
+            ? workspaceText("task.exampleUiValue")
+            : example.label === "Bugfix"
+              ? workspaceText("task.exampleBugfixValue")
+              : example.label === "Refactor"
+                ? workspaceText("task.exampleRefactorValue")
+                : workspaceText("task.exampleBackendValue")
       })),
     [t]
   );
@@ -3339,9 +3531,9 @@ export function TaskPackBuilderPage({
       templates.map((template) => ({
         value: template.id,
         label: template.name,
-        description: `${template.targetTool} · ${template.taskType}${template.isBuiltin ? " · built-in" : " · custom"}`
+        description: `${getTargetToolLabel(template.targetTool)} · ${getTaskTypeLabel(template.taskType)} · ${template.isBuiltin ? workspaceText("sourceBuiltin") : workspaceText("sourceCustom")}`
       })),
-    [templates]
+    [templates, t]
   );
 
   const profileOptions = useMemo(
@@ -3349,25 +3541,25 @@ export function TaskPackBuilderPage({
       ruleProfiles.map((profile) => ({
         value: profile.id,
         label: profile.name,
-        description: `${profile.taskType}${profile.isBuiltin ? " · built-in" : " · custom"}`
+        description: `${getTaskTypeLabel(profile.taskType)} · ${profile.isBuiltin ? workspaceText("sourceBuiltin") : workspaceText("sourceCustom")}`
       })),
-    [ruleProfiles]
+    [ruleProfiles, t]
   );
 
   const presetOptions = useMemo(
     () => [
       {
         value: "",
-        label: "No preset",
-        description: "Only custom acceptance criteria"
+        label: workspaceText("noPreset"),
+        description: workspaceText("onlyCustomCriteria")
       },
       ...acceptancePresets.map((preset) => ({
         value: preset.id,
         label: preset.name,
-        description: `${preset.taskType}${preset.isBuiltin ? " · built-in" : " · custom"}`
+        description: `${getTaskTypeLabel(preset.taskType)} · ${preset.isBuiltin ? workspaceText("sourceBuiltin") : workspaceText("sourceCustom")}`
       }))
     ],
-    [acceptancePresets]
+    [acceptancePresets, t]
   );
 
   function updateDraft(patch: Partial<TaskPackDraft>) {
@@ -3553,7 +3745,8 @@ export function TaskPackBuilderPage({
 
     async function loadCatalog() {
       try {
-        setCatalogStatus("Loading rules and templates...");
+        setCatalogStatus("loading");
+        setCatalogError("");
 
         const [templatesData, ruleCatalog] = await Promise.all([
           getTemplates(),
@@ -3568,12 +3761,13 @@ export function TaskPackBuilderPage({
         setRuleProfiles(ruleCatalog.ruleProfiles);
         setRuleItems(ruleCatalog.ruleItems);
         setAcceptancePresets(ruleCatalog.acceptanceCriteriaPresets);
-        setCatalogStatus("Rules and templates loaded.");
+        setCatalogStatus("ready");
       } catch (error) {
-        setCatalogStatus(
+        setCatalogStatus("error");
+        setCatalogError(
           error instanceof Error
             ? error.message
-            : "Failed to load rules and templates."
+            : workspaceText("catalogFailed")
         );
       }
     }
@@ -3621,26 +3815,30 @@ export function TaskPackBuilderPage({
               <div className="flex items-center gap-2 text-neutral-600">
                 <Sparkles size={13} />
                 <p className="cf-tech-label text-[10px] uppercase">
-                  Task Pack workspace · {draft.projectName}
+                  {workspaceText("headerEyebrow", { project: draft.projectName })}
                 </p>
               </div>
 
               <h1 className="mt-2 text-[27px] font-semibold leading-[1.05] tracking-[-0.05em] text-white">
-                Build an agent-ready Task Pack.
+                {workspaceText("headerTitle")}
               </h1>
 
               <p className="mt-1.5 max-w-3xl text-xs leading-5 text-neutral-500">
-                Define the task, confirm the setup, review context, and export one focused instruction pack.
+                {workspaceText("headerDescription")}
               </p>
 
               <div className="mt-3 flex flex-wrap gap-2">
                 <Pill>
                   {getTaskTypeLabel(draft.taskType)} · {getTargetToolLabel(draft.targetTool)}
                 </Pill>
-                <Pill>{enabledRuleIds.length} rules</Pill>
-                <Pill>{totalCriteriaCount} checks</Pill>
-                <Pill tone={catalogStatus === "Rules and templates loaded." ? "success" : "default"}>
-                  {catalogStatus}
+                <Pill>{workspaceText("rulesCount", { count: enabledRuleIds.length })}</Pill>
+                <Pill>{workspaceText("checksCount", { count: totalCriteriaCount })}</Pill>
+                <Pill tone={catalogStatus === "ready" ? "success" : catalogStatus === "error" ? "warning" : "default"}>
+                  {catalogStatus === "ready"
+                    ? workspaceText("catalogLoaded")
+                    : catalogStatus === "error"
+                      ? catalogError || workspaceText("catalogFailed")
+                      : workspaceText("catalogLoading")}
                 </Pill>
               </div>
             </div>
@@ -3688,7 +3886,7 @@ export function TaskPackBuilderPage({
                 activeIndex={activeBuilderSectionIndex}
                 getItemKey={(item) => item.value}
                 onSelect={(item) => setActiveBuilderSection(item.value)}
-                ariaLabel="Task Pack workflow sections"
+                ariaLabel={workspaceText("workflowAria")}
                 className="h-14"
                 itemClassName="rounded-[0.95rem]"
                 renderItem={(item, isActive) => (
@@ -3735,15 +3933,15 @@ export function TaskPackBuilderPage({
                   <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                        Task
+                        {workspaceText("task.eyebrow")}
                       </p>
 
                       <h2 className="mt-2 text-xl font-semibold tracking-[-0.035em] text-white">
-                        Describe what the coding agent should do.
+                        {workspaceText("task.title")}
                       </h2>
 
                       <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
-                        Keep the request concrete. Preset, recipe and repository context stay visible below without competing with the editor.
+                        {workspaceText("task.description")}
                       </p>
                     </div>
 
@@ -3758,7 +3956,7 @@ export function TaskPackBuilderPage({
                         </p>
 
                         <p className="text-[11px] text-neutral-600">
-                          {taskLength} chars
+                          {workspaceText("task.chars", { count: taskLength })}
                         </p>
                       </div>
                     </div>
@@ -3784,7 +3982,7 @@ export function TaskPackBuilderPage({
                       className="inline-flex h-8 items-center gap-2 rounded-full border border-neutral-800 bg-neutral-950 px-3 text-xs font-medium text-neutral-300 transition hover:border-white/20 hover:text-white"
                     >
                       <Sparkles size={13} />
-                      Change preset
+                      {workspaceText("task.changePreset")}
                     </button>
                   </div>
 
@@ -3795,15 +3993,15 @@ export function TaskPackBuilderPage({
                           <FileText size={14} />
                         </span>
                         <div className="min-w-0">
-                          <p className="text-xs font-semibold text-white">Task brief</p>
+                          <p className="text-xs font-semibold text-white">{workspaceText("task.briefTitle")}</p>
                           <p className="mt-0.5 text-[10px] text-neutral-600">
-                            Main instruction sent into Understanding and generation
+                            {workspaceText("task.briefDescription")}
                           </p>
                         </div>
                       </div>
 
                       <div className="flex items-center gap-2 text-[10px] text-neutral-600">
-                        <span>{taskLength} characters</span>
+                        <span>{workspaceText("task.characters", { count: taskLength })}</span>
                         <span className="size-1 rounded-full bg-neutral-800" />
                         <span>{taskQuality.label}</span>
                       </div>
@@ -3821,15 +4019,15 @@ export function TaskPackBuilderPage({
                     <div className="mb-3 flex flex-wrap items-center justify-between gap-3 px-1">
                       <div>
                         <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                          Task setup
+                          {workspaceText("task.setupTitle")}
                         </p>
                         <p className="mt-1 text-xs text-neutral-500">
-                          Preset, recipe, repository state and current understanding in one place.
+                          {workspaceText("task.setupDescription")}
                         </p>
                       </div>
 
                       <span className="rounded-full border border-neutral-900 bg-black/35 px-2.5 py-1 text-[10px] text-neutral-600">
-                        Supporting context · not automatic edit scope
+                        {workspaceText("task.supportingContext")}
                       </span>
                     </div>
 
@@ -3844,12 +4042,12 @@ export function TaskPackBuilderPage({
                             {activeTaskPreset.icon}
                           </span>
                           <div className="min-w-0">
-                            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">Preset</p>
+                            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">{workspaceText("task.preset")}</p>
                             <p className="mt-1 truncate text-sm font-semibold text-white">{activeTaskPreset.title}</p>
                             <p className="mt-1 line-clamp-1 text-[11px] text-neutral-600">{activeTaskPreset.focus}</p>
                           </div>
                         </div>
-                        <span className="mt-3 text-[11px] font-medium text-neutral-400">Change preset</span>
+                        <span className="mt-3 text-[11px] font-medium text-neutral-400">{workspaceText("task.changePreset")}</span>
                       </button>
 
                       <button
@@ -3858,15 +4056,15 @@ export function TaskPackBuilderPage({
                         className="flex min-h-[104px] min-w-0 flex-col justify-between rounded-2xl border border-neutral-900 bg-black/25 p-3 text-left transition hover:border-white/15 hover:bg-white/[0.035]"
                       >
                         <div>
-                          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">Recipe</p>
+                          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">{workspaceText("task.recipe")}</p>
                           <p className="mt-2 truncate text-sm font-semibold text-white">
                             {getTaskTypeLabel(draft.taskType)} · {getTargetToolLabel(draft.targetTool)}
                           </p>
                           <p className="mt-1 truncate text-[11px] text-neutral-600">
-                            {selectedTemplate?.name ?? "No template"}
+                            {selectedTemplate?.name ?? workspaceText("noTemplate")}
                           </p>
                         </div>
-                        <span className="mt-3 text-[11px] font-medium text-neutral-400">Review setup</span>
+                        <span className="mt-3 text-[11px] font-medium text-neutral-400">{workspaceText("task.reviewSetup")}</span>
                       </button>
 
                       <LocalChangesCompactStrip
@@ -3913,27 +4111,27 @@ export function TaskPackBuilderPage({
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                        Recipe
+                        {workspaceText("recipe.eyebrow")}
                       </p>
 
                       <h2 className="mt-2 text-xl font-semibold tracking-[-0.035em] text-white">
-                        Template and agent setup.
+                        {workspaceText("recipe.title")}
                       </h2>
 
                       <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
-                        Choose how ContextForge frames the Task Pack before it is exported to an external coding agent.
+                        {workspaceText("recipe.description")}
                       </p>
                     </div>
 
                     <div className="flex gap-2">
                       <Button variant="secondary" onClick={() => setIsPresetModalOpen(true)}>
                         <Sparkles size={15} />
-                        Preset
+                        {workspaceText("recipe.preset")}
                       </Button>
 
                       <Button variant="secondary" onClick={resetRecipeDefaults}>
                         <RotateCcw size={15} />
-                        Defaults
+                        {workspaceText("recipe.defaults")}
                       </Button>
                     </div>
                   </div>
@@ -3942,40 +4140,40 @@ export function TaskPackBuilderPage({
                     <div className="grid md:grid-cols-2">
                       <div className="border-b border-neutral-900 p-4 md:border-r">
                         <label className="mb-2 block text-xs font-medium text-neutral-400">
-                          Task type
+                          {workspaceText("recipe.taskType")}
                         </label>
                         <p className="mb-3 text-[11px] leading-5 text-neutral-600">
-                          Defines the structure and intent expected in the exported instruction.
+                          {workspaceText("recipe.taskTypeDescription")}
                         </p>
 
                         <CustomSelect
                           value={draft.taskType}
                           onChange={handleTaskTypeChange}
-                          options={TASK_TYPE_OPTIONS}
+                          options={localizedTaskTypeOptions}
                         />
                       </div>
 
                       <div className="border-b border-neutral-900 p-4">
                         <label className="mb-2 block text-xs font-medium text-neutral-400">
-                          Target AI tool
+                          {workspaceText("recipe.targetTool")}
                         </label>
                         <p className="mb-3 text-[11px] leading-5 text-neutral-600">
-                          Selects the coding-agent format used for the final Task Pack.
+                          {workspaceText("recipe.targetToolDescription")}
                         </p>
 
                         <CustomSelect
                           value={draft.targetTool}
                           onChange={handleTargetToolChange}
-                          options={TARGET_TOOL_OPTIONS}
+                          options={localizedTargetToolOptions}
                         />
                       </div>
 
                       <div className="border-b border-neutral-900 p-4 md:border-b-0 md:border-r">
                         <label className="mb-2 block text-xs font-medium text-neutral-400">
-                          Prompt template
+                          {workspaceText("recipe.promptTemplate")}
                         </label>
                         <p className="mb-3 text-[11px] leading-5 text-neutral-600">
-                          Provides the reusable instruction frame for this task and agent.
+                          {workspaceText("recipe.promptTemplateDescription")}
                         </p>
 
                         <CustomSelect
@@ -3987,10 +4185,10 @@ export function TaskPackBuilderPage({
 
                       <div className="p-4">
                         <label className="mb-2 block text-xs font-medium text-neutral-400">
-                          Rule profile
+                          {workspaceText("recipe.ruleProfile")}
                         </label>
                         <p className="mb-3 text-[11px] leading-5 text-neutral-600">
-                          Supplies the baseline safety and workflow constraints.
+                          {workspaceText("recipe.ruleProfileDescription")}
                         </p>
 
                         <CustomSelect
@@ -4005,34 +4203,34 @@ export function TaskPackBuilderPage({
                       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                         <div>
                           <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                            Applied output
+                            {workspaceText("recipe.appliedOutput")}
                           </p>
                           <p className="mt-1 text-sm font-semibold text-white">
-                            What will be inserted into the Task Pack
+                            {workspaceText("recipe.insertedTitle")}
                           </p>
                         </div>
 
                         <div className="flex flex-wrap gap-2 text-[11px] text-neutral-500">
-                          <span>{enabledRuleIds.length} enabled rules</span>
+                          <span>{workspaceText("recipe.enabledRules", { count: enabledRuleIds.length })}</span>
                           <span className="text-neutral-800">•</span>
-                          <span>{customRulesCount} custom rules</span>
+                          <span>{workspaceText("recipe.customRules", { count: customRulesCount })}</span>
                           <span className="text-neutral-800">•</span>
-                          <span>{totalCriteriaCount} checks</span>
+                          <span>{workspaceText("recipe.checks", { count: totalCriteriaCount })}</span>
                         </div>
                       </div>
 
                       <div className="mt-4 grid divide-y divide-neutral-900 overflow-hidden rounded-2xl border border-neutral-900 sm:grid-cols-2 sm:divide-x sm:divide-y-0">
                         <div className="min-w-0 p-3">
-                          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">Prompt template</p>
+                          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">{workspaceText("recipe.promptTemplate")}</p>
                           <p className="mt-1 truncate text-xs font-semibold text-white">
-                            {selectedTemplate?.name ?? "No template selected"}
+                            {selectedTemplate?.name ?? workspaceText("noTemplateSelected")}
                           </p>
                         </div>
 
                         <div className="min-w-0 p-3">
-                          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">Rule profile</p>
+                          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">{workspaceText("recipe.ruleProfile")}</p>
                           <p className="mt-1 truncate text-xs font-semibold text-white">
-                            {selectedProfile?.name ?? "No rule profile selected"}
+                            {selectedProfile?.name ?? workspaceText("noProfileSelected")}
                           </p>
                         </div>
                       </div>
@@ -4046,21 +4244,21 @@ export function TaskPackBuilderPage({
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                        Rules
+                        {workspaceText("rules.eyebrow")}
                       </p>
 
                       <h2 className="mt-2 text-xl font-semibold tracking-[-0.035em] text-white">
-                        Constraints and project boundaries.
+                        {workspaceText("rules.title")}
                       </h2>
 
                       <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
-                        Keep reusable profile rules visible while adding only the task-specific limits this request needs.
+                        {workspaceText("rules.description")}
                       </p>
                     </div>
 
                     <div className="flex items-center gap-2">
                       <Pill tone={customRulesCount > 0 ? "success" : "default"}>
-                        {customRulesCount} custom
+                        {workspaceText("rules.customCount", { count: customRulesCount })}
                       </Pill>
 
                       <button
@@ -4069,7 +4267,7 @@ export function TaskPackBuilderPage({
                         className="cf-invert-action inline-flex h-9 shrink-0 items-center gap-2 rounded-full px-4 text-xs"
                       >
                         <SlidersHorizontal size={13} />
-                        Manage rules
+                        {workspaceText("rules.manage")}
                       </button>
                     </div>
                   </div>
@@ -4079,9 +4277,9 @@ export function TaskPackBuilderPage({
                       <div className="p-4 xl:border-r xl:border-neutral-900">
                         <div className="mb-3 flex items-start justify-between gap-4">
                           <div>
-                            <p className="text-sm font-semibold text-white">Extra constraints</p>
+                            <p className="text-sm font-semibold text-white">{workspaceText("rules.extraTitle")}</p>
                             <p className="mt-1 text-[11px] leading-5 text-neutral-600">
-                              One instruction per line works best. These are added after the selected rule profile.
+                              {workspaceText("rules.extraDescription")}
                             </p>
                           </div>
                         </div>
@@ -4090,9 +4288,9 @@ export function TaskPackBuilderPage({
                           value={draft.customRulesText ?? ""}
                           onChange={(event) => updateDraft({ customRulesText: event.target.value })}
                           placeholder={[
-                            "Do not change backend/API behavior.",
-                            "Do not add new dependencies.",
-                            "Keep AppTitleBar untouched."
+                            workspaceText("rules.placeholderBackend"),
+                            workspaceText("rules.placeholderDependencies"),
+                            workspaceText("rules.placeholderTitlebar")
                           ].join("\n")}
                           className="h-[280px] w-full resize-none overflow-y-auto rounded-2xl border border-neutral-900 bg-black/55 p-4 text-sm leading-6 text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
                         />
@@ -4101,9 +4299,9 @@ export function TaskPackBuilderPage({
                       <aside className="border-t border-neutral-900 p-4 xl:border-t-0">
                         <div className="mb-3 flex items-center justify-between gap-3">
                           <div>
-                            <p className="text-sm font-semibold text-white">Enabled profile rules</p>
+                            <p className="text-sm font-semibold text-white">{workspaceText("rules.enabledTitle")}</p>
                             <p className="mt-1 text-[11px] text-neutral-600">
-                              {enabledRuleIds.length} constraints currently active
+                              {workspaceText("rules.enabledDescription", { count: enabledRuleIds.length })}
                             </p>
                           </div>
                           <Pill tone={enabledRuleIds.length > 0 ? "success" : "default"}>
@@ -4118,7 +4316,7 @@ export function TaskPackBuilderPage({
                             ))
                           ) : (
                             <div className="rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs leading-5 text-neutral-600">
-                              No toggle rules enabled. Select a profile or open the rule manager.
+                              {workspaceText("rules.noneEnabled")}
                             </div>
                           )}
                         </div>
@@ -4133,20 +4331,20 @@ export function TaskPackBuilderPage({
                   <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                     <div>
                       <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                        Acceptance
+                        {workspaceText("acceptance.eyebrow")}
                       </p>
 
                       <h2 className="mt-2 text-xl font-semibold tracking-[-0.035em] text-white">
-                        Checks for the final answer.
+                        {workspaceText("acceptance.title")}
                       </h2>
 
                       <p className="mt-2 max-w-3xl text-sm leading-6 text-neutral-500">
-                        Define what the coding agent must verify before the task can be considered complete.
+                        {workspaceText("acceptance.description")}
                       </p>
                     </div>
 
                     <Pill tone={customCriteriaCount > 0 ? "success" : "default"}>
-                      {totalCriteriaCount} checks
+                      {workspaceText("acceptance.checksCount", { count: totalCriteriaCount })}
                     </Pill>
                   </div>
 
@@ -4156,7 +4354,7 @@ export function TaskPackBuilderPage({
                         <div className="mb-4 grid gap-3 md:grid-cols-[minmax(0,1fr)_220px] md:items-end">
                           <div>
                             <label className="mb-2 block text-xs font-medium text-neutral-400">
-                              Acceptance preset
+                              {workspaceText("acceptance.preset")}
                             </label>
                             <CustomSelect
                               value={draft.acceptanceCriteriaPresetId ?? ""}
@@ -4166,15 +4364,15 @@ export function TaskPackBuilderPage({
                           </div>
 
                           <div className="rounded-2xl border border-neutral-900 bg-black/35 px-3 py-2.5">
-                            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">Custom checks</p>
+                            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">{workspaceText("acceptance.customChecks")}</p>
                             <p className="mt-1 text-sm font-semibold text-white">{customCriteriaCount}</p>
                           </div>
                         </div>
 
                         <div className="mb-3">
-                          <p className="text-sm font-semibold text-white">Additional verification</p>
+                          <p className="text-sm font-semibold text-white">{workspaceText("acceptance.additionalTitle")}</p>
                           <p className="mt-1 text-[11px] leading-5 text-neutral-600">
-                            Add only the checks that are unique to this task. Preset checks remain visible on the right.
+                            {workspaceText("acceptance.additionalDescription")}
                           </p>
                         </div>
 
@@ -4182,8 +4380,8 @@ export function TaskPackBuilderPage({
                           value={draft.acceptanceCriteriaText ?? ""}
                           onChange={(event) => updateDraft({ acceptanceCriteriaText: event.target.value })}
                           placeholder={[
-                            "Add extra acceptance criteria here.",
-                            "Example: final response must list verification steps."
+                            workspaceText("acceptance.placeholderLine1"),
+                            workspaceText("acceptance.placeholderLine2")
                           ].join("\n")}
                           className="h-[260px] w-full resize-none overflow-y-auto rounded-2xl border border-neutral-900 bg-black/55 p-4 text-sm leading-6 text-white outline-none placeholder:text-neutral-700 focus:border-white/20"
                         />
@@ -4191,17 +4389,17 @@ export function TaskPackBuilderPage({
 
                       <aside className="border-t border-neutral-900 p-4 xl:border-t-0">
                         <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                          Current preset
+                          {workspaceText("acceptance.currentPreset")}
                         </p>
 
                         <h3 className="mt-1 text-sm font-semibold text-white">
-                          {selectedPreset?.name ?? "No preset selected"}
+                          {selectedPreset?.name ?? workspaceText("noPreset")}
                         </h3>
 
                         <p className="mt-1 text-[11px] leading-5 text-neutral-600">
                           {selectedPreset?.criteria?.length
-                            ? `${selectedPreset.criteria.length} reusable checks will be included automatically.`
-                            : "Choose a preset or add custom checks manually."}
+                            ? workspaceText("acceptance.reusableIncluded", { count: selectedPreset.criteria.length })
+                            : workspaceText("acceptance.chooseOrCustom")}
                         </p>
 
                         <div className="mt-4 max-h-[320px] space-y-2 overflow-y-auto pr-1">
@@ -4219,7 +4417,7 @@ export function TaskPackBuilderPage({
                             ))
                           ) : (
                             <div className="rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs leading-5 text-neutral-600">
-                              No reusable checks are currently selected.
+                              {workspaceText("acceptance.noneSelected")}
                             </div>
                           )}
                         </div>
@@ -4240,11 +4438,11 @@ export function TaskPackBuilderPage({
 
                         <div>
                           <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                            Context review
+                            {workspaceText("context.eyebrow")}
                           </p>
 
                           <h2 className="mt-1 text-xl font-semibold tracking-[-0.035em] text-white">
-                            {contextSummary.isAnalyzed ? "Review the selected context before export." : "Analyze context before exporting."}
+                            {contextSummary.isAnalyzed ? workspaceText("context.titleReady") : workspaceText("context.titleEmpty")}
                           </h2>
 
                           <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500">
@@ -4256,23 +4454,23 @@ export function TaskPackBuilderPage({
                       <div className="flex shrink-0 flex-wrap gap-2">
                         <Button variant="secondary" onClick={handleAnalyzeContext} disabled={!canGenerate}>
                           {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                          {contextSummary.isAnalyzed ? "Refresh context" : "Analyze Context"}
+                          {contextSummary.isAnalyzed ? workspaceText("context.refresh") : workspaceText("context.analyze")}
                         </Button>
 
                         {contextSummary.isAnalyzed && onOpenContextComposer && (
                           <Button variant="secondary" onClick={handleOpenFullContextComposer}>
                             <Eye size={15} />
-                            Full review
+                            {workspaceText("context.fullReview")}
                           </Button>
                         )}
                       </div>
                     </div>
 
                     <div className="mt-5 grid gap-2 md:grid-cols-4">
-                      <CompactMetric label="Status" value={contextSummary.label} caption={contextSummary.source} />
-                      <CompactMetric label="Files" value={contextSummary.files.length} caption={`${contextSummary.editCount} edit · ${contextSummary.inspectCount} inspect`} />
-                      <CompactMetric label="Snippets" value={contextSummary.snippetsCount} caption="readable" />
-                      <CompactMetric label="Budget" value={`${contextSummary.budgetScore}%`} caption={contextSummary.budgetLabel} />
+                      <CompactMetric label={workspaceText("context.status")} value={contextSummary.label} caption={contextSummary.source} />
+                      <CompactMetric label={workspaceText("context.files")} value={contextSummary.files.length} caption={`${contextSummary.editCount} edit · ${contextSummary.inspectCount} inspect`} />
+                      <CompactMetric label={workspaceText("context.snippets")} value={contextSummary.snippetsCount} caption={workspaceText("common.readable")} />
+                      <CompactMetric label={workspaceText("context.budget")} value={`${contextSummary.budgetScore}%`} caption={contextSummary.budgetLabel} />
                     </div>
 
                     <div className="mt-3">
@@ -4287,8 +4485,8 @@ export function TaskPackBuilderPage({
                     </div>
 
                     <HorizontalSlidingSelector
-                      items={CONTEXT_REVIEW_ITEMS}
-                      activeIndex={CONTEXT_REVIEW_ITEMS.findIndex((item) => item.value === contextReviewMode)}
+                      items={contextReviewItems}
+                      activeIndex={contextReviewItems.findIndex((item) => item.value === contextReviewMode)}
                       getItemKey={(item) => item.value}
                       onSelect={(item) => setContextReviewMode(item.value)}
                       ariaLabel="Context review mode"
@@ -4297,17 +4495,17 @@ export function TaskPackBuilderPage({
                       renderItem={(item, isActive) => {
                         const description = item.value === "files"
                           ? contextSummary.isAnalyzed
-                            ? `${contextSummary.files.length} selected`
-                            : "Not analyzed"
+                            ? workspaceText("context.selectedCount", { count: contextSummary.files.length })
+                            : workspaceText("context.notAnalyzed")
                           : item.value === "budget"
                             ? contextSummary.isAnalyzed
                               ? `${contextSummary.budgetScore}% · ${contextSummary.budgetLabel}`
-                              : "Pending analysis"
+                              : workspaceText("context.pendingAnalysis")
                             : contextSummary.isAnalyzed
                               ? contextWarnings.length > 0
-                                ? `${contextWarnings.length} warning${contextWarnings.length === 1 ? "" : "s"}`
-                                : "No warnings"
-                              : "Selection health";
+                                ? workspaceText("context.warningsCount", { count: contextWarnings.length })
+                                : workspaceText("context.noWarnings")
+                              : workspaceText("context.selectionHealth");
 
                         return (
                           <span className="flex h-full items-center justify-center gap-3">
@@ -4342,13 +4540,13 @@ export function TaskPackBuilderPage({
                         <div className="flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
                           <div>
                             <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                              Selected files
+                              {workspaceText("context.selectedFiles")}
                             </p>
                             <h3 className="mt-1 text-base font-semibold text-white">
-                              Edit targets and supporting references
+                              {workspaceText("context.selectedFilesTitle")}
                             </h3>
                             <p className="mt-1 text-xs leading-5 text-neutral-600">
-                              File roles come from context analysis. Local Git changes remain supporting awareness only.
+                              {workspaceText("context.selectedFilesDescription")}
                             </p>
                           </div>
 
@@ -4374,13 +4572,13 @@ export function TaskPackBuilderPage({
                                   <div key={warning} className="rounded-2xl border border-red-400/20 bg-red-400/10 p-4 text-xs leading-5 text-red-200">
                                     <div className="mb-1 flex items-center gap-2 text-red-100">
                                       <AlertTriangle size={13} />
-                                      <span className="font-semibold">Review before exporting</span>
+                                      <span className="font-semibold">{workspaceText("context.reviewBeforeExport")}</span>
                                     </div>
                                     {warning}
                                   </div>
                                 )) : (
                                   <div className="rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-4 text-xs leading-5 text-emerald-200">
-                                    No context warnings returned. Selected files look ready for export.
+                                    {workspaceText("context.noWarningsReady")}
                                   </div>
                                 )}
                               </div>
@@ -4396,13 +4594,13 @@ export function TaskPackBuilderPage({
                               </div>
                             ) : (
                               <div className="mt-4 rounded-2xl border border-dashed border-neutral-800 bg-black/25 p-6 text-sm leading-6 text-neutral-500">
-                                No files match this filter. Open full review or adjust the task before generating.
+                                {workspaceText("context.noFiles")}
                               </div>
                             )}
                           </>
                         ) : (
                           <div className="mt-4 rounded-2xl border border-dashed border-neutral-800 bg-black/25 p-6 text-sm leading-6 text-neutral-500">
-                            Run Analyze Context to see edit candidates, inspect-only references and the reason each file was selected.
+                            {workspaceText("context.analyzeToSee")}
                           </div>
                         )}
                       </div>
@@ -4412,10 +4610,10 @@ export function TaskPackBuilderPage({
                       <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/20 p-4">
                         <div>
                           <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                            Context budget
+                            {workspaceText("budget.title")}
                           </p>
                           <h3 className="mt-1 text-base font-semibold text-white">
-                            Keep the instruction focused without losing evidence
+                            {workspaceText("context.budgetTitle")}
                           </h3>
                         </div>
 
@@ -4431,7 +4629,7 @@ export function TaskPackBuilderPage({
                           </div>
                         ) : (
                           <div className="mt-4 rounded-2xl border border-dashed border-neutral-800 bg-black/25 p-6 text-sm leading-6 text-neutral-500">
-                            Budget pressure is calculated after context analysis. It does not change selector behavior or generation logic.
+                            {workspaceText("context.budgetPending")}
                           </div>
                         )}
                       </div>
@@ -4442,10 +4640,10 @@ export function TaskPackBuilderPage({
                         <div className="flex items-start justify-between gap-3">
                           <div>
                             <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                              Review signals
+                              {workspaceText("context.signalsEyebrow")}
                             </p>
                             <h3 className="mt-1 text-base font-semibold text-white">
-                              Selection health and technical notes
+                              {workspaceText("context.signalsTitle")}
                             </h3>
                           </div>
 
@@ -4459,22 +4657,22 @@ export function TaskPackBuilderPage({
                         {contextSummary.isAnalyzed ? (
                           <div className="mt-4 space-y-3">
                             <div className="grid gap-2 md:grid-cols-3">
-                              <CompactMetric label="Source" value={contextSummary.source} caption={contextPreview?.fileSelection.usedFallback ? "fallback" : "selector"} />
-                              <CompactMetric label="Read only" value={contextSummary.inspectCount + contextSummary.referenceCount} caption="inspect + reference" />
-                              <CompactMetric label="Risk" value={contextSummary.riskLabel} caption="task intent" />
+                              <CompactMetric label={workspaceText("context.source")} value={contextSummary.source} caption={contextPreview?.fileSelection.usedFallback ? "fallback" : "selector"} />
+                              <CompactMetric label={workspaceText("context.readOnly")} value={contextSummary.inspectCount + contextSummary.referenceCount} caption="inspect + reference" />
+                              <CompactMetric label={workspaceText("context.risk")} value={contextSummary.riskLabel} caption="task intent" />
                             </div>
 
                             {contextWarnings.length > 0 ? (
                               <div className="rounded-xl border border-red-400/20 bg-red-400/10 p-3 text-xs leading-5 text-red-200">
                                 <div className="mb-1 flex items-center gap-2 text-red-100">
                                   <AlertTriangle size={13} />
-                                  <span className="font-semibold">Review recommended</span>
+                                  <span className="font-semibold">{workspaceText("context.reviewRecommended")}</span>
                                 </div>
                                 {contextWarnings[0]}
                               </div>
                             ) : (
                               <div className="rounded-xl border border-emerald-400/20 bg-emerald-400/10 p-3 text-xs leading-5 text-emerald-200">
-                                No blocking context warnings returned.
+                                {workspaceText("context.noBlockingWarnings")}
                               </div>
                             )}
 
@@ -4485,9 +4683,11 @@ export function TaskPackBuilderPage({
                                   onClick={() => setShowContextTechnicalDetails((value) => !value)}
                                   className="flex w-full items-center justify-between gap-3 text-left text-xs font-semibold text-neutral-300 hover:text-white"
                                 >
-                                  Technical details
+                                  {workspaceText("context.technicalDetails")}
                                   <span className="text-[10px] text-neutral-600">
-                                    {showContextTechnicalDetails ? "Hide" : `Show ${contextTechnicalSignals.length}`}
+                                    {showContextTechnicalDetails
+                                      ? workspaceText("common.hide")
+                                      : workspaceText("common.show", { count: contextTechnicalSignals.length })}
                                   </span>
                                 </button>
 
@@ -4506,10 +4706,10 @@ export function TaskPackBuilderPage({
                         ) : (
                           <div className="mt-4 grid gap-2 md:grid-cols-2">
                             {[
-                              "Selected files and relevance",
-                              "Edit candidates vs inspect-only",
-                              "Context budget pressure",
-                              "Why each file was included"
+                              workspaceText("context.preflightItems.relevance"),
+                              workspaceText("context.preflightItems.scope"),
+                              workspaceText("context.preflightItems.budget"),
+                              workspaceText("context.preflightItems.reason")
                             ].map((item) => (
                               <div key={item} className="flex items-center gap-2 rounded-xl border border-neutral-900 bg-black/35 p-3 text-xs text-neutral-400">
                                 <CheckCircle2 size={13} className="text-emerald-300" />
@@ -4575,8 +4775,8 @@ export function TaskPackBuilderPage({
       {isRecipeModalOpen && (
         <RecipeSetupModal
           draft={draft}
-          taskTypeOptions={TASK_TYPE_OPTIONS}
-          targetToolOptions={TARGET_TOOL_OPTIONS}
+          taskTypeOptions={localizedTaskTypeOptions}
+          targetToolOptions={localizedTargetToolOptions}
           templateOptions={templateOptions}
           profileOptions={profileOptions}
           selectedTemplate={selectedTemplate}

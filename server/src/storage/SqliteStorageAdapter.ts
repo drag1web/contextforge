@@ -18,7 +18,8 @@ import type {
   StorageHealth,
   StorageSchemaInfo,
   TaskPackRecord,
-  UpdateProjectMemoryInput
+  UpdateProjectMemoryInput,
+  UpdateTaskPackContentInput
 } from "./types.js";
 
 type BindValue = SqlValue;
@@ -596,6 +597,36 @@ export class SqliteStorageAdapter implements StorageAdapter {
       WHERE id = ?;
       `,
       [stringifyJsonValue(generationRecipe ?? null), timestamp, taskPackId],
+      false
+    );
+
+    this.persist();
+
+    return this.getTaskPackById(taskPackId);
+  }
+
+
+  async updateTaskPackContent(
+    taskPackId: number,
+    input: UpdateTaskPackContentInput
+  ): Promise<TaskPackRecord | null> {
+    const current = await this.getTaskPackById(taskPackId);
+
+    if (!current) {
+      return null;
+    }
+
+    const timestamp = nowIso();
+    const rawTask = input.rawTask ?? current.rawTask;
+    const generatedPrompt = input.generatedPrompt ?? current.generatedPrompt;
+
+    await this.run(
+      `
+      UPDATE task_packs
+      SET raw_task = ?, generated_prompt = ?, updated_at = ?
+      WHERE id = ?;
+      `,
+      [rawTask, generatedPrompt, timestamp, taskPackId],
       false
     );
 

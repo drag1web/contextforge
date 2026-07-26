@@ -8,7 +8,8 @@ import type {
   StorageAdapter,
   StorageHealth,
   TaskPackRecord,
-  UpdateProjectMemoryInput
+  UpdateProjectMemoryInput,
+  UpdateTaskPackContentInput
 } from "./types.js";
 
 function mapProjectRow(row: any): ProjectRecord {
@@ -422,6 +423,33 @@ export class PostgresStorageAdapter implements StorageAdapter {
     if (!result.rows[0]) {
       return null;
     }
+
+    return this.getTaskPackById(taskPackId);
+  }
+
+
+  async updateTaskPackContent(
+    taskPackId: number,
+    input: UpdateTaskPackContentInput
+  ): Promise<TaskPackRecord | null> {
+    const current = await this.getTaskPackById(taskPackId);
+
+    if (!current) {
+      return null;
+    }
+
+    await pool.query(
+      `
+      UPDATE task_packs
+      SET raw_task = $1, generated_prompt = $2, updated_at = NOW()
+      WHERE id = $3;
+      `,
+      [
+        input.rawTask ?? current.rawTask,
+        input.generatedPrompt ?? current.generatedPrompt,
+        taskPackId
+      ]
+    );
 
     return this.getTaskPackById(taskPackId);
   }

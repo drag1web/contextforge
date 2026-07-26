@@ -265,11 +265,16 @@ function getDateLabel(
   }).format(date);
 }
 
-function targetIcon(tool: TargetTool, size: "sm" | "md" | "lg" = "md") {
+function targetIcon(
+  tool: TargetTool,
+  size: "sm" | "md" | "lg" = "md",
+  contrast: "default" | "onLight" = "default",
+) {
   return (
     <AiToolLogo
       tool={tool === "claude" ? "claudecode" : tool}
       size={size}
+      contrast={contrast}
       tone="monochrome"
     />
   );
@@ -328,7 +333,7 @@ function CatalogFilterPanel({
   children: ReactNode;
 }) {
   return (
-    <section className="flex min-h-[190px] flex-col rounded-[1.4rem] border border-neutral-900 bg-black/40 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] xl:h-[218px]">
+    <section className="flex min-h-[218px] flex-col rounded-[1.4rem] border border-neutral-900 bg-black/40 p-3.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)]">
       <div className="flex items-center gap-2.5 border-b border-white/[0.055] pb-3">
         <span className="grid size-7 shrink-0 place-items-center rounded-xl border border-neutral-900 bg-black/55 text-neutral-500">
           {icon}
@@ -340,9 +345,7 @@ function CatalogFilterPanel({
           </p>
         </div>
       </div>
-      <div className="mt-3 min-h-0 flex-1 space-y-1 overflow-y-auto overscroll-contain pr-1">
-        {children}
-      </div>
+      <div className="mt-3 space-y-1">{children}</div>
     </section>
   );
 }
@@ -353,12 +356,14 @@ function CatalogFilterButton({
   count,
   icon,
   onClick,
+  iconSurface = true,
 }: {
   active: boolean;
   label: string;
   count: number;
   icon?: ReactNode;
   onClick: () => void;
+  iconSurface?: boolean;
 }) {
   return (
     <button
@@ -373,16 +378,20 @@ function CatalogFilterButton({
     >
       <span className="flex min-w-0 items-center gap-2.5">
         {icon ? (
-          <span
-            className={[
-              "grid size-6 shrink-0 place-items-center rounded-lg border transition",
-              active
-                ? "border-black/10 bg-black/[0.04] text-black"
-                : "border-neutral-900 bg-black/35 text-neutral-600 group-hover:text-neutral-300",
-            ].join(" ")}
-          >
-            {icon}
-          </span>
+          iconSurface ? (
+            <span
+              className={[
+                "grid size-6 shrink-0 place-items-center rounded-lg border transition",
+                active
+                  ? "border-black/10 bg-black/[0.04] text-black"
+                  : "border-neutral-900 bg-black/35 text-neutral-600 group-hover:text-neutral-300",
+              ].join(" ")}
+            >
+              {icon}
+            </span>
+          ) : (
+            <span className="grid size-6 shrink-0 place-items-center">{icon}</span>
+          )
         ) : null}
         <span className="truncate text-xs font-semibold">{label}</span>
       </span>
@@ -406,6 +415,8 @@ function ActionMenu({
   onEdit,
   onDelete,
   onCopyId,
+  open,
+  onOpenChange,
 }: {
   entity: CatalogEntity;
   c: TemplatesStudioCopy;
@@ -414,8 +425,9 @@ function ActionMenu({
   onEdit: () => void;
   onDelete: () => void;
   onCopyId: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   useEffect(() => {
@@ -423,11 +435,11 @@ function ActionMenu({
 
     const handlePointerDown = (event: PointerEvent) => {
       if (!(event.target instanceof Node)) return;
-      if (!rootRef.current?.contains(event.target)) setOpen(false);
+      if (!rootRef.current?.contains(event.target)) onOpenChange(false);
     };
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key === "Escape") onOpenChange(false);
     };
 
     window.addEventListener("pointerdown", handlePointerDown, true);
@@ -436,11 +448,11 @@ function ActionMenu({
       window.removeEventListener("pointerdown", handlePointerDown, true);
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [open]);
+  }, [onOpenChange, open]);
 
   const run = (action: () => void) => {
     action();
-    setOpen(false);
+    onOpenChange(false);
   };
 
   return (
@@ -449,7 +461,7 @@ function ActionMenu({
         type="button"
         onClick={(event) => {
           event.stopPropagation();
-          setOpen((current) => !current);
+          onOpenChange(!open);
         }}
         className={[
           "grid size-9 place-items-center rounded-xl border transition",
@@ -618,6 +630,7 @@ function CatalogRow({
   onDelete: () => void;
   onCopyId: () => void;
 }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const timestamp = entity.data.updatedAt ?? entity.data.createdAt;
 
   return (
@@ -636,7 +649,8 @@ function CatalogRow({
         }
       }}
       className={[
-        "group relative flex min-h-[92px] cursor-pointer items-start gap-3 overflow-hidden rounded-2xl border p-3.5 outline-none transition duration-150",
+        "group relative flex min-h-[92px] cursor-pointer items-start gap-3 overflow-visible rounded-2xl border p-3.5 outline-none transition duration-150",
+        menuOpen ? "z-40" : "z-0",
         selected
           ? "border-white/22 bg-white/[0.055] shadow-[inset_0_1px_0_rgba(255,255,255,0.05)]"
           : "border-neutral-900 bg-black/35 hover:border-white/14 hover:bg-white/[0.025]",
@@ -678,6 +692,8 @@ function CatalogRow({
         onEdit={onEdit}
         onDelete={onDelete}
         onCopyId={onCopyId}
+        open={menuOpen}
+        onOpenChange={setMenuOpen}
       />
     </motion.article>
   );
@@ -2366,23 +2382,32 @@ export function TemplatesPage() {
                 setSelectedId("");
               }}
             />
-            {scopeItems.map((item) => (
-              <CatalogFilterButton
-                key={item.id}
-                active={scopeFilter === item.id}
-                label={item.label}
-                count={item.count}
-                icon={
-                  activeTab === "templates"
-                    ? targetIcon(item.id as TargetTool, "sm")
-                    : undefined
-                }
-                onClick={() => {
-                  setScopeFilter(item.id);
-                  setSelectedId("");
-                }}
-              />
-            ))}
+            {scopeItems.map((item) => {
+              const isActive = scopeFilter === item.id;
+
+              return (
+                <CatalogFilterButton
+                  key={item.id}
+                  active={isActive}
+                  label={item.label}
+                  count={item.count}
+                  icon={
+                    activeTab === "templates"
+                      ? targetIcon(
+                          item.id as TargetTool,
+                          "sm",
+                          isActive ? "onLight" : "default",
+                        )
+                      : undefined
+                  }
+                  iconSurface={activeTab !== "templates"}
+                  onClick={() => {
+                    setScopeFilter(item.id);
+                    setSelectedId("");
+                  }}
+                />
+              );
+            })}
           </CatalogFilterPanel>
         </aside>
 

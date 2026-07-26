@@ -56,6 +56,16 @@ function normalizePairingCode(rawValue) {
   return normalized;
 }
 
+function normalizePairingLaunchToken(rawValue) {
+  const value = String(rawValue ?? "").trim();
+
+  if (!/^cfl_[a-f0-9]{64}$/.test(value)) {
+    throw new Error("PAIRING_LAUNCH_TOKEN_INVALID");
+  }
+
+  return value;
+}
+
 function normalizeChannel(rawValue) {
   const value = String(rawValue ?? "alpha").trim().toLowerCase();
   return ["alpha", "beta", "stable"].includes(value) ? value : "alpha";
@@ -268,6 +278,7 @@ function createDesktopSyncService({
   secureStorage,
   fetchImpl = globalThis.fetch,
   getProjectCount = async () => null,
+  getProjectSnapshot = async () => null,
   onStatusChanged = () => {}
 }) {
   if (!userDataPath || !secureStorage || typeof fetchImpl !== "function") {
@@ -594,7 +605,10 @@ function createDesktopSyncService({
       input.siteUrl ?? config.siteUrl ?? defaultSiteUrl,
       { allowInsecureLocal: isDev }
     );
-    const pairingCode = normalizePairingCode(input.pairingCode);
+    const launchToken = input.launchToken
+      ? normalizePairingLaunchToken(input.launchToken)
+      : null;
+    const pairingCode = launchToken ? null : normalizePairingCode(input.pairingCode);
     const deviceName = normalizeDeviceName(input.deviceName);
     const channel = normalizeChannel(input.channel);
 
@@ -614,7 +628,7 @@ function createDesktopSyncService({
       const payload = await request("/desktop/pair", {
         method: "POST",
         body: {
-          pairingCode,
+          ...(launchToken ? { launchToken } : { pairingCode }),
           installationId: config.installationId,
           deviceName,
           channel,
@@ -673,12 +687,25 @@ function createDesktopSyncService({
     });
 
     let projectCount = null;
+    let projectSnapshot = null;
 
     try {
-      const count = await getProjectCount();
-      projectCount = Number.isInteger(count) && count >= 0 ? count : null;
+      const snapshot = await getProjectSnapshot();
+      if (Array.isArray(snapshot)) {
+        projectSnapshot = snapshot;
+        projectCount = snapshot.length;
+      }
     } catch {
-      // Project telemetry is optional and contains only a count.
+      // Project metadata sync is optional and never blocks the local workspace.
+    }
+
+    if (!projectSnapshot) {
+      try {
+        const count = await getProjectCount();
+        projectCount = Number.isInteger(count) && count >= 0 ? count : null;
+      } catch {
+        // Project telemetry is optional and contains only a count.
+      }
     }
 
     try {
@@ -705,6 +732,18 @@ function createDesktopSyncService({
           lastSeenAt: new Date().toISOString()
         };
         writeConfig();
+      }
+
+      if (projectSnapshot) {
+        try {
+          await request("/desktop/project-bridge/projects/sync", {
+            method: "POST",
+            token,
+            body: { projects: projectSnapshot }
+          });
+        } catch {
+          // Older or temporarily unavailable websites must not break heartbeat status.
+        }
       }
 
       return setRuntime({
@@ -907,5 +946,6 @@ module.exports = {
   DEFAULT_WEBSITE_ORIGIN,
   createDesktopSyncService,
   normalizePairingCode,
+  normalizePairingLaunchToken,
   normalizeWebsiteOrigin
 };

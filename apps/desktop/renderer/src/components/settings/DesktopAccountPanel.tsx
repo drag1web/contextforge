@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import {
@@ -38,7 +38,7 @@ import {
 import { Button } from "../ui/Button";
 import { CustomSelect, type SelectOption } from "../ui/CustomSelect";
 import { HorizontalSlidingSelector } from "../ui/SlidingSelectors";
-import { StatusBar } from "../ui/StatusBar";
+import { showStatusToast } from "../ui/StatusBar";
 import { getProjects } from "../../api/client";
 import type {
   DesktopSyncPairInput,
@@ -104,7 +104,7 @@ function getInitials(status: DesktopSyncStatus) {
 function getFriendlyErrorKey(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
 
-  if (/PAIRING_CODE|pairing code is invalid|expired/i.test(message)) {
+  if (/PAIRING_CODE|PAIRING_LAUNCH_TOKEN|pairing code is invalid|expired/i.test(message)) {
     return "settings.desktopAccountErrorCode";
   }
 
@@ -214,6 +214,7 @@ export function DesktopAccountPanel() {
   const [copiedId, setCopiedId] = useState(false);
   const [inboxCount, setInboxCount] = useState<number | null>(null);
   const [localProjectCount, setLocalProjectCount] = useState<number | null>(null);
+  const processedLaunchTokenRef = useRef<string | null>(null);
 
   const locale = i18n.resolvedLanguage?.startsWith("ru") ? "ru-RU" : "en-US";
 
@@ -473,6 +474,69 @@ export function DesktopAccountPanel() {
   }, [bridge]);
 
   useEffect(() => {
+    if (!bridge) return undefined;
+
+    let disposed = false;
+
+    const processLaunchRequest = async () => {
+      try {
+        const request = await bridge.consumeLaunchRequest();
+        if (
+          disposed ||
+          !request ||
+          processedLaunchTokenRef.current === request.launchToken
+        ) {
+          return;
+        }
+
+        processedLaunchTokenRef.current = request.launchToken;
+        setActiveView("link");
+        setSiteUrl(request.siteUrl);
+        setErrorKey(null);
+
+        const currentStatus = await bridge.getStatus();
+        if (disposed) return;
+        if (currentStatus.connected) {
+          setStatus(currentStatus);
+          return;
+        }
+
+        setAction("pair");
+        const nextStatus = await bridge.pair({
+          launchToken: request.launchToken,
+          siteUrl: request.siteUrl,
+          deviceName,
+          channel
+        });
+        if (disposed) return;
+
+        setStatus(nextStatus);
+        if (nextStatus.connected) {
+          setPairingCode("");
+          announce(t("settings.desktopAccountConnectedSuccess"));
+        }
+      } catch (error) {
+        if (!disposed) {
+          processedLaunchTokenRef.current = null;
+          setErrorKey(getFriendlyErrorKey(error));
+        }
+      } finally {
+        if (!disposed) setAction((current) => (current === "pair" ? null : current));
+      }
+    };
+
+    const unsubscribe = bridge.onLaunchRequest(() => {
+      void processLaunchRequest();
+    });
+    void processLaunchRequest();
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [announce, bridge, channel, deviceName, t]);
+
+  useEffect(() => {
     if (status?.connected) {
       void loadInbox(false);
     } else {
@@ -676,10 +740,14 @@ export function DesktopAccountPanel() {
       ]
     : [];
 
+  useEffect(() => {
+    if (feedbackMessage) {
+      showStatusToast(feedbackMessage);
+    }
+  }, [feedbackMessage]);
+
   return (
     <div className="space-y-5">
-      <StatusBar message={feedbackMessage} />
-
       {errorKey ? (
         <motion.div
           initial={{ opacity: 0, y: -4 }}

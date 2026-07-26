@@ -550,6 +550,24 @@ export async function createTaskPack(input: {
   return data.taskPack;
 }
 
+export async function updateTaskPackContent(
+  taskPackId: number,
+  input: {
+    rawTask?: string;
+    generatedPrompt?: string;
+  },
+): Promise<TaskPack> {
+  const data = await request<{ ok: true; taskPack: TaskPack }>(
+    `/task-packs/${taskPackId}/content`,
+    {
+      method: "PATCH",
+      body: JSON.stringify(input),
+    },
+  );
+
+  return data.taskPack;
+}
+
 export async function createGitHubIssueFromTaskPack(
   taskPackId: number,
   input: {

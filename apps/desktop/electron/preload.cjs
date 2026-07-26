@@ -7,6 +7,18 @@ contextBridge.exposeInMainWorld("contextforge", {
     getStatus: (options) =>
       ipcRenderer.invoke("desktop-sync:get-status", options),
     pair: (input) => ipcRenderer.invoke("desktop-sync:pair", input),
+    peekLaunchRequest: () =>
+      ipcRenderer.invoke("desktop-sync:peek-launch-request"),
+    consumeLaunchRequest: () =>
+      ipcRenderer.invoke("desktop-sync:consume-launch-request"),
+    onLaunchRequest: (listener) => {
+      const handler = (_event, request) => listener(request);
+      ipcRenderer.on("desktop-sync:launch-request", handler);
+
+      return () => {
+        ipcRenderer.removeListener("desktop-sync:launch-request", handler);
+      };
+    },
     heartbeat: () => ipcRenderer.invoke("desktop-sync:heartbeat"),
     checkForUpdates: () => ipcRenderer.invoke("desktop-sync:check-update"),
     publishTaskPack: (taskPack) =>

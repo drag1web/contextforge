@@ -234,6 +234,16 @@ const createGitHubIssueFromTaskPackSchema = z.object({
   labels: z.array(z.string().trim().min(1).max(80)).max(20).default([]),
 });
 
+const updateTaskPackContentSchema = z
+  .object({
+    rawTask: z.string().trim().min(3).max(24_000).optional(),
+    generatedPrompt: z.string().trim().min(3).max(160_000).optional(),
+  })
+  .refine(
+    (value) => value.rawTask !== undefined || value.generatedPrompt !== undefined,
+    { message: "At least one editable field is required" },
+  );
+
 const understandTaskPackSchema = z.object({
   projectId: z.number().int().positive(),
   rawTask: z.string().trim().min(3).max(6000),
@@ -1598,6 +1608,49 @@ taskPacksRouter.get("/", async (_req, res) => {
     ok: true,
     taskPacks,
   });
+});
+
+
+taskPacksRouter.patch("/:id/content", async (req, res) => {
+  const taskPackId = Number(req.params.id);
+  const parsed = updateTaskPackContentSchema.safeParse(req.body ?? {});
+
+  if (!Number.isInteger(taskPackId) || taskPackId <= 0) {
+    res.status(400).json({ ok: false, message: "Invalid Task Pack id" });
+    return;
+  }
+
+  if (!parsed.success) {
+    res.status(400).json({
+      ok: false,
+      message: "Invalid Task Pack content update",
+      issues: parsed.error.issues,
+    });
+    return;
+  }
+
+  try {
+    const updatedTaskPack = await storage.updateTaskPackContent(
+      taskPackId,
+      parsed.data,
+    );
+
+    if (!updatedTaskPack) {
+      res.status(404).json({ ok: false, message: "Task Pack not found" });
+      return;
+    }
+
+    res.json({ ok: true, taskPack: updatedTaskPack });
+  } catch (error) {
+    console.error("Failed to update Task Pack content:", error);
+    res.status(500).json({
+      ok: false,
+      message:
+        error instanceof Error
+          ? error.message
+          : "Failed to update Task Pack content",
+    });
+  }
 });
 
 const cloudTaskPackImportSchema = z.object({

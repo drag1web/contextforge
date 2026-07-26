@@ -2,6 +2,7 @@
 
 import type {
   DesktopSyncPairInput,
+  DesktopSyncLaunchRequest,
   DesktopSyncStatus,
   DesktopSyncTaskPackDelivery,
   DesktopSyncTaskPackInboxItem,
@@ -19,6 +20,9 @@ declare global {
           refresh?: boolean;
         }) => Promise<DesktopSyncStatus>;
         pair: (input: DesktopSyncPairInput) => Promise<DesktopSyncStatus>;
+        peekLaunchRequest: () => Promise<DesktopSyncLaunchRequest | null>;
+        consumeLaunchRequest: () => Promise<DesktopSyncLaunchRequest | null>;
+        onLaunchRequest: (listener: (request: DesktopSyncLaunchRequest) => void) => () => void;
         heartbeat: () => Promise<DesktopSyncStatus>;
         checkForUpdates: () => Promise<DesktopSyncStatus>;
         publishTaskPack: (taskPack: DesktopSyncTaskPackUpload) => Promise<DesktopSyncCloudTaskPack>;

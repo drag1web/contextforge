@@ -16,11 +16,17 @@ const {
   createDesktopSyncService,
   normalizeWebsiteOrigin
 } = require("./desktop-sync.cjs");
+const {
+  DESKTOP_PROTOCOL,
+  findDesktopConnectUrl,
+  parseDesktopConnectUrl
+} = require("./deep-link.cjs");
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 const desktopHeartbeatIntervalMs = 60_000;
 let desktopHeartbeatTimer = null;
 let desktopSyncService = null;
+let pendingDesktopLaunchRequest = null;
 
 const appIconPath = path.join(
   __dirname,
@@ -41,7 +47,7 @@ function getDesktopAppVersion() {
   }
 }
 
-async function getLocalProjectCount() {
+async function getLocalProjects() {
   const response = await fetch("http://127.0.0.1:4000/api/projects", {
     headers: { Accept: "application/json" },
     signal: AbortSignal.timeout(3_000)
@@ -52,7 +58,38 @@ async function getLocalProjectCount() {
   }
 
   const payload = await response.json();
-  return Array.isArray(payload?.projects) ? payload.projects.length : null;
+  return Array.isArray(payload?.projects) ? payload.projects : null;
+}
+
+async function getLocalProjectCount() {
+  const projects = await getLocalProjects();
+  return Array.isArray(projects) ? projects.length : null;
+}
+
+async function getLocalProjectSnapshot() {
+  const projects = await getLocalProjects();
+  if (!Array.isArray(projects)) return null;
+
+  return projects.slice(0, 100).map((project) => {
+    const readinessScore = Number.isInteger(project?.readinessScore)
+      ? Math.max(0, Math.min(100, project.readinessScore))
+      : null;
+    const rawId = String(project?.id ?? "unknown").replace(/[^a-zA-Z0-9._:-]/g, "-");
+
+    return {
+      projectId: `local-${rawId}`,
+      name: String(project?.name ?? "Local project").slice(0, 120),
+      stack: Array.isArray(project?.detectedStack)
+        ? [...new Set(project.detectedStack.filter((item) => typeof item === "string"))].slice(0, 12)
+        : [],
+      readinessScore,
+      gitBranch: null,
+      gitDirty: null,
+      hasTaskPack: false,
+      status: readinessScore === null ? "unknown" : readinessScore >= 80 ? "ready" : "attention",
+      lastScannedAt: project?.lastScanAt ?? project?.updatedAt ?? null
+    };
+  });
 }
 
 function broadcastDesktopSyncStatus(status) {
@@ -61,6 +98,50 @@ function broadcastDesktopSyncStatus(status) {
       win.webContents.send("desktop-sync:status-changed", status);
     }
   }
+}
+
+function focusMainWindow() {
+  const win = BrowserWindow.getAllWindows()[0];
+  if (!win || win.isDestroyed()) return;
+  if (win.isMinimized()) win.restore();
+  win.show();
+  win.focus();
+}
+
+function queueDesktopConnectUrl(rawUrl) {
+  try {
+    const trustedOrigin = normalizeWebsiteOrigin(
+      process.env.CONTEXTFORGE_WEB_ORIGIN ??
+        (isDev ? "http://127.0.0.1:5177" : DEFAULT_WEBSITE_ORIGIN),
+      { allowInsecureLocal: isDev }
+    );
+    pendingDesktopLaunchRequest = parseDesktopConnectUrl(rawUrl, {
+      allowInsecureLocal: isDev,
+      allowedOrigins: [trustedOrigin]
+    });
+  } catch {
+    return false;
+  }
+
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send("desktop-sync:launch-request", pendingDesktopLaunchRequest);
+    }
+  }
+  focusMainWindow();
+  return true;
+}
+
+function registerDesktopProtocolClient() {
+  if (process.defaultApp && process.argv[1]) {
+    return app.setAsDefaultProtocolClient(
+      DESKTOP_PROTOCOL,
+      process.execPath,
+      [path.resolve(process.argv[1])]
+    );
+  }
+
+  return app.setAsDefaultProtocolClient(DESKTOP_PROTOCOL);
 }
 
 function createDesktopSync() {
@@ -75,6 +156,7 @@ function createDesktopSync() {
     userDataPath: app.getPath("userData"),
     secureStorage: safeStorage,
     getProjectCount: getLocalProjectCount,
+    getProjectSnapshot: getLocalProjectSnapshot,
     onStatusChanged: broadcastDesktopSyncStatus
   });
 }
@@ -306,6 +388,16 @@ ipcMain.handle("desktop-sync:pair", async (_event, input) =>
   runDesktopSyncOperation((service) => service.pair(input))
 );
 
+ipcMain.handle("desktop-sync:peek-launch-request", async () =>
+  pendingDesktopLaunchRequest
+);
+
+ipcMain.handle("desktop-sync:consume-launch-request", async () => {
+  const request = pendingDesktopLaunchRequest;
+  pendingDesktopLaunchRequest = null;
+  return request;
+});
+
 ipcMain.handle("desktop-sync:heartbeat", async () =>
   runDesktopSyncOperation((service) => service.heartbeat())
 );
@@ -387,12 +479,34 @@ ipcMain.handle("window:is-maximized", (event) => {
 
 app.setName("ContextForge");
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+
+if (!hasSingleInstanceLock) {
+  app.quit();
+} else {
+  app.on("second-instance", (_event, commandLine) => {
+    const deepLink = findDesktopConnectUrl(commandLine);
+    if (deepLink) queueDesktopConnectUrl(deepLink);
+    focusMainWindow();
+  });
+}
+
+app.on("open-url", (event, rawUrl) => {
+  event.preventDefault();
+  queueDesktopConnectUrl(rawUrl);
+});
+
 if (process.platform === "win32") {
   app.setAppUserModelId("com.contextforge.desktop");
 }
 
 app.whenReady().then(async () => {
+  if (!hasSingleInstanceLock) return;
   Menu.setApplicationMenu(null);
+  registerDesktopProtocolClient();
+
+  const initialDeepLink = findDesktopConnectUrl(process.argv);
+  if (initialDeepLink) queueDesktopConnectUrl(initialDeepLink);
 
   try {
     desktopSyncService = createDesktopSync();

@@ -10,8 +10,15 @@ const {
   CONFIG_FILE_NAME,
   createDesktopSyncService,
   normalizePairingCode,
+  normalizePairingLaunchToken,
   normalizeWebsiteOrigin
 } = require("../apps/desktop/electron/desktop-sync.cjs");
+const {
+  findDesktopConnectUrl,
+  parseDesktopConnectUrl
+} = require("../apps/desktop/electron/deep-link.cjs");
+
+const launchToken = `cfl_${"a".repeat(64)}`;
 
 const temporaryDirectory = fs.mkdtempSync(
   path.join(os.tmpdir(), "contextforge-desktop-sync-")
@@ -58,7 +65,12 @@ async function fetchImpl(url, options = {}) {
   });
 
   if (parsed.pathname === "/api/desktop/pair") {
-    assert.equal(body.pairingCode, "CF-A1B2C3");
+    if (body.launchToken) {
+      assert.equal(body.launchToken, launchToken);
+      assert.equal("pairingCode" in body, false);
+    } else {
+      assert.equal(body.pairingCode, "CF-A1B2C3");
+    }
     assert.match(body.installationId, /^cf-/);
     return jsonResponse(
       {
@@ -119,6 +131,15 @@ async function fetchImpl(url, options = {}) {
         releaseUrl: "https://github.com/drag1web/contextforge/releases/tag/v0.7.0-alpha"
       }
     });
+  }
+
+  if (parsed.pathname === "/api/desktop/project-bridge/projects/sync") {
+    assert.equal(body.projects.length, 3);
+    assert.equal(body.projects[0].projectId, "local-1");
+    assert.equal(body.projects[0].name, "ContextForge");
+    assert.equal(JSON.stringify(body).includes("localPath"), false);
+    assert.equal(JSON.stringify(body).includes("C:\\Users"), false);
+    return jsonResponse({ ok: true, projectCount: body.projects.length });
   }
 
   if (parsed.pathname === "/api/desktop/update-check") {
@@ -225,6 +246,7 @@ async function fetchImpl(url, options = {}) {
 
 try {
   assert.equal(normalizePairingCode("a1b2c3"), "CF-A1B2C3");
+  assert.equal(normalizePairingLaunchToken(launchToken), launchToken);
   assert.equal(
     normalizeWebsiteOrigin("https://contextforge.dev/devices"),
     "https://contextforge.dev"
@@ -239,6 +261,27 @@ try {
     }),
     "http://127.0.0.1:5177"
   );
+  const connectUrl = `contextforge://connect?token=${launchToken}&origin=${encodeURIComponent("http://127.0.0.1:5177")}`;
+  assert.deepEqual(
+    parseDesktopConnectUrl(connectUrl, {
+      allowInsecureLocal: true,
+      allowedOrigins: ["http://127.0.0.1:5177"]
+    }),
+    { launchToken, siteUrl: "http://127.0.0.1:5177" }
+  );
+  assert.equal(findDesktopConnectUrl(["electron", "main.cjs", connectUrl]), connectUrl);
+  assert.throws(() => parseDesktopConnectUrl(connectUrl), /WEBSITE_URL_UNSAFE/);
+  assert.throws(
+    () => parseDesktopConnectUrl(
+      `contextforge://connect?token=${launchToken}&origin=${encodeURIComponent("https://example.com")}`,
+      { allowedOrigins: ["https://contextforge.dev"] }
+    ),
+    /not trusted/
+  );
+  assert.throws(
+    () => parseDesktopConnectUrl("contextforge://remove?token=invalid&origin=https://contextforge.dev"),
+    /not supported/
+  );
 
   const service = createDesktopSyncService({
     appVersion: "0.6.7-alpha",
@@ -250,6 +293,21 @@ try {
     secureStorage,
     fetchImpl,
     getProjectCount: async () => 3,
+    getProjectSnapshot: async () => [
+      {
+        projectId: "local-1",
+        name: "ContextForge",
+        stack: ["React", "TypeScript"],
+        readinessScore: 86,
+        gitBranch: null,
+        gitDirty: null,
+        hasTaskPack: false,
+        status: "ready",
+        lastScannedAt: "2026-07-26T08:00:00.000Z"
+      },
+      { projectId: "local-2", name: "Playground", stack: ["Node.js"], readinessScore: 64, status: "attention", hasTaskPack: false, lastScannedAt: null },
+      { projectId: "local-3", name: "Docs", stack: [], readinessScore: null, status: "unknown", hasTaskPack: false, lastScannedAt: null }
+    ],
     onStatusChanged: (status) => emittedStatuses.push(status)
   });
 
@@ -311,10 +369,27 @@ try {
   const disconnectedStatus = await service.unpair();
   assert.equal(disconnectedStatus.connected, false);
   assert.equal(disconnectedStatus.user, null);
+
+  const launchPairedStatus = await service.pair({
+    launchToken,
+    siteUrl: "http://127.0.0.1:5177",
+    deviceName: "Workstation",
+    channel: "alpha"
+  });
+  assert.equal(launchPairedStatus.connected, true);
+  assert.equal(launchPairedStatus.online, true);
+  await service.unpair();
   assert.ok(
     requests.some(
       (request) =>
         request.path === "/api/desktop/heartbeat" &&
+        request.authorization === `Bearer ${rawToken}`
+    )
+  );
+  assert.ok(
+    requests.some(
+      (request) =>
+        request.path === "/api/desktop/project-bridge/projects/sync" &&
         request.authorization === `Bearer ${rawToken}`
     )
   );

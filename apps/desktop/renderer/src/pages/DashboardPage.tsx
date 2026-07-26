@@ -347,6 +347,26 @@ export function DashboardPage() {
     [activePage, dashboard],
   );
 
+  useEffect(() => {
+    const bridge = window.contextforge?.desktopSync;
+    if (!bridge) return undefined;
+
+    let disposed = false;
+    const openAccountSync = () => {
+      if (!disposed) handleNavigate("accountSync");
+    };
+    const unsubscribe = bridge.onLaunchRequest(openAccountSync);
+
+    void bridge.peekLaunchRequest().then((request) => {
+      if (request) openAccountSync();
+    }).catch(() => undefined);
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [handleNavigate]);
+
   const handleOpenProjectDetails = useCallback(
     (projectId: number) => {
       const currentIndex = getPageOrderIndex(activePage);
@@ -535,6 +555,7 @@ export function DashboardPage() {
             handleNavigate("taskPacks");
           }}
           onTaskPackUpdated={dashboard.handleExternalTaskPackUpdated}
+          onOpenInBuilder={dashboard.handleOpenTaskPackInBuilder}
         />
       );
     }
@@ -574,6 +595,7 @@ export function DashboardPage() {
             handleNavigate("taskPacks");
           }}
           onTaskPackUpdated={dashboard.handleExternalTaskPackUpdated}
+          onOpenInBuilder={dashboard.handleOpenTaskPackInBuilder}
         />
       );
     }

@@ -680,7 +680,30 @@ export function useDashboardController() {
     setGeneratedTaskPack((currentTaskPack) =>
       currentTaskPack?.id === taskPack.id ? taskPack : currentTaskPack,
     );
-    setStatusMessage("Task Pack linked to a GitHub issue.");
+    setStatusMessage(i18n.t("common.statusTaskPackUpdated"));
+  }
+
+  function handleOpenTaskPackInBuilder(taskPack: TaskPack) {
+    const recipe = taskPack.generationRecipe;
+
+    setGeneratedTaskPack(null);
+    setContextComposerPreview(null);
+    setTaskPackContextPreview(null);
+    setTaskPackDraft({
+      projectId: taskPack.projectId,
+      projectName: taskPack.projectName ?? `Project #${taskPack.projectId}`,
+      rawTask: taskPack.rawTask,
+      taskType: taskPack.taskType,
+      targetTool: taskPack.targetTool,
+      templateId: recipe?.template?.id,
+      ruleProfileId: recipe?.ruleProfile?.id,
+      enabledRuleIds: recipe?.enabledRules?.map((rule) => rule.id) ?? [],
+      customRulesText: recipe?.customRules?.join("\n") ?? "",
+      acceptanceCriteriaPresetId: recipe?.acceptanceCriteriaPreset?.id,
+      acceptanceCriteriaText: recipe?.acceptanceCriteria?.join("\n") ?? "",
+      clarifications: recipe?.taskClarifications,
+    });
+    setStatusMessage(i18n.t("common.statusTaskPackReopened"));
   }
 
   function handleToggleProject(projectId: number) {
@@ -727,6 +750,7 @@ export function useDashboardController() {
     handleCreateTaskPack,
     handleExternalTaskPackCreated,
     handleExternalTaskPackUpdated,
+    handleOpenTaskPackInBuilder,
     handleToggleProject,
   };
 }

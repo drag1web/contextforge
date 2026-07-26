@@ -87,6 +87,11 @@ export interface CreateTaskPackInput {
 }
 
 
+export interface UpdateTaskPackContentInput {
+  rawTask?: string;
+  generatedPrompt?: string;
+}
+
 export interface StorageSchemaMigrationRecord {
   id: string;
   version: number;
@@ -148,6 +153,10 @@ export interface StorageAdapter {
   updateTaskPackGenerationRecipe(
     taskPackId: number,
     generationRecipe: unknown | null
+  ): Promise<TaskPackRecord | null>;
+  updateTaskPackContent(
+    taskPackId: number,
+    input: UpdateTaskPackContentInput
   ): Promise<TaskPackRecord | null>;
 
   listProjectMemories(projectId: number): Promise<ProjectMemoryRecord[]>;

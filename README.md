@@ -155,8 +155,11 @@ APP_VERSION=0.6.7-alpha
 ## Optional website account
 
 Desktop can be connected to the ContextForge website from **Settings → Account & Sync**.
-The website provides a short-lived pairing code, and Electron exchanges it for a device
-token that is encrypted with the operating system secure storage.
+The website can open `contextforge://connect` with a separate one-time 256-bit launch
+token, route the app to Account & Sync, and complete pairing automatically. A short-lived
+manual code remains available as a fallback. Electron exchanges either credential for a
+device token that is encrypted with the operating system secure storage. One-click links
+are accepted only when their origin matches the Desktop build's trusted website origin.
 
 The connection currently supports:
 
