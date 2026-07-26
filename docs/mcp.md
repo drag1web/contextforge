@@ -215,4 +215,3 @@ Removing the registration does not delete ContextForge data or settings.
 - MCP does not implement Run in Codex or Codex App Server task orchestration.
 
 Future Run in Codex/App Server work can build on the same Task Pack service, but must remain a separate explicit execution and authorization surface.
-

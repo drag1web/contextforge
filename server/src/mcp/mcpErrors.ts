@@ -47,4 +47,3 @@ export function toSafeMcpError(
     provenance: createMcpProvenance("contextforge-mcp", safeError.ids),
   };
 }
-

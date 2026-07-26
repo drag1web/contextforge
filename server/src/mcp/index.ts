@@ -54,4 +54,3 @@ main().catch((error) => {
   process.stderr.write(`${code}: ${message}\n`);
   process.exitCode = 1;
 });
-

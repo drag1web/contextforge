@@ -32,4 +32,3 @@ export function createStderrMcpAuditLogger(): ContextForgeMcpAuditLogger {
 export const silentMcpAuditLogger: ContextForgeMcpAuditLogger = {
   record() {},
 };
-

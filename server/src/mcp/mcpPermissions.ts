@@ -58,4 +58,3 @@ export async function updateContextForgeMcpPermissions(
 
   return readContextForgeMcpPermissions(storage);
 }
-
