@@ -1,136 +1,76 @@
 # ContextForge MVP
 
-This document describes the practical MVP target for **ContextForge v0.5.x**.
-
----
+This document defines the practical alpha product boundary after `v0.7.0-alpha`.
 
 ## Product goal
 
-ContextForge should help a developer prepare a local software project for AI coding agents without rewriting the project, leaking private files, or manually explaining the same context every time.
+ContextForge helps a developer prepare a local software project for AI coding agents without repeatedly rebuilding context, leaking private files, or granting an AI tool broad repository authority.
 
-The MVP is not an AI chat and not an auto-coding tool. It is a preparation layer for better prompts, safer context and repeatable Task Packs.
+It is a preparation and review layer, not an autonomous coding agent.
 
----
-
-## Current MVP foundation
-
-Already implemented or partially implemented:
-
-- Desktop shell with Electron.
-- React/Vite renderer.
-- Express local API.
-- Project adding by local path.
-- Project scanning.
-- Project readiness score.
-- `AGENTS.md` preview and save flow.
-- Task Pack generation.
-- Rule profiles.
-- Prompt templates.
-- Acceptance criteria presets.
-- Context Composer.
-- Optional Ollama refinement with fallback.
-- Workspace search.
-- Settings.
-
----
-
-## Required MVP flow
+## Current alpha workflow
 
 ```text
-1. User opens ContextForge.
-2. User adds a local project folder.
-3. App scans the project.
-4. User sees stack, scripts, readiness score and recommendations.
-5. User generates AGENTS.md.
-6. User edits and saves AGENTS.md into the project root.
-7. User writes a raw task.
-8. User selects Codex, Cursor, Claude or generic target.
-9. User applies rules/templates/criteria.
-10. App creates a Task Pack with relevant project context.
-11. User copies or exports the Task Pack.
-12. User returns later and sees saved projects/history.
+1. Add a local project.
+2. Scan structure, stack, scripts, tests, docs, CI, and configuration.
+3. Review readiness and project details.
+4. Maintain Project Memory and generate/edit AGENTS.md.
+5. Describe a task in natural language.
+6. Confirm or clarify the interpreted task when needed.
+7. Review grounded implementation and supporting context.
+8. Apply templates, rules, and acceptance criteria.
+9. Generate, edit, copy, export, or save a Task Pack.
+10. Reuse saved context through the desktop app or local MCP.
 ```
 
----
+## Implemented MVP foundation
+
+- Electron desktop shell with React, TypeScript, Vite, Tailwind CSS, and Framer Motion.
+- Local Express API with SQLite-first `StorageAdapter`.
+- Project scanning, readiness, Project Details, local Git state, and Diff Review Lite.
+- Project Memory and editable `AGENTS.md` preview/save workflow.
+- Task Understanding, clarification, grounded context selection, authorization, and Task Pack generation.
+- Templates, rule profiles, custom rules, acceptance criteria, diagnostics, and export.
+- Optional Ollama and external AI-provider refinement with validated fallback.
+- Optional GitHub issue workflow and optional website Desktop Link.
+- Local stdio MCP server with read-only defaults and guarded Task Pack creation.
+- English and Russian desktop localization across the main user workflow.
 
 ## MVP acceptance criteria
 
-- App runs without Docker for normal desktop use.
-- SQLite is used by default for local desktop storage.
-- PostgreSQL remains only for cloud/dev experiments.
-- A project can be added and rescanned.
-- Scan results survive app restart.
-- Task Packs survive app restart.
-- `AGENTS.md` can be generated, edited and saved.
-- Task Packs can be copied to clipboard.
-- Task Packs can be exported to `.md` and `.txt`.
-- Russian text in tasks and exports works correctly.
-- Optional Ollama failures do not break template-based generation.
-- UI has clear empty states and readable errors.
-
----
-
-## MVP storage entities
-
-Recommended local SQLite tables:
-
-```text
-projects
-project_scans
-task_packs
-app_settings
-prompt_templates
-rule_profiles
-rule_items
-acceptance_criteria_presets
-project_memories
-file_snapshots
-sync_queue
-```
-
----
-
-## MVP non-goals
-
-Not required for the MVP:
-
-- Full cloud sync.
-- Team workspaces.
-- Billing.
-- Marketplace.
-- Automatic code edits.
-- Automatic PR creation.
-- Full AI chat.
-- Mandatory login.
-- Storing full private source code in the cloud.
-
----
-
-## MVP release checklist
-
-- [x] Versions are synced to `0.6.7-alpha`.
-- [x] README describes the actual project state.
-- [x] `/api/health` returns the current version.
-- [x] SQLite storage is available for desktop.
-- [x] Docker is not needed for normal user flow.
-- [x] Exports work for Task Packs and workspace reports.
-- [x] `AGENTS.md` edit/save flow is polished.
-- [x] Project Memory is implemented.
-- [x] Scanner is stable across several project types.
-- [x] Task Pack Quality Score is available before export.
-- [x] Context Review Lite explains selected files, warnings and context load.
-- [x] Legacy, Compare and Shadow selector modes are connected to real Task Pack generation.
-- [x] Shadow abstains instead of reporting success when it cannot confirm a safe target.
-- [x] Task Understanding runs before file selection and distinguishes ready, review and clarification states.
-- [x] Clarification answers remain separate from the original task and resume the same Task Pack draft.
+- [x] Normal local development works without Docker.
+- [x] SQLite is the default desktop storage.
+- [x] Projects, settings, memories, templates, rules, and Task Packs survive restart.
+- [x] A project can be added, rescanned, and reviewed.
+- [x] `AGENTS.md` can be generated, edited, and saved safely.
+- [x] Task Packs can be generated, edited, copied, and exported to `.md` and `.txt`.
+- [x] Missing required values cannot be invented or bypassed.
+- [x] Subjective or weakly grounded work remains review/investigation instead of confident implementation.
 - [x] Exported Task Packs omit the absolute local project root.
-- [x] Local Git status detects branch, latest commit, dirty state and staged/unstaged/untracked files.
-- [x] Changed files can be added to Task Pack drafts as awareness-only context.
-- [x] Diff Review Lite summarizes local changes, review signals, suggested verification and Task Pack alignment.
-- [x] Storage audit shows SQLite schema, catalog and backup readiness.
-- [x] Rules/templates custom catalog is backed by SQLite with legacy JSON kept as transition backup.
-- [x] Workspace backup export creates secret-safe local JSON backups.
-- [x] Desktop release readiness checklist is visible in Settings.
-- [x] Optional GitHub auth, repository linking, Issue → Task Pack and Task Pack → Issue workflows are implemented.
-- [ ] Core selector/safety hardening is completed for secrets, prompt injection and explicit target misses.
-- [ ] Portable/installer build is tested.
+- [x] Optional provider failure does not break guarded template fallback.
+- [x] MCP is read-only by default and cannot edit repositories or mutate Git.
+- [x] MCP Task Pack creation requires global opt-in and per-call confirmation.
+- [x] GitHub and website integrations remain optional.
+- [x] Source release metadata is synchronized to `0.7.0-alpha`.
+- [ ] Installer/portable packaging is tested.
+- [ ] Backup restore and corruption recovery are production-hardened.
+- [ ] Deep polyglot selector adapters are added beyond the current TS/JS strength.
+- [ ] Accessibility, code splitting, and large-project performance receive a final production pass.
+
+## Current non-goals
+
+Not part of the current alpha MVP:
+
+- full AI chat;
+- automatic source-code modification;
+- arbitrary shell execution;
+- automatic Git operations or pull requests;
+- remote/cloud MCP hosting;
+- Codex App Server task orchestration;
+- mandatory login;
+- team workspaces, billing, or marketplace;
+- cloud storage of private source code.
+
+## Release position
+
+`v0.7.0-alpha` is a source pre-release. It is suitable for development, evaluation, controlled local workflows, MCP integration experiments, and continued product validation. It is not yet presented as a packaged stable desktop application.

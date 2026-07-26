@@ -1,4 +1,7 @@
-# ContextForge Core Quality & Safety Backlog
+# ContextForge Core Quality Backlog
+
+> Historical engineering backlog for the v0.6 grounding program. Current release status and forward plans are tracked in [`README.md`](../README.md), [`ROADMAP.md`](ROADMAP.md), and [`CHANGELOG.md`](../CHANGELOG.md).
+
 
 ## v0.6.7-alpha — Task Understanding & Clarification
 

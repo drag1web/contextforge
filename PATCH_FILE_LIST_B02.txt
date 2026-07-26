@@ -1,5 +1,0 @@
-server/src/selection/explicitFileMentions.ts
-server/src/selection/executionAuthorizationAuthority.smoke.ts
-server/src/selection/safetyPreconditions.smoke.ts
-PATCH_NOTES_PATCH_B02_ROLE_QUALIFIED_REFERENCE_PRECEDENCE.md
-PATCH_FILE_LIST_B02.txt

@@ -1,8 +1,0 @@
-server/src/contextComposer/contextComposerService.ts
-server/src/routes/taskPacks.ts
-server/src/selection/executionAuthorizationAuthority.smoke.ts
-server/src/selection/executionAuthorizationAuthority.ts
-server/src/selection/explicitFileMentions.ts
-server/src/selection/safetyPreconditions.smoke.ts
-PATCH_NOTES_PATCH_B01_FORBIDDEN_SUBSTITUTION.md
-PATCH_FILE_LIST_B01.txt

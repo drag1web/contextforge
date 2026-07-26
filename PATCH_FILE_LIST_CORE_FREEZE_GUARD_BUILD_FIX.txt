@@ -1,3 +1,0 @@
-server/src/selection/coreFreezeGuard.smoke.ts
-PATCH_NOTES_CORE_FREEZE_GUARD_BUILD_FIX.md
-PATCH_FILE_LIST_CORE_FREEZE_GUARD_BUILD_FIX.txt

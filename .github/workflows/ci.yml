@@ -1,0 +1,79 @@
+name: CI
+
+"on":
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build-and-smoke:
+    name: Build and focused smoke
+    runs-on: windows-latest
+    timeout-minutes: 35
+    env:
+      ELECTRON_SKIP_BINARY_DOWNLOAD: "1"
+      CONTEXTFORGE_MCP_ENABLED: "true"
+      CONTEXTFORGE_MCP_ALLOW_CREATE_TASK_PACKS: "false"
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Use Node.js 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build renderer and server
+        run: npm run build
+
+      - name: MCP smoke
+        run: npm run test:mcp
+
+      - name: Desktop Link smoke
+        run: npm run test:desktop-sync
+
+      - name: Task Understanding smoke
+        run: npm run test:understanding
+
+      - name: Clarification smoke
+        run: npm run test:clarification
+
+      - name: Generation reliability smoke
+        run: npm run test:generation:taskpack
+
+      - name: Selector rollout smoke
+        run: npm run test:selector:rollout
+
+      - name: Ownership smoke
+        run: npm run test:ownership
+
+      - name: Canonical core smoke
+        run: npm run test:canonical-core
+
+      - name: Context quality smoke
+        run: npm run test:context-quality
+
+      - name: Supporting grounding smoke
+        run: npm run test:support-grounding
+
+      - name: Authorization authority smoke
+        run: npm run test:authorization-authority
+
+      - name: Safety preconditions smoke
+        run: npm run test:safety-preconditions
+
+      - name: Explicit create and wiring smoke
+        run: npm run test:explicit-create-wiring
+
+      - name: Core freeze guard smoke
+        run: npm run test:core-freeze-guard

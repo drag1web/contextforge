@@ -1,31 +1,36 @@
-node_modules
-dist
-dist-electron
+node_modules/
+dist/
+dist-electron/
+coverage/
+.vite/
 
 .env
 *.env.disabled
 *.log
 
-apps/desktop/renderer/dist
-server/dist
+apps/desktop/renderer/dist/
+server/dist/
 
-.vscode
-.idea
+.vscode/
+.idea/
 
 .DS_Store
 Thumbs.db
 
-# Local ContextForge databases
-data/*.sqlite
-data/*.sqlite-*
-data/*.db
-data/*.db-*
-server/data/*.sqlite
-server/data/*.sqlite-*
-server/data/*.db
-server/data/*.db-*
-server/data/*.backup.sqlite
+# Local ContextForge databases and backups
+data/*.sqlite*
+data/**/*.sqlite*
+data/*.db*
+data/**/*.db*
+data/*.bak
+data/**/*.bak
 data/backups/
+server/data/*.sqlite*
+server/data/**/*.sqlite*
+server/data/*.db*
+server/data/**/*.db*
+server/data/*.bak
+server/data/**/*.bak
 server/data/backups/
 
 # Generated selector benchmark reports and local real-project manifests
@@ -48,8 +53,10 @@ server/reports/selector-inventory-snapshot*.json
 reports/selector-regression*/
 server/reports/selector-regression*/
 
-# Local ContextForge databases and database backups
-server/data/*.sqlite*
-server/data/**/*.sqlite*
-server/data/*.db*
-server/data/**/*.db*
+# Local patch/release preparation artifacts
+/ContextForge_patch_*.zip
+/ContextForge_UI*.zip
+/ContextForge_release-prep_*.zip
+/RELEASE_AUDIT_*.txt
+/PATCH_FILE_LIST*.txt
+/PATCH_NOTES*.md

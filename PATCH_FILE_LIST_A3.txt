@@ -1,6 +1,0 @@
-PATCH_NOTES_UNIVERSAL_AUTHORIZATION_AUTHORITY_A3.md
-PATCH_FILE_LIST_A3.txt
-server/src/selection/explicitFileMentions.ts
-server/src/ollama/taskFileSelector.smoke.ts
-server/src/selection/canonicalCoreDecision.smoke.ts
-server/src/selection/executionAuthorizationAuthority.smoke.ts

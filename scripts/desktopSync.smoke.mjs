@@ -109,7 +109,7 @@ async function fetchImpl(url, options = {}) {
         deviceName: "Workstation",
         platform: "win32",
         arch: "x64",
-        appVersion: "0.6.7-alpha",
+        appVersion: "0.7.0-alpha",
         channel: "alpha",
         status: "active",
         lastSeenAt: new Date().toISOString()
@@ -124,11 +124,11 @@ async function fetchImpl(url, options = {}) {
       ok: true,
       updateAvailable: true,
       latestRelease: {
-        version: "0.7.0-alpha",
+        version: "0.7.1-alpha",
         channel: "alpha",
         platform: "win32",
         arch: "x64",
-        releaseUrl: "https://github.com/drag1web/contextforge/releases/tag/v0.7.0-alpha"
+        releaseUrl: "https://github.com/drag1web/contextforge/releases/tag/v0.7.1-alpha"
       }
     });
   }
@@ -143,15 +143,15 @@ async function fetchImpl(url, options = {}) {
   }
 
   if (parsed.pathname === "/api/desktop/update-check") {
-    assert.equal(body.currentVersion, "0.6.7-alpha");
+    assert.equal(body.currentVersion, "0.7.0-alpha");
     return jsonResponse({
       updateAvailable: true,
       release: {
-        version: "0.7.0-alpha",
+        version: "0.7.1-alpha",
         channel: "alpha",
         platform: "win32",
         arch: "x64",
-        releaseUrl: "https://github.com/drag1web/contextforge/releases/tag/v0.7.0-alpha"
+        releaseUrl: "https://github.com/drag1web/contextforge/releases/tag/v0.7.1-alpha"
       }
     });
   }
@@ -284,7 +284,7 @@ try {
   );
 
   const service = createDesktopSyncService({
-    appVersion: "0.6.7-alpha",
+    appVersion: "0.7.0-alpha",
     platform: "win32",
     arch: "x64",
     isDev: true,
@@ -339,7 +339,7 @@ try {
   assert.equal(accountStatus.license, "alpha");
 
   const updateStatus = await service.checkForUpdates();
-  assert.equal(updateStatus.latestRelease.version, "0.7.0-alpha");
+  assert.equal(updateStatus.latestRelease.version, "0.7.1-alpha");
 
   const published = await service.publishTaskPack({
     sourceTaskPackId: "17",

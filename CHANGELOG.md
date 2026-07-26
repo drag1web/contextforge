@@ -1,8 +1,27 @@
 # Changelog
 
-## Unreleased — Validation Lab & Universal Context Grounding
+## Unreleased
+
+No changes recorded yet.
+
+## 0.7.0-alpha — Desktop Workspace & Local MCP
+
+### Highlights
+
+- Completed the large desktop workspace refresh across Dashboard, Projects, Project Details, Scanners, Context Builder, Task Packs, Agents, Templates, Integrations, GitHub, Reports, Settings, and Account & Sync.
+- Added ContextForge MCP Server v1 over local stdio with guarded project, Project Memory, Task Pack, resource, and workflow-prompt access.
+- Added explicit two-step authorization for MCP Task Pack creation: global opt-in plus per-call `confirmCreate: true`.
+- Refreshed the title bar, product identity, real AI status, Navigation Assistant, Global Search, global toast system, and Task Pack editing/result surfaces.
+- Published the current universal grounding, ownership, authorization, supporting-context, explicit-create, safety, and Validation Lab baseline as one source pre-release.
 
 ### Added
+
+- Added local MCP status, permission controls, generated Codex registration commands, `config.toml` snippets, and a real stdio connection test in Integrations.
+- Added MCP tools, resources, prompts, structured envelopes, stable `MCP_*` errors, safe provenance, bounded list results, and privacy-safe audit events.
+- Added a compact product/version popover, clickable brand navigation, and a functional AI workflow status panel in the desktop title bar.
+- Added compact localized Navigation Assistant and Global Search modals without internal vertical scrolling.
+- Added complete Russian localization for Project Details, readiness, scanner snapshot, local Git context, and diff summary surfaces.
+- Added refreshed product screenshots, source-release notes, security reporting guidance, and a focused GitHub Actions build/smoke workflow.
 
 - Added syntax-aware JavaScript/TypeScript symbol evidence that separates real declarations, imports, re-exports, and identifier references from comments, strings, template fixtures, regular expressions, and JSX text.
 - Added an end-to-end scanner-to-selector regression using a temporary repository, proving that fixture text cannot become symbol ownership or edit authorization.

@@ -1,3 +1,0 @@
-apps/desktop/renderer/src/pages/DashboardPage.tsx
-PATCH_NOTES_UI_01C_SPLASH_MOTION_POLISH.md
-PATCH_FILE_LIST_UI_01C.txt

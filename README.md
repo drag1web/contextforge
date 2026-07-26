@@ -1,324 +1,190 @@
 # ContextForge
 
-Local stdio MCP support, permissions, Codex setup, and troubleshooting are documented in [docs/mcp.md](docs/mcp.md).
+[![CI](https://github.com/drag1web/contextforge/actions/workflows/ci.yml/badge.svg)](https://github.com/drag1web/contextforge/actions/workflows/ci.yml)
+![Version](https://img.shields.io/badge/version-0.7.0--alpha-111111)
+![Status](https://img.shields.io/badge/status-source%20pre--release-333333)
+![Local first](https://img.shields.io/badge/local--first-yes-0f766e)
 
-**ContextForge** is a desktop devtool for preparing software projects for AI coding agents.
+**ContextForge** is a local-first desktop workspace for preparing software projects for AI coding agents.
 
-It scans local repositories, detects stack and scripts, builds project context, generates `AGENTS.md`, and creates structured Task Packs for tools like **Codex**, **Cursor**, **Claude Code**, and other AI coding assistants.
+It scans a repository, explains project readiness, builds reusable project context, generates editable `AGENTS.md` files, and creates guarded Task Packs for **Codex**, **Cursor**, **Claude Code**, **Gemini**, and generic coding agents. ContextForge also includes a local stdio **MCP server** for safe project and Task Pack access from compatible clients.
 
-Current version: **v0.6.7-alpha**
-Current app phase: **Phase 0.6.7 — Task Understanding & Clarification**
+> Current release: **v0.7.0-alpha — Desktop Workspace & Local MCP**<br>
+> This is a source pre-release. A packaged installer is intentionally not included yet.
 
-This release adds a grounded preflight layer before file selection. ContextForge now distinguishes ready tasks, subjective or broad tasks that should be reviewed, and genuinely incomplete tasks that require one focused answer. Users can choose Automatic, Balanced, or Confirm every task behavior in Settings.
+<p align="center">
+  <img src="docs/assets/screenshots/dashboard-v0.7.png" alt="ContextForge dashboard" width="100%" />
+</p>
 
----
+## Why ContextForge
 
-## What ContextForge does now
+- **Local-first by default.** Project scanning, SQLite storage, context selection, Task Packs, and MCP run on the local machine.
+- **Explainable context.** Selected files have roles, reasons, confidence, quality signals, and review states instead of opaque file dumps.
+- **Guarded AI workflow.** Missing values, subjective scope, unsafe targets, and weak ownership evidence stay in clarification, review, or investigation flows.
+- **Reusable outputs.** Project Memory, templates, rule profiles, acceptance criteria, `AGENTS.md`, and Task Packs survive restarts and can be reused across tools.
 
-- Adds local projects by path.
-- Scans project structure and detects stack, package manager, scripts, important files, docs and config.
-- Calculates an AI readiness score with readable recommendations.
-- Generates an `AGENTS.md` draft for the selected project.
-- Saves `AGENTS.md` into the project root.
-- Creates AI Task Packs from a raw user task.
-- Supports opt-in Legacy, Compare, and Shadow selector modes for internal Task Pack rollout.
-- Lets Shadow abstain with a clear reason and Full Review actions when it cannot confirm a safe implementation target.
-- Keeps supporting context compact and limits edit roles to evidence-backed primary targets.
-- Shows privacy-safe local selector diagnostics, human-readable selection reasons, and a bounded 50-run history without source content or absolute paths.
-- Exports Task Pack project metadata without the machine-specific absolute project root.
-- Scores Task Pack quality with checks for clarity, scope, rules, acceptance criteria, verification and safety.
-- Shows Context Review Lite with selected files, reasons, snippets, warnings and review signals.
-- Shows context load/budget hints with compact, standard and detailed target modes.
-- Provides grounded Task Understanding before file selection, including goal, action, target hints, constraints, exact values, missing information, interpretation risk, and readiness.
-- Shows compact clarification or interpretation-review UI before Shadow when the task needs user input or confirmation.
-- Stores the original task and user clarifications separately, then sends Shadow a clean grounded task representation.
-- Supports Automatic, Balanced, and Confirm every task interaction modes in local Settings; required information is never invented or bypassed.
-- Shows local working-tree status with branch, latest commit, staged, unstaged and untracked counts.
-- Adds current local changes into Task Pack drafts as awareness-only context without turning them into edit targets.
-- Provides Diff Review Lite with metadata-only diff summaries, review signals, suggested verification and Task Pack alignment.
-- Supports agent profiles for Codex, Cursor, Claude Code, Gemini and generic AI agents.
-- Provides an Agents page for comparing prompt style, limitations and verification behavior.
-- Provides a Templates library with task presets for UI/UX, bugfix, backend, tests, refactor, docs, security and release workflows.
-- Applies prompt templates, rule profiles and acceptance criteria.
-- Supports custom template/profile copy, edit and delete flows for reusable project workflows.
-- Uses a Context Composer flow to select relevant files/snippets for a task.
-- Supports optional Ollama and configured AI-provider refinement through a strict structured response contract with repair, retry, and validated template fallback.
-- Filters unauthorized Git actions, forced verification-success claims, unknown file references, and cross-section contradictions from AI refinements.
-- Keeps ambiguous missing-value tasks in clarification mode: no files are changed and implementation verification is deferred until the user supplies the required value.
-- Recognizes and preserves explicit user-provided replacement values in quoted, assigned, numeric, URL, color, version, and similar literal forms without project-specific rules.
-- Shows privacy-safe Task Pack generation diagnostics without storing raw prompts, model responses, source snippets, secrets, or absolute paths.
-- Stores projects, settings and generated Task Packs in a local SQLite database by default.
-- Supports an optional GitHub device-auth foundation for future repository and issue workflows.
-- Links local projects to GitHub repository metadata through local Git remotes without uploading source files.
-- Provides quick local Git setup actions for initializing Git and setting a GitHub `origin` remote.
-- Loads GitHub issues from linked repositories and creates local Task Packs from issue title/body/labels.
+## Current capabilities
 
----
+### Project workspace
 
-## Current architecture
+- Add and rescan local repositories.
+- Detect stack, package manager, scripts, tests, documentation, CI, configuration, and inventory signals.
+- Show AI readiness, project details, scanner evidence, local Git state, and lightweight diff review.
+- Maintain project-specific memory and decisions without uploading source code.
 
-```text
-Desktop app
-  ├─ Electron shell
-  ├─ React + TypeScript renderer
-  └─ Local server API
-       ├─ Express routes
-       ├─ Project scanner
-       ├─ Context Composer
-       ├─ Task Pack builder
-       ├─ Local Git status, diff summary and remote-linking services
-       ├─ Rules and templates
-       ├─ Optional Ollama integration
-       └─ StorageAdapter
-            ├─ SQLite local storage by default
-            └─ PostgreSQL adapter for cloud/dev experiments
+### Task Packs
+
+- Understand informal RU/EN/mixed-language tasks before file selection.
+- Ask focused clarification questions when required information is missing.
+- Select grounded implementation and supporting context from real repository evidence.
+- Apply templates, rule profiles, custom rules, and acceptance criteria.
+- Generate, edit, save, copy, and export Task Packs as Markdown or text.
+- Show privacy-safe selector, generation, and performance diagnostics.
+
+### Integrations
+
+- Optional Ollama and supported AI-provider refinement with validated fallback.
+- Optional GitHub device authentication, repository linking, Issue → Task Pack, and Task Pack → Issue workflows.
+- Optional website account and explicit Task Pack handoff through Desktop Link.
+- Local ContextForge MCP server for Codex and other MCP-compatible clients.
+
+## Local MCP
+
+ContextForge MCP uses stdio and the same local storage and guarded Task Pack pipeline as the desktop backend.
+
+Read operations are enabled with the server. Task Pack creation is disabled by default and requires both:
+
+1. an explicit local permission;
+2. `confirmCreate: true` on the individual tool call.
+
+The MCP server does **not** edit repository files, run shell commands, mutate Git, or launch coding-agent tasks.
+
+Main commands:
+
+```bash
+npm run build
+npm run mcp:start
+npm run test:mcp
 ```
 
-> Normal desktop use now starts from local SQLite. Docker/PostgreSQL are optional and only needed when explicitly testing the PostgreSQL adapter.
+Setup, permissions, tools, resources, prompts, Codex registration, and troubleshooting are documented in [`docs/mcp.md`](docs/mcp.md).
 
----
+<table>
+  <tr>
+    <td width="50%"><img src="docs/assets/screenshots/navigation-v0.7.png" alt="ContextForge navigation modal" /></td>
+    <td width="50%"><img src="docs/assets/screenshots/global-search-v0.7.png" alt="ContextForge global search" /></td>
+  </tr>
+</table>
 
-## Monorepo structure
+## Privacy and safety boundary
 
-```text
-.
-├─ apps/
-│  └─ desktop/
-│     ├─ electron/              # Electron main/preload process
-│     └─ renderer/              # React + Vite desktop UI
-├─ server/                      # Express API, scanner, prompts, Ollama, DB schema
-├─ packages/
-│  └─ shared/                   # Shared types/utilities
-├─ docs/                        # MVP and roadmap docs
-├─ docker-compose.yml           # Development PostgreSQL only
-├─ README.md
-└─ CHANGELOG.md
-```
+ContextForge is designed to keep source code local unless the user starts an explicit external workflow.
 
----
+- SQLite is the default desktop storage.
+- Absolute local project roots are omitted from exported Task Pack metadata.
+- Diagnostics do not store raw prompts, model responses, source snippets, secrets, or absolute paths.
+- GitHub workflows send repository and issue metadata only when explicitly requested.
+- Website publication transfers only the selected Task Pack and rejects detected secrets and absolute local paths.
+- MCP list operations omit full Task Pack prompts and redact secret-like values.
 
-## Stack
+## Run from source
 
-- Electron
-- React
-- TypeScript
-- Vite
-- Tailwind CSS
-- Framer Motion
-- Node.js
-- Express
-- SQLite local database for desktop storage
-- PostgreSQL adapter kept for future cloud/dev experiments
-- Optional Ollama integration
-- Optional GitHub OAuth device flow for account pairing and issue metadata workflows
-
----
-
-## Requirements for development
+### Requirements
 
 - Node.js 20+
 - npm
-- Docker Desktop, optional, only for PostgreSQL adapter experiments
-- Optional: Ollama, only for AI refinement mode
+- Optional: Ollama for local AI refinement
+- Optional: Docker only for PostgreSQL adapter experiments
 
----
+### Install and start
+
+```bash
+npm install
+npm run dev
+```
+
+Development mode starts:
+
+- Express API on `http://localhost:4000`;
+- Vite renderer on `http://localhost:5173`;
+- Electron desktop shell.
+
+Normal desktop development uses local SQLite and does not require Docker.
+
+### Build
+
+```bash
+npm run build
+```
+
+### Focused validation
+
+```bash
+npm run test:mcp
+npm run test:desktop-sync
+npm run test:understanding
+npm run test:clarification
+npm run test:generation:taskpack
+npm run test:selector:rollout
+npm run test:ownership
+npm run test:canonical-core
+npm run test:context-quality
+```
+
+Additional selector, safety, grounding, benchmark, and Validation Lab commands are available in `package.json`.
 
 ## Environment
 
-Create `.env` in the project root. SQLite is the default desktop storage mode:
+Copy `.env.example` to `.env` and adjust only the integrations you need.
 
 ```env
 STORAGE_DRIVER=sqlite
 SQLITE_DB_PATH=./data/contextforge.sqlite
 SERVER_PORT=4000
 OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.6.7-alpha
-CONTEXTFORGE_WEB_ORIGIN=https://contextforge.dev
+APP_VERSION=0.7.0-alpha
 
-# Optional GitHub integration. ContextForge works without this.
-GITHUB_OAUTH_CLIENT_ID=
-GITHUB_OAUTH_SCOPES=read:user repo
-GITHUB_API_BASE_URL=https://api.github.com
-GITHUB_API_VERSION=2022-11-28
+CONTEXTFORGE_MCP_ENABLED=true
+CONTEXTFORGE_MCP_ALLOW_CREATE_TASK_PACKS=false
 ```
 
-To test the PostgreSQL adapter instead:
+GitHub, website account, PostgreSQL, and external AI providers are optional.
 
-```env
-STORAGE_DRIVER=postgres
-DATABASE_URL=postgresql://contextforge:contextforge@127.0.0.1:5433/contextforge
-SERVER_PORT=4000
-OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.6.7-alpha
+## Architecture
+
+```text
+Electron desktop shell
+  ├─ React + TypeScript + Vite renderer
+  ├─ Local Express API
+  │    ├─ scanner and readiness
+  │    ├─ Task Understanding and clarification
+  │    ├─ selector / ownership / authorization pipeline
+  │    ├─ Context Composer and Task Pack generation
+  │    ├─ Git and GitHub workflow services
+  │    └─ SQLite-first StorageAdapter
+  └─ Local MCP stdio server
+       ├─ read-only project, memory, and Task Pack access
+       └─ explicitly authorized Task Pack creation
 ```
 
----
+## Documentation
 
-## Optional website account
+- [`docs/mcp.md`](docs/mcp.md) — local MCP server and Codex setup.
+- [`docs/MVP.md`](docs/MVP.md) — current alpha product boundary and release checklist.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — completed milestones and next product phases.
+- [`docs/VALIDATION_LAB.md`](docs/VALIDATION_LAB.md) — portable sequential validation workflow.
+- [`docs/SELECTOR_BENCHMARK.md`](docs/SELECTOR_BENCHMARK.md) — selector benchmark model and private-manifest boundary.
+- [`CHANGELOG.md`](CHANGELOG.md) — detailed release history.
 
-Desktop can be connected to the ContextForge website from **Settings → Account & Sync**.
-The website can open `contextforge://connect` with a separate one-time 256-bit launch
-token, route the app to Account & Sync, and complete pairing automatically. A short-lived
-manual code remains available as a fallback. Electron exchanges either credential for a
-device token that is encrypted with the operating system secure storage. One-click links
-are accepted only when their origin matches the Desktop build's trusted website origin.
+## Release status
 
-The connection currently supports:
+`v0.7.0-alpha` is a GitHub source pre-release. It marks the completion of the large desktop UI refresh, the current universal grounding baseline, Desktop Link improvements, and ContextForge MCP Server v1.
 
-- website device presence and manual heartbeat;
-- account and license metadata;
-- release-channel update checks;
-- explicit publication of one selected Task Pack to the website;
-- an account-owned Task Pack inbox with confirmed import into a chosen local project;
-- automatic inbox refresh while the Task Packs page is visible;
-- SHA-256 verification in the protected Electron bridge before content reaches the renderer;
-- import failure reporting so the website can preserve history and safely retry delivery;
-- explicit disconnect and token revocation.
+Known release boundaries:
 
-Project contents, local paths, and generated files are not uploaded. A Task Pack prompt
-is transferred only when the user clicks **Publish** on that specific pack. The website
-rejects detected secrets and absolute local paths. Incoming packs are imported only after
-the user selects a local destination project; importing does not run or modify the Task
-Pack generator. Failed or corrupted deliveries never touch local project storage. Device
-metadata and the total project count remain the only heartbeat data.
+- no installer or portable binary yet;
+- deep selector support remains strongest for TypeScript/JavaScript projects;
+- MCP v1 is local stdio only;
+- remote MCP, automatic code changes, automatic PRs, and agent task orchestration are not part of this release.
 
-For local website development, launch the website on `http://127.0.0.1:5177`.
-Development builds use that address by default; production builds require HTTPS.
-
----
-
-## Optional GitHub integration
-
-GitHub is an optional workflow layer. Local project scanning, AGENTS.md, Project Memory and Task Packs keep working without sign-in.
-
-To test GitHub pairing, create a GitHub OAuth app, enable Device Flow, and set `GITHUB_OAUTH_CLIENT_ID` in `.env`. ContextForge stores the resulting token server-side only and does not return it to the renderer or workspace backups.
-
-v0.6.0 completes the issue workflow foundation:
-
-- **Stage 13.1** — browser/device pairing and connected account status;
-- **Stage 13.2** — repository linking from local Git remotes;
-- **Stage 13.3** — GitHub Issue → local Task Pack;
-- **Stage 13.4** — Task Pack → GitHub Issue.
-
-Project source files are not uploaded by these workflows. GitHub receives repository metadata, issue metadata and generated Task Pack briefs only when the user explicitly starts the GitHub action. PR / CI workflows and deeper core selector hardening remain later work.
-
----
-
-## Development
-
-Install dependencies:
-
-```bash
-npm install
-```
-
-Start the full desktop development flow:
-
-```bash
-npm run dev
-```
-
-This starts:
-
-- the Express API on `http://localhost:4000`;
-- the Vite renderer on `http://localhost:5173`;
-- the Electron desktop shell.
-
-SQLite data is saved by default to `data/contextforge.sqlite`.
-
----
-
-## Build
-
-```bash
-npm run build
-```
-
-The build runs the renderer build first and then the server TypeScript build.
-
----
-
-## Useful API checks
-
-```bash
-curl http://localhost:4000/api/health
-curl http://localhost:4000/api/db/health
-```
-
-Expected `/api/health` version:
-
-```json
-{
-  "ok": true,
-  "service": "contextforge-server",
-  "version": "0.6.6-alpha"
-}
-```
-
----
-
-## MVP status
-
-The current project now has a strong v0.6 alpha foundation: scanner, readiness report, rules, templates, Task Packs, Context Composer, Task Pack Quality Score, Local Git context, Diff Review Lite, SQLite-first persistence, optional Ollama routes and an optional GitHub issue loop.
-
-The main MVP gaps are now:
-
-1. Harden Ollama Task Pack generation so schema repair/retry prevents frequent template fallback.
-2. Improve task-understanding and clarification UX for highly informal or ambiguous requests.
-3. Evaluate enough live Shadow runs before considering it as the recommended/default selector.
-4. Package a friendly desktop build and installer/portable release.
-5. Polish onboarding, project details, and first-run guidance while keeping GitHub/cloud workflows optional and local-first.
-
-See:
-
-- [`docs/MVP.md`](docs/MVP.md)
-- [`docs/ROADMAP.md`](docs/ROADMAP.md)
-- [`docs/CORE_QUALITY_BACKLOG.md`](docs/CORE_QUALITY_BACKLOG.md)
-
----
-
-## What not to build yet
-
-To keep the product focused, the current MVP should avoid:
-
-- full AI chat;
-- automatic code modification;
-- automatic pull requests;
-- MCP gateway;
-- team collaboration;
-- billing;
-- cloud storage of source code;
-- mandatory web version.
-
----
-
-## Current definition of done for MVP
-
-The MVP is ready when a user can:
-
-1. Start ContextForge without Docker.
-2. Add a local project.
-3. Scan the project.
-4. See stack, scripts, readiness score and recommendations.
-5. Generate, edit and save `AGENTS.md`.
-6. Create a Task Pack for Codex/Cursor/Claude.
-7. Apply rules, templates and acceptance criteria.
-8. Copy the prompt.
-9. Export the prompt to `.md` and `.txt`.
-10. Close and reopen the app while data remains saved.
-
-### GitHub v0.6.0 issue loop
-
-ContextForge can now move in both directions between GitHub issues and local Task Packs:
-
-1. Link a local project to a GitHub repository through its local Git remote.
-2. Import a GitHub issue as local Task Pack source context.
-3. Create a GitHub issue from a generated Task Pack.
-4. Save source/created issue links in Task Pack result and archive metadata.
-
-The issue body is generated from Task Pack metadata and prompt preview. Project source files are not uploaded by this workflow.
-
-## Performance diagnostics
-
-Generated Task Packs can include a privacy-safe performance timeline that counts real AI calls, measures inventory/understanding/selection/generation stages, reports cache usage, and records Ollama load/evaluation timings without storing prompts, responses, source code, secrets, or absolute paths.
-
+See [`docs/releases/v0.7.0-alpha.md`](docs/releases/v0.7.0-alpha.md) for the release summary.
