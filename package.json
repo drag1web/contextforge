@@ -10,7 +10,7 @@
     "packages/shared"
   ],
   "scripts": {
-    "dev": "concurrently -k -n SERVER,RENDERER,ELECTRON -c blue,green,magenta \"npm run dev:server\" \"npm run dev:renderer\" \"npm run dev:electron\"",
+    "dev": "concurrently --raw -k \"npm run dev:server\" \"npm run dev:renderer\" \"npm run dev:electron\"",
     "dev:server": "npm run dev -w @contextforge/server",
     "dev:renderer": "npm run dev -w @contextforge/renderer",
     "dev:electron": "wait-on tcp:5173 tcp:4000 && cross-env ELECTRON_RENDERER_URL=http://localhost:5173 electron apps/desktop/electron/main.cjs",
