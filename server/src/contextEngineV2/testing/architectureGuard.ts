@@ -14,6 +14,7 @@ export interface ArchitectureViolation {
   rule:
     | "core_external_dependency"
     | "core_boundary_escape"
+    | "adapter_boundary_escape"
     | "forbidden_legacy_dependency"
     | "layer_direction"
     | "production_isolation"
@@ -39,18 +40,16 @@ const ALLOWED_TARGET_LAYERS: Readonly<Record<string, ReadonlySet<string>>> = {
     "contracts",
     "domain",
     "ports",
-    "application",
     "adapters",
   ]),
   policy: new Set(["contracts", "domain", "policy"]),
-  facade: new Set(["contracts", "application"]),
+  facade: new Set(["contracts", "application", "adapters"]),
 };
 const LEGACY_SELECTOR_FRAGMENTS = [
   "/ollama/taskfileselector",
   "/selection/finalselectiondecision",
   "/selection/selectorpipelineorchestrator",
 ];
-
 function normalizePath(value: string): string {
   return value.replaceAll("\\", "/");
 }
@@ -156,6 +155,36 @@ function isLegacySelectorImport(
   );
 }
 
+function isAllowedLegacyScannerImport(
+  repositoryRoot: string,
+  importingFile: string,
+  importPath: string,
+): boolean {
+  if (!importPath.startsWith(".")) {
+    return false;
+  }
+  const normalizeResolvedModulePath = (value: string) => {
+    const normalized = normalizePath(path.resolve(value)).replace(
+      /\.(?:js|ts|tsx)$/i,
+      "",
+    );
+    return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  };
+  const resolved = normalizeResolvedModulePath(
+    path.resolve(path.dirname(importingFile), importPath),
+  );
+  const expected = normalizeResolvedModulePath(
+    path.join(
+      repositoryRoot,
+      "server",
+      "src",
+      "scanner",
+      "projectInventoryScanner",
+    ),
+  );
+  return resolved === expected;
+}
+
 export function evaluateArchitectureImports(input: {
   repositoryRoot: string;
   modules: readonly ArchitectureSourceModule[];
@@ -206,7 +235,7 @@ export function evaluateArchitectureImports(input: {
             importPath,
             rule: "production_isolation",
             message:
-              "Production source outside Context Engine v2 cannot import the subsystem during CE2-00.",
+              "Production source outside Context Engine v2 cannot import the subsystem during CE2-01.",
           });
         }
         continue;
@@ -236,6 +265,26 @@ export function evaluateArchitectureImports(input: {
 
       const targetPath = path.resolve(path.dirname(module.filePath), importPath);
       if (!isInside(v2Root, targetPath)) {
+        if (
+          isAdapterLayer &&
+          isAllowedLegacyScannerImport(
+            input.repositoryRoot,
+            module.filePath,
+            importPath,
+          )
+        ) {
+          continue;
+        }
+        if (isAdapterLayer) {
+          violations.push({
+            filePath: module.filePath,
+            importPath,
+            rule: "adapter_boundary_escape",
+            message:
+              "Adapters may leave Context Engine v2 only through an explicitly allowed legacy scanner boundary.",
+          });
+          continue;
+        }
         if (isCoreLayer) {
           violations.push({
             filePath: module.filePath,

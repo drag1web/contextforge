@@ -195,6 +195,61 @@ function testAllowedInlineTypeImportFromContractsPasses(): void {
   assert.deepEqual(violations, []);
 }
 
+function testAdapterCanImportLegacyScannerContract(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/adapters/legacyInventory/example.ts",
+        'import type { ProjectInventory } from "../../../scanner/projectInventoryScanner.js";',
+      ),
+    ],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testAdapterCannotImportScannerSuffixFromEvilDirectory(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/adapters/legacyInventory/leak.ts",
+        'import type { ProjectInventory } from "../../../evil/scanner/projectInventoryScanner.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "adapter_boundary_escape");
+}
+
+function testAdapterCannotImportScannerSuffixOutsideRepository(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/adapters/legacyInventory/leak.ts",
+        'import type { ProjectInventory } from "../../../../../../outside/scanner/projectInventoryScanner.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "adapter_boundary_escape");
+}
+
+function testAdapterCannotImportLegacySelector(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/adapters/legacyInventory/leak.ts",
+        'import { selectTaskFiles } from "../../../ollama/taskFileSelector.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "forbidden_legacy_dependency");
+}
+
 testCurrentArchitecturePasses();
 testLayerDirectionViolationIsDetected();
 testProductionImportIsDetected();
@@ -207,4 +262,8 @@ testDomainInlineTypeImportFromApplicationIsRejected();
 testDomainInlineTypeImportFromProductionIsRejected();
 testPolicyInlineTypeImportFromProductionIsRejected();
 testAllowedInlineTypeImportFromContractsPasses();
-console.log("Context Engine v2 architecture smoke passed: 12 scenarios.");
+testAdapterCanImportLegacyScannerContract();
+testAdapterCannotImportScannerSuffixFromEvilDirectory();
+testAdapterCannotImportScannerSuffixOutsideRepository();
+testAdapterCannotImportLegacySelector();
+console.log("Context Engine v2 architecture smoke passed: 16 scenarios.");
