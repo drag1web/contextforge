@@ -33,7 +33,9 @@
     "test:authorization-authority": "tsx src/selection/executionAuthorizationAuthority.smoke.ts",
     "test:safety-preconditions": "tsx src/selection/safetyPreconditions.smoke.ts",
     "test:explicit-create-wiring": "tsx src/selection/explicitCreateWiringCoverage.smoke.ts",
-    "test:core-freeze-guard": "tsx src/selection/coreFreezeGuard.smoke.ts"
+    "test:core-freeze-guard": "tsx src/selection/coreFreezeGuard.smoke.ts",
+    "test:context-engine-v2:contracts": "tsx src/contextEngineV2/testing/contracts.smoke.ts",
+    "test:context-engine-v2:architecture": "tsx src/contextEngineV2/testing/architecture.smoke.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
