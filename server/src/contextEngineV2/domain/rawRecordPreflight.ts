@@ -180,6 +180,55 @@ function inspectJsonValue(value: unknown, ancestors: WeakSet<object>): void {
   });
 }
 
+function inspectDomainValue(value: unknown, ancestors: WeakSet<object>): void {
+  if (
+    value === null ||
+    typeof value === "string" ||
+    typeof value === "boolean" ||
+    (typeof value === "number" && Number.isFinite(value))
+  ) {
+    return;
+  }
+  if (Array.isArray(value)) {
+    try {
+      if (Object.getPrototypeOf(value) !== Array.prototype) fail();
+      if (ancestors.has(value)) fail();
+      ancestors.add(value);
+      const descriptors = Object.getOwnPropertyDescriptors(value);
+      for (let index = 0; index < value.length; index += 1) {
+        const descriptor = descriptors[String(index)];
+        if (!descriptor || !descriptor.enumerable || !("value" in descriptor)) {
+          fail();
+        }
+        inspectDomainValue(descriptor.value, ancestors);
+      }
+      const expectedKeys = new Set([
+        "length",
+        ...Array.from({ length: value.length }, (_, index) => String(index)),
+      ]);
+      if (
+        Reflect.ownKeys(descriptors).some(
+          (key) => typeof key !== "string" || !expectedKeys.has(key),
+        )
+      ) {
+        fail();
+      }
+      ancestors.delete(value);
+      return;
+    } catch (error) {
+      ancestors.delete(value);
+      if (error instanceof RawRecordPreflightError) throw error;
+      fail();
+    }
+  }
+  inspectRecord(value, ancestors, (descriptors) => {
+    for (const [key, descriptor] of descriptors) {
+      if (typeof key !== "string" || !descriptor.enumerable) fail();
+      inspectDomainValue(descriptor.value, ancestors);
+    }
+  });
+}
+
 function inspectStringArray(value: unknown, ancestors: WeakSet<object>): void {
   if (!Array.isArray(value)) fail();
   inspectJsonValue(value, ancestors);
@@ -268,4 +317,8 @@ export function assertDescriptorSafeFactRecord(
     inspectProvenance(dataValue(descriptors, "provenance"), ancestors);
     inspectJsonValue(dataValue(descriptors, "attributes"), ancestors);
   });
+}
+
+export function assertDescriptorSafeDomainValue(value: unknown): void {
+  inspectDomainValue(value, new WeakSet<object>());
 }

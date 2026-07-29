@@ -244,7 +244,7 @@ function isNonNegativeInteger(value: unknown): value is number {
   return Number.isInteger(value) && typeof value === "number" && value >= 0;
 }
 
-function isRepositoryRelativePath(value: string): boolean {
+export function isRepositoryRelativePath(value: string): boolean {
   if (
     value.length === 0 ||
     value.startsWith("/") ||
@@ -763,12 +763,21 @@ export function validateInvestigationRequest(
     issue(issues, "budget", "invalid_type", "Budget is required.");
   } else {
     for (const field of BUDGET_FIELDS) {
-      if (!isPositiveInteger(value.budget[field])) {
+      const budgetValue = value.budget[field];
+      const valid =
+        field === "maxConcurrentOperations"
+          ? isPositiveInteger(budgetValue)
+          : typeof budgetValue === "number" &&
+            Number.isSafeInteger(budgetValue) &&
+            budgetValue >= 0;
+      if (!valid) {
         issue(
           issues,
           `budget.${field}`,
           "invalid_value",
-          "Budget values must be positive integers.",
+          field === "maxConcurrentOperations"
+            ? "Concurrent operation budget must be a positive safe integer."
+            : "Budget values must be non-negative safe integers.",
         );
       }
     }

@@ -43,7 +43,7 @@ const ALLOWED_TARGET_LAYERS: Readonly<Record<string, ReadonlySet<string>>> = {
     "adapters",
   ]),
   policy: new Set(["contracts", "domain", "policy"]),
-  facade: new Set(["contracts", "ports", "application", "adapters"]),
+  facade: new Set(["contracts", "domain", "ports", "application", "adapters"]),
 };
 const LEGACY_SELECTOR_FRAGMENTS = [
   "/ollama/taskfileselector",
@@ -236,7 +236,7 @@ export function evaluateArchitectureImports(input: {
             importPath,
             rule: "production_isolation",
             message:
-              "Production source outside Context Engine v2 cannot import the subsystem during CE2-02.",
+              "Production source outside Context Engine v2 cannot import the subsystem during CE2-03.",
           });
         }
         continue;

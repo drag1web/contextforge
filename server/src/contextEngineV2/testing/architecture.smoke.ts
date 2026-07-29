@@ -321,6 +321,91 @@ function testProductionRouteCannotImportGraphAdapter(): void {
   assert.equal(violations[0]?.rule, "production_isolation");
 }
 
+function testEvidenceLedgerCanImportContracts(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/domain/evidenceLedger.ts",
+        'import type { EvidenceRecord } from "../contracts/evidence.js";',
+      ),
+    ],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testStopPolicyCanImportContractsAndDomain(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/domain/stopPolicy.ts",
+        [
+          'import type { InvestigationStop } from "../contracts/investigation.js";',
+          'import { snapshotInvestigationBudget } from "./investigationBudget.js";',
+        ].join("\n"),
+      ),
+    ],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testEvidenceLedgerCannotImportKnowledgeAdapter(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/domain/evidenceLedger.ts",
+        'import { createInMemoryKnowledgeGraphStore } from "../adapters/knowledge/index.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "layer_direction");
+}
+
+function testStopPolicyCannotImportRepositoryReaderPort(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/domain/stopPolicy.ts",
+        'import type { RepositoryReaderPort } from "../ports/repositoryReaderPort.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "layer_direction");
+}
+
+function testProductionRouteCannotImportDomainService(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/routes/example.ts",
+        'import { createStopPolicy } from "../contextEngineV2/domain/stopPolicy.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "production_isolation");
+}
+
+function testDomainServiceCannotImportLegacySelector(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/domain/evidenceLedger.ts",
+        'import { selectTaskFiles } from "../../ollama/taskFileSelector.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "forbidden_legacy_dependency");
+}
+
 testCurrentArchitecturePasses();
 testLayerDirectionViolationIsDetected();
 testProductionImportIsDetected();
@@ -342,4 +427,10 @@ testExtractorCannotImportLegacySelector();
 testGraphAdapterCanImportContractsAndPorts();
 testDomainCannotImportGraphAdapter();
 testProductionRouteCannotImportGraphAdapter();
-console.log("Context Engine v2 architecture smoke passed: 21 scenarios.");
+testEvidenceLedgerCanImportContracts();
+testStopPolicyCanImportContractsAndDomain();
+testEvidenceLedgerCannotImportKnowledgeAdapter();
+testStopPolicyCannotImportRepositoryReaderPort();
+testProductionRouteCannotImportDomainService();
+testDomainServiceCannotImportLegacySelector();
+console.log("Context Engine v2 architecture smoke passed: 27 scenarios.");
