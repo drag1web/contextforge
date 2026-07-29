@@ -8,6 +8,7 @@ export {
   validateInvestigationRequest,
   validateRepositorySnapshot,
 } from "./invariant.js";
+export { assertRepositoryEntitySnapshotConsistency } from "./knowledgeGraphInvariant.js";
 export type {
   ContractValidationIssue,
   ContractValidationResult,

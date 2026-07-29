@@ -36,7 +36,9 @@
     "test:core-freeze-guard": "tsx src/selection/coreFreezeGuard.smoke.ts",
     "test:context-engine-v2:contracts": "tsx src/contextEngineV2/testing/contracts.smoke.ts",
     "test:context-engine-v2:architecture": "tsx src/contextEngineV2/testing/architecture.smoke.ts",
-    "test:context-engine-v2:snapshot": "tsx src/contextEngineV2/testing/repositorySnapshot.smoke.ts"
+    "test:context-engine-v2:snapshot": "tsx src/contextEngineV2/testing/repositorySnapshot.smoke.ts",
+    "test:context-engine-v2:extraction": "tsx src/contextEngineV2/testing/factExtraction.smoke.ts",
+    "test:context-engine-v2:graph": "tsx src/contextEngineV2/testing/knowledgeGraph.smoke.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",

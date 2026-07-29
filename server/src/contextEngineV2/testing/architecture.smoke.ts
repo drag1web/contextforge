@@ -250,6 +250,77 @@ function testAdapterCannotImportLegacySelector(): void {
   assert.equal(violations[0]?.rule, "forbidden_legacy_dependency");
 }
 
+function testTypeScriptExtractorCanImportCompilerApi(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/adapters/extraction/example.ts",
+        'import ts from "typescript";',
+      ),
+    ],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testExtractorCannotImportLegacySelector(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/adapters/extraction/leak.ts",
+        'import { selectTaskFiles } from "../../../ollama/taskFileSelector.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "forbidden_legacy_dependency");
+}
+
+function testGraphAdapterCanImportContractsAndPorts(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/adapters/knowledge/example.ts",
+        [
+          'import type { FactRecord } from "../../contracts/index.js";',
+          'import type { KnowledgeGraphStorePort } from "../../ports/index.js";',
+        ].join("\n"),
+      ),
+    ],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testDomainCannotImportGraphAdapter(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/domain/leak.ts",
+        'import { createInMemoryKnowledgeGraphStore } from "../adapters/knowledge/index.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "layer_direction");
+}
+
+function testProductionRouteCannotImportGraphAdapter(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/routes/example.ts",
+        'import { createInMemoryKnowledgeGraphStore } from "../contextEngineV2/adapters/knowledge/index.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "production_isolation");
+}
+
 testCurrentArchitecturePasses();
 testLayerDirectionViolationIsDetected();
 testProductionImportIsDetected();
@@ -266,4 +337,9 @@ testAdapterCanImportLegacyScannerContract();
 testAdapterCannotImportScannerSuffixFromEvilDirectory();
 testAdapterCannotImportScannerSuffixOutsideRepository();
 testAdapterCannotImportLegacySelector();
-console.log("Context Engine v2 architecture smoke passed: 16 scenarios.");
+testTypeScriptExtractorCanImportCompilerApi();
+testExtractorCannotImportLegacySelector();
+testGraphAdapterCanImportContractsAndPorts();
+testDomainCannotImportGraphAdapter();
+testProductionRouteCannotImportGraphAdapter();
+console.log("Context Engine v2 architecture smoke passed: 21 scenarios.");

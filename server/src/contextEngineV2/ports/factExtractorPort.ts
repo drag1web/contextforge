@@ -15,7 +15,15 @@ export interface ExtractorInput {
 }
 
 export interface ExtractionLimitation {
-  code: string;
+  extractorId: string;
+  extractorVersion: string;
+  code:
+    | "unsupported_language"
+    | "syntax_error"
+    | "partial_parse"
+    | "unsupported_construct"
+    | "malformed_manifest"
+    | "extractor_failure";
   message: string;
 }
 

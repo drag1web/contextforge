@@ -43,13 +43,14 @@ const ALLOWED_TARGET_LAYERS: Readonly<Record<string, ReadonlySet<string>>> = {
     "adapters",
   ]),
   policy: new Set(["contracts", "domain", "policy"]),
-  facade: new Set(["contracts", "application", "adapters"]),
+  facade: new Set(["contracts", "ports", "application", "adapters"]),
 };
 const LEGACY_SELECTOR_FRAGMENTS = [
   "/ollama/taskfileselector",
   "/selection/finalselectiondecision",
   "/selection/selectorpipelineorchestrator",
 ];
+const ALLOWED_ADAPTER_EXTERNAL_IMPORTS = new Set(["typescript"]);
 function normalizePath(value: string): string {
   return value.replaceAll("\\", "/");
 }
@@ -235,7 +236,7 @@ export function evaluateArchitectureImports(input: {
             importPath,
             rule: "production_isolation",
             message:
-              "Production source outside Context Engine v2 cannot import the subsystem during CE2-01.",
+              "Production source outside Context Engine v2 cannot import the subsystem during CE2-02.",
           });
         }
         continue;
@@ -258,6 +259,18 @@ export function evaluateArchitectureImports(input: {
             importPath,
             rule: "core_external_dependency",
             message: `The ${layer} layer cannot import external runtime dependencies.`,
+          });
+        } else if (
+          isAdapterLayer &&
+          !importPath.startsWith("node:") &&
+          !ALLOWED_ADAPTER_EXTERNAL_IMPORTS.has(importPath)
+        ) {
+          violations.push({
+            filePath: module.filePath,
+            importPath,
+            rule: "adapter_boundary_escape",
+            message:
+              "Adapters may import only Node.js built-ins and explicitly allowed external parser packages.",
           });
         }
         continue;

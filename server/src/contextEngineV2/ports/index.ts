@@ -2,6 +2,7 @@ export type * from "./clockPort.js";
 export type * from "./factExtractorPort.js";
 export type * from "./idGeneratorPort.js";
 export type * from "./investigationKnowledgePort.js";
+export type * from "./knowledgeGraphStorePort.js";
 export type * from "./repositoryReaderPort.js";
 export type * from "./repositorySearchPort.js";
 export type * from "./repositorySnapshotPort.js";

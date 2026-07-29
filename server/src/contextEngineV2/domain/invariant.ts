@@ -11,6 +11,7 @@ import type {
   RepositorySnapshot,
   SourceSpan,
 } from "../contracts/index.js";
+import { containsSecretLikeSemanticValue } from "./semanticLiteralSafety.js";
 
 const PURPOSES = new Set([
   "implementation_context",
@@ -53,6 +54,56 @@ const PRIOR_KNOWLEDGE_SOURCES = new Set([
   "previous_investigation",
 ]);
 
+const FACT_KINDS = new Set(["fact", "relation"]);
+const FACT_STRENGTHS = new Set(["exact", "strong", "supporting", "weak"]);
+const FACT_STATUSES = new Set(["active", "superseded", "invalidated"]);
+const FACT_EXTRACTION_METHODS = new Set([
+  "parser",
+  "compiler_api",
+  "manifest_parser",
+  "deterministic_text",
+  "repository_metadata",
+  "derived",
+]);
+const EXTRACTOR_COMPONENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/u;
+const SHA256_FINGERPRINT = /^sha256:[0-9a-f]{64}$/u;
+const CANONICAL_UTC_TIMESTAMP =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/u;
+const FACT_FIELDS = new Set([
+  "kind",
+  "id",
+  "snapshotId",
+  "subject",
+  "predicate",
+  "object",
+  "source",
+  "provenance",
+  "strength",
+  "status",
+  "attributes",
+]);
+const SOURCE_SPAN_FIELDS = new Set([
+  "kind",
+  "snapshotId",
+  "fileId",
+  "path",
+  "startLine",
+  "startColumn",
+  "endLine",
+  "endColumn",
+  "contentFingerprint",
+  "excerptHash",
+]);
+const PROVENANCE_FIELDS = new Set([
+  "extractorId",
+  "extractorVersion",
+  "method",
+  "observedAt",
+  "parentFactIds",
+  "operationId",
+]);
+const LITERAL_FIELDS = new Set(["type", "value"]);
+
 const BUDGET_FIELDS = [
   "maxOperations",
   "maxFileReads",
@@ -66,6 +117,18 @@ const BUDGET_FIELDS = [
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function hasUnknownOwnField(
+  value: object,
+  allowedFields: ReadonlySet<string>,
+  enumerableOnly: boolean,
+): boolean {
+  return Reflect.ownKeys(value).some((key) => {
+    const descriptor = Object.getOwnPropertyDescriptor(value, key);
+    if (enumerableOnly && !descriptor?.enumerable) return false;
+    return typeof key !== "string" || !allowedFields.has(key);
+  });
 }
 
 function isDenseArray(value: unknown): value is unknown[] {
@@ -163,6 +226,14 @@ export function isJsonSafeValue(value: unknown): value is JsonValue {
 
 function isNonEmptyString(value: unknown): value is string {
   return typeof value === "string" && value.trim().length > 0;
+}
+
+function isCanonicalUtcTimestamp(value: unknown): value is string {
+  if (typeof value !== "string" || !CANONICAL_UTC_TIMESTAMP.test(value)) {
+    return false;
+  }
+  const epoch = Date.parse(value);
+  return Number.isFinite(epoch) && new Date(epoch).toISOString() === value;
 }
 
 function isPositiveInteger(value: unknown): value is number {
@@ -715,11 +786,28 @@ export function validateInvestigationRequest(
 }
 
 function collectSourceSpanIssues(
-  span: SourceSpan,
+  span: SourceSpan | unknown,
   snapshot: RepositorySnapshot,
   path: string,
 ): ContractValidationIssue[] {
   const issues: ContractValidationIssue[] = [];
+  if (!isRecord(span) || span.kind !== "source_span") {
+    issue(
+      issues,
+      path,
+      "invalid_type",
+      "Source span must be a structured source_span value.",
+    );
+    return issues;
+  }
+  if (hasUnknownOwnField(span, SOURCE_SPAN_FIELDS, false)) {
+    issue(
+      issues,
+      path,
+      "invalid_value",
+      "Source span contains unsupported fields.",
+    );
+  }
   const file = snapshot.files.find((candidate) => candidate.id === span.fileId);
   if (span.snapshotId !== snapshot.id) {
     issue(
@@ -760,15 +848,19 @@ function collectSourceSpanIssues(
     span.endLine,
     span.endColumn,
   ];
+  const validCoordinates = coordinates.every(
+    (coordinate): coordinate is number =>
+      typeof coordinate === "number" &&
+      Number.isFinite(coordinate) &&
+      Number.isInteger(coordinate) &&
+      coordinate >= 1,
+  );
   if (
-    coordinates.some(
-      (coordinate) =>
-        !Number.isFinite(coordinate) ||
-        !Number.isInteger(coordinate) ||
-        coordinate < 1,
-    ) ||
-    span.endLine < span.startLine ||
-    (span.endLine === span.startLine && span.endColumn < span.startColumn)
+    !validCoordinates ||
+    (validCoordinates &&
+      (coordinates[2]! < coordinates[0]! ||
+        (coordinates[2] === coordinates[0] &&
+          coordinates[3]! < coordinates[1]!)))
   ) {
     issue(
       issues,
@@ -776,6 +868,81 @@ function collectSourceSpanIssues(
       "invalid_range",
       "Source span must use a valid one-based range.",
     );
+  }
+  if (
+    span.excerptHash !== undefined &&
+    (typeof span.excerptHash !== "string" ||
+      !SHA256_FINGERPRINT.test(span.excerptHash))
+  ) {
+    issue(
+      issues,
+      `${path}.excerptHash`,
+      "invalid_value",
+      "Source span excerpt hash must be a lowercase SHA-256 fingerprint.",
+    );
+  }
+  return issues;
+}
+
+function collectLiteralValueIssues(
+  value: unknown,
+  path: string,
+): ContractValidationIssue[] {
+  const issues: ContractValidationIssue[] = [];
+  if (!isRecord(value) || typeof value.type !== "string") {
+    issue(
+      issues,
+      path,
+      "invalid_type",
+      "Fact literal must have a supported literal type.",
+    );
+    return issues;
+  }
+  const keys = Reflect.ownKeys(value);
+  if (
+    keys.length !== 2 ||
+    keys.some(
+      (key) => typeof key !== "string" || !LITERAL_FIELDS.has(key),
+    )
+  ) {
+    issue(
+      issues,
+      path,
+      "invalid_value",
+      "Fact literal must contain only type and value.",
+    );
+  }
+  switch (value.type) {
+    case "string":
+      if (typeof value.value !== "string") {
+        issue(issues, `${path}.value`, "invalid_type", "String fact literals require a string value.");
+      }
+      break;
+    case "number":
+      if (typeof value.value !== "number" || !Number.isFinite(value.value)) {
+        issue(issues, `${path}.value`, "not_json_safe", "Numeric fact literals must be finite numbers.");
+      }
+      break;
+    case "boolean":
+      if (typeof value.value !== "boolean") {
+        issue(issues, `${path}.value`, "invalid_type", "Boolean fact literals require a boolean value.");
+      }
+      break;
+    case "null":
+      if (value.value !== null) {
+        issue(issues, `${path}.value`, "invalid_type", "Null fact literals require a null value.");
+      }
+      break;
+    case "json":
+      if (!isJsonSafeValue(value.value)) {
+        issue(issues, `${path}.value`, "not_json_safe", "JSON fact literals must be JSON-safe.");
+      }
+      break;
+    default:
+      issue(issues, `${path}.type`, "invalid_value", "Fact literal type is not supported.");
+  }
+  if (containsSecretLikeSemanticValue(value)) {
+    issue(issues, path, "invalid_value", "Secret-like semantic literals cannot be stored as facts.");
   }
   return issues;
 }
@@ -786,7 +953,44 @@ function collectFactSnapshotConsistencyIssues(
   path: string,
 ): ContractValidationIssue[] {
   const issues: ContractValidationIssue[] = [];
-  if (fact.snapshotId !== snapshot.id || fact.subject.snapshotId !== snapshot.id) {
+  const raw = fact as unknown;
+  if (!isRecord(raw)) {
+    issue(issues, path, "invalid_type", "Fact record must be an object.");
+    return issues;
+  }
+  if (hasUnknownOwnField(raw, FACT_FIELDS, true)) {
+    issue(
+      issues,
+      path,
+      "invalid_value",
+      "Fact record contains unsupported fields.",
+    );
+  }
+  if (typeof raw.kind !== "string" || !FACT_KINDS.has(raw.kind)) {
+    issue(issues, `${path}.kind`, "invalid_value", "Fact kind is not supported.");
+  }
+  if (typeof raw.id !== "string" || raw.id.trim().length === 0) {
+    issue(issues, `${path}.id`, "required", "Fact id is required.");
+  }
+  if (typeof raw.predicate !== "string" || raw.predicate.trim().length === 0) {
+    issue(issues, `${path}.predicate`, "required", "Fact predicate is required.");
+  }
+  if (
+    containsSecretLikeSemanticValue(raw.id) ||
+    containsSecretLikeSemanticValue(raw.predicate)
+  ) {
+    issue(
+      issues,
+      path,
+      "invalid_value",
+      "Secret-like fact identifiers and predicates cannot be stored.",
+    );
+  }
+  const subject = isRecord(raw.subject) ? raw.subject : null;
+  if (!subject) {
+    issue(issues, `${path}.subject`, "invalid_type", "Fact subject must be an entity reference.");
+  }
+  if (raw.snapshotId !== snapshot.id || subject?.snapshotId !== snapshot.id) {
     issue(
       issues,
       `${path}.snapshotId`,
@@ -794,7 +998,8 @@ function collectFactSnapshotConsistencyIssues(
       "Fact and subject must belong to the active snapshot.",
     );
   }
-  if (fact.kind === "relation" && fact.object.snapshotId !== snapshot.id) {
+  const object = isRecord(raw.object) ? raw.object : null;
+  if (raw.kind === "relation" && object?.snapshotId !== snapshot.id) {
     issue(
       issues,
       `${path}.object.snapshotId`,
@@ -802,21 +1007,90 @@ function collectFactSnapshotConsistencyIssues(
       "Relation object must belong to the active snapshot.",
     );
   }
-  if (fact.source.kind === "source_span") {
+  const source = isRecord(raw.source) ? raw.source : null;
+  if (!source) {
+    issue(issues, `${path}.source`, "invalid_type", "Fact source must be structured.");
+  } else if (source.kind === "source_span") {
     issues.push(
-      ...collectSourceSpanIssues(fact.source, snapshot, `${path}.source`),
+      ...collectSourceSpanIssues(source, snapshot, `${path}.source`),
     );
-  } else if (fact.source.snapshotId !== snapshot.id) {
-    issue(
-      issues,
-      `${path}.source.snapshotId`,
-      "snapshot_mismatch",
-      "Metadata source must belong to the active snapshot.",
-    );
+  } else if (source.kind === "repository_metadata") {
+    if (source.snapshotId !== snapshot.id) {
+      issue(issues, `${path}.source.snapshotId`, "snapshot_mismatch", "Metadata source must belong to the active snapshot.");
+    }
+    if (typeof source.reference !== "string" || source.reference.trim().length === 0) {
+      issue(issues, `${path}.source.reference`, "required", "Metadata source reference is required.");
+    }
+    if (typeof source.fingerprint !== "string" || source.fingerprint.trim().length === 0) {
+      issue(issues, `${path}.source.fingerprint`, "required", "Metadata source fingerprint is required.");
+    }
+    const allowedKeys = new Set(["kind", "snapshotId", "reference", "fingerprint"]);
+    if (hasUnknownOwnField(source, allowedKeys, false)) {
+      issue(issues, `${path}.source`, "invalid_value", "Metadata source contains unsupported fields.");
+    }
+    if (containsSecretLikeSemanticValue(source)) {
+      issue(issues, `${path}.source`, "invalid_value", "Secret-like metadata source values cannot be stored.");
+    }
+  } else {
+    issue(issues, `${path}.source.kind`, "invalid_value", "Fact source kind is not supported.");
+  }
+  const provenance = isRecord(raw.provenance) ? raw.provenance : null;
+  if (!provenance) {
+    issue(issues, `${path}.provenance`, "invalid_type", "Fact provenance must be structured.");
+  } else {
+    if (hasUnknownOwnField(provenance, PROVENANCE_FIELDS, false)) {
+      issue(
+        issues,
+        `${path}.provenance`,
+        "invalid_value",
+        "Fact provenance contains unsupported fields.",
+      );
+    }
+    if (typeof provenance.extractorId !== "string" || !EXTRACTOR_COMPONENT.test(provenance.extractorId)) {
+      issue(issues, `${path}.provenance.extractorId`, "invalid_value", "Extractor id must be a non-empty portable identifier.");
+    }
+    if (typeof provenance.extractorVersion !== "string" || !EXTRACTOR_COMPONENT.test(provenance.extractorVersion)) {
+      issue(issues, `${path}.provenance.extractorVersion`, "invalid_value", "Extractor version must be a non-empty portable identifier.");
+    }
+    if (typeof provenance.method !== "string" || !FACT_EXTRACTION_METHODS.has(provenance.method)) {
+      issue(issues, `${path}.provenance.method`, "invalid_value", "Fact extraction method is not supported.");
+    }
+    if (!isCanonicalUtcTimestamp(provenance.observedAt)) {
+      issue(
+        issues,
+        `${path}.provenance.observedAt`,
+        "invalid_value",
+        "Fact observation time must be a canonical UTC ISO timestamp.",
+      );
+    }
+    if (
+      provenance.operationId !== undefined &&
+      (typeof provenance.operationId !== "string" ||
+        !EXTRACTOR_COMPONENT.test(provenance.operationId))
+    ) {
+      issue(
+        issues,
+        `${path}.provenance.operationId`,
+        "invalid_value",
+        "Fact operation id must be a non-empty portable identifier when provided.",
+      );
+    }
+    if (
+      containsSecretLikeSemanticValue(provenance.extractorId) ||
+      containsSecretLikeSemanticValue(provenance.extractorVersion) ||
+      containsSecretLikeSemanticValue(provenance.operationId)
+    ) {
+      issue(
+        issues,
+        `${path}.provenance`,
+        "invalid_value",
+        "Secret-like extraction provenance identifiers cannot be stored.",
+      );
+    }
   }
   if (
-    fact.provenance.method === "derived" &&
-    (!fact.provenance.parentFactIds || fact.provenance.parentFactIds.length === 0)
+    provenance?.method === "derived" &&
+    (!isDenseArray(provenance.parentFactIds) || provenance.parentFactIds.length === 0)
   ) {
     issue(
       issues,
@@ -825,16 +1099,21 @@ function collectFactSnapshotConsistencyIssues(
       "Derived facts must reference parent facts.",
     );
   }
-  const provenanceMethod = (fact.provenance as { method?: unknown }).method;
-  if (provenanceMethod === "model_proposed") {
-    issue(
-      issues,
-      `${path}.provenance.method`,
-      "invalid_value",
-      "Model proposals cannot be stored as facts.",
-    );
+  if (provenance?.parentFactIds !== undefined) {
+    if (
+      !isDenseArray(provenance.parentFactIds) ||
+      provenance.parentFactIds.some((id) => typeof id !== "string" || id.trim().length === 0)
+    ) {
+      issue(issues, `${path}.provenance.parentFactIds`, "invalid_type", "Parent fact ids must be a dense array of non-empty strings.");
+    }
   }
-  if (!isRecord(fact.attributes) || !isJsonSafeValue(fact.attributes)) {
+  if (typeof raw.strength !== "string" || !FACT_STRENGTHS.has(raw.strength)) {
+    issue(issues, `${path}.strength`, "invalid_value", "Fact strength is not supported.");
+  }
+  if (typeof raw.status !== "string" || !FACT_STATUSES.has(raw.status)) {
+    issue(issues, `${path}.status`, "invalid_value", "Fact status is not supported.");
+  }
+  if (!isRecord(raw.attributes) || !isJsonSafeValue(raw.attributes)) {
     issue(
       issues,
       `${path}.attributes`,
@@ -842,29 +1121,11 @@ function collectFactSnapshotConsistencyIssues(
       "Fact attributes must be a JSON-safe plain object.",
     );
   }
-  if (fact.kind === "fact") {
-    if (
-      fact.object.type === "number" &&
-      !Number.isFinite(fact.object.value)
-    ) {
-      issue(
-        issues,
-        `${path}.object.value`,
-        "not_json_safe",
-        "Numeric fact literals must be finite.",
-      );
-    }
-    if (
-      fact.object.type === "json" &&
-      !isJsonSafeValue(fact.object.value)
-    ) {
-      issue(
-        issues,
-        `${path}.object.value`,
-        "not_json_safe",
-        "JSON fact literals must be JSON-safe.",
-      );
-    }
+  if (containsSecretLikeSemanticValue(raw.attributes)) {
+    issue(issues, `${path}.attributes`, "invalid_value", "Secret-like fact attributes cannot be stored.");
+  }
+  if (raw.kind === "fact") {
+    issues.push(...collectLiteralValueIssues(raw.object, `${path}.object`));
   }
   return issues;
 }
