@@ -42,6 +42,7 @@ export interface RepositoryReadFailure {
     | "range_invalid"
     | "byte_limit";
   message: string;
+  retryable?: boolean;
 }
 
 export type RepositoryReadResult =

@@ -236,7 +236,7 @@ export function evaluateArchitectureImports(input: {
             importPath,
             rule: "production_isolation",
             message:
-              "Production source outside Context Engine v2 cannot import the subsystem during CE2-03.",
+              "Production source outside Context Engine v2 cannot import the subsystem during CE2-04.",
           });
         }
         continue;

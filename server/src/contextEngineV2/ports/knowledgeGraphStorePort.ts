@@ -37,10 +37,17 @@ export interface KnowledgeTraceExport {
   facts: FactRecord[];
 }
 
+export interface KnowledgeGraphBatch {
+  snapshotId: SnapshotId;
+  entities: RepositoryEntity[];
+  facts: FactRecord[];
+}
+
 export interface KnowledgeGraphStorePort {
   beginSnapshot(snapshot: RepositorySnapshot): Promise<void>;
   putEntities(entities: RepositoryEntity[]): Promise<void>;
   putFacts(facts: FactRecord[]): Promise<void>;
+  putBatch(batch: KnowledgeGraphBatch): Promise<void>;
   getEntity(id: EntityId): Promise<RepositoryEntity | null>;
   getFacts(query: FactQuery): Promise<FactRecord[]>;
   getNeighbors(query: NeighborQuery): Promise<KnowledgeEdge[]>;

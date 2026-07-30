@@ -307,6 +307,71 @@ export function createInMemoryKnowledgeGraphStore(): KnowledgeGraphStorePort {
     }
   };
 
+  const commitBatch = (
+    snapshotId: SnapshotId,
+    rawEntities: readonly RepositoryEntity[],
+    rawFacts: readonly FactRecord[],
+  ): void => {
+    const graph = graphFor(snapshotId);
+    const candidateEntities = new Map(graph.entities);
+    const candidateFacts = new Map(graph.facts);
+
+    for (const rawEntity of rawEntities) {
+      preflightEntity(rawEntity);
+      if (rawEntity.snapshotId !== snapshotId) {
+        throw new KnowledgeGraphStoreError(
+          "snapshot_mismatch",
+          "Atomic entity batch belongs to another snapshot.",
+          safeErrorRecordId(rawEntity.id),
+        );
+      }
+      validateEntity(rawEntity, graph);
+      const entity = clone(rawEntity, rawEntity.id);
+      validateEntity(entity, graph);
+      const existing = candidateEntities.get(entity.id) ?? findEntity(entity.id);
+      if (existing && !isSameRecord(existing, entity)) {
+        throw new KnowledgeGraphStoreError(
+          "record_conflict",
+          "Entity id is already associated with different content.",
+          safeErrorRecordId(entity.id),
+        );
+      }
+      candidateEntities.set(entity.id, entity);
+    }
+
+    for (const rawFact of rawFacts) {
+      preflightFact(rawFact);
+      if (rawFact.snapshotId !== snapshotId) {
+        throw new KnowledgeGraphStoreError(
+          "snapshot_mismatch",
+          "Atomic fact batch belongs to another snapshot.",
+          safeErrorRecordId(rawFact.id),
+        );
+      }
+      validateRawFact(rawFact, graph);
+      const fact = clone(rawFact, rawFact.id);
+      validateRawFact(fact, graph);
+      const existing = candidateFacts.get(fact.id) ?? findFact(fact.id);
+      if (existing && !isSameRecord(existing, fact)) {
+        throw new KnowledgeGraphStoreError(
+          "record_conflict",
+          "Fact id is already associated with different content.",
+          safeErrorRecordId(fact.id),
+        );
+      }
+      candidateFacts.set(fact.id, fact);
+    }
+
+    for (const rawFact of rawFacts) {
+      const fact = candidateFacts.get(rawFact.id)!;
+      validateFact(fact, graph, candidateEntities, candidateFacts);
+    }
+    assertDerivedFactDag(candidateFacts);
+
+    graph.entities = candidateEntities;
+    graph.facts = candidateFacts;
+  };
+
   return {
     async beginSnapshot(snapshot) {
       const validation = validateRepositorySnapshot(snapshot);
@@ -338,68 +403,27 @@ export function createInMemoryKnowledgeGraphStore(): KnowledgeGraphStorePort {
     },
 
     async putEntities(entities) {
-      const pending: Array<{ graph: SnapshotGraph; entity: RepositoryEntity }> = [];
-      const batchEntities = new Map<EntityId, RepositoryEntity>();
-      for (const rawEntity of entities) {
-        preflightEntity(rawEntity);
-        const graph = graphFor(rawEntity.snapshotId);
-        validateEntity(rawEntity, graph);
-        const entity = clone(rawEntity, rawEntity.id);
-        validateEntity(entity, graph);
-        const existing = batchEntities.get(entity.id) ?? findEntity(entity.id);
-        if (existing && !isSameRecord(existing, entity)) {
-          throw new KnowledgeGraphStoreError(
-            "record_conflict",
-            "Entity id is already associated with different content.",
-            safeErrorRecordId(entity.id),
-          );
-        }
-        batchEntities.set(entity.id, entity);
-        pending.push({ graph, entity });
+      const bySnapshot = new Map<SnapshotId, RepositoryEntity[]>();
+      for (const entity of entities) {
+        preflightEntity(entity);
+        bySnapshot.set(entity.snapshotId, [...(bySnapshot.get(entity.snapshotId) ?? []), entity]);
       }
-      for (const { graph, entity } of pending) {
-        if (!graph.entities.has(entity.id)) graph.entities.set(entity.id, entity);
-      }
+      for (const [snapshotId, values] of bySnapshot) commitBatch(snapshotId, values, []);
     },
 
     async putFacts(facts) {
-      const batchFacts = new Map<FactId, FactRecord>();
       const factsBySnapshot = new Map<SnapshotId, FactRecord[]>();
       for (const rawFact of facts) {
         preflightFact(rawFact);
-        const graph = graphFor(rawFact.snapshotId);
-        validateRawFact(rawFact, graph);
-        const fact = clone(rawFact, rawFact.id);
-        validateRawFact(fact, graph);
-        const existing = batchFacts.get(fact.id) ?? findFact(fact.id);
-        if (existing && !isSameRecord(existing, fact)) {
-          throw new KnowledgeGraphStoreError(
-            "record_conflict",
-            "Fact id is already associated with different content.",
-            safeErrorRecordId(fact.id),
-          );
-        }
-        batchFacts.set(fact.id, fact);
-        const group = factsBySnapshot.get(fact.snapshotId) ?? [];
-        group.push(fact);
-        factsBySnapshot.set(fact.snapshotId, group);
+        const group = factsBySnapshot.get(rawFact.snapshotId) ?? [];
+        group.push(rawFact);
+        factsBySnapshot.set(rawFact.snapshotId, group);
       }
+      for (const [snapshotId, values] of factsBySnapshot) commitBatch(snapshotId, [], values);
+    },
 
-      for (const [snapshotId, snapshotFacts] of factsBySnapshot) {
-        const graph = graphFor(snapshotId);
-        const availableFacts = new Map(graph.facts);
-        for (const fact of snapshotFacts) availableFacts.set(fact.id, fact);
-        for (const fact of snapshotFacts) {
-          validateFact(fact, graph, graph.entities, availableFacts);
-        }
-        assertDerivedFactDag(availableFacts);
-      }
-      for (const [snapshotId, snapshotFacts] of factsBySnapshot) {
-        const graph = graphFor(snapshotId);
-        for (const fact of snapshotFacts) {
-          if (!graph.facts.has(fact.id)) graph.facts.set(fact.id, fact);
-        }
-      }
+    async putBatch(batch) {
+      commitBatch(batch.snapshotId, batch.entities, batch.facts);
     },
 
     async getEntity(id) {

@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -406,6 +407,204 @@ function testDomainServiceCannotImportLegacySelector(): void {
   assert.equal(violations[0]?.rule, "forbidden_legacy_dependency");
 }
 
+function testInvestigationRunnerCanImportCoreBoundaries(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/application/investigationRunner.ts",
+        [
+          'import type { FactRecord } from "../contracts/index.js";',
+          'import { createStopPolicy } from "../domain/index.js";',
+          'import type { RepositoryReaderPort } from "../ports/index.js";',
+        ].join("\n"),
+      ),
+    ],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testInterpreterCanImportContractsAndDomain(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/application/deterministicInvestigationInterpreter.ts",
+        [
+          'import type { InvestigationRequest } from "../contracts/index.js";',
+          'import { assertValidInvestigationRequest } from "../domain/index.js";',
+        ].join("\n"),
+      ),
+    ],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testInterpreterCannotImportLegacyTaskUnderstandingImplementation(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/application/deterministicInvestigationInterpreter.ts",
+        'import { understand } from "../../understanding/taskUnderstanding.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "core_boundary_escape");
+}
+
+function testPlannerCanImportContractsAndDomain(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/application/deterministicInvestigationPlanner.ts",
+        [
+          'import type { InvestigationOperation } from "../contracts/index.js";',
+          'import { evaluateEvidenceRequirement } from "../domain/index.js";',
+        ].join("\n"),
+      ),
+    ],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testPlannerCannotImportConcreteRepositoryAdapter(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/application/deterministicInvestigationPlanner.ts",
+        'import { createLegacyInventorySnapshotPort } from "../adapters/index.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "layer_direction");
+}
+
+function testDomainCannotImportInvestigationRunner(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/domain/leak.ts",
+        'import { createInvestigationRunner } from "../application/investigationRunner.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "layer_direction");
+}
+
+function testProductionRouteCannotImportInvestigationRunner(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/routes/example.ts",
+        'import { createInvestigationRunner } from "../contextEngineV2/application/investigationRunner.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "production_isolation");
+}
+
+function testProductionServiceCannotImportInterpreter(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/services/example.ts",
+        'import { createDeterministicInvestigationInterpreter } from "../contextEngineV2/application/index.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "production_isolation");
+}
+
+function testLegacySelectorCannotImportInvestigationRunner(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/ollama/taskFileSelector.ts",
+        'import { createInvestigationRunner } from "../contextEngineV2/application/investigationRunner.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "production_isolation");
+}
+
+function testRunnerCannotImportProductOrUiLayers(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/application/investigationRunner.ts",
+        [
+          'import { compose } from "../../contextComposer/example.js";',
+          'import { generate } from "../../taskPacks/example.js";',
+          'import { render } from "../../../../../apps/desktop/renderer/src/example.js";',
+        ].join("\n"),
+      ),
+    ],
+  });
+  assert.equal(violations.length, 3);
+  assert.ok(violations.every((violation) => violation.rule === "core_boundary_escape"));
+}
+
+function testTestingRepositoryAdapterCanImportPortsAndContracts(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/testing/inMemoryRepositoryInvestigationAdapter.ts",
+        [
+          'import type { RepositorySnapshot } from "../contracts/index.js";',
+          'import type { RepositoryReaderPort } from "../ports/index.js";',
+        ].join("\n"),
+      ),
+    ],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testTransactionTestAdapterCanImportGraphPortAndContracts(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/testing/atomicKnowledgeGraphFixture.ts",
+        [
+          'import type { FactRecord } from "../contracts/index.js";',
+          'import type { KnowledgeGraphStorePort } from "../ports/index.js";',
+        ].join("\n"),
+      ),
+    ],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testProductFacingFacadeRemainsNotImplemented(): void {
+  const servicePath = path.join(
+    repositoryRoot,
+    "server",
+    "src",
+    "contextEngineV2",
+    "application",
+    "contextEngineService.ts",
+  );
+  const source = fs.readFileSync(servicePath, "utf8");
+  assert.equal(source.includes("createInvestigationRunner"), false);
+  assert.equal(source.includes("investigationRunner"), false);
+  assert.equal(source.includes("ContextEngineNotImplementedError"), true);
+}
+
 testCurrentArchitecturePasses();
 testLayerDirectionViolationIsDetected();
 testProductionImportIsDetected();
@@ -433,4 +632,17 @@ testEvidenceLedgerCannotImportKnowledgeAdapter();
 testStopPolicyCannotImportRepositoryReaderPort();
 testProductionRouteCannotImportDomainService();
 testDomainServiceCannotImportLegacySelector();
-console.log("Context Engine v2 architecture smoke passed: 27 scenarios.");
+testInvestigationRunnerCanImportCoreBoundaries();
+testInterpreterCanImportContractsAndDomain();
+testInterpreterCannotImportLegacyTaskUnderstandingImplementation();
+testPlannerCanImportContractsAndDomain();
+testPlannerCannotImportConcreteRepositoryAdapter();
+testDomainCannotImportInvestigationRunner();
+testProductionRouteCannotImportInvestigationRunner();
+testProductionServiceCannotImportInterpreter();
+testLegacySelectorCannotImportInvestigationRunner();
+testRunnerCannotImportProductOrUiLayers();
+testTestingRepositoryAdapterCanImportPortsAndContracts();
+testTransactionTestAdapterCanImportGraphPortAndContracts();
+testProductFacingFacadeRemainsNotImplemented();
+console.log("Context Engine v2 architecture smoke passed: 40 scenarios.");

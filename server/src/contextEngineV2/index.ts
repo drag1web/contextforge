@@ -1,12 +1,30 @@
 export type * from "./contracts/index.js";
 export {
   ContextEngineNotImplementedError,
+  InvestigationRunnerError,
   InvalidInvestigationRequestError,
+  createDeterministicInvestigationPlanner,
+  createDeterministicInvestigationInterpreter,
   createContextEngineV2,
+  createInvestigationRunner,
+  estimateCanonicalOperationCost,
 } from "./application/index.js";
 export type {
   ContextEngineServiceDependencies,
   ContextEngineV2,
+  DeterministicInvestigationPlan,
+  DeterministicInvestigationInterpreter,
+  DeterministicInvestigationSeed,
+  DeterministicInvestigationPlanner,
+  DeterministicPlannerPolicy,
+  DeterministicPlannerState,
+  InvestigationRunner,
+  InvestigationRunnerDependencies,
+  InvestigationRunnerErrorCode,
+  InvestigationRunnerInput,
+  InvestigationRunnerResult,
+  InvestigationRunnerTraceEvent,
+  InvestigationSeedRationale,
 } from "./application/index.js";
 export {
   FactExtractionConflictError,
@@ -32,7 +50,9 @@ export type {
   FactQuery,
   KnowledgeEdge,
   KnowledgeGraphStorePort,
+  KnowledgeGraphBatch,
   KnowledgeTraceExport,
+  InvestigationCancellationPort,
   NeighborQuery,
 } from "./ports/index.js";
 export {

@@ -48,6 +48,18 @@ const TYPES = new Set([
 ]);
 const STATUSES = new Set(["confirmed", "probable", "unresolved"]);
 const AUTHORIZATION = new Set(["eligible", "review_required", "not_eligible"]);
+const DERIVED_LIMITATION_CODES = new Set([
+  "blocking_authorization_gap",
+  "blocking_contradiction",
+  "blocking_finding_gap",
+  "blocking_projection_gap",
+  "cross_snapshot_entity",
+  "cross_snapshot_evidence",
+  "current_supporting_evidence_missing",
+  "implementation_entity_missing",
+  "unknown_entity",
+  "unknown_evidence",
+]);
 const INPUT_FIELDS = [
   "finding",
   "snapshotId",
@@ -242,8 +254,11 @@ export function evaluateFindingEligibility(input: {
     blocksFinding || blocksProjection || blocksAuthorization;
   const implementationEntityMissing =
     finding.type === "implementation_target" && finding.entityIds.length === 0;
+  const intrinsicLimitations = finding.limitations.filter(
+    (limitation) => !DERIVED_LIMITATION_CODES.has(limitation),
+  );
   const limitations = sortedUnique([
-    ...finding.limitations,
+    ...intrinsicLimitations,
     ...(unknownEvidence ? ["unknown_evidence"] : []),
     ...(crossSnapshotEvidence ? ["cross_snapshot_evidence"] : []),
     ...(finding.status === "confirmed" && !currentSupport
