@@ -51,6 +51,19 @@ const LEGACY_SELECTOR_FRAGMENTS = [
   "/selection/selectorpipelineorchestrator",
 ];
 const ALLOWED_ADAPTER_EXTERNAL_IMPORTS = new Set(["typescript"]);
+const ALLOWED_LEGACY_SELECTION_TYPE_IMPORTS = new Set([
+  "AssetMode",
+  "EffectiveTaskArea",
+  "SelectedTaskFile",
+  "SelectedTaskFileUsage",
+  "TaskFileSelection",
+]);
+
+interface ArchitectureModuleReference {
+  importPath: string;
+  typeOnly: boolean;
+  importedNames: string[];
+}
 function normalizePath(value: string): string {
   return value.replaceAll("\\", "/");
 }
@@ -76,6 +89,15 @@ export function extractModuleSpecifiers(
   sourceText: string,
   filePath: string,
 ): string[] {
+  return extractModuleReferences(sourceText, filePath).map(
+    (reference) => reference.importPath,
+  );
+}
+
+function extractModuleReferences(
+  sourceText: string,
+  filePath: string,
+): ArchitectureModuleReference[] {
   const scriptKind = filePath.endsWith(".tsx") ? ts.ScriptKind.TSX : ts.ScriptKind.TS;
   const sourceFile = ts.createSourceFile(
     filePath,
@@ -84,7 +106,7 @@ export function extractModuleSpecifiers(
     true,
     scriptKind,
   );
-  const specifiers: string[] = [];
+  const references: ArchitectureModuleReference[] = [];
 
   function visit(node: ts.Node): void {
     if (
@@ -92,20 +114,58 @@ export function extractModuleSpecifiers(
       node.moduleSpecifier &&
       ts.isStringLiteralLike(node.moduleSpecifier)
     ) {
-      specifiers.push(node.moduleSpecifier.text);
+      const importClause = ts.isImportDeclaration(node)
+        ? node.importClause
+        : undefined;
+      const namedBindings = importClause?.namedBindings;
+      const namedImports = namedBindings && ts.isNamedImports(namedBindings)
+        ? namedBindings.elements
+        : [];
+      const typeOnly = ts.isExportDeclaration(node)
+        ? node.isTypeOnly
+        : Boolean(
+            importClause?.isTypeOnly ||
+            (namedImports.length > 0 &&
+              !importClause?.name &&
+              namedImports.every((element) => element.isTypeOnly)),
+          );
+      const importedNames = ts.isExportDeclaration(node)
+        ? node.exportClause && ts.isNamedExports(node.exportClause)
+          ? node.exportClause.elements.map((element) =>
+              (element.propertyName ?? element.name).text)
+          : []
+        : [
+            ...(importClause?.name ? ["default"] : []),
+            ...(namedBindings && ts.isNamespaceImport(namedBindings) ? ["*"] : []),
+            ...namedImports.map((element) =>
+              (element.propertyName ?? element.name).text),
+          ];
+      references.push({
+        importPath: node.moduleSpecifier.text,
+        typeOnly,
+        importedNames,
+      });
     } else if (
       ts.isImportTypeNode(node) &&
       ts.isLiteralTypeNode(node.argument) &&
       ts.isStringLiteralLike(node.argument.literal)
     ) {
-      specifiers.push(node.argument.literal.text);
+      references.push({
+        importPath: node.argument.literal.text,
+        typeOnly: true,
+        importedNames: [],
+      });
     } else if (
       ts.isImportEqualsDeclaration(node) &&
       ts.isExternalModuleReference(node.moduleReference) &&
       node.moduleReference.expression &&
       ts.isStringLiteralLike(node.moduleReference.expression)
     ) {
-      specifiers.push(node.moduleReference.expression.text);
+      references.push({
+        importPath: node.moduleReference.expression.text,
+        typeOnly: false,
+        importedNames: [],
+      });
     } else if (
       ts.isCallExpression(node) &&
       node.arguments.length === 1 &&
@@ -113,13 +173,17 @@ export function extractModuleSpecifiers(
       (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
         (ts.isIdentifier(node.expression) && node.expression.text === "require"))
     ) {
-      specifiers.push(node.arguments[0].text);
+      references.push({
+        importPath: node.arguments[0].text,
+        typeOnly: false,
+        importedNames: [],
+      });
     }
     ts.forEachChild(node, visit);
   }
 
   visit(sourceFile);
-  return specifiers;
+  return references;
 }
 
 function readSourceModules(directory: string): ArchitectureSourceModule[] {
@@ -186,6 +250,40 @@ function isAllowedLegacyScannerImport(
   return resolved === expected;
 }
 
+function isAllowedLegacySelectionTypeImport(
+  repositoryRoot: string,
+  v2Root: string,
+  importingFile: string,
+  reference: ArchitectureModuleReference,
+): boolean {
+  if (
+    !reference.importPath.startsWith(".") ||
+    !reference.typeOnly ||
+    reference.importedNames.length === 0 ||
+    reference.importedNames.some(
+      (name) => !ALLOWED_LEGACY_SELECTION_TYPE_IMPORTS.has(name),
+    )
+  ) {
+    return false;
+  }
+  const adapterRoot = path.join(v2Root, "adapters", "legacySelection");
+  if (!isInside(adapterRoot, importingFile)) return false;
+  const normalizeResolvedModulePath = (value: string) => {
+    const normalized = normalizePath(path.resolve(value)).replace(
+      /\.(?:js|ts|tsx)$/i,
+      "",
+    );
+    return process.platform === "win32" ? normalized.toLowerCase() : normalized;
+  };
+  const resolved = normalizeResolvedModulePath(
+    path.resolve(path.dirname(importingFile), reference.importPath),
+  );
+  const expected = normalizeResolvedModulePath(
+    path.join(repositoryRoot, "server", "src", "ollama", "taskFileSelector"),
+  );
+  return resolved === expected;
+}
+
 export function evaluateArchitectureImports(input: {
   repositoryRoot: string;
   modules: readonly ArchitectureSourceModule[];
@@ -209,11 +307,23 @@ export function evaluateArchitectureImports(input: {
       });
       continue;
     }
-    for (const importPath of extractModuleSpecifiers(
+    for (const reference of extractModuleReferences(
       module.sourceText,
       module.filePath,
     )) {
+      const importPath = reference.importPath;
       if (layer && isLegacySelectorImport(module.filePath, importPath)) {
+        if (
+          layer === "adapters" &&
+          isAllowedLegacySelectionTypeImport(
+            input.repositoryRoot,
+            v2Root,
+            module.filePath,
+            reference,
+          )
+        ) {
+          continue;
+        }
         violations.push({
           filePath: module.filePath,
           importPath,
@@ -236,7 +346,7 @@ export function evaluateArchitectureImports(input: {
             importPath,
             rule: "production_isolation",
             message:
-              "Production source outside Context Engine v2 cannot import the subsystem during CE2-04.",
+              "Production source outside Context Engine v2 cannot import the subsystem during CE2-05.",
           });
         }
         continue;

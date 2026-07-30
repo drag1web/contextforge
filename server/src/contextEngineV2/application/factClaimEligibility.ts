@@ -11,6 +11,7 @@ import type {
 import { sortedUnique, stableCompare } from "../domain/investigationDomainSupport.js";
 import { isFileBackedDefinitionFact } from "./entityRolePolicy.js";
 import { pathMatchesNegativeConstraints } from "./negativeConstraintMatcher.js";
+import { buildStrictBoundedRelationshipChains } from "./strictRelationshipChain.js";
 
 const CLAIM_PREDICATES: Readonly<Record<ClaimRecord["type"], ReadonlySet<string>>> = {
   implementation_owner: new Set([
@@ -52,7 +53,6 @@ const CLAIM_PREDICATES: Readonly<Record<ClaimRecord["type"], ReadonlySet<string>
 
 const OWNER_LINK_PREDICATES = new Set(["calls", "imports", "re_exports"]);
 const OWNER_ORIGIN_PREDICATES = new Set(["calls", "defines_endpoint", "defines_route"]);
-const MAX_OWNER_PROOF_FACTS = 16;
 const OWNER_ENTITY_KINDS = new Set([
   "class",
   "component",
@@ -90,161 +90,6 @@ function namesFor(entity: RepositoryEntity): Set<string> {
   return new Set(values);
 }
 
-function pathWithoutSupportedExtension(path: string): string {
-  return path.replace(/\.(?:[cm]?[jt]sx?|json)$/u, "");
-}
-
-function resolveRelativeModuleTarget(fact: FactRecord): string | undefined {
-  if (fact.kind !== "relation") return undefined;
-  const moduleSpecifier = fact.object.attributes?.moduleSpecifier;
-  if (
-    typeof moduleSpecifier !== "string" ||
-    (!moduleSpecifier.startsWith("./") && !moduleSpecifier.startsWith("../")) ||
-    fact.source.kind !== "source_span"
-  ) {
-    return undefined;
-  }
-  const segments = fact.source.path.split("/").slice(0, -1);
-  for (const segment of moduleSpecifier.replaceAll("\\", "/").split("/")) {
-    if (segment === "." || segment === "") continue;
-    if (segment === "..") {
-      if (segments.length === 0) return undefined;
-      segments.pop();
-    } else {
-      segments.push(segment);
-    }
-  }
-  return pathWithoutSupportedExtension(segments.join("/"));
-}
-
-function exactImportedSymbol(fact: FactRecord): string | undefined {
-  if (fact.kind !== "relation") return undefined;
-  const importedName = fact.object.attributes?.importedName;
-  if (
-    typeof importedName !== "string" ||
-    importedName === "*" ||
-    importedName === "default" ||
-    importedName === "<module>"
-  ) {
-    return undefined;
-  }
-  return importedName;
-}
-
-function factDefinesSymbol(fact: FactRecord, symbol: string): boolean {
-  if (fact.kind !== "relation") return false;
-  if (fact.predicate === "contains") {
-    return namesFor(fact.object).has(symbol);
-  }
-  if (fact.predicate === "imports" || fact.predicate === "re_exports") {
-    const attributes = fact.object.attributes ?? {};
-    return new Set(
-      [
-        fact.object.displayName,
-        fact.object.canonicalName?.split("#").at(-1),
-        attributes.localName,
-      ].filter((value): value is string => typeof value === "string"),
-    ).has(symbol);
-  }
-  return false;
-}
-
-function sourcePathMatchesModuleTarget(
-  target: string,
-  fact: FactRecord,
-): boolean {
-  if (fact.source.kind !== "source_span") return false;
-  const sourcePath = pathWithoutSupportedExtension(fact.source.path);
-  return sourcePath === target || sourcePath === `${target}/index`;
-}
-
-function factEntityIds(fact: FactRecord): Set<string> {
-  return new Set(
-    fact.kind === "relation"
-      ? [fact.subject.id, fact.object.id]
-      : [fact.subject.id],
-  );
-}
-
-function areOwnerProofFactsAdjacent(
-  left: FactRecord,
-  right: FactRecord,
-): boolean {
-  if (
-    left.kind !== "relation" ||
-    right.kind !== "relation" ||
-    left.status !== "active" ||
-    right.status !== "active" ||
-    left.snapshotId !== right.snapshotId
-  ) {
-    return false;
-  }
-  const leftIds = factEntityIds(left);
-  const rightIds = factEntityIds(right);
-  const sharedIds = [...leftIds].filter((id) => rightIds.has(id));
-  if (sharedIds.length > 0) {
-    if (
-      left.object.id === right.subject.id ||
-      left.object.id === right.object.id ||
-      (left.subject.id === right.subject.id &&
-        new Set(["defines_endpoint", "defines_route"]).has(left.predicate))
-    ) {
-      return true;
-    }
-  }
-  if (left.predicate !== "imports" && left.predicate !== "re_exports") {
-    return false;
-  }
-  const target = resolveRelativeModuleTarget(left);
-  const symbol = exactImportedSymbol(left);
-  return target !== undefined &&
-    symbol !== undefined &&
-    sourcePathMatchesModuleTarget(target, right) &&
-    factDefinesSymbol(right, symbol);
-}
-
-function buildBoundedOwnerRelationshipChains(input: {
-  origins: readonly FactRecord[];
-  facts: readonly FactRecord[];
-  candidateFact: Extract<FactRecord, { kind: "relation" }>;
-}): FactRecord[][] {
-  const orderedFacts = [...input.facts].sort((left, right) =>
-    stableCompare(left.id, right.id),
-  );
-  const chains: FactRecord[][] = [];
-  const visit = (path: FactRecord[]): void => {
-    const tail = path.at(-1)!;
-    if (tail.id === input.candidateFact.id) {
-      chains.push(path);
-      return;
-    }
-    if (path.length >= MAX_OWNER_PROOF_FACTS) return;
-    const seen = new Set(path.map((fact) => fact.id));
-    for (const next of orderedFacts) {
-      if (seen.has(next.id) || !areOwnerProofFactsAdjacent(tail, next)) continue;
-      visit([...path, next]);
-    }
-  };
-  [...input.origins]
-    .sort((left, right) => stableCompare(left.id, right.id))
-    .filter((origin) => {
-      const firstLinks = orderedFacts.filter(
-        (fact) => fact.id !== origin.id && areOwnerProofFactsAdjacent(origin, fact),
-      );
-      return firstLinks.length === 1;
-    })
-    .forEach((origin) => visit([origin]));
-  const unique = new Map<string, FactRecord[]>();
-  for (const chain of chains) {
-    unique.set(chain.map((fact) => fact.id).join("\0"), chain);
-  }
-  return [...unique.values()].sort((left, right) =>
-    stableCompare(
-      left.map((fact) => fact.id).join("\0"),
-      right.map((fact) => fact.id).join("\0"),
-    ),
-  );
-}
 
 function operationServesHypothesis(
   operation: InvestigationOperation,
@@ -407,7 +252,7 @@ export function deriveImplementationOwnerProofs(input: {
       proofs.push(explicitSymbol);
       continue;
     }
-    const chains = buildBoundedOwnerRelationshipChains({
+    const chains = buildStrictBoundedRelationshipChains({
       origins,
       facts: relationshipFacts,
       candidateFact,

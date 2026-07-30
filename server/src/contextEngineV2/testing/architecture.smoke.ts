@@ -605,6 +605,97 @@ function testProductFacingFacadeRemainsNotImplemented(): void {
   assert.equal(source.includes("ContextEngineNotImplementedError"), true);
 }
 
+function testApplicationProjectionCannotImportLegacyContracts(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/application/contextProjectionService.ts",
+        'import type { TaskFileSelection } from "../../ollama/taskFileSelector.js";',
+      ),
+      fixtureModule(
+        "server/src/contextEngineV2/application/contextProjectionService.ts",
+        'import type { ProjectInventory } from "../../scanner/projectInventoryScanner.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 2);
+  assert.ok(violations.every((violation) => violation.rule === "core_boundary_escape" || violation.rule === "forbidden_legacy_dependency"));
+}
+
+function testLegacySelectionAdapterCanImportOnlyAllowedContractTypes(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/adapters/legacySelection/projection.ts",
+        [
+          'import type { TaskFileSelection, SelectedTaskFileUsage } from "../../../ollama/taskFileSelector.js";',
+          'import type { ProjectInventoryFileKind } from "../../../scanner/projectInventoryScanner.js";',
+        ].join("\n"),
+      ),
+    ],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testLegacySelectionAdapterCannotImportSelectorHelpers(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/adapters/legacySelection/leak.ts",
+        'import { selectTaskFiles } from "../../../ollama/taskFileSelector.js";',
+      ),
+      fixtureModule(
+        "server/src/contextEngineV2/adapters/legacySelection/typeLeak.ts",
+        'import type { SelectorSelectionOptions } from "../../../ollama/taskFileSelector.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 2);
+  assert.ok(violations.every((violation) => violation.rule === "forbidden_legacy_dependency"));
+}
+
+function testProductionClientsCannotImportProjection(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/ollama/taskFileSelector.ts",
+        'import { createContextProjectionService } from "../contextEngineV2/application/index.js";',
+      ),
+      fixtureModule(
+        "server/src/routes/example.ts",
+        'import { createContextProjectionService } from "../contextEngineV2/application/index.js";',
+      ),
+      fixtureModule(
+        "server/src/contextComposer/example.ts",
+        'import { createLegacyTaskFileSelectionProjection } from "../contextEngineV2/adapters/index.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 3);
+  assert.ok(violations.every((violation) => violation.rule === "production_isolation"));
+}
+
+function testDomainCannotImportProjectionOrLegacyAdapter(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/domain/leak.ts",
+        [
+          'import { createContextProjectionService } from "../application/contextProjectionService.js";',
+          'import { createLegacyTaskFileSelectionProjection } from "../adapters/legacySelection/index.js";',
+        ].join("\n"),
+      ),
+    ],
+  });
+  assert.equal(violations.length, 2);
+  assert.ok(violations.every((violation) => violation.rule === "layer_direction"));
+}
+
 testCurrentArchitecturePasses();
 testLayerDirectionViolationIsDetected();
 testProductionImportIsDetected();
@@ -645,4 +736,9 @@ testRunnerCannotImportProductOrUiLayers();
 testTestingRepositoryAdapterCanImportPortsAndContracts();
 testTransactionTestAdapterCanImportGraphPortAndContracts();
 testProductFacingFacadeRemainsNotImplemented();
-console.log("Context Engine v2 architecture smoke passed: 40 scenarios.");
+testApplicationProjectionCannotImportLegacyContracts();
+testLegacySelectionAdapterCanImportOnlyAllowedContractTypes();
+testLegacySelectionAdapterCannotImportSelectorHelpers();
+testProductionClientsCannotImportProjection();
+testDomainCannotImportProjectionOrLegacyAdapter();
+console.log("Context Engine v2 architecture smoke passed: 45 scenarios.");

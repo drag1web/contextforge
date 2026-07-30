@@ -12,6 +12,12 @@ export { createDeterministicInvestigationInterpreter } from "./deterministicInve
 export { createInvestigationRunner } from "./investigationRunner.js";
 export { estimateCanonicalOperationCost } from "./operationCost.js";
 export { InvestigationRunnerError } from "./investigationRunnerTypes.js";
+export {
+  ContextProjectionError,
+} from "./projectionTypes.js";
+export {
+  createContextProjectionService,
+} from "./contextProjectionService.js";
 export type {
   DeterministicInvestigationPlan,
   DeterministicInvestigationInterpreter,
@@ -27,3 +33,13 @@ export type {
   InvestigationRunnerTraceEvent,
   InvestigationSeedRationale,
 } from "./investigationRunnerTypes.js";
+export type {
+  ContextProjectionErrorCode,
+  ContextProjectionInput,
+  ContextProjectionResult,
+  ContextProjectionService,
+  ProjectionDiagnostic,
+  ProjectionEntityDecision,
+  ProjectionPurpose,
+  ProjectionReasonCode,
+} from "./projectionTypes.js";
