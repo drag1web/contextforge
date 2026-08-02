@@ -23,10 +23,11 @@ export interface ArchitectureViolation {
 }
 
 const CORE_LAYERS = new Set(["contracts", "domain", "ports", "application"]);
-const TEST_ONLY_LAYERS = new Set(["testing", "validation"]);
+const TEST_ONLY_LAYERS = new Set(["testing"]);
 const KNOWN_LAYERS = new Set([
   ...CORE_LAYERS,
   ...TEST_ONLY_LAYERS,
+  "validation",
   "adapters",
   "policy",
   "facade",
@@ -44,6 +45,7 @@ const ALLOWED_TARGET_LAYERS: Readonly<Record<string, ReadonlySet<string>>> = {
   ]),
   policy: new Set(["contracts", "domain", "policy"]),
   facade: new Set(["contracts", "domain", "ports", "application", "adapters"]),
+  validation: new Set(["contracts", "domain", "ports", "application", "adapters", "validation"]),
 };
 const LEGACY_SELECTOR_FRAGMENTS = [
   "/ollama/taskfileselector",
@@ -346,7 +348,7 @@ export function evaluateArchitectureImports(input: {
             importPath,
             rule: "production_isolation",
             message:
-              "Production source outside Context Engine v2 cannot import the subsystem during CE2-05.",
+              "Production source outside Context Engine v2 cannot import the subsystem during CE2-06.",
           });
         }
         continue;
@@ -359,7 +361,8 @@ export function evaluateArchitectureImports(input: {
       const isCoreLayer =
         CORE_LAYERS.has(layer) || layer === "facade" || layer === "policy";
       const isAdapterLayer = layer === "adapters";
-      if (!isCoreLayer && !isAdapterLayer) {
+      const isValidationLayer = layer === "validation";
+      if (!isCoreLayer && !isAdapterLayer && !isValidationLayer) {
         continue;
       }
       if (!importPath.startsWith(".")) {
@@ -381,6 +384,13 @@ export function evaluateArchitectureImports(input: {
             rule: "adapter_boundary_escape",
             message:
               "Adapters may import only Node.js built-ins and explicitly allowed external parser packages.",
+          });
+        } else if (isValidationLayer && !importPath.startsWith("node:")) {
+          violations.push({
+            filePath: module.filePath,
+            importPath,
+            rule: "adapter_boundary_escape",
+            message: "Validation may import only Node.js built-ins and Context Engine v2 boundaries.",
           });
         }
         continue;
@@ -405,6 +415,15 @@ export function evaluateArchitectureImports(input: {
             rule: "adapter_boundary_escape",
             message:
               "Adapters may leave Context Engine v2 only through an explicitly allowed legacy scanner boundary.",
+          });
+          continue;
+        }
+        if (isValidationLayer) {
+          violations.push({
+            filePath: module.filePath,
+            importPath,
+            rule: "adapter_boundary_escape",
+            message: "Validation cannot import production or legacy source outside Context Engine v2.",
           });
           continue;
         }

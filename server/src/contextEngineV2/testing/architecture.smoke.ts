@@ -124,17 +124,13 @@ function testAllowedPolicyDependenciesPass(): void {
   assert.deepEqual(violations, []);
 }
 
-function testTestOnlyLayersAllowTestDependencies(): void {
+function testTestingLayerAllowsTestDependencies(): void {
   const violations = evaluateArchitectureImports({
     repositoryRoot,
     modules: [
       fixtureModule(
         "server/src/contextEngineV2/testing/example.smoke.ts",
         'import assert from "node:assert/strict";',
-      ),
-      fixtureModule(
-        "server/src/contextEngineV2/validation/example.smoke.ts",
-        'import ts from "typescript";',
       ),
     ],
   });
@@ -696,6 +692,52 @@ function testDomainCannotImportProjectionOrLegacyAdapter(): void {
   assert.ok(violations.every((violation) => violation.rule === "layer_direction"));
 }
 
+function testValidationCanImportOfflineBoundaries(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/contextEngineV2/validation/offline.ts",
+      [
+        'import type { InvestigationRunnerResult } from "../application/index.js";',
+        'import { createLegacyTaskFileSelectionProjection } from "../adapters/index.js";',
+        'import { writeFile } from "node:fs/promises";',
+      ].join("\n"),
+    )],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testCoreCannotImportValidation(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/contextEngineV2/application/leak.ts",
+      'import { runValidation } from "../validation/index.js";',
+    )],
+  });
+  assert.equal(violations.length, 1);
+  assert.equal(violations[0]?.rule, "layer_direction");
+}
+
+function testValidationCannotImportProductionOrSelector(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/validation/routeLeak.ts",
+        'import { route } from "../../routes/example.js";',
+      ),
+      fixtureModule(
+        "server/src/contextEngineV2/validation/selectorLeak.ts",
+        'import { selectTaskFiles } from "../../ollama/taskFileSelector.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 2);
+  assert.ok(violations.every((violation) =>
+    violation.rule === "adapter_boundary_escape" || violation.rule === "forbidden_legacy_dependency"));
+}
+
 testCurrentArchitecturePasses();
 testLayerDirectionViolationIsDetected();
 testProductionImportIsDetected();
@@ -703,7 +745,7 @@ testAllowedApplicationDependenciesPass();
 testPolicyCannotImportProductionRoute();
 testUnknownLayerIsRejected();
 testAllowedPolicyDependenciesPass();
-testTestOnlyLayersAllowTestDependencies();
+testTestingLayerAllowsTestDependencies();
 testDomainInlineTypeImportFromApplicationIsRejected();
 testDomainInlineTypeImportFromProductionIsRejected();
 testPolicyInlineTypeImportFromProductionIsRejected();
@@ -741,4 +783,7 @@ testLegacySelectionAdapterCanImportOnlyAllowedContractTypes();
 testLegacySelectionAdapterCannotImportSelectorHelpers();
 testProductionClientsCannotImportProjection();
 testDomainCannotImportProjectionOrLegacyAdapter();
-console.log("Context Engine v2 architecture smoke passed: 45 scenarios.");
+testValidationCanImportOfflineBoundaries();
+testCoreCannotImportValidation();
+testValidationCannotImportProductionOrSelector();
+console.log("Context Engine v2 architecture smoke passed: 48 scenarios.");

@@ -42,7 +42,8 @@
     "test:context-engine-v2:domain": "tsx src/contextEngineV2/testing/investigationDomain.smoke.ts",
     "test:context-engine-v2:runner": "tsx src/contextEngineV2/testing/investigationRunner.smoke.ts",
     "test:context-engine-v2:projection": "tsx src/contextEngineV2/testing/contextProjection.smoke.ts",
-    "test:context-engine-v2:compatibility": "tsx src/contextEngineV2/testing/legacyCompatibility.smoke.ts"
+    "test:context-engine-v2:compatibility": "tsx src/contextEngineV2/testing/legacyCompatibility.smoke.ts",
+    "test:context-engine-v2:validation": "tsx src/contextEngineV2/testing/contextEngineValidation.smoke.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
