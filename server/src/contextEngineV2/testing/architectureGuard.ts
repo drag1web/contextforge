@@ -28,6 +28,7 @@ const KNOWN_LAYERS = new Set([
   ...CORE_LAYERS,
   ...TEST_ONLY_LAYERS,
   "validation",
+  "shadow",
   "adapters",
   "policy",
   "facade",
@@ -46,6 +47,7 @@ const ALLOWED_TARGET_LAYERS: Readonly<Record<string, ReadonlySet<string>>> = {
   policy: new Set(["contracts", "domain", "policy"]),
   facade: new Set(["contracts", "domain", "ports", "application", "adapters"]),
   validation: new Set(["contracts", "domain", "ports", "application", "adapters", "validation"]),
+  shadow: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "shadow"]),
 };
 const LEGACY_SELECTOR_FRAGMENTS = [
   "/ollama/taskfileselector",
@@ -269,7 +271,8 @@ function isAllowedLegacySelectionTypeImport(
     return false;
   }
   const adapterRoot = path.join(v2Root, "adapters", "legacySelection");
-  if (!isInside(adapterRoot, importingFile)) return false;
+  const shadowRoot = path.join(v2Root, "shadow");
+  if (!isInside(adapterRoot, importingFile) && !isInside(shadowRoot, importingFile)) return false;
   const normalizeResolvedModulePath = (value: string) => {
     const normalized = normalizePath(path.resolve(value)).replace(
       /\.(?:js|ts|tsx)$/i,
@@ -284,6 +287,34 @@ function isAllowedLegacySelectionTypeImport(
     path.join(repositoryRoot, "server", "src", "ollama", "taskFileSelector"),
   );
   return resolved === expected;
+}
+
+function isAllowedShadowScannerTypeImport(
+  repositoryRoot: string,
+  v2Root: string,
+  importingFile: string,
+  reference: ArchitectureModuleReference,
+): boolean {
+  return sourceLayer(importingFile, v2Root) === "shadow" &&
+    reference.typeOnly &&
+    isAllowedLegacyScannerImport(repositoryRoot, importingFile, reference.importPath);
+}
+
+function isAllowedShadowProductIntegration(
+  repositoryRoot: string,
+  importingFile: string,
+  importPath: string,
+): boolean {
+  if (!importPath.startsWith(".")) return false;
+  const relative = normalizePath(path.relative(
+    path.join(repositoryRoot, "server", "src"),
+    importingFile,
+  ));
+  if (relative !== "routes/taskPacks.ts" && relative !== "settings/settingsService.ts") return false;
+  const resolved = normalizePath(path.resolve(path.dirname(importingFile), importPath))
+    .replace(/\.(?:js|ts|tsx)$/iu, "");
+  const expected = normalizePath(path.join(repositoryRoot, "server", "src", "contextEngineV2", "shadow", "index"));
+  return resolved.toLocaleLowerCase("en-US") === expected.toLocaleLowerCase("en-US");
 }
 
 export function evaluateArchitectureImports(input: {
@@ -343,12 +374,15 @@ export function evaluateArchitectureImports(input: {
           (resolved && isInside(v2Root, resolved)) ||
           normalizePath(importPath).toLowerCase().includes("contextenginev2")
         ) {
+          if (isAllowedShadowProductIntegration(input.repositoryRoot, module.filePath, importPath)) {
+            continue;
+          }
           violations.push({
             filePath: module.filePath,
             importPath,
             rule: "production_isolation",
             message:
-              "Production source outside Context Engine v2 cannot import the subsystem during CE2-06.",
+              "Production source outside Context Engine v2 may import only the CE2-07 public shadow facade.",
           });
         }
         continue;
@@ -362,7 +396,8 @@ export function evaluateArchitectureImports(input: {
         CORE_LAYERS.has(layer) || layer === "facade" || layer === "policy";
       const isAdapterLayer = layer === "adapters";
       const isValidationLayer = layer === "validation";
-      if (!isCoreLayer && !isAdapterLayer && !isValidationLayer) {
+      const isShadowLayer = layer === "shadow";
+      if (!isCoreLayer && !isAdapterLayer && !isValidationLayer && !isShadowLayer) {
         continue;
       }
       if (!importPath.startsWith(".")) {
@@ -385,7 +420,7 @@ export function evaluateArchitectureImports(input: {
             message:
               "Adapters may import only Node.js built-ins and explicitly allowed external parser packages.",
           });
-        } else if (isValidationLayer && !importPath.startsWith("node:")) {
+        } else if ((isValidationLayer || isShadowLayer) && !importPath.startsWith("node:")) {
           violations.push({
             filePath: module.filePath,
             importPath,
@@ -398,6 +433,14 @@ export function evaluateArchitectureImports(input: {
 
       const targetPath = path.resolve(path.dirname(module.filePath), importPath);
       if (!isInside(v2Root, targetPath)) {
+        if (isShadowLayer && isAllowedShadowScannerTypeImport(
+          input.repositoryRoot,
+          v2Root,
+          module.filePath,
+          reference,
+        )) {
+          continue;
+        }
         if (
           isAdapterLayer &&
           isAllowedLegacyScannerImport(
@@ -418,7 +461,7 @@ export function evaluateArchitectureImports(input: {
           });
           continue;
         }
-        if (isValidationLayer) {
+        if (isValidationLayer || isShadowLayer) {
           violations.push({
             filePath: module.filePath,
             importPath,

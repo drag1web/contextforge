@@ -8,6 +8,14 @@ import {
   type SelectorFallbackReasonCode,
   type SelectorAbstentionReasonCode,
 } from "../selection/selectorPipelineOrchestrator.js";
+import {
+  createContextEngineShadowHistory,
+  createContextEngineShadowDiagnosticsWriter,
+  closeContextEngineShadowExecutionTracker,
+  normalizeContextEngineMode,
+  type ContextEngineMode,
+  type ContextEngineShadowComparison,
+} from "../contextEngineV2/shadow/index.js";
 
 export type SelectorPipelineMode = "legacy" | "shadow_compare" | "shadow_primary";
 export type TaskUnderstandingInteractionMode = "automatic" | "balanced" | "confirm_all";
@@ -43,6 +51,14 @@ export async function readSelectorPipelineMode(
   );
 }
 
+export async function readContextEngineMode(
+  read: <T>(key: string, fallback: T) => Promise<T> = getSettingValue,
+): Promise<ContextEngineMode> {
+  return normalizeContextEngineMode(
+    await read("context_engine_mode", "disabled" as ContextEngineMode),
+  );
+}
+
 export interface AppSettings {
   ollamaUrl: string;
   generationMode: "template" | "ollama";
@@ -73,6 +89,7 @@ export interface AppSettings {
   composerFileLimits: ComposerFileLimits;
   contextQualityMode: ContextQualityMode;
   selectorPipelineMode: SelectorPipelineMode;
+  contextEngineMode?: ContextEngineMode;
   taskUnderstandingInteractionMode: TaskUnderstandingInteractionMode;
   sidebarShowDescriptions: boolean;
   onboardingEnabled: boolean;
@@ -134,6 +151,7 @@ const defaultSettings: AppSettings = {
   },
   contextQualityMode: "balanced",
   selectorPipelineMode: "legacy",
+  contextEngineMode: "disabled",
   taskUnderstandingInteractionMode: "balanced",
   sidebarShowDescriptions: false,
   onboardingEnabled: true,
@@ -162,6 +180,7 @@ const settingKeyMap = {
   composerFileLimits: "composer_file_limits",
   contextQualityMode: "context_quality_mode",
   selectorPipelineMode: "selector_pipeline_mode",
+  contextEngineMode: "context_engine_mode",
   taskUnderstandingInteractionMode: "task_understanding_interaction_mode",
   sidebarShowDescriptions: "sidebar_show_descriptions",
   onboardingEnabled: "onboarding_enabled",
@@ -259,6 +278,7 @@ export async function getAppSettings(): Promise<AppSettings> {
       defaultSettings.contextQualityMode,
     ),
     selectorPipelineMode: await readSelectorPipelineMode(),
+    contextEngineMode: await readContextEngineMode(),
     taskUnderstandingInteractionMode:
       await readTaskUnderstandingInteractionMode(),
     sidebarShowDescriptions: await getSettingValue(
@@ -501,6 +521,60 @@ export async function appendSelectorDiagnostics(record: SelectorPipelineDiagnost
 
 export async function clearSelectorDiagnosticsHistory() {
   await storage.setSettingValue(selectorDiagnosticsHistoryKey, []);
+}
+
+const contextEngineShadowDiagnosticsHistoryKey =
+  "context_engine_shadow_diagnostics_history";
+const contextEngineShadowHistory = createContextEngineShadowHistory({
+  read: () =>
+    getSettingValue<unknown>(contextEngineShadowDiagnosticsHistoryKey, []),
+  write: (value) =>
+    storage.setSettingValue(contextEngineShadowDiagnosticsHistoryKey, value),
+  limit: 50,
+});
+const contextEngineShadowDiagnosticsWriter = createContextEngineShadowDiagnosticsWriter({
+  persist: (record) => contextEngineShadowHistory.append(record),
+  maxQueueLength: 50,
+});
+
+export function getContextEngineShadowDiagnosticsHistory(): Promise<ContextEngineShadowComparison[]> {
+  return contextEngineShadowHistory.get();
+}
+
+export function appendContextEngineShadowDiagnostics(
+  record: ContextEngineShadowComparison,
+): Promise<ContextEngineShadowComparison[]> {
+  return contextEngineShadowHistory.append(record);
+}
+
+export function enqueueContextEngineShadowDiagnostics(
+  record: ContextEngineShadowComparison,
+) {
+  return contextEngineShadowDiagnosticsWriter.enqueue(record);
+}
+
+export function getContextEngineShadowDiagnosticsWriterState() {
+  return contextEngineShadowDiagnosticsWriter.state();
+}
+
+export function flushContextEngineShadowDiagnostics(timeoutMs = 250): Promise<boolean> {
+  return contextEngineShadowDiagnosticsWriter.flush(timeoutMs);
+}
+
+export function closeContextEngineShadowDiagnosticsWriter(timeoutMs = 250): Promise<boolean> {
+  return contextEngineShadowDiagnosticsWriter.close(timeoutMs);
+}
+
+export async function closeContextEngineShadowRuntime(timeoutMs = 250): Promise<boolean> {
+  const [executionsClosed, diagnosticsClosed] = await Promise.all([
+    closeContextEngineShadowExecutionTracker(timeoutMs),
+    closeContextEngineShadowDiagnosticsWriter(timeoutMs),
+  ]);
+  return executionsClosed && diagnosticsClosed;
+}
+
+export function clearContextEngineShadowDiagnosticsHistory(): Promise<void> {
+  return contextEngineShadowHistory.clear();
 }
 
 export async function getOpenAiCompatibleApiKey(): Promise<string | null> {

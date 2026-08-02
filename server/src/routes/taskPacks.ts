@@ -7,8 +7,17 @@ import { z } from "zod";
 import { storage } from "../storage/index.js";
 import {
   appendSelectorDiagnostics,
+  enqueueContextEngineShadowDiagnostics,
   getAppSettings,
 } from "../settings/settingsService.js";
+import {
+  prepareContextEngineShadowInput,
+  createContextEngineShadowPreparationFailure,
+  createContextEngineShadowExecutionBasis,
+  DEFAULT_CONTEXT_ENGINE_SHADOW_POLICY,
+  runContextEngineShadowSidecar,
+  runLiveContextEngineShadow,
+} from "../contextEngineV2/shadow/index.js";
 import {
   buildTaskPackRulesTemplatePrompt,
   RulesServiceError,
@@ -2313,6 +2322,71 @@ export async function createTaskPackWithPipeline(
                   effectiveTaskArea: effectiveSelectionArea,
                 })
               : automaticFileSelection,
+        );
+
+        await runContextEngineShadowSidecar(
+          settings.contextEngineMode,
+          {
+            timeoutMs: DEFAULT_CONTEXT_ENGINE_SHADOW_POLICY.timeoutMs,
+            execute: async ({ signal, deadlineMonotonicMs }) => {
+              const shadowStarted = performance.now();
+              const executionBasis = createContextEngineShadowExecutionBasis({
+                requestedTaskType: parsed.data.taskType,
+                effectiveTaskArea: effectiveSelectionArea,
+              });
+              let comparison: Awaited<ReturnType<typeof runLiveContextEngineShadow>>;
+              try {
+                const canonical = prepareContextEngineShadowInput({
+                  projectId: String(project.id),
+                  projectRoot: project.localPath,
+                  inventory,
+                  normalizedTask: selectionTask,
+                  clarificationBasis: clarifications.map((clarification) => ({
+                    questionId: createHash("sha256")
+                      .update(clarification.question, "utf8")
+                      .digest("hex")
+                      .slice(0, 32),
+                    answer: clarification.answer,
+                  })),
+                  structuredTargets: taskIntent.structuredIntent.primaryTargets,
+                  protectedScopes: taskIntent.structuredIntent.protectedScopes,
+                  executionBasis,
+                  createdAt: new Date().toISOString(),
+                });
+                comparison = await runLiveContextEngineShadow({
+                  canonical,
+                  legacySelection: initialFileSelection,
+                  legacyDurationMs: initialFileSelection.durationMs,
+                  parentAbortSignal: signal,
+                  deadlineMonotonicMs,
+                });
+              } catch {
+                comparison = createContextEngineShadowPreparationFailure({
+                  projectId: String(project.id),
+                  normalizedTask: selectionTask,
+                  inventoryBasis: inventory.files.map((file) => ({
+                    path: file.path.replace(/\\/gu, "/"),
+                    sizeBytes: file.sizeBytes,
+                  })),
+                  legacySelection: initialFileSelection,
+                  executionBasis,
+                  createdAt: new Date().toISOString(),
+                });
+              }
+              try {
+                const requestSideOverhead = Math.max(0, performance.now() - shadowStarted);
+                enqueueContextEngineShadowDiagnostics({
+                  ...comparison,
+                  timing: {
+                    ...comparison.timing,
+                    totalShadowOverheadMs: requestSideOverhead,
+                  },
+                });
+              } catch {
+                console.warn("Failed to persist Context Engine shadow diagnostics.");
+              }
+            },
+          },
         );
 
         const selectionQuality = await measurePerformanceStage(

@@ -738,6 +738,63 @@ function testValidationCannotImportProductionOrSelector(): void {
     violation.rule === "adapter_boundary_escape" || violation.rule === "forbidden_legacy_dependency"));
 }
 
+function testTaskPackRouteCanImportOnlyPublicShadowFacade(): void {
+  const allowed = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/routes/taskPacks.ts",
+      'import { runLiveContextEngineShadow } from "../contextEngineV2/shadow/index.js";',
+    )],
+  });
+  assert.deepEqual(allowed, []);
+  const forbidden = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/routes/taskPacks.ts",
+      'import { createInvestigationRunner } from "../contextEngineV2/application/index.js";',
+    )],
+  });
+  assert.equal(forbidden[0]?.rule, "production_isolation");
+}
+
+function testShadowCannotImportValidationOrProductAssembly(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/shadow/validationLeak.ts",
+        'import { runValidation } from "../validation/index.js";',
+      ),
+      fixtureModule(
+        "server/src/contextEngineV2/shadow/promptLeak.ts",
+        'import { buildPrompt } from "../../routes/taskPacks.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 2);
+  assert.ok(violations.every((violation) =>
+    violation.rule === "layer_direction" || violation.rule === "adapter_boundary_escape"));
+}
+
+function testCoreAndSelectorCannotImportShadow(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule(
+        "server/src/contextEngineV2/application/leak.ts",
+        'import { runLiveContextEngineShadow } from "../shadow/index.js";',
+      ),
+      fixtureModule(
+        "server/src/selection/selectorLeak.ts",
+        'import { runLiveContextEngineShadow } from "../contextEngineV2/shadow/index.js";',
+      ),
+    ],
+  });
+  assert.equal(violations.length, 2);
+  assert.equal(violations[0]?.rule, "layer_direction");
+  assert.equal(violations[1]?.rule, "production_isolation");
+}
+
 testCurrentArchitecturePasses();
 testLayerDirectionViolationIsDetected();
 testProductionImportIsDetected();
@@ -786,4 +843,7 @@ testDomainCannotImportProjectionOrLegacyAdapter();
 testValidationCanImportOfflineBoundaries();
 testCoreCannotImportValidation();
 testValidationCannotImportProductionOrSelector();
-console.log("Context Engine v2 architecture smoke passed: 48 scenarios.");
+testTaskPackRouteCanImportOnlyPublicShadowFacade();
+testShadowCannotImportValidationOrProductAssembly();
+testCoreAndSelectorCannotImportShadow();
+console.log("Context Engine v2 architecture smoke passed: 51 scenarios.");

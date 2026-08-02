@@ -13,6 +13,7 @@ import { templatesRouter } from "./routes/templates.js";
 import { ruleProfilesRouter } from "./routes/ruleProfiles.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { storageRouter } from "./routes/storage.js";
+import { closeContextEngineShadowRuntime } from "./settings/settingsService.js";
 
 const app = express();
 
@@ -64,9 +65,19 @@ app.use("/api/storage", storageRouter);
 async function bootstrap() {
   await ensureDatabaseSchema();
 
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     console.log(`ContextForge server started on http://localhost:${config.port}`);
   });
+  let shutdownPromise: Promise<void> | null = null;
+  const beginShutdown = (): void => {
+    if (shutdownPromise !== null) return;
+    shutdownPromise = (async () => {
+      await closeContextEngineShadowRuntime(250);
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    })().catch(() => undefined);
+  };
+  process.once("SIGINT", beginShutdown);
+  process.once("SIGTERM", beginShutdown);
 }
 
 bootstrap().catch((error) => {

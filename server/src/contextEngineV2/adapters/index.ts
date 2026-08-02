@@ -23,6 +23,8 @@ export {
   createLegacyTaskFileSelectionProjection,
   createOfflineCompatibilityComparison,
 } from "./legacySelection/index.js";
+export { createLiveShadowRepositoryAdapter } from "./liveShadow/index.js";
+export type { LiveShadowRepositoryAdapterInput } from "./liveShadow/index.js";
 export type {
   ComparisonOutcome,
   CompatibilityComparisonSummary,

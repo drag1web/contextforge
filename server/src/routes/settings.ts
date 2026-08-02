@@ -4,6 +4,8 @@ import {
   getAppSettings,
   getSelectorDiagnosticsHistory,
   clearSelectorDiagnosticsHistory,
+  getContextEngineShadowDiagnosticsHistory,
+  clearContextEngineShadowDiagnosticsHistory,
   updateAppSettings,
 } from "../settings/settingsService.js";
 
@@ -64,6 +66,7 @@ const updateSettingsSchema = z.object({
   composerFileLimits: composerFileLimitsSchema.optional(),
   contextQualityMode: z.enum(["advisory", "balanced", "strict"]).optional(),
   selectorPipelineMode: z.enum(["legacy", "shadow_compare", "shadow_primary"]).optional(),
+  contextEngineMode: z.enum(["disabled", "shadow"]).optional(),
   taskUnderstandingInteractionMode: z
     .enum(["automatic", "balanced", "confirm_all"])
     .optional(),
@@ -94,6 +97,32 @@ settingsRouter.delete("/selector-diagnostics", async (_req, res) => {
       ok: false,
       message: "Failed to clear selector diagnostics",
       error: error instanceof Error ? error.message : String(error),
+    });
+  }
+});
+
+settingsRouter.get("/context-engine-shadow-diagnostics", async (_req, res) => {
+  try {
+    res.json({
+      ok: true,
+      history: await getContextEngineShadowDiagnosticsHistory(),
+    });
+  } catch {
+    res.status(500).json({
+      ok: false,
+      message: "Failed to load Context Engine shadow diagnostics",
+    });
+  }
+});
+
+settingsRouter.delete("/context-engine-shadow-diagnostics", async (_req, res) => {
+  try {
+    await clearContextEngineShadowDiagnosticsHistory();
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({
+      ok: false,
+      message: "Failed to clear Context Engine shadow diagnostics",
     });
   }
 });
