@@ -291,6 +291,7 @@ function withSettingsDefaults(settings: AppSettings): AppSettings {
     onboardingShowEveryLaunch: settings.onboardingShowEveryLaunch ?? true,
     contextQualityMode: settings.contextQualityMode ?? "balanced",
     selectorPipelineMode: settings.selectorPipelineMode ?? "legacy",
+    contextComposerEngineMode: settings.contextComposerEngineMode ?? "legacy",
     taskUnderstandingInteractionMode:
       settings.taskUnderstandingInteractionMode ?? "balanced",
     composerFileLimits: {
@@ -1848,6 +1849,24 @@ export function SettingsPage() {
     [t]
   );
 
+  const composerEngineModeOptions = useMemo(() => [
+    {
+      value: "legacy" as const,
+      label: t("settings.composerEngineLegacy"),
+      description: t("settings.composerEngineLegacyDesc")
+    },
+    {
+      value: "shadow_compare" as const,
+      label: t("settings.composerEngineShadow"),
+      description: t("settings.composerEngineShadowDesc")
+    },
+    {
+      value: "v2_primary" as const,
+      label: t("settings.composerEngineV2"),
+      description: t("settings.composerEngineV2Desc")
+    }
+  ], [t]);
+
   const contextQualityOptions = useMemo(() => [
     {
       value: "advisory" as const,
@@ -2588,6 +2607,35 @@ export function SettingsPage() {
                     description={t("settings.composerDescription")}
                   />
 
+
+                  <SettingCard
+                    icon={<Sparkles size={18} />}
+                    label={t("settings.composerEngineLabel")}
+                    title={t("settings.composerEngineTitle")}
+                    description={t("settings.composerEngineDescription")}
+                  >
+                    <HorizontalSlidingSelector
+                      items={composerEngineModeOptions}
+                      activeIndex={composerEngineModeOptions.findIndex(
+                        (option) => option.value === (settingsDraft?.contextComposerEngineMode ?? "legacy")
+                      )}
+                      getItemKey={(option) => option.value}
+                      onSelect={(option) => updateSettingsDraft({ contextComposerEngineMode: option.value })}
+                      ariaLabel={t("settings.composerEngineTitle")}
+                      itemClassName="rounded-[0.95rem] text-left"
+                      renderItem={(option, isActive) => (
+                        <SettingsChoiceCardContent
+                          icon={Sparkles}
+                          label={option.label}
+                          caption={option.description}
+                          isActive={isActive}
+                        />
+                      )}
+                    />
+                    <p className="mt-4 text-xs leading-5 text-neutral-600">
+                      {t("settings.composerEngineRollback")}
+                    </p>
+                  </SettingCard>
 
                   <SettingCard
                     icon={<Layers3 size={18} />}

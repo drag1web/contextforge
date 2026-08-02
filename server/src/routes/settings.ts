@@ -67,6 +67,7 @@ const updateSettingsSchema = z.object({
   contextQualityMode: z.enum(["advisory", "balanced", "strict"]).optional(),
   selectorPipelineMode: z.enum(["legacy", "shadow_compare", "shadow_primary"]).optional(),
   contextEngineMode: z.enum(["disabled", "shadow"]).optional(),
+  contextComposerEngineMode: z.enum(["legacy", "shadow_compare", "v2_primary"]).optional(),
   taskUnderstandingInteractionMode: z
     .enum(["automatic", "balanced", "confirm_all"])
     .optional(),

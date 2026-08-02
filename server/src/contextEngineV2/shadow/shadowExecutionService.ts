@@ -2,20 +2,13 @@ import { createHash } from "node:crypto";
 
 import {
   createContextProjectionService,
-  createInvestigationRunner,
 } from "../application/index.js";
 import {
-  createFactExtractorRegistry,
-  createInMemoryKnowledgeGraphStore,
   createLegacyTaskFileSelectionProjection,
-  createLiveShadowRepositoryAdapter,
 } from "../adapters/index.js";
 import type { OfflineCompatibilityComparisonInput } from "../adapters/legacySelection/index.js";
-import {
-  createManifestFactExtractor,
-  createTypeScriptJavaScriptFactExtractor,
-} from "../adapters/extraction/index.js";
 import type { InvestigationId, InvestigationRequestId } from "../contracts/index.js";
+import { createLiveContextEngineExecution } from "../facade/liveContextEngineRuntime.js";
 import { assertContextEngineShadowInputEquivalent, isPreparedContextEngineShadowInput } from "./shadowInputPreparation.js";
 import { DEFAULT_CONTEXT_ENGINE_SHADOW_POLICY, normalizeContextEngineShadowExecutionBasis } from "./shadowExecutionBasis.js";
 import { settleContextEngineShadowExecution } from "./shadowDeadline.js";
@@ -91,48 +84,35 @@ export async function runLiveContextEngineShadow(input: {
   const abortController = new AbortController();
   const abortFromParent = (): void => abortController.abort();
   input.parentAbortSignal?.addEventListener("abort", abortFromParent, { once: true });
-  const cancellation = { isCancellationRequested: () => abortController.signal.aborted };
-  const repository = createLiveShadowRepositoryAdapter({
+  const executionStarted = clock.monotonicMs();
+  const execution = createLiveContextEngineExecution({
     projectRoot: input.canonical.projectRoot,
     inventory: input.canonical.inventory,
     snapshot: input.canonical.snapshot,
     negativeConstraints: input.canonical.negativeConstraints,
-    cancellation,
-    abortSignal: abortController.signal,
-  });
-  const factExtractor = createFactExtractorRegistry([
-    createTypeScriptJavaScriptFactExtractor(clock),
-    createManifestFactExtractor(clock),
-  ]);
-  const runner = createInvestigationRunner({
     clock,
-    cancellation,
-    repositoryReader: repository.reader,
-    repositorySearch: repository.search,
-    factExtractor,
-    graphStore: createInMemoryKnowledgeGraphStore(),
-  });
-  const executionStarted = clock.monotonicMs();
-  const execution = runner.run({
-    investigationId: stableId("shadow-investigation", [input.canonical.snapshot.id, input.canonical.taskFingerprint]) as InvestigationId,
-    snapshot: input.canonical.snapshot,
-    purpose: "shadow_comparison",
-    request: {
-      requestId: stableId("shadow-request", [input.canonical.projectId, input.canonical.taskFingerprint]) as InvestigationRequestId,
-      projectId: input.canonical.projectId,
-      task: { normalizedTask: input.canonical.normalizedTask },
+    abortSignal: abortController.signal,
+    runnerInput: {
+      investigationId: stableId("shadow-investigation", [input.canonical.snapshot.id, input.canonical.taskFingerprint]) as InvestigationId,
       snapshot: input.canonical.snapshot,
-      explicitTargets: input.canonical.explicitTargets,
-      negativeConstraints: input.canonical.negativeConstraints,
-      budget: policy.budget,
       purpose: "shadow_comparison",
+      request: {
+        requestId: stableId("shadow-request", [input.canonical.projectId, input.canonical.taskFingerprint]) as InvestigationRequestId,
+        projectId: input.canonical.projectId,
+        task: { normalizedTask: input.canonical.normalizedTask },
+        snapshot: input.canonical.snapshot,
+        explicitTargets: input.canonical.explicitTargets,
+        negativeConstraints: input.canonical.negativeConstraints,
+        budget: policy.budget,
+        purpose: "shadow_comparison",
+      },
+      questions: [], claims: [], hypotheses: [], entities: [], facts: [], evidence: [], findings: [],
+      contradictions: [], knowledgeGaps: [], operationCandidates: [], budget: policy.budget,
+      plannerPolicy: basis.plannerPolicy,
+      deadlineMonotonicMs: Math.ceil(
+        Math.min(deadline, executionStarted + policy.budget.maxWallTimeMs),
+      ),
     },
-    questions: [], claims: [], hypotheses: [], entities: [], facts: [], evidence: [], findings: [],
-    contradictions: [], knowledgeGaps: [], operationCandidates: [], budget: policy.budget,
-    plannerPolicy: basis.plannerPolicy,
-    deadlineMonotonicMs: Math.ceil(
-      Math.min(deadline, executionStarted + policy.budget.maxWallTimeMs),
-    ),
   });
   const settled = await settleContextEngineShadowExecution({
     execution,

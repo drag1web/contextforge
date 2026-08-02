@@ -42,6 +42,11 @@ import { applyExplicitTargetGuard } from "../selection/explicitTargetGuard.js";
 import { enforceExecutionAuthorizationAuthority } from "../selection/executionAuthorizationAuthority.js";
 import { applyTaskUnderstandingReviewAcceptance } from "../ollama/taskUnderstanding.js";
 import { groundTaskCurrentState } from "../taskPacks/taskCurrentStateGrounding.js";
+import {
+  resolveContextComposerEngine,
+  type ContextComposerEngineFileView,
+  type ContextComposerEngineView,
+} from "../contextEngineV2/composer/index.js";
 
 interface ProjectReadinessReport {
   issues: string[];
@@ -63,7 +68,13 @@ export interface ComposerFileReference {
   kind: ProjectInventoryFileKind;
   usage: SelectedTaskFileUsage;
   reason: string;
-  confidence: number;
+  confidence?: number;
+  source?: "legacy" | "v2" | "manual";
+  confidenceDisplay?: "legacy" | "unavailable";
+  engineReasonCode?: ContextComposerEngineFileView["reasonCode"];
+  contextRole?: ContextComposerEngineFileView["role"];
+  evidenceState?: "confirmed" | "review_required" | "unavailable";
+  reviewRequired?: boolean;
   canReadText: boolean;
   sizeBytes: number;
 }
@@ -107,6 +118,8 @@ export interface ContextComposerPreview {
   };
   notes: string[];
   selectorDiagnostics?: SelectorPipelineDiagnostics;
+  contextEngine?: ContextComposerEngineView;
+  qualitySource?: "legacy_quality" | "v2_grounded" | "review_required" | "blocked";
 }
 
 export interface ContextComposerFileSearchResult extends ComposerFileReference {
@@ -224,10 +237,14 @@ function getEffectiveTaskArea({
 
 function buildFileReferences({
   inventory,
-  fileSelection
+  fileSelection,
+  source = "legacy",
+  engineView,
 }: {
   inventory: ProjectInventory;
   fileSelection: TaskFileSelection;
+  source?: "legacy" | "v2";
+  engineView?: ContextComposerEngineView;
 }): ComposerFileReference[] {
   const references: ComposerFileReference[] = [];
 
@@ -244,25 +261,109 @@ function buildFileReferences({
         kind: selectedFile.kind,
         usage: selectedFile.usage,
         reason: selectedFile.reason,
-        confidence: selectedFile.confidence,
+        ...(source === "legacy" ? { confidence: selectedFile.confidence } : {}),
+        source,
+        confidenceDisplay: source === "v2" ? "unavailable" : "legacy",
         canReadText: false,
         sizeBytes: 0
       });
       continue;
     }
 
+    const engineFile = engineView?.files.find((file) => normalizePath(file.path).toLowerCase() === normalizePath(inventoryFile.path).toLowerCase());
     references.push({
       path: inventoryFile.path,
       kind: inventoryFile.kind,
       usage: selectedFile.usage,
       reason: selectedFile.reason,
-      confidence: selectedFile.confidence,
+      ...(source === "legacy" ? { confidence: selectedFile.confidence } : {}),
+      source,
+      confidenceDisplay: source === "v2" ? "unavailable" : "legacy",
+      ...(engineFile ? {
+        engineReasonCode: engineFile.reasonCode,
+        contextRole: engineFile.role,
+        evidenceState: engineFile.reviewRequired ? "review_required" as const : "confirmed" as const,
+        reviewRequired: engineFile.reviewRequired,
+      } : {}),
       canReadText: inventoryFile.canReadText,
       sizeBytes: inventoryFile.sizeBytes
     });
   }
 
   return references;
+}
+
+const COMPOSER_ENGINE_REASON_COPY: Readonly<Record<ContextComposerEngineFileView["reasonCode"], string>> = {
+  legacy_candidate: "Candidate provided by the legacy Context Composer path.",
+  confirmed_implementation_target: "Confirmed implementation target with current repository evidence.",
+  confirmed_test_target: "Confirmed test target with current repository evidence.",
+  confirmed_supporting_context: "Confirmed supporting context for the investigated target.",
+  explicit_target_eligible: "Exact explicit target resolved in the active repository snapshot.",
+  probable_review_only: "Probable repository candidate; review is required.",
+  blocking_gap: "A blocking knowledge gap prevents automatic authorization.",
+  blocking_contradiction: "Blocking evidence contradiction requires review.",
+  negative_constraint: "Excluded by a task constraint.",
+  secret_file: "Excluded by repository secret safety policy.",
+  generated_target_blocked: "Generated files cannot be editable targets.",
+  unreadable_file: "The repository source could not be safely read.",
+  missing_evidence: "Current traceable evidence is missing.",
+  evidence_entity_mismatch: "Evidence does not resolve to this repository entity.",
+  result_not_safe_to_project: "The investigation result is not safe to project.",
+  stop_reason_blocks_projection: "The investigation stop state blocks projection.",
+  v2_execution_timeout: "Context Engine v2 reached its preview deadline.",
+  v2_execution_error: "Context Engine v2 preview failed safely.",
+  v2_capacity_exhausted: "Context Engine v2 preview capacity is currently exhausted.",
+  canonical_input_mismatch: "The Composer request did not match its verified repository execution basis.",
+  repository_changed: "The repository changed after the Composer inventory was prepared.",
+  v2_integrity_violation: "Context Engine v2 output failed the Composer integrity boundary.",
+  v2_not_grounded: "Context Engine v2 did not establish a grounded editable target.",
+};
+
+function emptyComposerSelection(
+  legacy: TaskFileSelection,
+): TaskFileSelection {
+  return {
+    ...legacy,
+    selectedFiles: [],
+    source: "deterministic",
+    usedFallback: false,
+    notes: [...legacy.notes, "Context Engine v2 blocked automatic preview candidates."],
+  };
+}
+
+function buildContextEngineSuggestedFileGroups(input: {
+  inventory: ProjectInventory;
+  view: ContextComposerEngineView;
+}): ContextComposerSuggestedFileGroup[] {
+  const groups: Array<{ id: string; title: string; caption: string; roles: ContextComposerEngineFileView["role"][] }> = [
+    { id: "v2-targets", title: "Grounded targets", caption: "Repository-grounded implementation targets from Context Engine v2.", roles: ["target"] },
+    { id: "v2-tests", title: "Grounded tests", caption: "Repository-grounded test targets from Context Engine v2.", roles: ["test"] },
+    { id: "v2-supporting", title: "Supporting context", caption: "Traceable supporting context; inspect before including.", roles: ["supporting"] },
+    { id: "v2-reference", title: "Reference context", caption: "Reference-only repository context.", roles: ["reference"] },
+  ];
+  return groups.flatMap((group) => {
+    const files = input.view.files
+      .filter((file) => group.roles.includes(file.role))
+      .flatMap((file) => {
+        const inventoryFile = findInventoryFile(input.inventory, file.path);
+        if (!inventoryFile) return [];
+        return [{
+          path: inventoryFile.path,
+          kind: inventoryFile.kind,
+          usage: file.usage,
+          reason: COMPOSER_ENGINE_REASON_COPY[file.reasonCode],
+          source: "v2" as const,
+          confidenceDisplay: "unavailable" as const,
+          engineReasonCode: file.reasonCode,
+          contextRole: file.role,
+          evidenceState: file.reviewRequired ? "review_required" as const : "confirmed" as const,
+          reviewRequired: file.reviewRequired,
+          canReadText: inventoryFile.canReadText,
+          sizeBytes: inventoryFile.sizeBytes,
+        } satisfies ComposerFileReference];
+      });
+    return files.length === 0 ? [] : [{ ...group, files }];
+  });
 }
 
 async function readFileSnippet(
@@ -521,11 +622,11 @@ export async function buildContextComposerPreview(input: {
     qualityBlockingReasons: selectionQuality.blockingReasons,
   });
   const selectionConfidence = selectionQuality.signals.confidence / 100;
-  const taskIntentForPreview = {
+  const legacyTaskIntentForPreview = {
     ...taskIntent,
     confidence: selectionConfidence
   };
-  const fileSelectionForPreview: TaskFileSelection = {
+  const legacyFileSelectionForPreview: TaskFileSelection = {
     ...authoritativeFileSelection,
     diagnostics: {
       ...authoritativeFileSelection.diagnostics,
@@ -533,30 +634,106 @@ export async function buildContextComposerPreview(input: {
       finalConfidence: selectionConfidence
     } as TaskFileSelection["diagnostics"]
   };
-  const selectedFiles = buildFileReferences({
-    inventory,
-    fileSelection: fileSelectionForPreview
-  });
   const selectorDiagnostics = finalizeSelectorDiagnostics(
     pipeline.diagnostics,
     selectionQuality,
-    fileSelectionForPreview,
+    legacyFileSelectionForPreview,
   );
 
-  const suggestedFileGroups = buildSuggestedFileGroups({
-    inventory,
-    rawTask: selectionTask,
-    taskIntent,
-    effectiveTaskArea,
-    selectedFiles,
-    selectionQuality
+  const contextEngineResolution = await resolveContextComposerEngine({
+    mode: settings.contextComposerEngineMode ?? "legacy",
+    legacySelection: legacyFileSelectionForPreview,
+    executionInput: {
+      projectId: String(project.id),
+      projectRoot: project.localPath,
+      inventory,
+      normalizedTask: selectionTask,
+      structuredTargets: taskIntent.structuredIntent?.primaryTargets ?? [],
+      protectedScopes: taskIntent.structuredIntent?.protectedScopes ?? [],
+      requestedTaskType: input.taskType,
+      effectiveTaskArea,
+    },
   });
+  const fileSelectionForPreview = contextEngineResolution.selection ??
+    emptyComposerSelection(legacyFileSelectionForPreview);
+  const effectiveSelectionQuality = contextEngineResolution.useLegacySelection
+    ? selectionQuality
+    : evaluateContextSelectionQuality({
+        rawTask: selectionTask,
+        requestedTaskType: input.taskType,
+        effectiveTaskArea,
+        inventory,
+        fileSelection: fileSelectionForPreview,
+        manualSelectionConfirmed: false,
+        contextQualityMode: settings.contextQualityMode,
+      });
+  const qualitySource: NonNullable<ContextComposerPreview["qualitySource"]> =
+    contextEngineResolution.view.status === "safety_blocked"
+      ? "blocked"
+      : contextEngineResolution.view.status === "v2_review_required" && !contextEngineResolution.useLegacySelection
+        ? "review_required"
+        : contextEngineResolution.view.status === "v2_ready" && !contextEngineResolution.useLegacySelection
+          ? "v2_grounded"
+          : "legacy_quality";
+  const selectionQualityForPreview: ContextSelectionQuality =
+    contextEngineResolution.view.status === "safety_blocked"
+      ? {
+          ...effectiveSelectionQuality,
+          status: "blocked",
+          requiredManualReview: true,
+          blockingReasons: Array.from(new Set([
+            ...effectiveSelectionQuality.blockingReasons,
+            "Context Engine v2 blocked automatic candidates at the repository safety boundary.",
+          ])),
+        }
+      : contextEngineResolution.view.status === "v2_review_required" &&
+          contextEngineResolution.view.requestedMode === "v2_primary"
+        ? {
+            ...effectiveSelectionQuality,
+            status: "warning",
+            requiredManualReview: true,
+            warnings: Array.from(new Set([
+              ...effectiveSelectionQuality.warnings,
+              "Context Engine v2 requires manual review of the grounded repository context.",
+            ])),
+          }
+        : contextEngineResolution.view.status === "v2_ready" && !contextEngineResolution.useLegacySelection
+          ? {
+              ...effectiveSelectionQuality,
+              status: "ready",
+              requiredManualReview: false,
+              blockingReasons: [],
+            }
+          : effectiveSelectionQuality;
+  const taskIntentForPreview = contextEngineResolution.useLegacySelection
+    ? legacyTaskIntentForPreview
+    : taskIntent;
+  const selectedFiles = buildFileReferences({
+    inventory,
+    fileSelection: fileSelectionForPreview,
+    source: contextEngineResolution.useLegacySelection ? "legacy" : "v2",
+    engineView: contextEngineResolution.view,
+  });
+
+  const suggestedFileGroups = contextEngineResolution.useLegacySelection
+    ? buildSuggestedFileGroups({
+        inventory,
+        rawTask: selectionTask,
+        taskIntent,
+        effectiveTaskArea,
+        selectedFiles,
+        selectionQuality: selectionQualityForPreview
+      })
+    : buildContextEngineSuggestedFileGroups({
+        inventory,
+        view: contextEngineResolution.view,
+      });
 
   const clarifyingQuestions = buildClarifyingQuestions({
     rawTask: selectionTask,
     effectiveTaskArea,
     taskIntent,
-    selectionQuality,
+    selectionQuality: selectionQualityForPreview,
     suggestedFileGroups
   });
 
@@ -585,7 +762,7 @@ export async function buildContextComposerPreview(input: {
     },
     taskIntent: taskIntentForPreview,
     fileSelection: fileSelectionForPreview,
-    selectionQuality,
+    selectionQuality: selectionQualityForPreview,
     selectedFiles,
     suggestedFileGroups,
     clarifyingQuestions,
@@ -600,13 +777,15 @@ export async function buildContextComposerPreview(input: {
       inventory,
       taskIntent,
       fileSelection: fileSelectionForPreview,
-      selectionQuality,
+      selectionQuality: selectionQualityForPreview,
       selectedFiles,
       suggestedFileGroups,
       clarifyingQuestions,
       snippets
     }),
     selectorDiagnostics,
+    contextEngine: contextEngineResolution.view,
+    qualitySource,
   };
 }
 
@@ -815,6 +994,8 @@ function toComposerFileReference(file: ProjectInventoryFile, reason: string, con
     usage: getComposerUsageForFile(file),
     reason,
     confidence,
+    source: "legacy",
+    confidenceDisplay: "legacy",
     canReadText: file.canReadText,
     sizeBytes: file.sizeBytes
   };
@@ -1360,6 +1541,8 @@ export async function readContextComposerFileSnippet(input: {
     usage: getComposerUsageForFile(inventoryFile),
     reason: "Manually added from Composer file search.",
     confidence: 0.95,
+    source: "manual",
+    confidenceDisplay: "legacy",
     canReadText: inventoryFile.canReadText,
     sizeBytes: inventoryFile.sizeBytes
   };

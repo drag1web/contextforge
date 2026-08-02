@@ -795,6 +795,62 @@ function testCoreAndSelectorCannotImportShadow(): void {
   assert.equal(violations[1]?.rule, "production_isolation");
 }
 
+function testContextComposerCanImportOnlyComposerFacade(): void {
+  const allowed = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/contextComposer/contextComposerService.ts",
+      'import { resolveContextComposerEngine } from "../contextEngineV2/composer/index.js";',
+    )],
+  });
+  assert.deepEqual(allowed, []);
+  const forbidden = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/contextComposer/contextComposerService.ts",
+      'import { createInvestigationRunner } from "../contextEngineV2/application/index.js";',
+    )],
+  });
+  assert.equal(forbidden[0]?.rule, "production_isolation");
+}
+
+function testComposerCannotImportShadowValidationOrSelector(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule("server/src/contextEngineV2/composer/shadowLeak.ts", 'import { run } from "../shadow/index.js";'),
+      fixtureModule("server/src/contextEngineV2/composer/validationLeak.ts", 'import { run } from "../validation/index.js";'),
+      fixtureModule("server/src/contextEngineV2/composer/selectorLeak.ts", 'import { run } from "../../ollama/taskFileSelector.js";'),
+    ],
+  });
+  assert.equal(violations.length, 3);
+  assert.ok(violations.every((violation) => violation.rule === "layer_direction" || violation.rule === "forbidden_legacy_dependency"));
+}
+
+function testComposerCanUseNeutralLiveFacade(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/contextEngineV2/composer/runtime.ts",
+      'import { createLiveContextEngineExecution } from "../facade/liveContextEngineRuntime.js";',
+    )],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testCoreAndSelectorCannotImportComposer(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule("server/src/contextEngineV2/application/leak.ts", 'import { run } from "../composer/index.js";'),
+      fixtureModule("server/src/selection/leak.ts", 'import { run } from "../contextEngineV2/composer/index.js";'),
+    ],
+  });
+  assert.equal(violations.length, 2);
+  assert.equal(violations[0]?.rule, "layer_direction");
+  assert.equal(violations[1]?.rule, "production_isolation");
+}
+
 testCurrentArchitecturePasses();
 testLayerDirectionViolationIsDetected();
 testProductionImportIsDetected();
@@ -846,4 +902,8 @@ testValidationCannotImportProductionOrSelector();
 testTaskPackRouteCanImportOnlyPublicShadowFacade();
 testShadowCannotImportValidationOrProductAssembly();
 testCoreAndSelectorCannotImportShadow();
-console.log("Context Engine v2 architecture smoke passed: 51 scenarios.");
+testContextComposerCanImportOnlyComposerFacade();
+testComposerCannotImportShadowValidationOrSelector();
+testComposerCanUseNeutralLiveFacade();
+testCoreAndSelectorCannotImportComposer();
+console.log("Context Engine v2 architecture smoke passed: 55 scenarios.");

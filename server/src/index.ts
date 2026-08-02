@@ -13,7 +13,10 @@ import { templatesRouter } from "./routes/templates.js";
 import { ruleProfilesRouter } from "./routes/ruleProfiles.js";
 import { integrationsRouter } from "./routes/integrations.js";
 import { storageRouter } from "./routes/storage.js";
-import { closeContextEngineShadowRuntime } from "./settings/settingsService.js";
+import {
+  closeContextComposerEngineRuntime,
+  closeContextEngineShadowRuntime,
+} from "./settings/settingsService.js";
 
 const app = express();
 
@@ -73,6 +76,7 @@ async function bootstrap() {
     if (shutdownPromise !== null) return;
     shutdownPromise = (async () => {
       await closeContextEngineShadowRuntime(250);
+      await closeContextComposerEngineRuntime(250);
       await new Promise<void>((resolve) => server.close(() => resolve()));
     })().catch(() => undefined);
   };

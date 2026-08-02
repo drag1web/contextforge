@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   Bot,
@@ -33,6 +34,8 @@ import type {
   ContextComposerPreview,
   ContextComposerSnippet
 } from "../../types";
+import { ContextComposerEnginePanel } from "../contextComposer/ContextComposerEnginePanel";
+import { getContextComposerFileReasonTranslationKey } from "../contextComposer/ContextComposerUiSemantics";
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 
@@ -224,6 +227,12 @@ function FileCandidateCard({
   onCopy: () => void;
   onRemove?: () => void;
 }) {
+  const { t } = useTranslation();
+  const legacyConfidence = file.confidenceDisplay !== "unavailable" && typeof file.confidence === "number"
+    ? file.confidence
+    : null;
+  const reasonTranslationKey = getContextComposerFileReasonTranslationKey(file);
+  const displayReason = reasonTranslationKey ? t(reasonTranslationKey) : file.reason;
   return (
     <motion.article
       layout={false}
@@ -273,12 +282,18 @@ function FileCandidateCard({
       </div>
 
       <p className="line-clamp-2 text-xs leading-5 text-neutral-500">
-        {file.reason}
+        {displayReason}
       </p>
 
       <div className="mt-3 flex items-center justify-between gap-3">
         <span className="rounded-full border border-neutral-900 bg-neutral-950 px-2 py-1 text-[11px] text-neutral-500">
-          {formatPercent(file.confidence)}
+          {legacyConfidence === null
+            ? [
+                t(`settings.composerEngineSource_${file.source ?? "v2"}`),
+                file.contextRole ? t(`settings.composerEngineRole_${file.contextRole}`) : null,
+                t(`settings.composerEngineEvidenceState_${file.evidenceState ?? "unavailable"}`),
+              ].filter(Boolean).join(" · ")
+            : formatPercent(legacyConfidence)}
         </span>
 
         <div className="flex items-center gap-2">
@@ -364,6 +379,8 @@ export function ContextComposerModal({
   onClose,
   onGenerate
 }: ContextComposerModalProps) {
+  const { t } = useTranslation();
+  const showsLegacyQuality = (preview.qualitySource ?? "legacy_quality") === "legacy_quality";
   const recommendedPaths = useMemo(
     () => preview.selectedFiles.map((file) => file.path),
     [preview.selectedFiles]
@@ -696,6 +713,8 @@ export function ContextComposerModal({
             </p>
           </section>
 
+          {preview.contextEngine && <ContextComposerEnginePanel view={preview.contextEngine} compact />}
+
           <section className="grid grid-cols-2 gap-3">
             <StatCard
               icon={<MousePointer2 size={15} />}
@@ -720,9 +739,11 @@ export function ContextComposerModal({
 
             <StatCard
               icon={<Gauge size={15} />}
-              label="Confidence"
-              value={formatPercent(preview.taskIntent.confidence)}
-              caption={preview.taskIntent.source}
+              label={showsLegacyQuality ? "Confidence" : t("settings.composerEngineEvidenceQuality")}
+              value={showsLegacyQuality
+                ? formatPercent(preview.taskIntent.confidence)
+                : t(`settings.composerEngineQuality_${preview.qualitySource ?? "v2_grounded"}`)}
+              caption={showsLegacyQuality ? preview.taskIntent.source : t("settings.composerEngineConfidenceUnavailable")}
             />
           </section>
         </div>

@@ -16,6 +16,11 @@ import {
   type ContextEngineMode,
   type ContextEngineShadowComparison,
 } from "../contextEngineV2/shadow/index.js";
+import {
+  closeContextComposerExecutionTracker,
+  normalizeContextComposerEngineMode,
+  type ContextComposerEngineMode,
+} from "../contextEngineV2/composer/index.js";
 
 export type SelectorPipelineMode = "legacy" | "shadow_compare" | "shadow_primary";
 export type TaskUnderstandingInteractionMode = "automatic" | "balanced" | "confirm_all";
@@ -59,6 +64,14 @@ export async function readContextEngineMode(
   );
 }
 
+export async function readContextComposerEngineMode(
+  read: <T>(key: string, fallback: T) => Promise<T> = getSettingValue,
+): Promise<ContextComposerEngineMode> {
+  return normalizeContextComposerEngineMode(
+    await read("context_composer_engine_mode", "legacy" as ContextComposerEngineMode),
+  );
+}
+
 export interface AppSettings {
   ollamaUrl: string;
   generationMode: "template" | "ollama";
@@ -90,6 +103,7 @@ export interface AppSettings {
   contextQualityMode: ContextQualityMode;
   selectorPipelineMode: SelectorPipelineMode;
   contextEngineMode?: ContextEngineMode;
+  contextComposerEngineMode?: ContextComposerEngineMode;
   taskUnderstandingInteractionMode: TaskUnderstandingInteractionMode;
   sidebarShowDescriptions: boolean;
   onboardingEnabled: boolean;
@@ -152,6 +166,7 @@ const defaultSettings: AppSettings = {
   contextQualityMode: "balanced",
   selectorPipelineMode: "legacy",
   contextEngineMode: "disabled",
+  contextComposerEngineMode: "legacy",
   taskUnderstandingInteractionMode: "balanced",
   sidebarShowDescriptions: false,
   onboardingEnabled: true,
@@ -181,6 +196,7 @@ const settingKeyMap = {
   contextQualityMode: "context_quality_mode",
   selectorPipelineMode: "selector_pipeline_mode",
   contextEngineMode: "context_engine_mode",
+  contextComposerEngineMode: "context_composer_engine_mode",
   taskUnderstandingInteractionMode: "task_understanding_interaction_mode",
   sidebarShowDescriptions: "sidebar_show_descriptions",
   onboardingEnabled: "onboarding_enabled",
@@ -279,6 +295,7 @@ export async function getAppSettings(): Promise<AppSettings> {
     ),
     selectorPipelineMode: await readSelectorPipelineMode(),
     contextEngineMode: await readContextEngineMode(),
+    contextComposerEngineMode: await readContextComposerEngineMode(),
     taskUnderstandingInteractionMode:
       await readTaskUnderstandingInteractionMode(),
     sidebarShowDescriptions: await getSettingValue(
@@ -571,6 +588,10 @@ export async function closeContextEngineShadowRuntime(timeoutMs = 250): Promise<
     closeContextEngineShadowDiagnosticsWriter(timeoutMs),
   ]);
   return executionsClosed && diagnosticsClosed;
+}
+
+export function closeContextComposerEngineRuntime(timeoutMs = 250): Promise<boolean> {
+  return closeContextComposerExecutionTracker(timeoutMs);
 }
 
 export function clearContextEngineShadowDiagnosticsHistory(): Promise<void> {

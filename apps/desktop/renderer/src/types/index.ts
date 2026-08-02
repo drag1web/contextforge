@@ -945,6 +945,7 @@ export interface AppSettings {
   };
   contextQualityMode: "advisory" | "balanced" | "strict";
   selectorPipelineMode: SelectorPipelineMode;
+  contextComposerEngineMode: "legacy" | "shadow_compare" | "v2_primary";
   taskUnderstandingInteractionMode: "automatic" | "balanced" | "confirm_all";
   sidebarShowDescriptions: boolean;
   onboardingEnabled: boolean;
@@ -998,7 +999,13 @@ export interface ContextComposerFileReference {
   kind: string;
   usage: string;
   reason: string;
-  confidence: number;
+  confidence?: number;
+  source?: "legacy" | "v2" | "manual";
+  confidenceDisplay?: "legacy" | "unavailable";
+  engineReasonCode?: string;
+  contextRole?: "target" | "test" | "supporting" | "reference";
+  evidenceState?: "confirmed" | "review_required" | "unavailable";
+  reviewRequired?: boolean;
   canReadText: boolean;
   sizeBytes: number;
 }
@@ -1187,6 +1194,53 @@ export interface ContextComposerPreview {
   };
   notes: string[];
   selectorDiagnostics?: SelectorPipelineDiagnostics;
+  contextEngine?: ContextComposerEngineView;
+  qualitySource?: "legacy_quality" | "v2_grounded" | "review_required" | "blocked";
+}
+
+export interface ContextComposerEvidenceView {
+  evidenceId: string;
+  role: "supports" | "contradicts" | "context_only";
+  strength: "lead" | "corroborating" | "substantial" | "conclusive";
+  predicate?: string;
+  relationKind?: "relation" | "fact";
+  path?: string;
+  startLine?: number;
+  endLine?: number;
+  reasonCode: string;
+}
+
+export interface ContextComposerEngineFileView {
+  path: string;
+  role: "target" | "test" | "supporting" | "reference";
+  usage: "inspect-and-edit" | "inspect-only" | "asset-reference" | "config-reference";
+  source: "v2" | "legacy" | "manual";
+  reviewRequired: boolean;
+  reasonCode: string;
+  reasonCodes: string[];
+  findingIds: string[];
+  evidenceIds: string[];
+  evidence: ContextComposerEvidenceView[];
+}
+
+export interface ContextComposerEngineView {
+  schemaVersion: 1;
+  requestedMode: "legacy" | "shadow_compare" | "v2_primary";
+  effectiveSource: "legacy" | "v2";
+  status: "legacy" | "v2_ready" | "v2_review_required" | "legacy_fallback" | "safety_blocked";
+  stopReason: string | null;
+  fallbackReason: string | null;
+  files: ContextComposerEngineFileView[];
+  unresolvedQuestions: Array<{ category: string; status: string }>;
+  limitations: string[];
+  comparison: {
+    outcome: string;
+    exactEditablePaths: string[];
+    legacyOnlyEditablePaths: string[];
+    v2OnlyEditablePaths: string[];
+    safeBlockAgreement: boolean;
+    explicitTargetDisagreements: string[];
+  } | null;
 }
 
 export interface ContextComposerFileSearchResult extends ContextComposerFileReference {

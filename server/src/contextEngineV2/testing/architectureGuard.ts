@@ -29,6 +29,7 @@ const KNOWN_LAYERS = new Set([
   ...TEST_ONLY_LAYERS,
   "validation",
   "shadow",
+  "composer",
   "adapters",
   "policy",
   "facade",
@@ -48,6 +49,7 @@ const ALLOWED_TARGET_LAYERS: Readonly<Record<string, ReadonlySet<string>>> = {
   facade: new Set(["contracts", "domain", "ports", "application", "adapters"]),
   validation: new Set(["contracts", "domain", "ports", "application", "adapters", "validation"]),
   shadow: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "shadow"]),
+  composer: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "composer"]),
 };
 const LEGACY_SELECTOR_FRAGMENTS = [
   "/ollama/taskfileselector",
@@ -300,6 +302,17 @@ function isAllowedShadowScannerTypeImport(
     isAllowedLegacyScannerImport(repositoryRoot, importingFile, reference.importPath);
 }
 
+function isAllowedComposerScannerTypeImport(
+  repositoryRoot: string,
+  v2Root: string,
+  importingFile: string,
+  reference: ArchitectureModuleReference,
+): boolean {
+  return sourceLayer(importingFile, v2Root) === "composer" &&
+    reference.typeOnly &&
+    isAllowedLegacyScannerImport(repositoryRoot, importingFile, reference.importPath);
+}
+
 function isAllowedShadowProductIntegration(
   repositoryRoot: string,
   importingFile: string,
@@ -314,6 +327,22 @@ function isAllowedShadowProductIntegration(
   const resolved = normalizePath(path.resolve(path.dirname(importingFile), importPath))
     .replace(/\.(?:js|ts|tsx)$/iu, "");
   const expected = normalizePath(path.join(repositoryRoot, "server", "src", "contextEngineV2", "shadow", "index"));
+  return resolved.toLocaleLowerCase("en-US") === expected.toLocaleLowerCase("en-US");
+}
+
+function isAllowedComposerProductIntegration(
+  repositoryRoot: string,
+  importingFile: string,
+  importPath: string,
+): boolean {
+  if (!importPath.startsWith(".")) return false;
+  const relative = normalizePath(path.relative(
+    path.join(repositoryRoot, "server", "src"), importingFile,
+  ));
+  if (relative !== "contextComposer/contextComposerService.ts" && relative !== "settings/settingsService.ts") return false;
+  const resolved = normalizePath(path.resolve(path.dirname(importingFile), importPath))
+    .replace(/\.(?:js|ts|tsx)$/iu, "");
+  const expected = normalizePath(path.join(repositoryRoot, "server", "src", "contextEngineV2", "composer", "index"));
   return resolved.toLocaleLowerCase("en-US") === expected.toLocaleLowerCase("en-US");
 }
 
@@ -374,7 +403,8 @@ export function evaluateArchitectureImports(input: {
           (resolved && isInside(v2Root, resolved)) ||
           normalizePath(importPath).toLowerCase().includes("contextenginev2")
         ) {
-          if (isAllowedShadowProductIntegration(input.repositoryRoot, module.filePath, importPath)) {
+          if (isAllowedShadowProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
+              isAllowedComposerProductIntegration(input.repositoryRoot, module.filePath, importPath)) {
             continue;
           }
           violations.push({
@@ -397,7 +427,8 @@ export function evaluateArchitectureImports(input: {
       const isAdapterLayer = layer === "adapters";
       const isValidationLayer = layer === "validation";
       const isShadowLayer = layer === "shadow";
-      if (!isCoreLayer && !isAdapterLayer && !isValidationLayer && !isShadowLayer) {
+      const isComposerLayer = layer === "composer";
+      if (!isCoreLayer && !isAdapterLayer && !isValidationLayer && !isShadowLayer && !isComposerLayer) {
         continue;
       }
       if (!importPath.startsWith(".")) {
@@ -420,7 +451,7 @@ export function evaluateArchitectureImports(input: {
             message:
               "Adapters may import only Node.js built-ins and explicitly allowed external parser packages.",
           });
-        } else if ((isValidationLayer || isShadowLayer) && !importPath.startsWith("node:")) {
+        } else if ((isValidationLayer || isShadowLayer || isComposerLayer) && !importPath.startsWith("node:")) {
           violations.push({
             filePath: module.filePath,
             importPath,
@@ -434,6 +465,14 @@ export function evaluateArchitectureImports(input: {
       const targetPath = path.resolve(path.dirname(module.filePath), importPath);
       if (!isInside(v2Root, targetPath)) {
         if (isShadowLayer && isAllowedShadowScannerTypeImport(
+          input.repositoryRoot,
+          v2Root,
+          module.filePath,
+          reference,
+        )) {
+          continue;
+        }
+        if (isComposerLayer && isAllowedComposerScannerTypeImport(
           input.repositoryRoot,
           v2Root,
           module.filePath,
@@ -461,7 +500,7 @@ export function evaluateArchitectureImports(input: {
           });
           continue;
         }
-        if (isValidationLayer || isShadowLayer) {
+        if (isValidationLayer || isShadowLayer || isComposerLayer) {
           violations.push({
             filePath: module.filePath,
             importPath,

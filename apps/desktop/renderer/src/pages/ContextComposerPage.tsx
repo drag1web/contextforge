@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -34,6 +35,11 @@ import type {
   ContextComposerPreview,
   ContextComposerSnippet
 } from "../types";
+import { ContextComposerEnginePanel } from "../components/contextComposer/ContextComposerEnginePanel";
+import {
+  getContextComposerFileReasonTranslationKey,
+  usesLegacySelectorSemantics,
+} from "../components/contextComposer/ContextComposerUiSemantics";
 import { Button } from "../components/ui/Button";
 
 interface ContextComposerPageProps {
@@ -294,6 +300,12 @@ function FileCandidateCard({
   onCopy: () => void;
   onRemove?: () => void;
 }) {
+  const { t } = useTranslation();
+  const legacyConfidence = file.confidenceDisplay !== "unavailable" && typeof file.confidence === "number"
+    ? file.confidence
+    : null;
+  const reasonTranslationKey = getContextComposerFileReasonTranslationKey(file);
+  const displayReason = reasonTranslationKey ? t(reasonTranslationKey) : file.reason;
   return (
     <motion.article
       layout={false}
@@ -343,12 +355,18 @@ function FileCandidateCard({
       </div>
 
       <p className="line-clamp-2 text-xs leading-5 text-neutral-500">
-        {file.reason}
+        {displayReason}
       </p>
 
       <div className="mt-3 flex items-center justify-between gap-3">
         <span className="rounded-full border border-neutral-900 bg-neutral-950 px-2 py-1 text-[11px] text-neutral-500">
-          {formatPercent(file.confidence)}
+          {legacyConfidence === null
+            ? [
+                t(`settings.composerEngineSource_${file.source ?? "v2"}`),
+                file.contextRole ? t(`settings.composerEngineRole_${file.contextRole}`) : null,
+                t(`settings.composerEngineEvidenceState_${file.evidenceState ?? "unavailable"}`),
+              ].filter(Boolean).join(" · ")
+            : formatPercent(legacyConfidence)}
         </span>
 
         <div className="flex items-center gap-2">
@@ -434,12 +452,14 @@ export function ContextComposerPage({
   onClose,
   onGenerate
 }: ContextComposerPageProps) {
+  const { t } = useTranslation();
+  const showsLegacyQuality = (preview.qualitySource ?? "legacy_quality") === "legacy_quality";
   const recommendedPaths = useMemo(
     () => preview.selectedFiles.map((file) => file.path),
     [preview.selectedFiles]
   );
 
-  const selectorAbstention = preview.selectorDiagnostics?.actual.outcome === "abstained"
+  const selectorAbstention = usesLegacySelectorSemantics(preview) && preview.selectorDiagnostics?.actual.outcome === "abstained"
     ? preview.selectorDiagnostics.actual.abstention
     : null;
   const isAbstentionReview = Boolean(selectorAbstention);
@@ -872,6 +892,8 @@ export function ContextComposerPage({
         </div>
       </div>
 
+      {preview.contextEngine && <ContextComposerEnginePanel view={preview.contextEngine} />}
+
       {preview.selectionQuality.status !== "ready" && (
         <div
           className={[
@@ -888,8 +910,12 @@ export function ContextComposerPage({
             <div className="min-w-0">
               <p className="text-sm font-semibold text-white">
                 {selectorAbstention
-                  ? `Target not confirmed · ${preview.selectionQuality.score}/100`
-                  : `Context review: ${getSelectionStatusLabel(preview.selectionQuality.status)} · ${preview.selectionQuality.score}/100`}
+                  ? showsLegacyQuality
+                    ? `Target not confirmed · ${preview.selectionQuality.score}/100`
+                    : t(`settings.composerEngineQuality_${preview.qualitySource ?? "review_required"}`)
+                  : showsLegacyQuality
+                    ? `Context review: ${getSelectionStatusLabel(preview.selectionQuality.status)} · ${preview.selectionQuality.score}/100`
+                    : t(`settings.composerEngineQuality_${preview.qualitySource ?? "review_required"}`)}
               </p>
               <p className="mt-1 text-xs leading-5 text-neutral-400">
                 {selectorAbstention
@@ -914,7 +940,7 @@ export function ContextComposerPage({
                 ))}
               </div>
 
-              {preview.selectionQuality.signals && (
+              {showsLegacyQuality && preview.selectionQuality.signals && (
                 <div className="mt-3 grid gap-2 sm:grid-cols-4">
                   {[
                     ["Target", preview.selectionQuality.signals.targetConfidence],
@@ -996,15 +1022,19 @@ export function ContextComposerPage({
 
         <StatCard
           icon={<Gauge size={15} />}
-          label="Confidence"
-          value={formatPercent(preview.taskIntent.confidence)}
-          caption={preview.taskIntent.source}
+          label={showsLegacyQuality ? "Confidence" : t("settings.composerEngineEvidenceQuality")}
+          value={showsLegacyQuality
+            ? formatPercent(preview.taskIntent.confidence)
+            : t(`settings.composerEngineQuality_${preview.qualitySource ?? "v2_grounded"}`)}
+          caption={showsLegacyQuality ? preview.taskIntent.source : t("settings.composerEngineConfidenceUnavailable")}
         />
 
         <StatCard
           icon={<ShieldCheck size={15} />}
           label="Quality"
-          value={`${preview.selectionQuality.score}/100`}
+          value={showsLegacyQuality
+            ? `${preview.selectionQuality.score}/100`
+            : t(`settings.composerEngineQuality_${preview.qualitySource ?? "v2_grounded"}`)}
           caption={getSelectionStatusLabel(preview.selectionQuality.status)}
         />
       </div>
