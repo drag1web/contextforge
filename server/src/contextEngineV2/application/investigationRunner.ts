@@ -1720,8 +1720,13 @@ async function executeOperation(
 export function createInvestigationRunner(
   dependencies: InvestigationRunnerDependencies,
 ): InvestigationRunner {
-  const planner: DeterministicInvestigationPlanner =
+  const deterministicPlanner: DeterministicInvestigationPlanner =
     dependencies.planner ?? createDeterministicInvestigationPlanner();
+  const planner = dependencies.actionPlanner ?? {
+    async proposeNextOperations(state: Parameters<DeterministicInvestigationPlanner["proposeNextOperations"]>[0]) {
+      return deterministicPlanner.proposeNextOperations(state);
+    },
+  };
   return {
     async run(rawInput) {
       let input: InvestigationRunnerInput;
@@ -2038,7 +2043,10 @@ export function createInvestigationRunner(
         }
         round += 1;
         refreshGroundedOperationCandidates(input, state);
-        const plan = planner.proposeNextOperations(plannerStateFor(input, state));
+        const plan = await planner.proposeNextOperations(
+          plannerStateFor(input, state),
+          dependencies.plannerSignal,
+        );
         state.operationCandidates = mergeCompatibleOperations(
           input.snapshot.id,
           [...state.operationCandidates, ...plan.operations],

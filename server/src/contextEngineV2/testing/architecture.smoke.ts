@@ -903,6 +903,96 @@ function testCoreAndSelectorCannotImportCanary(): void {
   assert.equal(violations[1]?.rule, "production_isolation");
 }
 
+function testPlannerCompositionCanUseApplicationPortAndAdapter(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/contextEngineV2/planner/assembly.ts",
+      [
+        'import type { InvestigationPlanner } from "../application/index.js";',
+        'import type { ModelPlannerPort } from "../ports/index.js";',
+        'import { createConfiguredAiModelPlannerAdapter } from "../adapters/modelPlanner/index.js";',
+      ].join("\n"),
+    )],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testModelAdapterMayUseOnlyApprovedProviderBoundary(): void {
+  const allowed = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/contextEngineV2/adapters/modelPlanner/provider.ts",
+      'import { generateWithConfiguredAi } from "../../../ai/providerService.js";',
+    )],
+  });
+  assert.deepEqual(allowed, []);
+  const forbidden = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/contextEngineV2/adapters/modelPlanner/routeLeak.ts",
+      'import { route } from "../../../routes/taskPacks.js";',
+    )],
+  });
+  assert.equal(forbidden[0]?.rule, "adapter_boundary_escape");
+}
+
+function testDomainAndProjectionCannotImportModelPlanner(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule("server/src/contextEngineV2/domain/leak.ts", 'import { planner } from "../planner/index.js";'),
+      fixtureModule("server/src/contextEngineV2/application/contextProjectionService.ts", 'import { planner } from "../planner/index.js";'),
+    ],
+  });
+  assert.equal(violations.length, 2);
+  assert.ok(violations.every((violation) => violation.rule === "layer_direction"));
+}
+
+function testCanaryCannotImportModelPlanner(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/contextEngineV2/canary/leak.ts",
+      'import { createModelAssistedInvestigationPlanner } from "../planner/index.js";',
+    )],
+  });
+  assert.equal(violations[0]?.rule, "layer_direction");
+}
+
+function testTaskPackRouteCannotImportModelPlanner(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/routes/taskPacks.ts",
+      'import { createModelAssistedInvestigationPlanner } from "../contextEngineV2/planner/index.js";',
+    )],
+  });
+  assert.equal(violations[0]?.rule, "production_isolation");
+}
+
+function testShadowAndComposerMayUsePlannerModeOnly(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule("server/src/contextEngineV2/shadow/mode.ts", 'import { plannerModeForIdentifier } from "../planner/plannerMode.js";'),
+      fixtureModule("server/src/contextEngineV2/composer/mode.ts", 'import { plannerModeForIdentifier } from "../planner/plannerMode.js";'),
+    ],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testValidationCannotImportOnlineProvider(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/contextEngineV2/validation/onlineLeak.ts",
+      'import { generateWithConfiguredAi } from "../../ai/providerService.js";',
+    )],
+  });
+  assert.equal(violations[0]?.rule, "adapter_boundary_escape");
+}
+
 testCurrentArchitecturePasses();
 testLayerDirectionViolationIsDetected();
 testProductionImportIsDetected();
@@ -962,4 +1052,11 @@ testTaskPackRouteCanImportOnlyPublicCanaryFacade();
 testCanaryCanReuseNeutralRuntimeAndShadowCanonicalBoundary();
 testCanaryCannotImportProductComposerOrValidation();
 testCoreAndSelectorCannotImportCanary();
-console.log("Context Engine v2 architecture smoke passed: 59 scenarios.");
+testPlannerCompositionCanUseApplicationPortAndAdapter();
+testModelAdapterMayUseOnlyApprovedProviderBoundary();
+testDomainAndProjectionCannotImportModelPlanner();
+testCanaryCannotImportModelPlanner();
+testTaskPackRouteCannotImportModelPlanner();
+testShadowAndComposerMayUsePlannerModeOnly();
+testValidationCannotImportOnlineProvider();
+console.log("Context Engine v2 architecture smoke passed: 66 scenarios.");

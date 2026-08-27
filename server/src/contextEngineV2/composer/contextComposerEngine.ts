@@ -35,6 +35,7 @@ import type {
   ContextComposerCanonicalExecutionInput,
   ContextComposerV2ExecutionResult,
 } from "./composerTypes.js";
+import { CONTEXT_COMPOSER_MODEL_PLANNER_IDENTIFIER } from "./composerCanonicalInput.js";
 
 const clock = {
   nowIso: () => new Date().toISOString(),
@@ -87,7 +88,8 @@ function uniqueSorted<T>(values: readonly T[], key: (value: T) => string): T[] {
 
 async function executePreparedContextComposerV2(
   input: ContextComposerCanonicalExecutionInput,
-  tracker = defaultContextComposerExecutionTracker,
+  runtime?: Pick<ContextComposerV2ExecutionInput,
+    "tracker" | "modelPlanner" | "modelPlannerTracker" | "observeModelPlanner">,
 ): Promise<ContextComposerV2ExecutionResult> {
   assertContextComposerCanonicalInput(input);
   const { executionBasis, explicitTargets, negativeConstraints, snapshot } = input;
@@ -95,7 +97,7 @@ async function executePreparedContextComposerV2(
   const traceIdentity = deriveContextComposerTraceIdentity(input);
   const abortController = new AbortController();
   const started = clock.monotonicMs();
-  const execution = tracker.tryTrack({
+  const execution = (runtime?.tracker ?? defaultContextComposerExecutionTracker).tryTrack({
     abortController,
     start: () => createLiveContextEngineExecution({
       projectRoot: input.projectRoot,
@@ -104,6 +106,12 @@ async function executePreparedContextComposerV2(
       negativeConstraints,
       clock,
       abortSignal: abortController.signal,
+      plannerMode: executionBasis.plannerIdentifier === CONTEXT_COMPOSER_MODEL_PLANNER_IDENTIFIER
+        ? "model_assisted"
+        : "deterministic",
+      ...(runtime?.modelPlanner ? { modelPlanner: runtime.modelPlanner } : {}),
+      ...(runtime?.modelPlannerTracker ? { modelPlannerTracker: runtime.modelPlannerTracker } : {}),
+      ...(runtime?.observeModelPlanner ? { observeModelPlanner: runtime.observeModelPlanner } : {}),
       runnerInput: {
         investigationId: traceIdentity.investigationId,
         snapshot,
@@ -160,7 +168,7 @@ async function executePreparedContextComposerV2(
 
 export async function executeContextComposerV2(input: ContextComposerV2ExecutionInput): Promise<ContextComposerV2ExecutionResult> {
   const prepared = prepareContextComposerCanonicalInput(input);
-  return executePreparedContextComposerV2(prepared, input.tracker);
+  return executePreparedContextComposerV2(prepared, input);
 }
 
 const BLOCKING_CODES = new Set([
@@ -405,7 +413,7 @@ export async function resolveContextComposerEngine(input: {
   try {
     rawExecution = await (input.executor
       ? input.executor(canonical)
-      : executePreparedContextComposerV2(canonical, input.executionInput.tracker));
+      : executePreparedContextComposerV2(canonical, input.executionInput));
   } catch (error) {
     if (isIntegrityFailure(error)) {
       const reason = error instanceof Error && error.message === "canonical_input_mismatch"

@@ -31,6 +31,7 @@ export type {
   LiveRepositoryAdapterInput,
   LiveShadowRepositoryAdapterInput,
 } from "./liveShadow/index.js";
+export * from "./modelPlanner/index.js";
 export type {
   ComparisonOutcome,
   CompatibilityComparisonSummary,

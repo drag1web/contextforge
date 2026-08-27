@@ -118,6 +118,13 @@ export interface DeterministicInvestigationPlanner {
   ): DeterministicInvestigationPlan;
 }
 
+export interface InvestigationPlanner {
+  proposeNextOperations(
+    state: Readonly<DeterministicPlannerState>,
+    signal?: AbortSignal,
+  ): Promise<DeterministicInvestigationPlan>;
+}
+
 export type InvestigationRunnerTraceEvent =
   | {
       type: "seed_interpreted";
@@ -235,6 +242,8 @@ export interface InvestigationRunnerDependencies {
   factExtractor: FactExtractorPort;
   graphStore: KnowledgeGraphStorePort;
   planner?: DeterministicInvestigationPlanner;
+  actionPlanner?: InvestigationPlanner;
+  plannerSignal?: AbortSignal;
 }
 
 export interface InvestigationRunnerResult {

@@ -34,6 +34,7 @@ const KNOWN_LAYERS = new Set([
   "adapters",
   "policy",
   "facade",
+  "planner",
 ]);
 const ALLOWED_TARGET_LAYERS: Readonly<Record<string, ReadonlySet<string>>> = {
   contracts: new Set(["contracts"]),
@@ -47,10 +48,11 @@ const ALLOWED_TARGET_LAYERS: Readonly<Record<string, ReadonlySet<string>>> = {
     "adapters",
   ]),
   policy: new Set(["contracts", "domain", "policy"]),
-  facade: new Set(["contracts", "domain", "ports", "application", "adapters"]),
+  facade: new Set(["contracts", "domain", "ports", "application", "adapters", "planner"]),
+  planner: new Set(["contracts", "domain", "ports", "application", "adapters", "planner"]),
   validation: new Set(["contracts", "domain", "ports", "application", "adapters", "validation"]),
-  shadow: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "shadow"]),
-  composer: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "composer"]),
+  shadow: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "planner", "shadow"]),
+  composer: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "planner", "composer"]),
   canary: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "shadow", "canary"]),
 };
 const LEGACY_SELECTOR_FRAGMENTS = [
@@ -364,6 +366,53 @@ function isAllowedCanaryProductIntegration(
   return resolved.toLocaleLowerCase("en-US") === expected.toLocaleLowerCase("en-US");
 }
 
+function isAllowedPlannerProductIntegration(
+  repositoryRoot: string,
+  importingFile: string,
+  importPath: string,
+): boolean {
+  if (!importPath.startsWith(".")) return false;
+  const relative = normalizePath(path.relative(
+    path.join(repositoryRoot, "server", "src"),
+    importingFile,
+  ));
+  if (relative !== "settings/settingsService.ts") return false;
+  const resolved = normalizePath(path.resolve(path.dirname(importingFile), importPath))
+    .replace(/\.(?:js|ts|tsx)$/iu, "")
+    .toLocaleLowerCase("en-US");
+  const plannerRoot = normalizePath(path.join(
+    repositoryRoot,
+    "server",
+    "src",
+    "contextEngineV2",
+    "planner",
+  )).toLocaleLowerCase("en-US");
+  return resolved === `${plannerRoot}/plannermode` ||
+    resolved === `${plannerRoot}/modelplannerlifecycle`;
+}
+
+function isAllowedModelProviderImport(
+  repositoryRoot: string,
+  v2Root: string,
+  importingFile: string,
+  importPath: string,
+): boolean {
+  if (!importPath.startsWith(".")) return false;
+  const adapterRoot = path.join(v2Root, "adapters", "modelPlanner");
+  if (!isInside(adapterRoot, importingFile)) return false;
+  const resolved = normalizePath(path.resolve(path.dirname(importingFile), importPath))
+    .replace(/\.(?:js|ts|tsx)$/iu, "")
+    .toLocaleLowerCase("en-US");
+  const expected = normalizePath(path.join(
+    repositoryRoot,
+    "server",
+    "src",
+    "ai",
+    "providerService",
+  )).toLocaleLowerCase("en-US");
+  return resolved === expected;
+}
+
 export function evaluateArchitectureImports(input: {
   repositoryRoot: string;
   modules: readonly ArchitectureSourceModule[];
@@ -423,7 +472,8 @@ export function evaluateArchitectureImports(input: {
         ) {
           if (isAllowedShadowProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
               isAllowedComposerProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
-              isAllowedCanaryProductIntegration(input.repositoryRoot, module.filePath, importPath)) {
+              isAllowedCanaryProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
+              isAllowedPlannerProductIntegration(input.repositoryRoot, module.filePath, importPath)) {
             continue;
           }
           violations.push({
@@ -448,7 +498,8 @@ export function evaluateArchitectureImports(input: {
       const isShadowLayer = layer === "shadow";
       const isComposerLayer = layer === "composer";
       const isCanaryLayer = layer === "canary";
-      if (!isCoreLayer && !isAdapterLayer && !isValidationLayer && !isShadowLayer && !isComposerLayer && !isCanaryLayer) {
+      const isPlannerLayer = layer === "planner";
+      if (!isCoreLayer && !isAdapterLayer && !isValidationLayer && !isShadowLayer && !isComposerLayer && !isCanaryLayer && !isPlannerLayer) {
         continue;
       }
       if (!importPath.startsWith(".")) {
@@ -471,7 +522,7 @@ export function evaluateArchitectureImports(input: {
             message:
               "Adapters may import only Node.js built-ins and explicitly allowed external parser packages.",
           });
-        } else if ((isValidationLayer || isShadowLayer || isComposerLayer || isCanaryLayer) && !importPath.startsWith("node:")) {
+        } else if ((isValidationLayer || isShadowLayer || isComposerLayer || isCanaryLayer || isPlannerLayer) && !importPath.startsWith("node:")) {
           violations.push({
             filePath: module.filePath,
             importPath,
@@ -484,6 +535,14 @@ export function evaluateArchitectureImports(input: {
 
       const targetPath = path.resolve(path.dirname(module.filePath), importPath);
       if (!isInside(v2Root, targetPath)) {
+        if (isAdapterLayer && isAllowedModelProviderImport(
+          input.repositoryRoot,
+          v2Root,
+          module.filePath,
+          importPath,
+        )) {
+          continue;
+        }
         if (isShadowLayer && isAllowedShadowScannerTypeImport(
           input.repositoryRoot,
           v2Root,
@@ -520,7 +579,7 @@ export function evaluateArchitectureImports(input: {
           });
           continue;
         }
-        if (isValidationLayer || isShadowLayer || isComposerLayer || isCanaryLayer) {
+        if (isValidationLayer || isShadowLayer || isComposerLayer || isCanaryLayer || isPlannerLayer) {
           violations.push({
             filePath: module.filePath,
             importPath,

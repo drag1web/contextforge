@@ -38,6 +38,11 @@ export interface AiGenerateInput {
   responseFormat?: "text" | "json";
   timeoutMs?: number;
   purpose?: string;
+  signal?: AbortSignal;
+  /** Maximum extracted model content size. */
+  maxResponseBytes?: number;
+  /** Maximum provider-specific JSON envelope read from the network. */
+  maxProviderResponseBytes?: number;
 }
 
 export interface AiGenerateResult {
@@ -192,6 +197,68 @@ function readAnthropicContent(data: AnthropicMessagesResponse) {
     .map((part) => part.text ?? "")
     .join("")
     .trim();
+}
+
+export async function readJsonResponseWithinLimit<T>(
+  response: Response,
+  maxResponseBytes: number | undefined,
+): Promise<T> {
+  if (maxResponseBytes === undefined) {
+    return (await response.json()) as T;
+  }
+
+  if (!Number.isSafeInteger(maxResponseBytes) || maxResponseBytes < 1) {
+    throw new Error("AI response byte limit is invalid.");
+  }
+
+  const contentLength = response.headers.get("content-length");
+
+  if (
+    contentLength !== null &&
+    /^\d+$/.test(contentLength) &&
+    Number(contentLength) > maxResponseBytes
+  ) {
+    throw new Error("AI response exceeded the configured byte limit.");
+  }
+
+  if (!response.body) {
+    throw new Error("AI response body is unavailable.");
+  }
+
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  try {
+    while (true) {
+      const chunk = await reader.read();
+
+      if (chunk.done) {
+        break;
+      }
+
+      totalBytes += chunk.value.byteLength;
+
+      if (totalBytes > maxResponseBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error("AI response exceeded the configured byte limit.");
+      }
+
+      chunks.push(chunk.value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const bytes = new Uint8Array(totalBytes);
+  let offset = 0;
+
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+
+  return JSON.parse(new TextDecoder().decode(bytes)) as T;
 }
 
 async function getOpenAiHeaders() {
@@ -528,8 +595,14 @@ export async function generateWithConfiguredAi({
   responseFormat = "text",
   timeoutMs = 120_000,
   purpose = "configured_ai_generation",
+  signal: parentSignal,
+  maxResponseBytes,
+  maxProviderResponseBytes,
 }: AiGenerateInput): Promise<AiGenerateResult> {
-  const signal = timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
+  const timeoutSignal = timeoutMs > 0 ? AbortSignal.timeout(timeoutMs) : undefined;
+  const signal = parentSignal && timeoutSignal
+    ? AbortSignal.any([parentSignal, timeoutSignal])
+    : parentSignal ?? timeoutSignal;
   const settings = await getAppSettings();
   const model = getConfiguredModel(settings);
 
@@ -575,6 +648,16 @@ export async function generateWithConfiguredAi({
       errorCode,
     });
   };
+  const assertResponseWithinLimit = (content: string): void => {
+    if (
+      maxResponseBytes !== undefined &&
+      (!Number.isSafeInteger(maxResponseBytes) ||
+        maxResponseBytes < 1 ||
+        Buffer.byteLength(content, "utf8") > maxResponseBytes)
+    ) {
+      throw new Error("AI response exceeded the configured byte limit.");
+    }
+  };
 
   try {
   if (settings.aiProvider === "openai-compatible") {
@@ -606,13 +689,18 @@ export async function generateWithConfiguredAi({
       );
     }
 
-    const data = (await response.json()) as OpenAiChatResponse;
+    const data = await readJsonResponseWithinLimit<OpenAiChatResponse>(
+      response,
+      maxProviderResponseBytes,
+    );
     const content = readOpenAiContent(data.choices?.[0] ?? {}).trim();
 
     if (!content) {
       finishFailure("empty_response", response.status);
       throw new Error("OpenAI-compatible endpoint returned an empty response.");
     }
+
+    assertResponseWithinLimit(content);
 
     finishSuccess({ content, httpStatus: response.status });
     return {
@@ -653,13 +741,18 @@ export async function generateWithConfiguredAi({
       throw new Error(`Claude API responded with status ${response.status}.`);
     }
 
-    const data = (await response.json()) as AnthropicMessagesResponse;
+    const data = await readJsonResponseWithinLimit<AnthropicMessagesResponse>(
+      response,
+      maxProviderResponseBytes,
+    );
     const content = readAnthropicContent(data);
 
     if (!content) {
       finishFailure("empty_response", response.status);
       throw new Error("Claude API returned an empty response.");
     }
+
+    assertResponseWithinLimit(content);
 
     finishSuccess({ content, httpStatus: response.status });
     return {
@@ -714,13 +807,18 @@ export async function generateWithConfiguredAi({
       throw new Error(`Gemini API responded with status ${response.status}.`);
     }
 
-    const data = (await response.json()) as GeminiGenerateResponse;
+    const data = await readJsonResponseWithinLimit<GeminiGenerateResponse>(
+      response,
+      maxProviderResponseBytes,
+    );
     const content = readGeminiContent(data);
 
     if (!content) {
       finishFailure("empty_response", response.status);
       throw new Error("Gemini API returned an empty response.");
     }
+
+    assertResponseWithinLimit(content);
 
     finishSuccess({ content, httpStatus: response.status });
     return {
@@ -756,13 +854,18 @@ export async function generateWithConfiguredAi({
     throw new Error(`Ollama responded with status ${response.status}.`);
   }
 
-  const data = (await response.json()) as OllamaGenerateResponse;
+  const data = await readJsonResponseWithinLimit<OllamaGenerateResponse>(
+    response,
+    maxProviderResponseBytes,
+  );
   const content = String(data.response ?? "").trim();
 
   if (!content) {
     finishFailure("empty_response", response.status);
     throw new Error("Ollama returned an empty response.");
   }
+
+  assertResponseWithinLimit(content);
 
   const nsToMs = (value: number | undefined) =>
     typeof value === "number" ? value / 1_000_000 : null;

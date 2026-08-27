@@ -4,6 +4,11 @@ import type {
   ContextEngineShadowExecutionBasis,
   ContextEngineShadowPolicy,
 } from "./shadowTypes.js";
+import type { ContextEnginePlannerMode } from "../contracts/index.js";
+import {
+  isContextEnginePlannerIdentifier,
+  plannerIdentifierForMode,
+} from "../planner/plannerMode.js";
 
 const POLICY_BUDGET_KEYS = [
   "maxOperations", "maxFileReads", "maxFileBytes", "maxParsedFiles",
@@ -31,7 +36,6 @@ const DEFAULT_PLANNER_POLICY = Object.freeze({
   searchResultLimit: 20,
   maxFailedOperationRetries: 1,
 });
-const PLANNER_IDENTIFIER = "deterministic-investigation-planner-v1";
 const EXTRACTOR_REGISTRY_IDENTIFIER = "typescript-javascript+package-manifest-v1";
 
 function fail(): never {
@@ -78,7 +82,7 @@ export function assertContextEngineShadowExecutionBasis(
   assertPortableConfigurationValue(value.effectiveTaskArea);
   assertPortableConfigurationValue(value.plannerIdentifier);
   assertPortableConfigurationValue(value.extractorRegistryIdentifier);
-  if (value.plannerIdentifier !== PLANNER_IDENTIFIER ||
+  if (!isContextEnginePlannerIdentifier(value.plannerIdentifier) ||
       value.extractorRegistryIdentifier !== EXTRACTOR_REGISTRY_IDENTIFIER) fail();
   assertPlainClosed(value.plannerPolicy, [
     "maxOperationsPerRound", "searchResultLimit", "maxFailedOperationRetries",
@@ -100,6 +104,7 @@ export function createContextEngineShadowExecutionBasis(input: {
   policy?: ContextEngineShadowPolicy;
   requestedTaskType: string;
   effectiveTaskArea: string;
+  plannerMode?: ContextEnginePlannerMode;
 }): ContextEngineShadowExecutionBasis {
   const policy = input.policy ?? DEFAULT_CONTEXT_ENGINE_SHADOW_POLICY;
   return normalizeContextEngineShadowExecutionBasis({
@@ -110,7 +115,7 @@ export function createContextEngineShadowExecutionBasis(input: {
     },
     requestedTaskType: input.requestedTaskType,
     effectiveTaskArea: input.effectiveTaskArea,
-    plannerIdentifier: PLANNER_IDENTIFIER,
+    plannerIdentifier: plannerIdentifierForMode(input.plannerMode ?? "deterministic"),
     plannerPolicy: { ...DEFAULT_PLANNER_POLICY },
     extractorRegistryIdentifier: EXTRACTOR_REGISTRY_IDENTIFIER,
   });

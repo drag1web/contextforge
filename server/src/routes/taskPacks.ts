@@ -2658,6 +2658,7 @@ export async function createTaskPackWithPipeline(
               const executionBasis = createContextEngineShadowExecutionBasis({
                 requestedTaskType: parsed.data.taskType,
                 effectiveTaskArea: effectiveSelectionArea,
+                plannerMode: settings.contextEnginePlannerMode ?? "deterministic",
               });
               let comparison: Awaited<ReturnType<typeof runLiveContextEngineShadow>>;
               try {
@@ -2728,6 +2729,7 @@ export async function createTaskPackWithPipeline(
             policy: DEFAULT_TASK_PACK_CANARY_POLICY,
             requestedTaskType: parsed.data.taskType,
             effectiveTaskArea: effectiveSelectionArea,
+            plannerMode: "deterministic",
           });
           const clarificationBasis = clarifications.map((clarification) => ({
             questionId: createHash("sha256")

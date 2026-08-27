@@ -470,6 +470,7 @@ const defaultDependencies: TaskPackCanaryRuntimeDependencies = {
     negativeConstraints: canonical.negativeConstraints,
     clock: defaultClock,
     abortSignal,
+    plannerMode: "deterministic",
     runnerInput: {
       investigationId: stableId("canary-investigation", [canonical.snapshot.id, canonical.taskFingerprint, canonical.clarificationFingerprint]) as InvestigationId,
       snapshot: canonical.snapshot,

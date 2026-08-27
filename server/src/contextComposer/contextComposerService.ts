@@ -652,6 +652,7 @@ export async function buildContextComposerPreview(input: {
       protectedScopes: taskIntent.structuredIntent?.protectedScopes ?? [],
       requestedTaskType: input.taskType,
       effectiveTaskArea,
+      plannerMode: settings.contextEnginePlannerMode ?? "deterministic",
     },
   });
   const fileSelectionForPreview = contextEngineResolution.selection ??

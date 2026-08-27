@@ -14,6 +14,21 @@ import {
 } from "../adapters/index.js";
 import type { LiveRepositoryAdapterInput } from "../adapters/index.js";
 import type { ClockPort } from "../ports/index.js";
+import type { ModelPlannerPort } from "../ports/index.js";
+import type {
+  ContextEnginePlannerMode,
+  ModelPlannerObservation,
+} from "../contracts/index.js";
+import {
+  createConfiguredAiModelPlannerAdapter,
+} from "../adapters/modelPlanner/index.js";
+import {
+  createModelAssistedInvestigationPlanner,
+  DEFAULT_MODEL_PLANNER_POLICY,
+  normalizeContextEnginePlannerMode,
+  type ModelPlannerPolicy,
+  type ModelPlannerRequestTracker,
+} from "../planner/index.js";
 
 export interface LiveContextEngineExecutionInput {
   projectRoot: string;
@@ -23,6 +38,11 @@ export interface LiveContextEngineExecutionInput {
   clock: ClockPort;
   abortSignal: AbortSignal;
   runnerInput: InvestigationRunnerInput;
+  plannerMode?: ContextEnginePlannerMode;
+  modelPlanner?: ModelPlannerPort;
+  modelPlannerPolicy?: ModelPlannerPolicy;
+  modelPlannerTracker?: ModelPlannerRequestTracker;
+  observeModelPlanner?: (observation: ModelPlannerObservation) => void;
 }
 
 /**
@@ -43,6 +63,22 @@ export function createLiveContextEngineExecution(
     cancellation,
     abortSignal: input.abortSignal,
   });
+  const plannerMode = normalizeContextEnginePlannerMode(input.plannerMode);
+  const modelPolicy = input.modelPlannerPolicy ?? DEFAULT_MODEL_PLANNER_POLICY;
+  const actionPlanner = plannerMode === "model_assisted"
+    ? createModelAssistedInvestigationPlanner({
+        model: input.modelPlanner ?? createConfiguredAiModelPlannerAdapter({
+          timeoutMs: modelPolicy.maxModelPlannerWallTimeMs,
+          maxOutputBytes: modelPolicy.maxModelOutputBytes,
+          maxProviderResponseBytes: modelPolicy.maxProviderResponseEnvelopeBytes,
+        }),
+        policy: modelPolicy,
+        requestId: input.runnerInput.investigationId,
+        signal: input.abortSignal,
+        ...(input.modelPlannerTracker ? { tracker: input.modelPlannerTracker } : {}),
+        ...(input.observeModelPlanner ? { observe: input.observeModelPlanner } : {}),
+      })
+    : undefined;
   const runner = createInvestigationRunner({
     clock: input.clock,
     cancellation,
@@ -53,6 +89,7 @@ export function createLiveContextEngineExecution(
       createManifestFactExtractor(input.clock),
     ]),
     graphStore: createInMemoryKnowledgeGraphStore(),
+    ...(actionPlanner ? { actionPlanner, plannerSignal: input.abortSignal } : {}),
   });
   return runner.run(input.runnerInput);
 }

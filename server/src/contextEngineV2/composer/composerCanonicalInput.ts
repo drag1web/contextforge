@@ -13,6 +13,10 @@ import type {
   ContextComposerCanonicalExecutionInput,
   ContextComposerExecutionBasis,
 } from "./composerTypes.js";
+import type { ContextEnginePlannerMode } from "../contracts/index.js";
+import type { ModelPlannerObservation } from "../contracts/index.js";
+import type { ModelPlannerPort } from "../ports/index.js";
+import type { ModelPlannerRequestTracker } from "../planner/index.js";
 
 export const DEFAULT_CONTEXT_COMPOSER_V2_BUDGET: Readonly<InvestigationBudget> = Object.freeze({
   maxOperations: 18,
@@ -26,7 +30,10 @@ export const DEFAULT_CONTEXT_COMPOSER_V2_BUDGET: Readonly<InvestigationBudget> =
 });
 export const DEFAULT_CONTEXT_COMPOSER_V2_TIMEOUT_MS = 1_500;
 
-export const CONTEXT_COMPOSER_PLANNER_IDENTIFIER = "deterministic-investigation-planner:v1";
+export const CONTEXT_COMPOSER_PLANNER_IDENTIFIER =
+  "deterministic-investigation-planner:v1";
+export const CONTEXT_COMPOSER_MODEL_PLANNER_IDENTIFIER =
+  "model-assisted-investigation-planner:v1";
 export const CONTEXT_COMPOSER_EXTRACTOR_REGISTRY_IDENTIFIER = "typescript-javascript-manifest:v1";
 export const CONTEXT_COMPOSER_PLANNER_POLICY = Object.freeze({
   maxOperationsPerRound: 1,
@@ -155,6 +162,10 @@ export interface ContextComposerV2ExecutionInput {
   budget?: InvestigationBudget;
   timeoutMs?: number;
   tracker?: import("./composerExecutionTracker.js").ContextComposerExecutionTracker;
+  plannerMode?: ContextEnginePlannerMode;
+  modelPlanner?: ModelPlannerPort;
+  modelPlannerTracker?: ModelPlannerRequestTracker;
+  observeModelPlanner?: (observation: ModelPlannerObservation) => void;
 }
 
 export function deriveContextComposerExplicitTargets(
@@ -206,7 +217,9 @@ function normalizeExecutionBasis(input: ContextComposerV2ExecutionInput): Contex
     policy: { budget: normalizeBudget(input.budget), timeoutMs },
     requestedTaskType: safeText(input.requestedTaskType, 120),
     effectiveTaskArea: safeText(input.effectiveTaskArea, 120),
-    plannerIdentifier: CONTEXT_COMPOSER_PLANNER_IDENTIFIER,
+    plannerIdentifier: input.plannerMode === "model_assisted"
+      ? CONTEXT_COMPOSER_MODEL_PLANNER_IDENTIFIER
+      : CONTEXT_COMPOSER_PLANNER_IDENTIFIER,
     plannerPolicy: { ...CONTEXT_COMPOSER_PLANNER_POLICY },
     extractorRegistryIdentifier: CONTEXT_COMPOSER_EXTRACTOR_REGISTRY_IDENTIFIER,
   });
@@ -214,7 +227,10 @@ function normalizeExecutionBasis(input: ContextComposerV2ExecutionInput): Contex
 
 function assertExecutionBasis(value: unknown): asserts value is ContextComposerExecutionBasis {
   const basis = record(value, ["schemaVersion", "policy", "requestedTaskType", "effectiveTaskArea", "plannerIdentifier", "plannerPolicy", "extractorRegistryIdentifier"]);
-  if (basis.schemaVersion !== 1 || basis.plannerIdentifier !== CONTEXT_COMPOSER_PLANNER_IDENTIFIER || basis.extractorRegistryIdentifier !== CONTEXT_COMPOSER_EXTRACTOR_REGISTRY_IDENTIFIER) fail();
+  if (basis.schemaVersion !== 1 ||
+      (basis.plannerIdentifier !== CONTEXT_COMPOSER_PLANNER_IDENTIFIER &&
+       basis.plannerIdentifier !== CONTEXT_COMPOSER_MODEL_PLANNER_IDENTIFIER) ||
+      basis.extractorRegistryIdentifier !== CONTEXT_COMPOSER_EXTRACTOR_REGISTRY_IDENTIFIER) fail();
   safeText(basis.requestedTaskType, 120);
   safeText(basis.effectiveTaskArea, 120);
   const policy = record(basis.policy, ["budget", "timeoutMs"]);
@@ -245,7 +261,7 @@ function snapshotsEquivalent(left: RepositorySnapshot, right: RepositorySnapshot
 }
 
 export function prepareContextComposerCanonicalInput(input: ContextComposerV2ExecutionInput): ContextComposerCanonicalExecutionInput {
-  record(input, ["projectId", "projectRoot", "inventory", "normalizedTask", "structuredTargets", "protectedScopes", "requestedTaskType", "effectiveTaskArea", ...Object.keys(record(input)).filter((key) => ["budget", "timeoutMs", "tracker"].includes(key))]);
+  record(input, ["projectId", "projectRoot", "inventory", "normalizedTask", "structuredTargets", "protectedScopes", "requestedTaskType", "effectiveTaskArea", ...Object.keys(record(input)).filter((key) => ["budget", "timeoutMs", "tracker", "plannerMode", "modelPlanner", "modelPlannerTracker", "observeModelPlanner"].includes(key))]);
   const projectId = safeText(input.projectId, 160);
   const projectRoot = safeText(input.projectRoot, 1_000);
   const inventory = deepFreeze(clonePlainData(input.inventory));

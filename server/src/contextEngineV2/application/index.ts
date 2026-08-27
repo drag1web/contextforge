@@ -31,6 +31,7 @@ export type {
   InvestigationRunnerInput,
   InvestigationRunnerResult,
   InvestigationRunnerTraceEvent,
+  InvestigationPlanner,
   InvestigationSeedRationale,
 } from "./investigationRunnerTypes.js";
 export type {

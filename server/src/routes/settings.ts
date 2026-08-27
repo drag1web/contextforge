@@ -69,6 +69,7 @@ const updateSettingsSchema = z.object({
   contextQualityMode: z.enum(["advisory", "balanced", "strict"]).optional(),
   selectorPipelineMode: z.enum(["legacy", "shadow_compare", "shadow_primary"]).optional(),
   contextEngineMode: z.enum(["disabled", "shadow", "canary"]).optional(),
+  contextEnginePlannerMode: z.enum(["deterministic", "model_assisted"]).optional(),
   contextEngineCanaryPercent: z.number().int().min(0).max(100).optional(),
   contextEngineCanaryProjectIds: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
   contextComposerEngineMode: z.enum(["legacy", "shadow_compare", "v2_primary"]).optional(),

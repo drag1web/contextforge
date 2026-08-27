@@ -8,12 +8,16 @@ import {
 } from "../adapters/index.js";
 import type { OfflineCompatibilityComparisonInput } from "../adapters/legacySelection/index.js";
 import type { InvestigationId, InvestigationRequestId } from "../contracts/index.js";
+import type { ModelPlannerObservation } from "../contracts/index.js";
+import type { ModelPlannerPort } from "../ports/index.js";
+import type { ModelPlannerRequestTracker } from "../planner/index.js";
 import { createLiveContextEngineExecution } from "../facade/liveContextEngineRuntime.js";
 import { assertContextEngineShadowInputEquivalent, isPreparedContextEngineShadowInput } from "./shadowInputPreparation.js";
 import { DEFAULT_CONTEXT_ENGINE_SHADOW_POLICY, normalizeContextEngineShadowExecutionBasis } from "./shadowExecutionBasis.js";
 import { settleContextEngineShadowExecution } from "./shadowDeadline.js";
 import { createContextEngineShadowComparison, createFailedContextEngineShadowComparison } from "./shadowComparison.js";
 import type { ContextEngineShadowCanonicalInput, ContextEngineShadowClock, ContextEngineShadowComparison, ContextEngineShadowTiming } from "./shadowTypes.js";
+import { plannerModeForIdentifier } from "../planner/plannerMode.js";
 
 const systemClock: ContextEngineShadowClock = {
   nowIso: () => new Date().toISOString(),
@@ -42,6 +46,9 @@ export async function runLiveContextEngineShadow(input: {
   clock?: ContextEngineShadowClock;
   parentAbortSignal?: AbortSignal;
   deadlineMonotonicMs?: number;
+  modelPlanner?: ModelPlannerPort;
+  modelPlannerTracker?: ModelPlannerRequestTracker;
+  observeModelPlanner?: (observation: ModelPlannerObservation) => void;
 }): Promise<ContextEngineShadowComparison> {
   const clock = input.clock ?? systemClock;
   const started = clock.monotonicMs();
@@ -92,6 +99,10 @@ export async function runLiveContextEngineShadow(input: {
     negativeConstraints: input.canonical.negativeConstraints,
     clock,
     abortSignal: abortController.signal,
+    plannerMode: plannerModeForIdentifier(basis.plannerIdentifier),
+    ...(input.modelPlanner ? { modelPlanner: input.modelPlanner } : {}),
+    ...(input.modelPlannerTracker ? { modelPlannerTracker: input.modelPlannerTracker } : {}),
+    ...(input.observeModelPlanner ? { observeModelPlanner: input.observeModelPlanner } : {}),
     runnerInput: {
       investigationId: stableId("shadow-investigation", [input.canonical.snapshot.id, input.canonical.taskFingerprint]) as InvestigationId,
       snapshot: input.canonical.snapshot,

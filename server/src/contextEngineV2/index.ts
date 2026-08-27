@@ -1,4 +1,5 @@
 export type * from "./contracts/index.js";
+export * from "./planner/index.js";
 export {
   ContextEngineNotImplementedError,
   ContextProjectionError,
@@ -30,6 +31,7 @@ export type {
   InvestigationRunnerInput,
   InvestigationRunnerResult,
   InvestigationRunnerTraceEvent,
+  InvestigationPlanner,
   InvestigationSeedRationale,
   ProjectionDiagnostic,
   ProjectionEntityDecision,
@@ -49,6 +51,9 @@ export {
   createManifestFactExtractor,
   createTypeScriptJavaScriptFactExtractor,
   createOfflineCompatibilityComparison,
+  createConfiguredAiModelPlannerAdapter,
+  createRecordedModelProposalAdapter,
+  createScriptedModelPlannerAdapter,
 } from "./adapters/index.js";
 export type {
   ComparisonOutcome,
@@ -71,6 +76,7 @@ export type {
   SafetyComparison,
   SelectionOverlap,
   V2ProjectionSummary,
+  ScriptedModelPlannerStep,
 } from "./adapters/index.js";
 export type {
   ClockPort,
@@ -85,6 +91,8 @@ export type {
   KnowledgeTraceExport,
   InvestigationCancellationPort,
   NeighborQuery,
+  ModelPlannerPort,
+  ModelPlannerProviderResult,
 } from "./ports/index.js";
 export {
   InvestigationDomainError,

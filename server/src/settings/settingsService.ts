@@ -28,6 +28,9 @@ import {
   normalizeContextEngineCanaryConfiguration,
   type TaskPackCanaryDecision,
 } from "../contextEngineV2/canary/index.js";
+import { closeModelPlannerRequestTracker } from "../contextEngineV2/planner/modelPlannerLifecycle.js";
+import { normalizeContextEnginePlannerMode } from "../contextEngineV2/planner/plannerMode.js";
+import type { ContextEnginePlannerMode } from "../contextEngineV2/planner/plannerMode.js";
 
 export type SelectorPipelineMode = "legacy" | "shadow_compare" | "shadow_primary";
 export type TaskUnderstandingInteractionMode = "automatic" | "balanced" | "confirm_all";
@@ -68,6 +71,17 @@ export async function readContextEngineMode(
 ): Promise<ContextEngineMode> {
   return normalizeContextEngineMode(
     await read("context_engine_mode", "disabled" as ContextEngineMode),
+  );
+}
+
+export async function readContextEnginePlannerMode(
+  read: <T>(key: string, fallback: T) => Promise<T> = getSettingValue,
+): Promise<ContextEnginePlannerMode> {
+  return normalizeContextEnginePlannerMode(
+    await read(
+      "context_engine_planner_mode",
+      "deterministic" as ContextEnginePlannerMode,
+    ),
   );
 }
 
@@ -119,6 +133,7 @@ export interface AppSettings {
   contextQualityMode: ContextQualityMode;
   selectorPipelineMode: SelectorPipelineMode;
   contextEngineMode?: ContextEngineMode;
+  contextEnginePlannerMode?: ContextEnginePlannerMode;
   contextEngineCanaryPercent?: number;
   contextEngineCanaryProjectIds?: string[];
   contextComposerEngineMode?: ContextComposerEngineMode;
@@ -184,6 +199,7 @@ const defaultSettings: AppSettings = {
   contextQualityMode: "balanced",
   selectorPipelineMode: "legacy",
   contextEngineMode: "disabled",
+  contextEnginePlannerMode: "deterministic",
   contextEngineCanaryPercent: 0,
   contextEngineCanaryProjectIds: [],
   contextComposerEngineMode: "legacy",
@@ -216,6 +232,7 @@ const settingKeyMap = {
   contextQualityMode: "context_quality_mode",
   selectorPipelineMode: "selector_pipeline_mode",
   contextEngineMode: "context_engine_mode",
+  contextEnginePlannerMode: "context_engine_planner_mode",
   contextEngineCanaryPercent: "context_engine_canary_percent",
   contextEngineCanaryProjectIds: "context_engine_canary_project_ids",
   contextComposerEngineMode: "context_composer_engine_mode",
@@ -318,6 +335,7 @@ export async function getAppSettings(): Promise<AppSettings> {
     ),
     selectorPipelineMode: await readSelectorPipelineMode(),
     contextEngineMode: await readContextEngineMode(),
+    contextEnginePlannerMode: await readContextEnginePlannerMode(),
     contextEngineCanaryPercent: canary.percent,
     contextEngineCanaryProjectIds: [...canary.projectIds],
     contextComposerEngineMode: await readContextComposerEngineMode(),
@@ -608,11 +626,12 @@ export function closeContextEngineShadowDiagnosticsWriter(timeoutMs = 250): Prom
 }
 
 export async function closeContextEngineShadowRuntime(timeoutMs = 250): Promise<boolean> {
-  const [executionsClosed, diagnosticsClosed] = await Promise.all([
+  const [executionsClosed, diagnosticsClosed, plannerClosed] = await Promise.all([
     closeContextEngineShadowExecutionTracker(timeoutMs),
     closeContextEngineShadowDiagnosticsWriter(timeoutMs),
+    closeModelPlannerRequestTracker(timeoutMs),
   ]);
-  return executionsClosed && diagnosticsClosed;
+  return executionsClosed && diagnosticsClosed && plannerClosed;
 }
 
 const contextEngineTaskPackCanaryHistoryKey =
