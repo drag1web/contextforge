@@ -851,6 +851,58 @@ function testCoreAndSelectorCannotImportComposer(): void {
   assert.equal(violations[1]?.rule, "production_isolation");
 }
 
+function testTaskPackRouteCanImportOnlyPublicCanaryFacade(): void {
+  const allowed = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/routes/taskPacks.ts",
+      'import { runLiveTaskPackCanary } from "../contextEngineV2/canary/index.js";',
+    )],
+  });
+  assert.deepEqual(allowed, []);
+}
+
+function testCanaryCanReuseNeutralRuntimeAndShadowCanonicalBoundary(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule(
+      "server/src/contextEngineV2/canary/runtime.ts",
+      [
+        'import { createLiveContextEngineExecution } from "../facade/liveContextEngineRuntime.js";',
+        'import { assertContextEngineShadowInputEquivalent } from "../shadow/index.js";',
+        'import { createLegacyTaskFileSelectionProjection } from "../adapters/legacySelection/index.js";',
+      ].join("\n"),
+    )],
+  });
+  assert.deepEqual(violations, []);
+}
+
+function testCanaryCannotImportProductComposerOrValidation(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule("server/src/contextEngineV2/canary/routeLeak.ts", 'import { route } from "../../routes/taskPacks.js";'),
+      fixtureModule("server/src/contextEngineV2/canary/composerLeak.ts", 'import { run } from "../composer/index.js";'),
+      fixtureModule("server/src/contextEngineV2/canary/validationLeak.ts", 'import { run } from "../validation/index.js";'),
+    ],
+  });
+  assert.equal(violations.length, 3);
+  assert.ok(violations.every((violation) => violation.rule === "adapter_boundary_escape" || violation.rule === "layer_direction"));
+}
+
+function testCoreAndSelectorCannotImportCanary(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule("server/src/contextEngineV2/application/leak.ts", 'import { run } from "../canary/index.js";'),
+      fixtureModule("server/src/selection/leak.ts", 'import { run } from "../contextEngineV2/canary/index.js";'),
+    ],
+  });
+  assert.equal(violations.length, 2);
+  assert.equal(violations[0]?.rule, "layer_direction");
+  assert.equal(violations[1]?.rule, "production_isolation");
+}
+
 testCurrentArchitecturePasses();
 testLayerDirectionViolationIsDetected();
 testProductionImportIsDetected();
@@ -906,4 +958,8 @@ testContextComposerCanImportOnlyComposerFacade();
 testComposerCannotImportShadowValidationOrSelector();
 testComposerCanUseNeutralLiveFacade();
 testCoreAndSelectorCannotImportComposer();
-console.log("Context Engine v2 architecture smoke passed: 55 scenarios.");
+testTaskPackRouteCanImportOnlyPublicCanaryFacade();
+testCanaryCanReuseNeutralRuntimeAndShadowCanonicalBoundary();
+testCanaryCannotImportProductComposerOrValidation();
+testCoreAndSelectorCannotImportCanary();
+console.log("Context Engine v2 architecture smoke passed: 59 scenarios.");

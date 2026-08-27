@@ -8,6 +8,7 @@ import { storage } from "../storage/index.js";
 import {
   appendSelectorDiagnostics,
   enqueueContextEngineShadowDiagnostics,
+  enqueueContextEngineTaskPackCanaryDecision,
   getAppSettings,
 } from "../settings/settingsService.js";
 import {
@@ -18,6 +19,23 @@ import {
   runContextEngineShadowSidecar,
   runLiveContextEngineShadow,
 } from "../contextEngineV2/shadow/index.js";
+import {
+  DEFAULT_TASK_PACK_CANARY_POLICY,
+  TaskPackCanaryPreparationError,
+  createTaskPackCanaryDeadlineFallback,
+  createTaskPackCanaryNoSelectionDelta,
+  createTaskPackCanaryPreparationFailure,
+  createTaskPackCanaryPreparationFailureBasis,
+  createTaskPackCanaryProductionFallback,
+  hasTaskPackCanarySelectionDelta,
+  prepareBoundedTaskPackCanaryInput,
+  runLiveTaskPackCanary,
+  withTaskPackCanaryTotalTiming,
+  type TaskPackCanaryDownstreamValidationResult,
+  type TaskPackCanaryMappedFile,
+  type TaskPackCanaryReasonCode,
+  type TaskPackCanaryResolution,
+} from "../contextEngineV2/canary/index.js";
 import {
   buildTaskPackRulesTemplatePrompt,
   RulesServiceError,
@@ -97,7 +115,7 @@ import {
 
 export const taskPacksRouter = Router();
 
-function buildStableTaskPackRefinementCacheIdentity(input: {
+export function buildStableTaskPackRefinementCacheIdentity(input: {
   projectId: number;
   project: {
     name: string;
@@ -309,7 +327,8 @@ interface TaskContextFileReference {
   kind: ProjectInventoryFileKind;
   usage: SelectedTaskFileUsage;
   reason: string;
-  confidence: number;
+  confidence?: number;
+  confidenceAvailable: boolean;
   evidenceLevel?: string;
   selectionEvidence?: FileSelectionEvidence;
   canReadText: boolean;
@@ -576,7 +595,7 @@ async function readFileSnippet(
   }
 }
 
-async function buildSelectedFileSnippets({
+export async function buildSelectedFileSnippets({
   projectRoot,
   inventory,
   fileSelection,
@@ -608,12 +627,14 @@ async function buildSelectedFileSnippets({
   return snippets;
 }
 
-function buildFileReferences({
+export function buildFileReferences({
   inventory,
   fileSelection,
+  confidenceUnavailablePaths = new Set<string>(),
 }: {
   inventory: ProjectInventory;
   fileSelection: TaskFileSelection;
+  confidenceUnavailablePaths?: ReadonlySet<string>;
 }): TaskContextFileReference[] {
   const references: TaskContextFileReference[] = [];
 
@@ -630,7 +651,10 @@ function buildFileReferences({
         kind: selectedFile.kind,
         usage: selectedFile.usage,
         reason: selectedFile.reason,
-        confidence: selectedFile.confidence,
+        ...(confidenceUnavailablePaths.has(normalizePath(selectedFile.path).toLowerCase())
+          ? {}
+          : { confidence: selectedFile.confidence }),
+        confidenceAvailable: !confidenceUnavailablePaths.has(normalizePath(selectedFile.path).toLowerCase()),
         evidenceLevel: selectedFile.evidenceLevel,
         selectionEvidence: selectedFile.selectionEvidence,
         canReadText: false,
@@ -644,7 +668,10 @@ function buildFileReferences({
       kind: inventoryFile.kind,
       usage: selectedFile.usage,
       reason: selectedFile.reason,
-      confidence: selectedFile.confidence,
+      ...(confidenceUnavailablePaths.has(normalizePath(selectedFile.path).toLowerCase())
+        ? {}
+        : { confidence: selectedFile.confidence }),
+      confidenceAvailable: !confidenceUnavailablePaths.has(normalizePath(selectedFile.path).toLowerCase()),
       evidenceLevel: selectedFile.evidenceLevel,
       selectionEvidence: selectedFile.selectionEvidence,
       canReadText: inventoryFile.canReadText,
@@ -1019,7 +1046,301 @@ function buildEffectiveExecutionContract({
   });
 }
 
-function buildUniversalTaskPackContext({
+function taskPackSelectionSignature(selection: TaskFileSelection): string {
+  return JSON.stringify(selection.selectedFiles.map((file) => ({
+    path: file.path.replace(/\\/gu, "/").replace(/^\.\//u, ""),
+    usage: file.usage,
+  })).sort((left, right) => left.path.localeCompare(right.path) || left.usage.localeCompare(right.usage)));
+}
+
+function taskPackCanaryFileSignature(files: readonly TaskPackCanaryMappedFile[]): string {
+  return JSON.stringify(files.map((file) => ({
+    path: file.path.replace(/\\/gu, "/").replace(/^\.\//u, ""),
+    usage: file.usage,
+  })).sort((left, right) => left.path.localeCompare(right.path) || left.usage.localeCompare(right.usage)));
+}
+
+function createTaskPackCanaryProductionEnvelope(input: {
+  candidate: readonly TaskPackCanaryMappedFile[];
+  inventory: ProjectInventory;
+  requestedTaskType: string;
+  effectiveTaskArea: TaskFileSelection["effectiveTaskArea"];
+}): TaskFileSelection {
+  const selectedFiles = input.candidate.flatMap((candidate) => {
+    const inventoryFile = findInventoryFile(input.inventory, candidate.path);
+    if (!inventoryFile) return [];
+    return [{
+      path: inventoryFile.path,
+      kind: inventoryFile.kind,
+      usage: candidate.usage,
+      reason: "Automatic repository candidate pending production authorization.",
+      // This value is never surfaced or treated as evidence. CE2-09 adoption is
+      // explicit-target-only, so the production explicit-target guard replaces
+      // editable target metadata before quality and authorization evaluation.
+      confidence: 0,
+    }];
+  });
+  const assetCount = selectedFiles.filter((file) => file.kind === "asset").length;
+  return {
+    selectedFiles,
+    rejectedModelPaths: [],
+    source: "deterministic",
+    usedFallback: false,
+    durationMs: 0,
+    notes: [],
+    effectiveTaskArea: input.effectiveTaskArea,
+    assetMode: assetCount === 0 ? "none" : assetCount === selectedFiles.length ? "primary" : "mixed",
+    diagnostics: {
+      selectorVersion: "task-pack-production-selection-v1",
+      safetyProfile: "task-pack-production",
+      generationMode: "template",
+      model: null,
+      requestedTaskType: input.requestedTaskType,
+      effectiveTaskArea: input.effectiveTaskArea,
+      usedFallback: false,
+    },
+  };
+}
+
+export interface TaskPackCanaryProductionValidationResult extends TaskPackCanaryDownstreamValidationResult {
+  productionSelection: TaskFileSelection;
+}
+
+export function validateTaskPackCanaryCandidate(input: {
+  rawTask: string;
+  requestedTaskType: string;
+  inventory: ProjectInventory;
+  taskIntent: TaskIntentAnalysis;
+  contextQualityMode: Parameters<typeof evaluateContextSelectionQuality>[0]["contextQualityMode"];
+  effectiveTaskArea: TaskFileSelection["effectiveTaskArea"];
+  candidate: readonly TaskPackCanaryMappedFile[];
+}): TaskPackCanaryProductionValidationResult {
+  const reasons: TaskPackCanaryReasonCode[] = [];
+  const productionEnvelope = createTaskPackCanaryProductionEnvelope({
+    candidate: input.candidate,
+    inventory: input.inventory,
+    requestedTaskType: input.requestedTaskType,
+    effectiveTaskArea: input.effectiveTaskArea,
+  });
+  if (productionEnvelope.selectedFiles.length !== input.candidate.length) {
+    reasons.push("downstream_context_ineligible");
+  }
+  const explicit = applyExplicitTargetGuard({
+    rawTask: input.rawTask,
+    inventory: input.inventory,
+    taskIntent: input.taskIntent,
+    selection: productionEnvelope,
+  });
+  if (explicit.status !== "matched") reasons.push("downstream_explicit_target_rejected");
+  if (taskPackSelectionSignature(explicit.selection) !== taskPackCanaryFileSignature(input.candidate)) {
+    reasons.push("downstream_selection_mutated");
+  }
+  const executionContract = buildEffectiveExecutionContract({
+    rawTask: input.rawTask,
+    inventory: input.inventory,
+    taskIntent: input.taskIntent,
+    fileSelection: explicit.selection,
+  });
+  const withContract: TaskFileSelection = {
+    ...explicit.selection,
+    diagnostics: explicit.selection.diagnostics
+      ? { ...explicit.selection.diagnostics, executionContract }
+      : undefined,
+  };
+  const quality = evaluateContextSelectionQuality({
+    rawTask: input.rawTask,
+    requestedTaskType: input.requestedTaskType,
+    effectiveTaskArea: withContract.effectiveTaskArea,
+    inventory: input.inventory,
+    fileSelection: withContract,
+    manualSelectionConfirmed: false,
+    contextQualityMode: input.contextQualityMode,
+    taskIntent: input.taskIntent,
+  });
+  if (quality.status === "blocked") reasons.push("downstream_quality_blocked");
+  if (quality.requiredManualReview || quality.status === "warning") reasons.push("downstream_manual_review");
+  const authorized = enforceExecutionAuthorizationAuthority({
+    rawTask: input.rawTask,
+    inventory: input.inventory,
+    taskIntent: input.taskIntent,
+    fileSelection: withContract,
+    qualityStatus: quality.status,
+    qualityBlockingReasons: quality.blockingReasons,
+  });
+  const authorizationPreserved =
+    taskPackSelectionSignature(authorized) === taskPackCanaryFileSignature(input.candidate) &&
+    authorized.diagnostics?.executionContract?.mode === "implementation" &&
+    authorized.diagnostics.executionContract.allowImplementationGuidance;
+  if (!authorizationPreserved) reasons.push("downstream_authorization_rejected");
+  const references = buildFileReferences({ inventory: input.inventory, fileSelection: authorized });
+  const contextAssemblyEligible = references.length === authorized.selectedFiles.length &&
+    authorized.selectedFiles.every((file) => findInventoryFile(input.inventory, file.path) !== undefined);
+  if (!contextAssemblyEligible) reasons.push("downstream_context_ineligible");
+  const passed = reasons.length === 0 && quality.status === "ready" && authorizationPreserved && contextAssemblyEligible;
+  const validatedFiles = authorized.selectedFiles.map((file) => ({
+    path: file.path.replace(/\\/gu, "/"),
+    kind: file.kind,
+    usage: file.usage,
+  }));
+  return {
+    productionSelection: authorized,
+    validatedFiles,
+    validation: {
+      passed,
+      qualityStatus: quality.status,
+      explicitTargetStatus: explicit.status,
+      authorizationPreserved,
+      contextAssemblyEligible,
+      reasonCodes: passed ? ["v2_applied"] : Array.from(new Set(reasons)),
+    },
+  };
+}
+
+export function applyValidatedTaskPackCanarySelection(input: {
+  legacySelection: TaskFileSelection;
+  resolution: Pick<TaskPackCanaryResolution, "applied" | "adoptedFiles">;
+  productionSelection: TaskFileSelection | null;
+}): TaskFileSelection {
+  if (!input.resolution.applied || !input.resolution.adoptedFiles || !input.productionSelection) {
+    return input.legacySelection;
+  }
+  if (!hasTaskPackCanarySelectionDelta(input.legacySelection, input.resolution.adoptedFiles)) {
+    return input.legacySelection;
+  }
+  return taskPackCanaryFileSignature(input.resolution.adoptedFiles) ===
+      taskPackSelectionSignature(input.productionSelection)
+    ? input.productionSelection
+    : input.legacySelection;
+}
+
+export interface TaskPackCanaryProductionSealResult {
+  effectiveSelection: TaskFileSelection;
+  finalResolution: TaskPackCanaryResolution;
+  canaryApplied: boolean;
+  confidenceUnavailablePaths: ReadonlySet<string>;
+  enqueueResult: "enqueued" | "dropped" | "closed" | "failed";
+  requestSideTotalMs: number;
+}
+
+export function sealTaskPackCanaryProductionResolution(input: {
+  legacySelection: TaskFileSelection;
+  resolution: TaskPackCanaryResolution;
+  productionSelection: TaskFileSelection | null;
+  requestStartedMonotonicMs: number;
+  requestDeadlineMonotonicMs: number;
+  monotonicMs(): number;
+  enqueue(decision: TaskPackCanaryResolution["decision"]): "enqueued" | "dropped" | "closed";
+}): TaskPackCanaryProductionSealResult {
+  const elapsed = (): number => Math.max(0, input.monotonicMs() - input.requestStartedMonotonicMs);
+  let finalResolution = input.resolution;
+  let effectiveSelection = input.legacySelection;
+
+  if (input.monotonicMs() >= input.requestDeadlineMonotonicMs) {
+    finalResolution = {
+      ...input.resolution,
+      adoptedFiles: null,
+      applied: false,
+      gatesPassed: false,
+      selectionDelta: false,
+      decision: createTaskPackCanaryDeadlineFallback(input.resolution.decision, elapsed()),
+    };
+  } else if (input.resolution.applied) {
+    const adopted = applyValidatedTaskPackCanarySelection({
+      legacySelection: input.legacySelection,
+      resolution: input.resolution,
+      productionSelection: input.productionSelection,
+    });
+    const selectionDelta = input.resolution.adoptedFiles !== null &&
+      hasTaskPackCanarySelectionDelta(input.legacySelection, input.resolution.adoptedFiles);
+    if (!selectionDelta) {
+      finalResolution = {
+        ...input.resolution,
+        adoptedFiles: null,
+        applied: false,
+        gatesPassed: true,
+        selectionDelta: false,
+        decision: createTaskPackCanaryNoSelectionDelta(input.resolution.decision, elapsed()),
+      };
+    } else if (adopted === input.legacySelection) {
+      finalResolution = {
+        ...input.resolution,
+        adoptedFiles: null,
+        applied: false,
+        gatesPassed: false,
+        selectionDelta: false,
+        decision: createTaskPackCanaryProductionFallback(
+          input.resolution.decision,
+          elapsed(),
+          "downstream_selection_mutated",
+        ),
+      };
+    } else {
+      effectiveSelection = adopted;
+    }
+  }
+
+  const canaryApplied = finalResolution.applied && finalResolution.selectionDelta &&
+    effectiveSelection !== input.legacySelection;
+  const finalDecision = withTaskPackCanaryTotalTiming(finalResolution.decision, elapsed());
+  finalResolution = { ...finalResolution, decision: finalDecision };
+  let enqueueResult: TaskPackCanaryProductionSealResult["enqueueResult"];
+  try {
+    enqueueResult = input.enqueue(finalDecision);
+  } catch {
+    enqueueResult = "failed";
+  }
+  const requestSideTotalMs = elapsed();
+  return {
+    effectiveSelection,
+    finalResolution,
+    canaryApplied,
+    confidenceUnavailablePaths: canaryApplied
+      ? new Set((finalResolution.adoptedFiles ?? []).map((file) => normalizePath(file.path).toLowerCase()))
+      : new Set<string>(),
+    enqueueResult,
+    requestSideTotalMs,
+  };
+}
+
+export function finalizeTaskPackEffectiveSelectorDiagnostics(input: {
+  baseline: SelectorPipelineDiagnostics;
+  quality: ContextSelectionQuality;
+  selection: TaskFileSelection;
+  manualSelectionApplied: boolean;
+  canaryApplied: boolean;
+}): SelectorPipelineDiagnostics {
+  const finalized = finalizeSelectorDiagnostics(
+    input.baseline,
+    input.quality,
+    input.selection,
+    { manualSelectionApplied: input.manualSelectionApplied },
+  );
+  if (!input.canaryApplied) return finalized;
+  const hasEditableTarget = input.selection.selectedFiles.some((file) =>
+    file.usage === "inspect-and-edit" || file.usage === "create-and-edit");
+  const blocked = input.quality.status === "blocked";
+  const manualReview = input.quality.requiredManualReview;
+  return {
+    ...finalized,
+    // The selector-specific source fields remain an explicit legacy baseline;
+    // the effective summary below is recomputed from the adopted production
+    // selection so stale abstention cannot become production authority.
+    legacy: finalized.legacy ?? input.baseline.actual,
+    selectionOrigin: "explicit_target_fast_path",
+    status: blocked ? "blocked" : manualReview ? "manual-review" : "success",
+    qualityStatus: input.quality.status,
+    actual: {
+      ...finalized.actual,
+      blocked,
+      manualReview,
+      missingTarget: !hasEditableTarget,
+      outcome: blocked ? "blocked" : input.selection.selectedFiles.length > 0 ? "selected" : "abstained",
+      abstention: null,
+    },
+  };
+}
+
+export function buildUniversalTaskPackContext({
   rawTask,
   taskType,
   inventory,
@@ -1140,7 +1461,7 @@ ${rows.join("\n")}
 `.trim();
 }
 
-function buildRelevantFilesSection(context: UniversalTaskPackContext) {
+export function buildRelevantFilesSection(context: UniversalTaskPackContext) {
   if (context.fileReferences.length === 0) {
     return `
 ## Relevant File Candidates
@@ -1150,8 +1471,12 @@ No relevant files were selected. Inspect the project manually before editing.
   }
 
   const rows = context.fileReferences.map((file) => {
-    const confidence = Math.round(file.confidence * 100);
-    const evidenceLabel = (() => {
+    const confidence = file.confidenceAvailable && file.confidence !== undefined
+      ? Math.round(file.confidence * 100)
+      : null;
+    const evidenceLabel = confidence === null
+      ? "grounded automatic selection passed production validation"
+      : (() => {
       switch (file.evidenceLevel) {
         case "user_confirmed":
           return `user-confirmed target signal: ${confidence}%`;
@@ -1535,7 +1860,7 @@ function restoreProtectedSections(
     .trim();
 }
 
-function buildContextAwareTemplatePrompt(
+export function buildContextAwareTemplatePrompt(
   templatePrompt: string,
   context: UniversalTaskPackContext,
 ) {
@@ -2309,7 +2634,7 @@ export async function createTaskPackWithPipeline(
             ? automaticFileSelection.effectiveTaskArea
             : taskIntent.taskArea;
 
-        const initialFileSelection = await measurePerformanceStage(
+        let initialFileSelection = await measurePerformanceStage(
           "selection_resolution",
           "Resolve final file selection",
           () =>
@@ -2389,6 +2714,112 @@ export async function createTaskPackWithPipeline(
           },
         );
 
+        let taskPackCanaryApplied = false;
+        let canaryConfidenceUnavailablePaths = new Set<string>();
+        if (
+          settings.contextEngineMode === "canary" &&
+          !manualSelectionRequested &&
+          ((settings.contextEngineCanaryPercent ?? 0) > 0 ||
+            (settings.contextEngineCanaryProjectIds?.length ?? 0) > 0)
+        ) {
+          const canaryRequestStarted = Math.floor(performance.now());
+          const canaryRequestDeadline = canaryRequestStarted + DEFAULT_TASK_PACK_CANARY_POLICY.timeoutMs;
+          const canaryBasis = createContextEngineShadowExecutionBasis({
+            policy: DEFAULT_TASK_PACK_CANARY_POLICY,
+            requestedTaskType: parsed.data.taskType,
+            effectiveTaskArea: effectiveSelectionArea,
+          });
+          const clarificationBasis = clarifications.map((clarification) => ({
+            questionId: createHash("sha256")
+              .update(clarification.question, "utf8")
+              .digest("hex")
+              .slice(0, 32),
+            answer: clarification.answer,
+          }));
+          try {
+            const canonical = prepareBoundedTaskPackCanaryInput({
+              deadlineMonotonicMs: canaryRequestDeadline,
+              monotonicMs: () => performance.now(),
+              prepare: prepareContextEngineShadowInput,
+              preparationInput: {
+              projectId: String(project.id),
+              projectRoot: project.localPath,
+              inventory,
+              normalizedTask: selectionTask,
+              clarificationBasis,
+              structuredTargets: taskIntent.structuredIntent.primaryTargets,
+              protectedScopes: taskIntent.structuredIntent.protectedScopes,
+              executionBasis: canaryBasis,
+              createdAt: new Date().toISOString(),
+              },
+            });
+            let validatedProductionSelection: TaskFileSelection | null = null;
+            const resolution = await runLiveTaskPackCanary({
+              mode: settings.contextEngineMode,
+              configuration: {
+                percent: settings.contextEngineCanaryPercent ?? 0,
+                projectIds: settings.contextEngineCanaryProjectIds ?? [],
+              },
+              canonical,
+              legacySelection: initialFileSelection,
+              requestStartedMonotonicMs: canaryRequestStarted,
+              requestDeadlineMonotonicMs: canaryRequestDeadline,
+              validateDownstream: (candidate) => {
+                const validation = validateTaskPackCanaryCandidate({
+                  rawTask: selectionTask,
+                  requestedTaskType: parsed.data.taskType,
+                  effectiveTaskArea: effectiveSelectionArea,
+                  inventory,
+                  taskIntent,
+                  contextQualityMode: settings.contextQualityMode,
+                  candidate,
+                });
+                if (validation.validation.passed) {
+                  validatedProductionSelection = validation.productionSelection;
+                }
+                return {
+                  validatedFiles: validation.validatedFiles,
+                  validation: validation.validation,
+                };
+              },
+            });
+            const sealed = sealTaskPackCanaryProductionResolution({
+              legacySelection: initialFileSelection,
+              resolution,
+              productionSelection: validatedProductionSelection,
+              requestStartedMonotonicMs: canaryRequestStarted,
+              requestDeadlineMonotonicMs: canaryRequestDeadline,
+              monotonicMs: () => performance.now(),
+              enqueue: enqueueContextEngineTaskPackCanaryDecision,
+            });
+            taskPackCanaryApplied = sealed.canaryApplied;
+            initialFileSelection = sealed.effectiveSelection;
+            canaryConfidenceUnavailablePaths = new Set(sealed.confidenceUnavailablePaths);
+          } catch (error) {
+            try {
+              enqueueContextEngineTaskPackCanaryDecision(createTaskPackCanaryPreparationFailure({
+                projectId: String(project.id),
+                failureBasis: createTaskPackCanaryPreparationFailureBasis({
+                  totalFiles: inventory.files.length,
+                  reasonCode: error instanceof TaskPackCanaryPreparationError
+                    ? error.code
+                    : "canonical_input_mismatch",
+                }),
+                legacySelection: initialFileSelection,
+                executionBasis: canaryBasis,
+                configuration: {
+                  percent: settings.contextEngineCanaryPercent ?? 0,
+                  projectIds: settings.contextEngineCanaryProjectIds ?? [],
+                },
+                createdAt: new Date().toISOString(),
+                totalMs: performance.now() - canaryRequestStarted,
+              }));
+            } catch {
+              console.warn("Failed to enqueue Context Engine Task Pack canary preparation diagnostics.");
+            }
+          }
+        }
+
         const selectionQuality = await measurePerformanceStage(
           "selection_quality",
           "Evaluate context quality",
@@ -2415,13 +2846,15 @@ export async function createTaskPackWithPipeline(
         const fileReferences = buildFileReferences({
           inventory,
           fileSelection,
+          confidenceUnavailablePaths: canaryConfidenceUnavailablePaths,
         });
-        const selectorDiagnostics = finalizeSelectorDiagnostics(
-          selectorPipeline.diagnostics,
-          selectionQuality,
-          fileSelection,
-          { manualSelectionApplied: manualSelectionRequested },
-        );
+        const selectorDiagnostics = finalizeTaskPackEffectiveSelectorDiagnostics({
+          baseline: selectorPipeline.diagnostics,
+          quality: selectionQuality,
+          selection: fileSelection,
+          manualSelectionApplied: manualSelectionRequested,
+          canaryApplied: taskPackCanaryApplied,
+        });
 
         const executionContract = buildEffectiveExecutionContract({
           rawTask: selectionTask,

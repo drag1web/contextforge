@@ -10,6 +10,7 @@ export {
   assertContextEngineShadowInputEquivalent,
   deriveShadowExplicitTargets,
   deriveShadowNegativeConstraints,
+  isPreparedContextEngineShadowInput,
   prepareContextEngineShadowInput,
 } from "./shadowInputPreparation.js";
 export type { PrepareContextEngineShadowInput, ShadowStructuredTarget } from "./shadowInputPreparation.js";

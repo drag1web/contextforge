@@ -30,6 +30,7 @@ const KNOWN_LAYERS = new Set([
   "validation",
   "shadow",
   "composer",
+  "canary",
   "adapters",
   "policy",
   "facade",
@@ -50,6 +51,7 @@ const ALLOWED_TARGET_LAYERS: Readonly<Record<string, ReadonlySet<string>>> = {
   validation: new Set(["contracts", "domain", "ports", "application", "adapters", "validation"]),
   shadow: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "shadow"]),
   composer: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "composer"]),
+  canary: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "shadow", "canary"]),
 };
 const LEGACY_SELECTOR_FRAGMENTS = [
   "/ollama/taskfileselector",
@@ -346,6 +348,22 @@ function isAllowedComposerProductIntegration(
   return resolved.toLocaleLowerCase("en-US") === expected.toLocaleLowerCase("en-US");
 }
 
+function isAllowedCanaryProductIntegration(
+  repositoryRoot: string,
+  importingFile: string,
+  importPath: string,
+): boolean {
+  if (!importPath.startsWith(".")) return false;
+  const relative = normalizePath(path.relative(
+    path.join(repositoryRoot, "server", "src"), importingFile,
+  ));
+  if (relative !== "routes/taskPacks.ts" && relative !== "settings/settingsService.ts") return false;
+  const resolved = normalizePath(path.resolve(path.dirname(importingFile), importPath))
+    .replace(/\.(?:js|ts|tsx)$/iu, "");
+  const expected = normalizePath(path.join(repositoryRoot, "server", "src", "contextEngineV2", "canary", "index"));
+  return resolved.toLocaleLowerCase("en-US") === expected.toLocaleLowerCase("en-US");
+}
+
 export function evaluateArchitectureImports(input: {
   repositoryRoot: string;
   modules: readonly ArchitectureSourceModule[];
@@ -404,7 +422,8 @@ export function evaluateArchitectureImports(input: {
           normalizePath(importPath).toLowerCase().includes("contextenginev2")
         ) {
           if (isAllowedShadowProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
-              isAllowedComposerProductIntegration(input.repositoryRoot, module.filePath, importPath)) {
+              isAllowedComposerProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
+              isAllowedCanaryProductIntegration(input.repositoryRoot, module.filePath, importPath)) {
             continue;
           }
           violations.push({
@@ -428,7 +447,8 @@ export function evaluateArchitectureImports(input: {
       const isValidationLayer = layer === "validation";
       const isShadowLayer = layer === "shadow";
       const isComposerLayer = layer === "composer";
-      if (!isCoreLayer && !isAdapterLayer && !isValidationLayer && !isShadowLayer && !isComposerLayer) {
+      const isCanaryLayer = layer === "canary";
+      if (!isCoreLayer && !isAdapterLayer && !isValidationLayer && !isShadowLayer && !isComposerLayer && !isCanaryLayer) {
         continue;
       }
       if (!importPath.startsWith(".")) {
@@ -451,7 +471,7 @@ export function evaluateArchitectureImports(input: {
             message:
               "Adapters may import only Node.js built-ins and explicitly allowed external parser packages.",
           });
-        } else if ((isValidationLayer || isShadowLayer || isComposerLayer) && !importPath.startsWith("node:")) {
+        } else if ((isValidationLayer || isShadowLayer || isComposerLayer || isCanaryLayer) && !importPath.startsWith("node:")) {
           violations.push({
             filePath: module.filePath,
             importPath,
@@ -500,7 +520,7 @@ export function evaluateArchitectureImports(input: {
           });
           continue;
         }
-        if (isValidationLayer || isShadowLayer || isComposerLayer) {
+        if (isValidationLayer || isShadowLayer || isComposerLayer || isCanaryLayer) {
           violations.push({
             filePath: module.filePath,
             importPath,

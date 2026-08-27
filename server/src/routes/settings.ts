@@ -6,6 +6,8 @@ import {
   clearSelectorDiagnosticsHistory,
   getContextEngineShadowDiagnosticsHistory,
   clearContextEngineShadowDiagnosticsHistory,
+  clearContextEngineTaskPackCanaryHistory,
+  getContextEngineTaskPackCanaryHistory,
   updateAppSettings,
 } from "../settings/settingsService.js";
 
@@ -66,7 +68,9 @@ const updateSettingsSchema = z.object({
   composerFileLimits: composerFileLimitsSchema.optional(),
   contextQualityMode: z.enum(["advisory", "balanced", "strict"]).optional(),
   selectorPipelineMode: z.enum(["legacy", "shadow_compare", "shadow_primary"]).optional(),
-  contextEngineMode: z.enum(["disabled", "shadow"]).optional(),
+  contextEngineMode: z.enum(["disabled", "shadow", "canary"]).optional(),
+  contextEngineCanaryPercent: z.number().int().min(0).max(100).optional(),
+  contextEngineCanaryProjectIds: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
   contextComposerEngineMode: z.enum(["legacy", "shadow_compare", "v2_primary"]).optional(),
   taskUnderstandingInteractionMode: z
     .enum(["automatic", "balanced", "confirm_all"])
@@ -125,6 +129,23 @@ settingsRouter.delete("/context-engine-shadow-diagnostics", async (_req, res) =>
       ok: false,
       message: "Failed to clear Context Engine shadow diagnostics",
     });
+  }
+});
+
+settingsRouter.get("/context-engine-task-pack-canary", async (_req, res) => {
+  try {
+    res.json({ ok: true, history: await getContextEngineTaskPackCanaryHistory() });
+  } catch {
+    res.status(500).json({ ok: false, message: "Failed to load Context Engine Task Pack canary history" });
+  }
+});
+
+settingsRouter.delete("/context-engine-task-pack-canary", async (_req, res) => {
+  try {
+    await clearContextEngineTaskPackCanaryHistory();
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ ok: false, message: "Failed to clear Context Engine Task Pack canary history" });
   }
 });
 

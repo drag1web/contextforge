@@ -21,6 +21,13 @@ import {
   normalizeContextComposerEngineMode,
   type ContextComposerEngineMode,
 } from "../contextEngineV2/composer/index.js";
+import {
+  closeTaskPackCanaryExecutionTracker,
+  createTaskPackCanaryDiagnosticsWriter,
+  createTaskPackCanaryHistory,
+  normalizeContextEngineCanaryConfiguration,
+  type TaskPackCanaryDecision,
+} from "../contextEngineV2/canary/index.js";
 
 export type SelectorPipelineMode = "legacy" | "shadow_compare" | "shadow_primary";
 export type TaskUnderstandingInteractionMode = "automatic" | "balanced" | "confirm_all";
@@ -64,6 +71,15 @@ export async function readContextEngineMode(
   );
 }
 
+export async function readContextEngineCanaryConfiguration(
+  read: <T>(key: string, fallback: T) => Promise<T> = getSettingValue,
+) {
+  return normalizeContextEngineCanaryConfiguration({
+    percent: await read("context_engine_canary_percent", 0),
+    projectIds: await read("context_engine_canary_project_ids", [] as string[]),
+  });
+}
+
 export async function readContextComposerEngineMode(
   read: <T>(key: string, fallback: T) => Promise<T> = getSettingValue,
 ): Promise<ContextComposerEngineMode> {
@@ -103,6 +119,8 @@ export interface AppSettings {
   contextQualityMode: ContextQualityMode;
   selectorPipelineMode: SelectorPipelineMode;
   contextEngineMode?: ContextEngineMode;
+  contextEngineCanaryPercent?: number;
+  contextEngineCanaryProjectIds?: string[];
   contextComposerEngineMode?: ContextComposerEngineMode;
   taskUnderstandingInteractionMode: TaskUnderstandingInteractionMode;
   sidebarShowDescriptions: boolean;
@@ -166,6 +184,8 @@ const defaultSettings: AppSettings = {
   contextQualityMode: "balanced",
   selectorPipelineMode: "legacy",
   contextEngineMode: "disabled",
+  contextEngineCanaryPercent: 0,
+  contextEngineCanaryProjectIds: [],
   contextComposerEngineMode: "legacy",
   taskUnderstandingInteractionMode: "balanced",
   sidebarShowDescriptions: false,
@@ -196,6 +216,8 @@ const settingKeyMap = {
   contextQualityMode: "context_quality_mode",
   selectorPipelineMode: "selector_pipeline_mode",
   contextEngineMode: "context_engine_mode",
+  contextEngineCanaryPercent: "context_engine_canary_percent",
+  contextEngineCanaryProjectIds: "context_engine_canary_project_ids",
   contextComposerEngineMode: "context_composer_engine_mode",
   taskUnderstandingInteractionMode: "task_understanding_interaction_mode",
   sidebarShowDescriptions: "sidebar_show_descriptions",
@@ -228,6 +250,7 @@ export async function getAppSettings(): Promise<AppSettings> {
     null,
   );
 
+  const canary = await readContextEngineCanaryConfiguration();
   return {
     ollamaUrl: await getSettingValue(
       settingKeyMap.ollamaUrl,
@@ -295,6 +318,8 @@ export async function getAppSettings(): Promise<AppSettings> {
     ),
     selectorPipelineMode: await readSelectorPipelineMode(),
     contextEngineMode: await readContextEngineMode(),
+    contextEngineCanaryPercent: canary.percent,
+    contextEngineCanaryProjectIds: [...canary.projectIds],
     contextComposerEngineMode: await readContextComposerEngineMode(),
     taskUnderstandingInteractionMode:
       await readTaskUnderstandingInteractionMode(),
@@ -586,6 +611,42 @@ export async function closeContextEngineShadowRuntime(timeoutMs = 250): Promise<
   const [executionsClosed, diagnosticsClosed] = await Promise.all([
     closeContextEngineShadowExecutionTracker(timeoutMs),
     closeContextEngineShadowDiagnosticsWriter(timeoutMs),
+  ]);
+  return executionsClosed && diagnosticsClosed;
+}
+
+const contextEngineTaskPackCanaryHistoryKey =
+  "context_engine_task_pack_canary_history";
+const contextEngineTaskPackCanaryHistory = createTaskPackCanaryHistory({
+  read: () => getSettingValue<unknown>(contextEngineTaskPackCanaryHistoryKey, []),
+  write: (value) => storage.setSettingValue(contextEngineTaskPackCanaryHistoryKey, value),
+  limit: 50,
+});
+const contextEngineTaskPackCanaryWriter = createTaskPackCanaryDiagnosticsWriter({
+  persist: (record) => contextEngineTaskPackCanaryHistory.append(record),
+  maxQueueLength: 50,
+});
+
+export function getContextEngineTaskPackCanaryHistory(): Promise<TaskPackCanaryDecision[]> {
+  return contextEngineTaskPackCanaryHistory.get();
+}
+
+export function enqueueContextEngineTaskPackCanaryDecision(record: TaskPackCanaryDecision) {
+  return contextEngineTaskPackCanaryWriter.enqueue(record);
+}
+
+export function getContextEngineTaskPackCanaryWriterState() {
+  return contextEngineTaskPackCanaryWriter.state();
+}
+
+export function clearContextEngineTaskPackCanaryHistory(): Promise<void> {
+  return contextEngineTaskPackCanaryHistory.clear();
+}
+
+export async function closeContextEngineTaskPackCanaryRuntime(timeoutMs = 250): Promise<boolean> {
+  const [executionsClosed, diagnosticsClosed] = await Promise.all([
+    closeTaskPackCanaryExecutionTracker(timeoutMs),
+    contextEngineTaskPackCanaryWriter.close(timeoutMs),
   ]);
   return executionsClosed && diagnosticsClosed;
 }

@@ -45,7 +45,8 @@
     "test:context-engine-v2:compatibility": "tsx src/contextEngineV2/testing/legacyCompatibility.smoke.ts",
     "test:context-engine-v2:validation": "tsx src/contextEngineV2/testing/contextEngineValidation.smoke.ts",
     "test:context-engine-v2:shadow": "tsx src/contextEngineV2/testing/contextEngineShadow.smoke.ts",
-    "test:context-engine-v2:composer": "tsx src/contextEngineV2/testing/contextEngineComposer.smoke.ts"
+    "test:context-engine-v2:composer": "tsx src/contextEngineV2/testing/contextEngineComposer.smoke.ts",
+    "test:context-engine-v2:task-pack-canary": "tsx src/contextEngineV2/testing/contextEngineTaskPackCanary.smoke.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",
