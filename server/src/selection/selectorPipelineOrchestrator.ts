@@ -23,11 +23,11 @@ import { isSecretLikePath } from "./safetyPolicy.js";
 
 export type SelectorPipelineMode =
   "legacy" | "shadow_compare" | "shadow_primary";
-export type EffectiveSelectorPipeline = "legacy" | "shadow";
+export type EffectiveSelectorPipeline = "legacy" | "shadow" | "repository";
 export type SelectorExecutionStatus = "success" | "fallback";
 export type SelectorQualityStatus = "ready" | "warning" | "blocked";
 export type SelectorSelectionOrigin =
-  "pipeline" | "manual_override" | "explicit_target_fast_path";
+  "pipeline" | "manual_override" | "explicit_target_fast_path" | "repository_grounded";
 export type SelectorDecisionOutcome = "selected" | "abstained" | "blocked";
 export type SelectorEvidenceStrength = "strong" | "supporting" | "reference";
 

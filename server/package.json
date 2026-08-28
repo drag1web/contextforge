@@ -47,7 +47,8 @@
     "test:context-engine-v2:shadow": "tsx src/contextEngineV2/testing/contextEngineShadow.smoke.ts",
     "test:context-engine-v2:composer": "tsx src/contextEngineV2/testing/contextEngineComposer.smoke.ts",
     "test:context-engine-v2:task-pack-canary": "tsx src/contextEngineV2/testing/contextEngineTaskPackCanary.smoke.ts",
-    "test:context-engine-v2:model-planner": "tsx src/contextEngineV2/testing/contextEngineModelPlanner.smoke.ts"
+    "test:context-engine-v2:model-planner": "tsx src/contextEngineV2/testing/contextEngineModelPlanner.smoke.ts",
+    "test:context-engine-v2:legacy-retirement": "tsx src/contextEngineV2/testing/contextEngineLegacyRetirement.smoke.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",

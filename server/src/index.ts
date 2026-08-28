@@ -17,6 +17,7 @@ import {
   closeContextComposerEngineRuntime,
   closeContextEngineShadowRuntime,
   closeContextEngineTaskPackCanaryRuntime,
+  closeContextEngineTaskPackPrimaryRuntime,
 } from "./settings/settingsService.js";
 
 const app = express();
@@ -78,6 +79,7 @@ async function bootstrap() {
     shutdownPromise = (async () => {
       await closeContextEngineShadowRuntime(250);
       await closeContextEngineTaskPackCanaryRuntime(250);
+      await closeContextEngineTaskPackPrimaryRuntime(250);
       await closeContextComposerEngineRuntime(250);
       await new Promise<void>((resolve) => server.close(() => resolve()));
     })().catch(() => undefined);

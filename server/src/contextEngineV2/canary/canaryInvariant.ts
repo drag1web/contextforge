@@ -8,7 +8,7 @@ const STATUSES = new Set([
   "not_enabled", "not_in_cohort", "v2_ineligible", "v2_confirmed_no_change", "v2_applied",
   "legacy_fallback", "critical_disagreement",
 ]);
-const MODES = new Set(["disabled", "shadow", "canary"]);
+const MODES = new Set(["disabled", "shadow", "canary", "primary"]);
 const REASONS = new Set<TaskPackCanaryReasonCode>([
   "canary_disabled", "project_not_in_cohort", "manual_selection_authoritative",
   "canonical_input_mismatch", "capacity_exhausted", "execution_timeout",

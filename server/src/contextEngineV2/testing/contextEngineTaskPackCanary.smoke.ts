@@ -154,7 +154,7 @@ const runtimeInput = (overrides: Partial<TaskPackCanaryRuntimeInput> = {}): Task
 
 // Modes and cohort.
 await scenario("default mode is disabled", () => assert.equal(normalizeContextEngineMode(undefined), "disabled"));
-await scenario("invalid mode is disabled", () => assert.equal(normalizeContextEngineMode("primary"), "disabled"));
+await scenario("primary mode is accepted by shared rollout normalization", () => assert.equal(normalizeContextEngineMode("primary"), "primary"));
 await scenario("shadow mode remains accepted", () => assert.equal(normalizeContextEngineMode("shadow"), "shadow"));
 await scenario("canary mode is accepted", () => assert.equal(normalizeContextEngineMode("canary"), "canary"));
 await scenario("canary percent defaults to zero", () => assert.equal(normalizeContextEngineCanaryPercent(undefined), 0));

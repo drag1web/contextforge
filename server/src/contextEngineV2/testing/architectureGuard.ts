@@ -31,6 +31,7 @@ const KNOWN_LAYERS = new Set([
   "shadow",
   "composer",
   "canary",
+  "retirement",
   "adapters",
   "policy",
   "facade",
@@ -54,6 +55,7 @@ const ALLOWED_TARGET_LAYERS: Readonly<Record<string, ReadonlySet<string>>> = {
   shadow: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "planner", "shadow"]),
   composer: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "planner", "composer"]),
   canary: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "shadow", "canary"]),
+  retirement: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "shadow", "retirement"]),
 };
 const LEGACY_SELECTOR_FRAGMENTS = [
   "/ollama/taskfileselector",
@@ -366,6 +368,20 @@ function isAllowedCanaryProductIntegration(
   return resolved.toLocaleLowerCase("en-US") === expected.toLocaleLowerCase("en-US");
 }
 
+function isAllowedRetirementProductIntegration(
+  repositoryRoot: string,
+  importingFile: string,
+  importPath: string,
+): boolean {
+  if (!importPath.startsWith(".")) return false;
+  const relative = normalizePath(path.relative(path.join(repositoryRoot, "server", "src"), importingFile));
+  if (relative !== "routes/taskPacks.ts" && relative !== "settings/settingsService.ts") return false;
+  const resolved = normalizePath(path.resolve(path.dirname(importingFile), importPath))
+    .replace(/\.(?:js|ts|tsx)$/iu, "");
+  const expected = normalizePath(path.join(repositoryRoot, "server", "src", "contextEngineV2", "retirement", "index"));
+  return resolved.toLocaleLowerCase("en-US") === expected.toLocaleLowerCase("en-US");
+}
+
 function isAllowedPlannerProductIntegration(
   repositoryRoot: string,
   importingFile: string,
@@ -473,6 +489,7 @@ export function evaluateArchitectureImports(input: {
           if (isAllowedShadowProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
               isAllowedComposerProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
               isAllowedCanaryProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
+              isAllowedRetirementProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
               isAllowedPlannerProductIntegration(input.repositoryRoot, module.filePath, importPath)) {
             continue;
           }
@@ -498,8 +515,9 @@ export function evaluateArchitectureImports(input: {
       const isShadowLayer = layer === "shadow";
       const isComposerLayer = layer === "composer";
       const isCanaryLayer = layer === "canary";
+      const isRetirementLayer = layer === "retirement";
       const isPlannerLayer = layer === "planner";
-      if (!isCoreLayer && !isAdapterLayer && !isValidationLayer && !isShadowLayer && !isComposerLayer && !isCanaryLayer && !isPlannerLayer) {
+      if (!isCoreLayer && !isAdapterLayer && !isValidationLayer && !isShadowLayer && !isComposerLayer && !isCanaryLayer && !isRetirementLayer && !isPlannerLayer) {
         continue;
       }
       if (!importPath.startsWith(".")) {
@@ -522,7 +540,7 @@ export function evaluateArchitectureImports(input: {
             message:
               "Adapters may import only Node.js built-ins and explicitly allowed external parser packages.",
           });
-        } else if ((isValidationLayer || isShadowLayer || isComposerLayer || isCanaryLayer || isPlannerLayer) && !importPath.startsWith("node:")) {
+        } else if ((isValidationLayer || isShadowLayer || isComposerLayer || isCanaryLayer || isRetirementLayer || isPlannerLayer) && !importPath.startsWith("node:")) {
           violations.push({
             filePath: module.filePath,
             importPath,
@@ -579,7 +597,7 @@ export function evaluateArchitectureImports(input: {
           });
           continue;
         }
-        if (isValidationLayer || isShadowLayer || isComposerLayer || isCanaryLayer || isPlannerLayer) {
+        if (isValidationLayer || isShadowLayer || isComposerLayer || isCanaryLayer || isRetirementLayer || isPlannerLayer) {
           violations.push({
             filePath: module.filePath,
             importPath,

@@ -9,6 +9,7 @@ import {
   appendSelectorDiagnostics,
   enqueueContextEngineShadowDiagnostics,
   enqueueContextEngineTaskPackCanaryDecision,
+  enqueueContextEngineTaskPackPrimaryDecision,
   getAppSettings,
 } from "../settings/settingsService.js";
 import {
@@ -36,6 +37,18 @@ import {
   type TaskPackCanaryReasonCode,
   type TaskPackCanaryResolution,
 } from "../contextEngineV2/canary/index.js";
+import {
+  DEFAULT_TASK_PACK_PRIMARY_POLICY,
+  createTaskPackPrimaryPreparationFailure,
+  isTrustedGroundedSelectionProof,
+  resolveTaskPackPrimaryLazyRollback,
+  runLiveTaskPackPrimary,
+  type GroundedSelectionProof,
+  type TaskPackPrimaryDownstreamValidationResult,
+  type TaskPackPrimaryMappedFile,
+  type TaskPackPrimaryReasonCode,
+  type TaskPackPrimaryResolution,
+} from "../contextEngineV2/retirement/index.js";
 import {
   buildTaskPackRulesTemplatePrompt,
   RulesServiceError,
@@ -71,6 +84,7 @@ import { applyTaskUnderstandingReviewAcceptance } from "../ollama/taskUnderstand
 import {
   applySelectionEvidenceGate,
   buildTaskExecutionContractFromIntent,
+  type RepositoryGroundedAuthorizationProof,
   type TaskExecutionContract,
 } from "../taskPacks/taskExecutionContract.js";
 import {
@@ -995,11 +1009,13 @@ function buildEffectiveExecutionContract({
   inventory,
   taskIntent,
   fileSelection,
+  repositoryGroundedProofs,
 }: {
   rawTask: string;
   inventory: ProjectInventory;
   taskIntent?: TaskIntentAnalysis;
   fileSelection: TaskFileSelection;
+  repositoryGroundedProofs?: readonly RepositoryGroundedAuthorizationProof[];
 }): TaskExecutionContract {
   const canonicalContract = fileSelection.diagnostics?.executionContract;
   if (canonicalContract) return canonicalContract;
@@ -1043,6 +1059,7 @@ function buildEffectiveExecutionContract({
       fileSelection.diagnostics?.existingImplementationCandidates ?? [],
     existingImplementationRequiresReview:
       fileSelection.diagnostics?.existingImplementationRequiresReview ?? false,
+    repositoryGroundedProofs,
   });
 }
 
@@ -1058,6 +1075,281 @@ function taskPackCanaryFileSignature(files: readonly TaskPackCanaryMappedFile[])
     path: file.path.replace(/\\/gu, "/").replace(/^\.\//u, ""),
     usage: file.usage,
   })).sort((left, right) => left.path.localeCompare(right.path) || left.usage.localeCompare(right.usage)));
+}
+
+function taskPackPrimaryFileSignature(files: readonly TaskPackPrimaryMappedFile[]): string {
+  return JSON.stringify(files.map((file) => ({
+    path: file.path.replace(/\\/gu, "/").replace(/^\.\//u, ""),
+    usage: file.usage,
+  })).sort((left, right) => left.path.localeCompare(right.path) || left.usage.localeCompare(right.usage)));
+}
+
+function createEmptyAutomaticFileSelection(input: {
+  requestedTaskType: string;
+  effectiveTaskArea: TaskFileSelection["effectiveTaskArea"];
+}): TaskFileSelection {
+  return {
+    selectedFiles: [],
+    rejectedModelPaths: [],
+    source: "deterministic",
+    usedFallback: false,
+    durationMs: 0,
+    notes: [],
+    effectiveTaskArea: input.effectiveTaskArea,
+    assetMode: "none",
+    diagnostics: {
+      selectorVersion: "task-pack-production-selection-v1",
+      safetyProfile: "task-pack-production",
+      generationMode: "template",
+      model: null,
+      requestedTaskType: input.requestedTaskType,
+      effectiveTaskArea: input.effectiveTaskArea,
+      usedFallback: false,
+      selectionSource: "manual-review",
+    },
+  };
+}
+
+export function createTaskPackPrimaryProductionEnvelope(input: {
+  candidate: readonly TaskPackPrimaryMappedFile[];
+  proofs: readonly GroundedSelectionProof[];
+  inventory: ProjectInventory;
+  requestedTaskType: string;
+  effectiveTaskArea: TaskFileSelection["effectiveTaskArea"];
+  userConfirmedTargetPaths?: readonly string[];
+}): TaskFileSelection {
+  const proofsByPath = new Map(input.proofs
+    .filter(isTrustedGroundedSelectionProof)
+    .map((proof) => [normalizePath(proof.path).toLowerCase(), proof]));
+  const userConfirmedTargetPaths = new Set(
+    (input.userConfirmedTargetPaths ?? []).map((path) => normalizePath(path).toLowerCase()),
+  );
+  const selectedFiles = input.candidate.flatMap((candidate) => {
+    const inventoryFile = findInventoryFile(input.inventory, candidate.path);
+    if (!inventoryFile) return [];
+    const editable = candidate.usage === "inspect-and-edit" || candidate.usage === "create-and-edit";
+    const proof = proofsByPath.get(normalizePath(candidate.path).toLowerCase());
+    const userConfirmed = userConfirmedTargetPaths.has(normalizePath(candidate.path).toLowerCase());
+    if (editable && !proof) return [];
+    return [{
+      path: inventoryFile.path,
+      kind: inventoryFile.kind,
+      usage: candidate.usage,
+      reason: editable
+        ? "Current repository evidence confirms this file for the requested change."
+        : "Current repository evidence includes this file as inspect-only context.",
+      confidence: 0,
+      evidenceLevel: editable ? ("graph_supported" as const) : ("inventory_exact" as const),
+      selectionEvidence: {
+        targetSource: editable
+          ? userConfirmed ? ("user_text" as const) : ("repository_grounded" as const)
+          : ("ranking" as const),
+        pathValidity: "inventory_exact" as const,
+        ownershipEvidence: editable
+          ? proof?.proofKind === "direct_definition" ? ("symbol_exact" as const) : ("reference_graph" as const)
+          : ("reference_graph" as const),
+        actionConfidence: editable ? ("confirmed_edit" as const) : ("inspect_only" as const),
+        semanticRoles: ["reference" as const],
+        symbols: [],
+        chain: [],
+        negativeConstraintConflicts: [],
+        reason: editable
+          ? "Current repository relationship evidence confirms implementation ownership."
+          : "Current repository relationship evidence supports inspect-only context.",
+      },
+    }];
+  });
+  const assetCount = selectedFiles.filter((file) => file.kind === "asset").length;
+  return {
+    selectedFiles,
+    rejectedModelPaths: [],
+    source: "deterministic",
+    usedFallback: false,
+    durationMs: 0,
+    notes: [],
+    effectiveTaskArea: input.effectiveTaskArea,
+    assetMode: assetCount === 0 ? "none" : assetCount === selectedFiles.length ? "primary" : "mixed",
+    diagnostics: {
+      selectorVersion: "task-pack-production-selection-v1",
+      safetyProfile: "task-pack-production",
+      generationMode: "template",
+      model: null,
+      requestedTaskType: input.requestedTaskType,
+      effectiveTaskArea: input.effectiveTaskArea,
+      usedFallback: false,
+      selectionSource: "final-decision",
+      semanticGraphEvidence: selectedFiles
+        .filter((file) => file.usage === "inspect-and-edit" || file.usage === "create-and-edit")
+        .map((file) => `Current repository relationship proof: ${file.path}`),
+    },
+  };
+}
+
+export interface TaskPackPrimaryProductionValidationResult extends TaskPackPrimaryDownstreamValidationResult {
+  productionSelection: TaskFileSelection;
+}
+
+export type TaskPackPrimaryProductionAuthorityResolution =
+  | { authority: "v2"; selection: TaskFileSelection }
+  | { authority: "legacy_rollback"; selection: null }
+  | { authority: "none"; selection: TaskFileSelection };
+
+export function applyTaskPackPrimaryProductionResolution(input: {
+  resolution: TaskPackPrimaryResolution;
+  productionSelection: TaskFileSelection | null;
+  emptySelection: TaskFileSelection;
+}): TaskPackPrimaryProductionAuthorityResolution {
+  if (input.resolution.rollbackEligible) return { authority: "legacy_rollback", selection: null };
+  if (input.resolution.status !== "v2_applied" || !input.resolution.adoptedFiles || !input.productionSelection) {
+    return { authority: "none", selection: input.emptySelection };
+  }
+  return taskPackPrimaryFileSignature(input.resolution.adoptedFiles) === taskPackSelectionSignature(input.productionSelection)
+    ? { authority: "v2", selection: input.productionSelection }
+    : { authority: "none", selection: input.emptySelection };
+}
+
+export function validateTaskPackPrimaryCandidate(input: {
+  rawTask: string;
+  requestedTaskType: string;
+  inventory: ProjectInventory;
+  taskIntent: TaskIntentAnalysis;
+  contextQualityMode: Parameters<typeof evaluateContextSelectionQuality>[0]["contextQualityMode"];
+  effectiveTaskArea: TaskFileSelection["effectiveTaskArea"];
+  candidate: readonly TaskPackPrimaryMappedFile[];
+  proofs: readonly GroundedSelectionProof[];
+}): TaskPackPrimaryProductionValidationResult {
+  const reasons: TaskPackPrimaryReasonCode[] = [];
+  const userConfirmedTargetPaths = input.taskIntent.structuredIntent.primaryTargets
+    .filter((target) => target.provenance === "user_confirmed" && typeof target.path === "string")
+    .map((target) => normalizePath(target.path!));
+  const envelope = createTaskPackPrimaryProductionEnvelope({
+    ...input,
+    userConfirmedTargetPaths,
+  });
+  if (envelope.selectedFiles.length !== input.candidate.length) reasons.push("downstream_context_ineligible");
+  const exactStructuredTargetsPreserved = userConfirmedTargetPaths.length > 0 && userConfirmedTargetPaths.every((path) =>
+    envelope.selectedFiles.some((file) => normalizePath(file.path).toLowerCase() === path.toLowerCase()));
+  const explicit = exactStructuredTargetsPreserved
+    ? { selection: envelope, status: "matched" as const }
+    : applyExplicitTargetGuard({
+        rawTask: input.rawTask,
+        inventory: input.inventory,
+        taskIntent: input.taskIntent,
+        selection: envelope,
+      });
+  if (explicit.status === "unresolved") reasons.push("downstream_explicit_target_rejected");
+  if (taskPackSelectionSignature(explicit.selection) !== taskPackPrimaryFileSignature(input.candidate)) {
+    reasons.push("downstream_selection_mutated");
+  }
+  const executionContract = buildEffectiveExecutionContract({
+    rawTask: input.rawTask,
+    inventory: input.inventory,
+    taskIntent: input.taskIntent,
+    fileSelection: explicit.selection,
+    repositoryGroundedProofs: input.proofs,
+  });
+  const withContract: TaskFileSelection = {
+    ...explicit.selection,
+    diagnostics: explicit.selection.diagnostics
+      ? { ...explicit.selection.diagnostics, executionContract }
+      : undefined,
+  };
+  const unavailable = new Set(input.candidate.map((file) => normalizePath(file.path).toLowerCase()));
+  const quality = evaluateContextSelectionQuality({
+    rawTask: input.rawTask,
+    requestedTaskType: input.requestedTaskType,
+    effectiveTaskArea: withContract.effectiveTaskArea,
+    inventory: input.inventory,
+    fileSelection: withContract,
+    manualSelectionConfirmed: false,
+    contextQualityMode: input.contextQualityMode,
+    taskIntent: input.taskIntent,
+    confidenceUnavailablePaths: unavailable,
+  });
+  if (quality.status === "blocked") reasons.push("downstream_quality_blocked");
+  if (quality.requiredManualReview || quality.status === "warning") reasons.push("downstream_manual_review");
+  const authorized = enforceExecutionAuthorizationAuthority({
+    rawTask: input.rawTask,
+    inventory: input.inventory,
+    taskIntent: input.taskIntent,
+    fileSelection: withContract,
+    qualityStatus: quality.status,
+    qualityBlockingReasons: quality.blockingReasons,
+  });
+  const authorizationPreserved = taskPackSelectionSignature(authorized) === taskPackPrimaryFileSignature(input.candidate) &&
+    authorized.diagnostics?.executionContract?.mode === "implementation" &&
+    authorized.diagnostics.executionContract.allowImplementationGuidance;
+  if (!authorizationPreserved) reasons.push("downstream_authorization_rejected");
+  const references = buildFileReferences({ inventory: input.inventory, fileSelection: authorized, confidenceUnavailablePaths: unavailable });
+  const contextAssemblyEligible = references.length === authorized.selectedFiles.length &&
+    authorized.selectedFiles.every((file) => findInventoryFile(input.inventory, file.path) !== undefined);
+  if (!contextAssemblyEligible) reasons.push("downstream_context_ineligible");
+  const passed = reasons.length === 0 && quality.status === "ready" && authorizationPreserved && contextAssemblyEligible;
+  return {
+    productionSelection: authorized,
+    validatedFiles: authorized.selectedFiles.map((file) => {
+      const source = input.candidate.find((candidate) => normalizePath(candidate.path).toLowerCase() === normalizePath(file.path).toLowerCase());
+      if (!source) throw new Error("downstream_selection_mutated");
+      return { path: normalizePath(file.path), kind: file.kind, role: source.role, usage: file.usage };
+    }),
+    validation: {
+      passed,
+      qualityStatus: quality.status,
+      explicitTargetStatus: explicit.status,
+      authorizationPreserved: Boolean(authorizationPreserved),
+      contextAssemblyEligible,
+      reasonCodes: passed ? ["v2_applied"] : [...new Set(reasons)],
+    },
+  };
+}
+
+export function createTaskPackPrimarySelectorDiagnostics(input: {
+  projectRef: string;
+  taskHash: string;
+  requestedMode: SelectorPipelineDiagnostics["requestedMode"];
+  selection: TaskFileSelection;
+}): SelectorPipelineDiagnostics {
+  const selectedFiles = input.selection.selectedFiles.map((file) => ({
+    path: file.path,
+    usage: file.usage,
+    reason: file.reason,
+    evidenceStrength: file.usage === "inspect-and-edit" || file.usage === "create-and-edit"
+      ? ("strong" as const)
+      : ("supporting" as const),
+  }));
+  const editable = input.selection.selectedFiles.find((file) => file.usage === "inspect-and-edit" || file.usage === "create-and-edit");
+  return {
+    id: `repository-${createHash("sha256").update(`${input.projectRef}\0${input.taskHash}`).digest("hex").slice(0, 24)}`,
+    timestamp: new Date().toISOString(),
+    projectRef: input.projectRef,
+    taskHash: input.taskHash,
+    requestedMode: input.requestedMode,
+    effectivePipeline: "repository",
+    status: selectedFiles.length > 0 ? "success" : "manual-review",
+    executionStatus: "success",
+    qualityStatus: selectedFiles.length > 0 ? "ready" : "warning",
+    selectionOrigin: "repository_grounded",
+    fallback: null,
+    shadowFailure: null,
+    timings: { totalMs: 0, legacyMs: null, shadowMs: null },
+    actual: {
+      pipeline: "repository",
+      selectedFiles,
+      primaryTarget: editable?.path ?? input.selection.selectedFiles[0]?.path ?? null,
+      implementationArea: input.selection.effectiveTaskArea,
+      confidence: 0,
+      quality: null,
+      blocked: false,
+      manualReview: selectedFiles.length === 0,
+      missingTarget: !editable,
+      candidateCount: selectedFiles.length,
+      outcome: selectedFiles.length > 0 ? "selected" : "abstained",
+      abstention: null,
+    },
+    legacy: null,
+    shadow: null,
+    comparison: null,
+  };
 }
 
 function createTaskPackCanaryProductionEnvelope(input: {
@@ -1308,6 +1600,7 @@ export function finalizeTaskPackEffectiveSelectorDiagnostics(input: {
   selection: TaskFileSelection;
   manualSelectionApplied: boolean;
   canaryApplied: boolean;
+  repositoryPrimaryApplied?: boolean;
 }): SelectorPipelineDiagnostics {
   const finalized = finalizeSelectorDiagnostics(
     input.baseline,
@@ -1315,7 +1608,7 @@ export function finalizeTaskPackEffectiveSelectorDiagnostics(input: {
     input.selection,
     { manualSelectionApplied: input.manualSelectionApplied },
   );
-  if (!input.canaryApplied) return finalized;
+  if (!input.canaryApplied && !input.repositoryPrimaryApplied) return finalized;
   const hasEditableTarget = input.selection.selectedFiles.some((file) =>
     file.usage === "inspect-and-edit" || file.usage === "create-and-edit");
   const blocked = input.quality.status === "blocked";
@@ -1325,8 +1618,9 @@ export function finalizeTaskPackEffectiveSelectorDiagnostics(input: {
     // The selector-specific source fields remain an explicit legacy baseline;
     // the effective summary below is recomputed from the adopted production
     // selection so stale abstention cannot become production authority.
-    legacy: finalized.legacy ?? input.baseline.actual,
-    selectionOrigin: "explicit_target_fast_path",
+    legacy: input.repositoryPrimaryApplied ? null : (finalized.legacy ?? input.baseline.actual),
+    effectivePipeline: input.repositoryPrimaryApplied ? "repository" : finalized.effectivePipeline,
+    selectionOrigin: input.repositoryPrimaryApplied ? "repository_grounded" : "explicit_target_fast_path",
     status: blocked ? "blocked" : manualReview ? "manual-review" : "success",
     qualityStatus: input.quality.status,
     actual: {
@@ -2557,54 +2851,44 @@ export async function createTaskPackWithPipeline(
         const manualSelectionRequested = Array.isArray(
           parsed.data.selectedFilePaths,
         );
-        const selectorInput = {
-          rawTask: selectionTask,
-          taskType: parsed.data.taskType,
-          targetTool: parsed.data.targetTool,
-          inventory,
-          taskIntent,
-          settings,
-          projectRef: String(project.id),
-        };
-        const explicitTargetFastPath = await measurePerformanceStage(
-          "explicit_target_fast_path",
-          "Check strict explicit-target fast path",
-          () =>
-            resolveExplicitTargetFastPath({
+        let selectorPipeline: Awaited<ReturnType<typeof runSelectorPipeline>>;
+        let automaticFileSelection: TaskFileSelection;
+        const runLegacyAutomaticSelection = async () => {
+          const selectorInput = {
+            rawTask: selectionTask,
+            taskType: parsed.data.taskType,
+            targetTool: parsed.data.targetTool,
+            inventory,
+            taskIntent,
+            settings,
+            projectRef: String(project.id),
+          };
+          const explicitTargetFastPath = await measurePerformanceStage(
+            "explicit_target_fast_path",
+            "Check strict explicit-target fast path",
+            () => resolveExplicitTargetFastPath({
               rawTask: selectionTask,
               taskType: parsed.data.taskType,
               inventory,
               taskIntent,
               settings,
             }),
-        );
-
-        let selectorPipeline: Awaited<ReturnType<typeof runSelectorPipeline>>;
-        let automaticFileSelection: TaskFileSelection;
-
-        if (
-          !manualSelectionRequested &&
-          explicitTargetFastPath.status === "matched" &&
-          explicitTargetFastPath.selection
-        ) {
-          taskIntent = explicitTargetFastPath.taskIntent;
-          selectorPipeline = await measurePerformanceStage(
-            "selector_pipeline",
-            "Use explicit-target fast path",
-            () =>
-              createExplicitTargetFastPathPipelineResult(
-                { ...selectorInput, taskIntent },
-                explicitTargetFastPath.selection!,
-              ),
           );
-          automaticFileSelection = explicitTargetFastPath.selection;
-          setPerformanceMetadata({
-            selectorFastPath: "explicit_target",
-            explicitTargetGuardStatus: "matched",
-            explicitTargetGuardPath: explicitTargetFastPath.matchedPath,
-          });
-        } else {
-          selectorPipeline = await measurePerformanceStage(
+          if (!manualSelectionRequested && explicitTargetFastPath.status === "matched" && explicitTargetFastPath.selection) {
+            taskIntent = explicitTargetFastPath.taskIntent;
+            const pipeline = await measurePerformanceStage(
+              "selector_pipeline",
+              "Use explicit-target fast path",
+              () => createExplicitTargetFastPathPipelineResult({ ...selectorInput, taskIntent }, explicitTargetFastPath.selection!),
+            );
+            setPerformanceMetadata({
+              selectorFastPath: "explicit_target",
+              explicitTargetGuardStatus: "matched",
+              explicitTargetGuardPath: explicitTargetFastPath.matchedPath,
+            });
+            return { pipeline, selection: explicitTargetFastPath.selection };
+          }
+          const pipeline = await measurePerformanceStage(
             "selector_pipeline",
             "Run selector pipeline",
             () => runSelectorPipeline(selectorInput),
@@ -2612,33 +2896,35 @@ export async function createTaskPackWithPipeline(
           const explicitTargetGuard = await measurePerformanceStage(
             "explicit_target_guard",
             "Ground explicit user target against project inventory",
-            () =>
-              applyExplicitTargetGuard({
-                rawTask: selectionTask,
-                inventory,
-                taskIntent,
-                selection: selectorPipeline.selection,
-              }),
+            () => applyExplicitTargetGuard({
+              rawTask: selectionTask,
+              inventory,
+              taskIntent,
+              selection: pipeline.selection,
+            }),
           );
           taskIntent = explicitTargetGuard.taskIntent;
-          automaticFileSelection = explicitTargetGuard.selection;
           setPerformanceMetadata({
             selectorFastPath: explicitTargetFastPath.status,
             explicitTargetGuardStatus: explicitTargetGuard.status,
             explicitTargetGuardPath: explicitTargetGuard.matchedPath,
           });
-        }
+          return { pipeline, selection: explicitTargetGuard.selection };
+        };
 
-        const effectiveSelectionArea =
-          "effectiveTaskArea" in automaticFileSelection
-            ? automaticFileSelection.effectiveTaskArea
-            : taskIntent.taskArea;
-
-        let initialFileSelection = await measurePerformanceStage(
-          "selection_resolution",
-          "Resolve final file selection",
-          () =>
-            manualSelectionRequested
+        let effectiveSelectionArea = taskIntent.taskArea;
+        let initialFileSelection: TaskFileSelection;
+        let taskPackPrimaryApplied = false;
+        let primaryConfidenceUnavailablePaths = new Set<string>();
+        if (settings.contextEngineMode !== "primary") {
+          const legacy = await runLegacyAutomaticSelection();
+          selectorPipeline = legacy.pipeline;
+          automaticFileSelection = legacy.selection;
+          effectiveSelectionArea = automaticFileSelection.effectiveTaskArea;
+          initialFileSelection = await measurePerformanceStage(
+            "selection_resolution",
+            "Resolve final file selection",
+            () => manualSelectionRequested
               ? buildManualComposerFileSelection({
                   inventory,
                   baseSelection: automaticFileSelection,
@@ -2647,7 +2933,140 @@ export async function createTaskPackWithPipeline(
                   effectiveTaskArea: effectiveSelectionArea,
                 })
               : automaticFileSelection,
-        );
+          );
+        } else if (manualSelectionRequested) {
+          automaticFileSelection = createEmptyAutomaticFileSelection({
+            requestedTaskType: parsed.data.taskType,
+            effectiveTaskArea: effectiveSelectionArea,
+          });
+          initialFileSelection = buildManualComposerFileSelection({
+            inventory,
+            baseSelection: automaticFileSelection,
+            selectedFilePaths: parsed.data.selectedFilePaths ?? [],
+            rawTask: selectionTask,
+            effectiveTaskArea: effectiveSelectionArea,
+          });
+          selectorPipeline = {
+            selection: initialFileSelection,
+            diagnostics: createTaskPackPrimarySelectorDiagnostics({
+              projectRef: String(project.id),
+              taskHash: createHash("sha256").update(selectionTask).digest("hex"),
+              requestedMode: settings.selectorPipelineMode,
+              selection: initialFileSelection,
+            }),
+          };
+        } else {
+          automaticFileSelection = createEmptyAutomaticFileSelection({
+            requestedTaskType: parsed.data.taskType,
+            effectiveTaskArea: effectiveSelectionArea,
+          });
+          initialFileSelection = automaticFileSelection;
+          selectorPipeline = {
+            selection: initialFileSelection,
+            diagnostics: createTaskPackPrimarySelectorDiagnostics({
+              projectRef: String(project.id),
+              taskHash: createHash("sha256").update(selectionTask).digest("hex"),
+              requestedMode: settings.selectorPipelineMode,
+              selection: initialFileSelection,
+            }),
+          };
+          const primaryStarted = Math.floor(performance.now());
+          const primaryDeadline = primaryStarted + DEFAULT_TASK_PACK_PRIMARY_POLICY.timeoutMs;
+          const primaryBasis = createContextEngineShadowExecutionBasis({
+            policy: DEFAULT_TASK_PACK_PRIMARY_POLICY,
+            requestedTaskType: parsed.data.taskType,
+            effectiveTaskArea: effectiveSelectionArea,
+            plannerMode: "deterministic",
+          });
+          try {
+            const canonical = prepareBoundedTaskPackCanaryInput({
+              deadlineMonotonicMs: primaryDeadline,
+              monotonicMs: () => performance.now(),
+              prepare: prepareContextEngineShadowInput,
+              preparationInput: {
+                projectId: String(project.id),
+                projectRoot: project.localPath,
+                inventory,
+                normalizedTask: selectionTask,
+                clarificationBasis: clarifications.map((clarification) => ({
+                  questionId: createHash("sha256").update(clarification.question, "utf8").digest("hex").slice(0, 32),
+                  answer: clarification.answer,
+                })),
+                structuredTargets: taskIntent.structuredIntent.primaryTargets,
+                protectedScopes: taskIntent.structuredIntent.protectedScopes,
+                executionBasis: primaryBasis,
+                createdAt: new Date().toISOString(),
+              },
+            });
+            let validatedSelection: TaskFileSelection | null = null;
+            const primaryResolution = await runLiveTaskPackPrimary({
+              canonical,
+              requestStartedMonotonicMs: primaryStarted,
+              requestDeadlineMonotonicMs: primaryDeadline,
+              validateDownstream: (candidate, proofs) => {
+                const validated = validateTaskPackPrimaryCandidate({
+                  rawTask: selectionTask,
+                  requestedTaskType: parsed.data.taskType,
+                  effectiveTaskArea: effectiveSelectionArea,
+                  inventory,
+                  taskIntent,
+                  contextQualityMode: settings.contextQualityMode,
+                  candidate,
+                  proofs,
+                });
+                if (validated.validation.passed) validatedSelection = validated.productionSelection;
+                return { validatedFiles: validated.validatedFiles, validation: validated.validation };
+              },
+            });
+            try { enqueueContextEngineTaskPackPrimaryDecision(primaryResolution.decision); } catch { /* diagnostics are non-authoritative */ }
+            const authority = applyTaskPackPrimaryProductionResolution({
+              resolution: primaryResolution,
+              productionSelection: validatedSelection,
+              emptySelection: automaticFileSelection,
+            });
+            if (authority.authority === "v2") {
+              initialFileSelection = authority.selection;
+              automaticFileSelection = authority.selection;
+              taskPackPrimaryApplied = true;
+              primaryConfidenceUnavailablePaths = new Set(
+                (primaryResolution.adoptedFiles ?? []).map((file) => normalizePath(file.path).toLowerCase()),
+              );
+              selectorPipeline = {
+                selection: authority.selection,
+                diagnostics: createTaskPackPrimarySelectorDiagnostics({
+                  projectRef: String(project.id),
+                  taskHash: canonical.taskFingerprint,
+                  requestedMode: settings.selectorPipelineMode,
+                  selection: authority.selection,
+                }),
+              };
+            } else if (authority.authority === "legacy_rollback") {
+              const legacy = await resolveTaskPackPrimaryLazyRollback({
+                resolution: primaryResolution,
+                runLegacy: runLegacyAutomaticSelection,
+              });
+              if (!legacy) throw new Error("primary_rollback_authority_mismatch");
+              selectorPipeline = legacy.pipeline;
+              automaticFileSelection = legacy.selection;
+              initialFileSelection = legacy.selection;
+              effectiveSelectionArea = legacy.selection.effectiveTaskArea;
+            }
+          } catch (error) {
+            // Preparation/integrity failures are not rollback-class runtime outages.
+            // Primary remains no-selection and downstream product guards fail safe.
+            try {
+              enqueueContextEngineTaskPackPrimaryDecision(createTaskPackPrimaryPreparationFailure({
+                projectId: String(project.id),
+                reason: error instanceof TaskPackCanaryPreparationError
+                  ? error.code
+                  : "canonical_input_mismatch",
+                executionBasis: primaryBasis,
+                createdAt: new Date().toISOString(),
+                totalMs: performance.now() - primaryStarted,
+              }));
+            } catch { /* diagnostics are non-authoritative */ }
+          }
+        }
 
         await runContextEngineShadowSidecar(
           settings.contextEngineMode,
@@ -2835,6 +3254,10 @@ export async function createTaskPackWithPipeline(
               manualSelectionConfirmed: manualSelectionRequested,
               contextQualityMode: settings.contextQualityMode,
               taskIntent,
+              confidenceUnavailablePaths: new Set([
+                ...canaryConfidenceUnavailablePaths,
+                ...primaryConfidenceUnavailablePaths,
+              ]),
             }),
         );
         const fileSelection = enforceExecutionAuthorizationAuthority({
@@ -2848,7 +3271,10 @@ export async function createTaskPackWithPipeline(
         const fileReferences = buildFileReferences({
           inventory,
           fileSelection,
-          confidenceUnavailablePaths: canaryConfidenceUnavailablePaths,
+          confidenceUnavailablePaths: new Set([
+            ...canaryConfidenceUnavailablePaths,
+            ...primaryConfidenceUnavailablePaths,
+          ]),
         });
         const selectorDiagnostics = finalizeTaskPackEffectiveSelectorDiagnostics({
           baseline: selectorPipeline.diagnostics,
@@ -2856,6 +3282,7 @@ export async function createTaskPackWithPipeline(
           selection: fileSelection,
           manualSelectionApplied: manualSelectionRequested,
           canaryApplied: taskPackCanaryApplied,
+          repositoryPrimaryApplied: taskPackPrimaryApplied,
         });
 
         const executionContract = buildEffectiveExecutionContract({

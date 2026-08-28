@@ -8,6 +8,8 @@ import {
   clearContextEngineShadowDiagnosticsHistory,
   clearContextEngineTaskPackCanaryHistory,
   getContextEngineTaskPackCanaryHistory,
+  clearContextEngineTaskPackPrimaryHistory,
+  getContextEngineTaskPackPrimaryHistory,
   updateAppSettings,
 } from "../settings/settingsService.js";
 
@@ -68,7 +70,7 @@ const updateSettingsSchema = z.object({
   composerFileLimits: composerFileLimitsSchema.optional(),
   contextQualityMode: z.enum(["advisory", "balanced", "strict"]).optional(),
   selectorPipelineMode: z.enum(["legacy", "shadow_compare", "shadow_primary"]).optional(),
-  contextEngineMode: z.enum(["disabled", "shadow", "canary"]).optional(),
+  contextEngineMode: z.enum(["disabled", "shadow", "canary", "primary"]).optional(),
   contextEnginePlannerMode: z.enum(["deterministic", "model_assisted"]).optional(),
   contextEngineCanaryPercent: z.number().int().min(0).max(100).optional(),
   contextEngineCanaryProjectIds: z.array(z.string().trim().min(1).max(80)).max(200).optional(),
@@ -147,6 +149,23 @@ settingsRouter.delete("/context-engine-task-pack-canary", async (_req, res) => {
     res.json({ ok: true });
   } catch {
     res.status(500).json({ ok: false, message: "Failed to clear Context Engine Task Pack canary history" });
+  }
+});
+
+settingsRouter.get("/context-engine-task-pack-primary", async (_req, res) => {
+  try {
+    res.json({ ok: true, history: await getContextEngineTaskPackPrimaryHistory() });
+  } catch {
+    res.status(500).json({ ok: false, message: "Failed to load Context Engine Task Pack primary history" });
+  }
+});
+
+settingsRouter.delete("/context-engine-task-pack-primary", async (_req, res) => {
+  try {
+    await clearContextEngineTaskPackPrimaryHistory();
+    res.json({ ok: true });
+  } catch {
+    res.status(500).json({ ok: false, message: "Failed to clear Context Engine Task Pack primary history" });
   }
 });
 

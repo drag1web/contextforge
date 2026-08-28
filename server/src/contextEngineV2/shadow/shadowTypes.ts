@@ -5,7 +5,7 @@ import type { InvestigationBudget } from "../contracts/investigation.js";
 import type { RepositorySnapshot } from "../contracts/repository.js";
 import type { InvestigationRunnerResult } from "../application/investigationRunnerTypes.js";
 
-export type ContextEngineMode = "disabled" | "shadow" | "canary";
+export type ContextEngineMode = "disabled" | "shadow" | "canary" | "primary";
 
 export type ContextEngineShadowStatus =
   | "completed"

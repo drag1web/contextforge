@@ -993,6 +993,50 @@ function testValidationCannotImportOnlineProvider(): void {
   assert.equal(violations[0]?.rule, "adapter_boundary_escape");
 }
 
+function testTaskPackRouteCanImportPrimaryRetirementFacade(): void {
+  assert.deepEqual(evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule("server/src/routes/taskPacks.ts", 'import { runLiveTaskPackPrimary } from "../contextEngineV2/retirement/index.js";')],
+  }), []);
+}
+
+function testRetirementCanUseOnlyNeutralPrimaryBoundaries(): void {
+  assert.deepEqual(evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule("server/src/contextEngineV2/retirement/runtime.ts", [
+      'import { createContextProjectionService } from "../application/index.js";',
+      'import { createLegacyTaskFileSelectionProjection } from "../adapters/legacySelection/index.js";',
+      'import { createLiveContextEngineExecution } from "../facade/liveContextEngineRuntime.js";',
+      'import { assertContextEngineShadowInputEquivalent } from "../shadow/index.js";',
+    ].join("\n"))],
+  }), []);
+}
+
+function testRetirementCannotImportProductValidationOrModelPlanner(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule("server/src/contextEngineV2/retirement/routeLeak.ts", 'import { route } from "../../routes/taskPacks.js";'),
+      fixtureModule("server/src/contextEngineV2/retirement/validationLeak.ts", 'import { run } from "../validation/index.js";'),
+      fixtureModule("server/src/contextEngineV2/retirement/modelLeak.ts", 'import { model } from "../planner/index.js";'),
+    ],
+  });
+  assert.equal(violations.length, 3);
+}
+
+function testCoreSelectorCannotImportRetirement(): void {
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [
+      fixtureModule("server/src/contextEngineV2/application/leak.ts", 'import { run } from "../retirement/index.js";'),
+      fixtureModule("server/src/selection/leak.ts", 'import { run } from "../contextEngineV2/retirement/index.js";'),
+    ],
+  });
+  assert.equal(violations.length, 2);
+  assert.equal(violations[0]?.rule, "layer_direction");
+  assert.equal(violations[1]?.rule, "production_isolation");
+}
+
 testCurrentArchitecturePasses();
 testLayerDirectionViolationIsDetected();
 testProductionImportIsDetected();
@@ -1059,4 +1103,8 @@ testCanaryCannotImportModelPlanner();
 testTaskPackRouteCannotImportModelPlanner();
 testShadowAndComposerMayUsePlannerModeOnly();
 testValidationCannotImportOnlineProvider();
-console.log("Context Engine v2 architecture smoke passed: 66 scenarios.");
+testTaskPackRouteCanImportPrimaryRetirementFacade();
+testRetirementCanUseOnlyNeutralPrimaryBoundaries();
+testRetirementCannotImportProductValidationOrModelPlanner();
+testCoreSelectorCannotImportRetirement();
+console.log("Context Engine v2 architecture smoke passed: 70 scenarios.");

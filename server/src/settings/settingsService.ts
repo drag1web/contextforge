@@ -28,6 +28,12 @@ import {
   normalizeContextEngineCanaryConfiguration,
   type TaskPackCanaryDecision,
 } from "../contextEngineV2/canary/index.js";
+import {
+  closeTaskPackPrimaryExecutionTracker,
+  createTaskPackPrimaryDiagnosticsWriter,
+  createTaskPackPrimaryHistory,
+  type TaskPackPrimaryDecision,
+} from "../contextEngineV2/retirement/index.js";
 import { closeModelPlannerRequestTracker } from "../contextEngineV2/planner/modelPlannerLifecycle.js";
 import { normalizeContextEnginePlannerMode } from "../contextEngineV2/planner/plannerMode.js";
 import type { ContextEnginePlannerMode } from "../contextEngineV2/planner/plannerMode.js";
@@ -666,6 +672,38 @@ export async function closeContextEngineTaskPackCanaryRuntime(timeoutMs = 250): 
   const [executionsClosed, diagnosticsClosed] = await Promise.all([
     closeTaskPackCanaryExecutionTracker(timeoutMs),
     contextEngineTaskPackCanaryWriter.close(timeoutMs),
+  ]);
+  return executionsClosed && diagnosticsClosed;
+}
+
+const contextEngineTaskPackPrimaryHistoryKey =
+  "context_engine_task_pack_primary_history";
+const contextEngineTaskPackPrimaryHistory = createTaskPackPrimaryHistory({
+  read: () => getSettingValue<unknown>(contextEngineTaskPackPrimaryHistoryKey, []),
+  write: (value) => storage.setSettingValue(contextEngineTaskPackPrimaryHistoryKey, value),
+  limit: 50,
+});
+const contextEngineTaskPackPrimaryWriter = createTaskPackPrimaryDiagnosticsWriter({
+  persist: (record) => contextEngineTaskPackPrimaryHistory.append(record),
+  maxQueueLength: 50,
+});
+
+export function getContextEngineTaskPackPrimaryHistory(): Promise<TaskPackPrimaryDecision[]> {
+  return contextEngineTaskPackPrimaryHistory.get();
+}
+
+export function enqueueContextEngineTaskPackPrimaryDecision(record: TaskPackPrimaryDecision) {
+  return contextEngineTaskPackPrimaryWriter.enqueue(record);
+}
+
+export function clearContextEngineTaskPackPrimaryHistory(): Promise<void> {
+  return contextEngineTaskPackPrimaryHistory.clear();
+}
+
+export async function closeContextEngineTaskPackPrimaryRuntime(timeoutMs = 250): Promise<boolean> {
+  const [executionsClosed, diagnosticsClosed] = await Promise.all([
+    closeTaskPackPrimaryExecutionTracker(timeoutMs),
+    contextEngineTaskPackPrimaryWriter.close(timeoutMs),
   ]);
   return executionsClosed && diagnosticsClosed;
 }

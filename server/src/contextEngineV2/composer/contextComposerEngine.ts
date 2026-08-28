@@ -493,11 +493,11 @@ export async function resolveContextComposerEngine(input: {
     });
   }
     return Object.freeze({
-      view: makeView({ requestedMode: input.mode, effectiveSource: "legacy", status: "legacy_fallback", stopReason: execution.result.stop.reason,
-        fallbackReason: "v2_not_grounded", files: legacyFiles(input.legacySelection), unresolvedQuestions,
+      view: makeView({ requestedMode: input.mode, effectiveSource: "v2", status: "v2_review_required", stopReason: execution.result.stop.reason,
+        fallbackReason: null, files: [], unresolvedQuestions,
         limitations: ["v2_not_grounded"], comparison }),
-      selection: input.legacySelection,
-      useLegacySelection: true,
+      selection: null,
+      useLegacySelection: false,
     });
   } catch {
     return integrityBlock({ mode: input.mode, reason: "v2_integrity_violation" });

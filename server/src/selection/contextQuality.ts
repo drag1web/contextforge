@@ -44,6 +44,7 @@ interface EvaluateContextSelectionQualityInput {
   manualSelectionConfirmed?: boolean;
   contextQualityMode?: ContextQualityMode;
   taskIntent?: TaskIntentAnalysis;
+  confidenceUnavailablePaths?: ReadonlySet<string>;
 }
 
 const TASK_STOP_WORDS = new Set([
@@ -1418,7 +1419,10 @@ export function evaluateContextSelectionQuality(
 
   if (
     input.fileSelection.selectedFiles.some(
-      (file) => file.usage === "inspect-and-edit" && file.confidence < 0.55,
+      (file) =>
+        file.usage === "inspect-and-edit" &&
+        !input.confidenceUnavailablePaths?.has(normalizeForCompare(file.path)) &&
+        file.confidence < 0.55,
     )
   ) {
     warnings.push(

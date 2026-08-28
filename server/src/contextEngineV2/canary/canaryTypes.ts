@@ -99,7 +99,7 @@ export interface TaskPackCanaryTiming {
 export interface TaskPackCanaryDecision {
   schemaVersion: 1;
   decisionId: string;
-  mode: "disabled" | "shadow" | "canary";
+  mode: "disabled" | "shadow" | "canary" | "primary";
   cohort: TaskPackCanaryCohortDecision;
   taskFingerprint: string;
   clarificationFingerprint: string;

@@ -10,6 +10,7 @@ import { buildProjectSemanticGraph } from "./projectSemanticGraph.js";
 export type SelectionTargetSource =
   | "user_text"
   | "clarification"
+  | "repository_grounded"
   | "model_inference"
   | "ranking";
 

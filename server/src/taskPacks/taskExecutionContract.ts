@@ -49,6 +49,23 @@ export interface TaskExecutionTargetEvidence {
   actionConfidence?: SelectionActionConfidence;
 }
 
+/**
+ * Production-internal authorization input for a repository-grounded target.
+ * The source string on FileSelectionEvidence is descriptive only; edit
+ * authorization additionally requires this validated proof to be supplied by
+ * the Context Engine primary downstream boundary.
+ */
+export interface RepositoryGroundedAuthorizationProof {
+  path: string;
+  role: "target" | "test";
+  evidenceCurrent: true;
+  findingConfirmed: true;
+  targetRoleSupported: true;
+  snapshotCurrent: true;
+  ambiguityResolved: true;
+  constraintsSatisfied: true;
+}
+
 export interface TaskExecutionAuthorization {
   intentAccepted: boolean;
   intentAcceptanceSource: "task_ready" | "user_review" | "none";
@@ -758,8 +775,35 @@ function pathMatchesLayer(
   return false;
 }
 
-function evidenceConfirmsOwnership(evidence?: FileSelectionEvidence) {
+function repositoryGroundedProofIsValid(
+  proof: RepositoryGroundedAuthorizationProof | undefined,
+  path: string,
+): proof is RepositoryGroundedAuthorizationProof {
+  return Boolean(
+    proof &&
+    normalizeForCompare(proof.path) === normalizeForCompare(path) &&
+    (proof.role === "target" || proof.role === "test") &&
+    proof.evidenceCurrent === true &&
+    proof.findingConfirmed === true &&
+    proof.targetRoleSupported === true &&
+    proof.snapshotCurrent === true &&
+    proof.ambiguityResolved === true &&
+    proof.constraintsSatisfied === true,
+  );
+}
+
+function evidenceConfirmsOwnership(
+  evidence: FileSelectionEvidence | undefined,
+  proof?: RepositoryGroundedAuthorizationProof,
+  path = proof?.path ?? "",
+) {
   if (!evidence || evidence.actionConfidence === "inspect_only") return false;
+  if (evidence.targetSource === "repository_grounded") {
+    return evidence.actionConfidence === "confirmed_edit" &&
+      evidence.pathValidity === "inventory_exact" &&
+      evidence.negativeConstraintConflicts.length === 0 &&
+      repositoryGroundedProofIsValid(proof, path);
+  }
   if (
     evidence.actionConfidence === "confirmed_edit" &&
     (evidence.targetSource === "user_text" ||
@@ -831,6 +875,7 @@ function evidenceConfirmsLayer(
     kind: ProjectInventoryFileKind;
     role: ProjectInventoryFileRole;
   },
+  proof?: RepositoryGroundedAuthorizationProof,
 ) {
   if (
     !pathMatchesLayer(
@@ -850,7 +895,7 @@ function evidenceConfirmsLayer(
       evidence.ownershipEvidence,
     ) &&
     evidence.negativeConstraintConflicts.length === 0;
-  if (!evidenceConfirmsOwnership(evidence) && !groundedInspectOnlySupport) {
+  if (!evidenceConfirmsOwnership(evidence, proof, file.path) && !groundedInspectOnlySupport) {
     return false;
   }
   if (layer === "storage") {
@@ -1057,7 +1102,11 @@ export function applySelectionEvidenceGate(input: {
     kind: ProjectInventoryFileKind;
     role: ProjectInventoryFileRole;
   }>;
+  repositoryGroundedProofs?: readonly RepositoryGroundedAuthorizationProof[];
 }): TaskExecutionContract {
+  const repositoryGroundedProofsByPath = new Map(
+    (input.repositoryGroundedProofs ?? []).map((proof) => [normalizeForCompare(proof.path), proof]),
+  );
   const selectionGroundsReviewedScope = Boolean(
     input.contract.authorization?.intentAccepted &&
     !input.contract.authorization.scopeConfirmed &&
@@ -1069,9 +1118,13 @@ export function applySelectionEvidenceGate(input: {
       return (
         (file.usage === "inspect-and-edit" ||
           file.usage === "create-and-edit") &&
-        evidence?.targetSource === "user_text" &&
+        (evidence?.targetSource === "user_text" || evidence?.targetSource === "repository_grounded") &&
         evidence.pathValidity === "inventory_exact" &&
-        evidenceConfirmsOwnership(evidence) &&
+        evidenceConfirmsOwnership(
+          evidence,
+          repositoryGroundedProofsByPath.get(normalizeForCompare(file.path)),
+          file.path,
+        ) &&
         evidence.negativeConstraintConflicts.length === 0
       );
     }),
@@ -1137,7 +1190,11 @@ export function applySelectionEvidenceGate(input: {
   const hasTrustedEditableEvidence = editable.some((file) => {
     if (file.evidenceLevel === "user_confirmed") return true;
     const evidence = file.selectionEvidence;
-    return evidenceConfirmsOwnership(evidence);
+    return evidenceConfirmsOwnership(
+      evidence,
+      repositoryGroundedProofsByPath.get(normalizeForCompare(file.path)),
+      file.path,
+    );
   });
   const missingConfirmedTargets = normalizedContractConfirmedTargets.filter(
     (target) => !selectedPaths.has(normalizeForCompare(target)),
@@ -1158,6 +1215,7 @@ export function applySelectionEvidenceGate(input: {
         file,
         layer,
         inventoryByPath.get(normalizeForCompare(file.path)),
+        repositoryGroundedProofsByPath.get(normalizeForCompare(file.path)),
       ),
     ),
   );
@@ -1250,7 +1308,13 @@ export function applySelectionEvidenceGate(input: {
         executionAuthorized &&
         (matching.usage === "inspect-and-edit" ||
           matching.usage === "create-and-edit") &&
-        evidenceConfirmsOwnership(matching.selectionEvidence);
+        evidenceConfirmsOwnership(
+          matching.selectionEvidence,
+          target.path
+            ? repositoryGroundedProofsByPath.get(normalizeForCompare(target.path))
+            : undefined,
+          target.path ?? "",
+        );
       return {
         ...target,
         evidenceLevel: matching.evidenceLevel ?? target.evidenceLevel,
@@ -1275,7 +1339,11 @@ export function applySelectionEvidenceGate(input: {
     const confirmedForImplementation =
       executionAuthorized &&
       (file.usage === "inspect-and-edit" || file.usage === "create-and-edit") &&
-      evidenceConfirmsOwnership(file.selectionEvidence);
+      evidenceConfirmsOwnership(
+        file.selectionEvidence,
+        repositoryGroundedProofsByPath.get(normalizeForCompare(file.path)),
+        file.path,
+      );
     targetEvidence.push({
       target: file.path,
       path: file.path,
