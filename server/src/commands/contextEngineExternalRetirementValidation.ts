@@ -3,6 +3,8 @@ import { fileURLToPath } from "node:url";
 
 import { runExternalRetirementValidationFile } from "./contextEngineExternalRetirementHarness.js";
 
+type ExternalRetirementValidationReport = Awaited<ReturnType<typeof runExternalRetirementValidationFile>>;
+
 function parseArgs(values: readonly string[]): {
   manifestPath: string;
   outputDirectory: string;
@@ -32,12 +34,24 @@ function parseArgs(values: readonly string[]): {
 export async function runExternalRetirementValidationCli(args = process.argv.slice(2)): Promise<number> {
   try {
     const report = await runExternalRetirementValidationFile(parseArgs(args));
-    process.stdout.write(`External retirement validation: ${report.readiness.hardSafetyGatesPassed ? "PASS" : "FAIL"}; ${report.metrics.executedCases}/${report.metrics.totalCases} cases executed.\n`);
+    process.stdout.write(formatExternalRetirementValidationCliSummary(report));
     return report.readiness.hardSafetyGatesPassed ? 0 : 2;
   } catch {
     process.stderr.write("External retirement validation failed: invalid_manifest_or_execution_failure\n");
     return 1;
   }
+}
+
+export function formatExternalRetirementValidationCliSummary(
+  report: ExternalRetirementValidationReport,
+): string {
+  return [
+    "External retirement validation:",
+    `hard safety gates ${report.readiness.hardSafetyGatesPassed ? "PASS" : "FAIL"};`,
+    `${report.metrics.executedCases}/${report.metrics.totalCases} cases executed;`,
+    `acceptable-or-better ${(report.metrics.acceptableOrBetterRate * 100).toFixed(1)}%;`,
+    "quality threshold not evaluated.",
+  ].join(" ") + "\n";
 }
 
 if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {

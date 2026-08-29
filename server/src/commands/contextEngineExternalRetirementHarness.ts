@@ -10,6 +10,7 @@ import {
   validateTaskPackPrimaryCandidate,
 } from "../routes/taskPacks.js";
 import { scanProjectInventory, type ProjectInventory } from "../scanner/projectInventoryScanner.js";
+import { groundTaskCurrentState } from "../taskPacks/taskCurrentStateGrounding.js";
 import {
   prepareBoundedTaskPackCanaryInput,
   TaskPackCanaryPreparationError,
@@ -81,10 +82,14 @@ export function deriveExternalRetirementExecutionInput(
   item: ExternalRetirementCaseManifest,
   inventory: ProjectInventory,
 ): ExternalRetirementDerivedExecutionInput {
-  const taskIntent = buildDeterministicTaskIntentFallback({
+  const taskIntent = groundTaskCurrentState({
     rawTask: item.task,
-    taskType: item.requestedTaskType,
-    projectTree: inventory.files.map((file) => file.path),
+    inventory,
+    taskIntent: buildDeterministicTaskIntentFallback({
+      rawTask: item.task,
+      taskType: item.requestedTaskType,
+      projectTree: inventory.files.map((file) => file.path),
+    }),
   });
   return {
     taskIntent,
@@ -307,8 +312,26 @@ export async function runExternalRetirementValidationFile(input: {
   if (!metadata.isFile() || metadata.size > 2_000_000) throw new Error("invalid_external_retirement_manifest");
   const manifestBytes = await fs.readFile(input.manifestPath);
   if (manifestBytes.byteLength > 2_000_000) throw new Error("invalid_external_retirement_manifest");
-  const raw = JSON.parse(manifestBytes.toString("utf8")) as unknown;
+  const raw = parseExternalRetirementManifestBytes(manifestBytes);
   const report = await runExternalRetirementValidation(raw, input);
   await writeExternalRetirementReport(report, input.outputDirectory);
   return report;
+}
+
+export function parseExternalRetirementManifestBytes(bytes: Uint8Array): unknown {
+  const utf8BomLength = bytes.byteLength >= 3 &&
+    bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf
+    ? 3
+    : 0;
+  let json: string;
+  try {
+    json = new TextDecoder("utf-8", { fatal: true }).decode(bytes.subarray(utf8BomLength));
+  } catch {
+    throw new Error("invalid_external_retirement_manifest");
+  }
+  try {
+    return JSON.parse(json) as unknown;
+  } catch {
+    throw new Error("invalid_external_retirement_manifest");
+  }
 }

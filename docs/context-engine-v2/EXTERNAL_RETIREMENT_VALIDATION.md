@@ -24,6 +24,10 @@ primary execution, projection, grounded proof, and production downstream
 validation. Missing project directories are reported as `not_run`; they are
 never claimed as passing.
 
+Manifest files are decoded as strict UTF-8 JSON. A single optional UTF-8 BOM is
+accepted for compatibility with Windows PowerShell 5.1 `Set-Content -Encoding
+UTF8`; malformed JSON and unsupported encodings still fail closed.
+
 ## Manifest and expectations
 
 The versioned manifest is closed and fails on accessors, unknown fields,
@@ -35,7 +39,9 @@ prescribed verdicts. `PASS`, `ACCEPTABLE`, `SAFE_FAIL`, `CRITICAL_FAIL`, and
 Default raw cases cannot supply execution-authority overrides. The harness
 derives effective task area, structured targets, target provenance, and
 protected scopes from the same deterministic production Task Intent fallback
-used with the raw task, requested task type, and active project inventory.
+used with the raw task, requested task type, and active project inventory. It
+then applies the production `groundTaskCurrentState` step before reading those
+fields and entering bounded primary preparation.
 `requiredPaths` and `forbiddenPaths` are evaluator expectations only. A path has
 `user_confirmed` provenance only when the raw task actually names and grounds it.
 Canonicalization passes through `prepareBoundedTaskPackCanaryInput` under the
@@ -72,3 +78,9 @@ replay mismatch, and unsupported grounded roles. The 85% acceptable-or-better
 value from the validation model remains a proposed threshold. The fallback-rate
 threshold is manifest-configurable observation metadata and is not enforced
 until human approval.
+
+The CLI summary reports hard-safety status, execution completeness, the observed
+acceptable-or-better rate, and that the quality threshold is not evaluated.
+Exit code `0` means only that the currently approved hard safety gates passed;
+it does not mean that retirement quality, fallback-rate, observation-window, or
+human-approval gates have been accepted.

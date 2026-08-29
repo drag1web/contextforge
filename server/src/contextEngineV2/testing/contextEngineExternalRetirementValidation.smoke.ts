@@ -5,10 +5,17 @@ import path from "node:path";
 
 import {
   deriveExternalRetirementExecutionInput,
+  parseExternalRetirementManifestBytes,
   runExternalRetirementValidation,
+  runExternalRetirementValidationFile,
 } from "../../commands/contextEngineExternalRetirementHarness.js";
-import { runExternalRetirementValidationCli } from "../../commands/contextEngineExternalRetirementValidation.js";
+import {
+  formatExternalRetirementValidationCliSummary,
+  runExternalRetirementValidationCli,
+} from "../../commands/contextEngineExternalRetirementValidation.js";
+import { buildDeterministicTaskIntentFallback } from "../../ollama/taskIntentAnalyzer.js";
 import { scanProjectInventory, type ProjectInventory } from "../../scanner/projectInventoryScanner.js";
+import { groundTaskCurrentState } from "../../taskPacks/taskCurrentStateGrounding.js";
 import { TASK_PACK_CANARY_PREPARATION_LIMITS } from "../canary/index.js";
 import {
   createContextEngineShadowExecutionTracker,
@@ -103,6 +110,36 @@ await scenario("manifest accessor is not executed", () => {
   assert.throws(() => validateExternalRetirementManifest(malformed));
   assert.equal(executed, false);
 });
+const manifestJson = JSON.stringify(manifest);
+await scenario("UTF-8 manifest JSON without BOM is accepted", () => {
+  assert.deepEqual(parseExternalRetirementManifestBytes(Buffer.from(manifestJson, "utf8")), manifest);
+});
+await scenario("UTF-8 manifest JSON with BOM is accepted", () => {
+  const bytes = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(manifestJson, "utf8")]);
+  assert.deepEqual(parseExternalRetirementManifestBytes(bytes), manifest);
+});
+await scenario("file harness executes a UTF-8 BOM manifest", async () => {
+  const manifestPath = path.join(root, "bom-manifest.json");
+  const outputDirectory = path.join(root, "bom-output");
+  await fs.writeFile(manifestPath, Buffer.concat([
+    Buffer.from([0xef, 0xbb, 0xbf]),
+    Buffer.from(manifestJson, "utf8"),
+  ]));
+  const bomReport = await runExternalRetirementValidationFile({
+    manifestPath,
+    outputDirectory,
+    caseFilter: [safeCase.id],
+  });
+  assert.equal(bomReport.metrics.totalCases, 1);
+  assert.equal(bomReport.metrics.executedCases, 1);
+  assert.equal(bomReport.metrics.notRunCases, 0);
+});
+await scenario("malformed manifest JSON fails closed", () => assert.throws(() =>
+  parseExternalRetirementManifestBytes(Buffer.from('{"schemaVersion":', "utf8")),
+  /invalid_external_retirement_manifest/u));
+await scenario("unsupported manifest encoding fails closed", () => assert.throws(() =>
+  parseExternalRetirementManifestBytes(Buffer.from(manifestJson, "utf16le")),
+  /invalid_external_retirement_manifest/u));
 await scenario("external harness uses bounded preparation before primary execution", async () => {
   const source = await fs.readFile(new URL("../../commands/contextEngineExternalRetirementHarness.ts", import.meta.url), "utf8");
   const started = source.indexOf("const primaryStarted = input.monotonicMs()");
@@ -162,6 +199,57 @@ await scenario("execution protected scopes come from task intent rather than for
   }, observedInventory!);
   assert.ok(derived.protectedScopes.includes("backend/api"));
   assert.equal(derived.protectedScopes.includes("src/entry.ts"), false);
+});
+await scenario("external input applies the production current-state grounding shape", () => {
+  const currentStateInventory = structuredClone(observedInventory!);
+  currentStateInventory.files[0] = {
+    ...currentStateInventory.files[0]!,
+    path: "src/keyboardShortcuts.ts",
+    name: "keyboardShortcuts.ts",
+    semanticFacts: {
+      declarations: ["keyboardShortcuts"], references: [], assignments: [],
+      objectProperties: ["id", "displayKeys", "enabled"], typeFields: [],
+      stateSymbols: [], translationKeys: [], translationEntries: [], routePaths: [],
+      structuredEntries: [
+        { values: [
+          { key: "id", value: "globalSearch" },
+          { key: "label", value: "Global Search" },
+          { key: "displayKeys", value: "Ctrl F" },
+          { key: "enabled", value: "true" },
+        ] },
+        { values: [
+          { key: "id", value: "openTaskPacks" },
+          { key: "label", value: "Open Task Packs" },
+          { key: "displayKeys", value: "Ctrl Shift P" },
+          { key: "enabled", value: "false" },
+        ] },
+      ],
+    },
+    contentPreview: "Global Search Ctrl F Open Task Packs Ctrl Shift P",
+  };
+  const currentStateCase = {
+    ...groundedCase,
+    task: "Change shortcut for Global Search from Ctrl+K to Ctrl+Shift+P.",
+  };
+  const fallback = buildDeterministicTaskIntentFallback({
+    rawTask: currentStateCase.task,
+    taskType: currentStateCase.requestedTaskType,
+    projectTree: currentStateInventory.files.map((file) => file.path),
+  });
+  const productionGrounded = groundTaskCurrentState({
+    rawTask: currentStateCase.task,
+    inventory: currentStateInventory,
+    taskIntent: fallback,
+  });
+  const external = deriveExternalRetirementExecutionInput(currentStateCase, currentStateInventory);
+  assert.deepEqual(
+    { ...external.taskIntent, durationMs: 0 },
+    { ...productionGrounded, durationMs: 0 },
+  );
+  assert.equal(external.taskIntent.taskUnderstanding.readiness, "review");
+  assert.equal(external.structuredTargets[0]?.path, "src/keyboardShortcuts.ts");
+  assert.deepEqual(external.structuredTargets, productionGrounded.structuredIntent.primaryTargets);
+  assert.deepEqual(external.protectedScopes, productionGrounded.structuredIntent.protectedScopes);
 });
 await scenario("grounded production execution is derived as pass", () => {
   const item = report.cases.find((entry) => entry.caseId === groundedCase.id);
@@ -360,6 +448,27 @@ await scenario("CLI returns zero for a fully executed clean scope", async () => 
     "--manifest", manifestPath,
     "--output", outputDirectory,
   ]), 0);
+});
+await scenario("CLI summary separates hard safety from unevaluated quality acceptance", () => {
+  const safeFailReport = createExternalRetirementReport({
+    manifestId: "external-safe-fail-summary",
+    createdAt: "2026-08-29T00:00:00.000Z",
+    cases: [{
+      ...report.cases[1]!,
+      actualStatus: "safe_fail",
+      actualPaths: [],
+      reasonCodes: ["downstream_authorization_rejected"],
+      verdict: "SAFE_FAIL",
+      deterministicReplayEquivalent: true,
+      groundedRolesSupported: true,
+    }],
+  });
+  const summary = formatExternalRetirementValidationCliSummary(safeFailReport);
+  assert.match(summary, /hard safety gates PASS;/u);
+  assert.match(summary, /1\/1 cases executed;/u);
+  assert.match(summary, /acceptable-or-better 0\.0%;/u);
+  assert.match(summary, /quality threshold not evaluated\./u);
+  assert.equal(summary.includes("External retirement validation: PASS"), false);
 });
 await scenario("portable report excludes local root and source content", () => {
   const serialized = serializeExternalRetirementReportJson(report);
