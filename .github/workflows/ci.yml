@@ -36,6 +36,15 @@ jobs:
       - name: Build renderer and server
         run: npm run build
 
+      - name: Repository hygiene
+        run: npm run test:repository-hygiene
+
+      - name: Context Engine v2 documentation integrity
+        run: npm run test:context-engine-v2:docs-integrity
+
+      - name: Context Engine V2
+        run: npm run test:context-engine-v2 -w @contextforge/server
+
       - name: MCP smoke
         run: npm run test:mcp
 

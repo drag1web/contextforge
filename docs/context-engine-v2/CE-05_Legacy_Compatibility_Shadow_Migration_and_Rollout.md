@@ -1,5 +1,13 @@
 # CE-05 — Legacy Compatibility, Shadow Migration, and Rollout
 
+> **Primary-mode amendment:** the broad fallback descriptions in this historical
+> staged-rollout document do not govern the later opt-in `primary` authority.
+> [`CE2-11_LEGACY_RETIREMENT.md`](CE2-11_LEGACY_RETIREMENT.md) permits lazy
+> legacy rollback in primary mode only for `capacity_exhausted`,
+> `execution_timeout`, and `execution_error`; semantic uncertainty and
+> projection/compatibility/downstream semantic failures fail closed. Disabled,
+> shadow, and canary behavior is unchanged.
+
 **Project:** ContextForge<br>
 **Architecture:** Context Engine v2<br>
 **Status:** Normative migration specification<br>

@@ -1000,6 +1000,23 @@ function testTaskPackRouteCanImportPrimaryRetirementFacade(): void {
   }), []);
 }
 
+function testExternalValidationCommandHasNarrowCompositionAccess(): void {
+  assert.deepEqual(evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule("server/src/commands/contextEngineExternalRetirementHarness.ts", [
+      'import { prepareBoundedTaskPackCanaryInput } from "../contextEngineV2/canary/index.js";',
+      'import { runLiveTaskPackPrimary } from "../contextEngineV2/retirement/index.js";',
+      'import { prepareContextEngineShadowInput } from "../contextEngineV2/shadow/index.js";',
+      'import { createExternalRetirementReport } from "../contextEngineV2/validation/index.js";',
+    ].join("\n"))],
+  }), []);
+  const violations = evaluateArchitectureImports({
+    repositoryRoot,
+    modules: [fixtureModule("server/src/commands/unrelated.ts", 'import { runLiveTaskPackPrimary } from "../contextEngineV2/retirement/index.js";')],
+  });
+  assert.equal(violations[0]?.rule, "production_isolation");
+}
+
 function testRetirementCanUseOnlyNeutralPrimaryBoundaries(): void {
   assert.deepEqual(evaluateArchitectureImports({
     repositoryRoot,
@@ -1104,6 +1121,7 @@ testTaskPackRouteCannotImportModelPlanner();
 testShadowAndComposerMayUsePlannerModeOnly();
 testValidationCannotImportOnlineProvider();
 testTaskPackRouteCanImportPrimaryRetirementFacade();
+testExternalValidationCommandHasNarrowCompositionAccess();
 testRetirementCanUseOnlyNeutralPrimaryBoundaries();
 testRetirementCannotImportProductValidationOrModelPlanner();
 testCoreSelectorCannotImportRetirement();

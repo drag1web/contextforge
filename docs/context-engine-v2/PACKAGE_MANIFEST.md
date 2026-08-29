@@ -12,4 +12,8 @@
 | `CE-06_Validation_and_Quality_Model.md` | Validation layers, metrics, severity, release gates |
 | `CE-07_Implementation_Roadmap_and_Codex_Work_Orders.md` | CE2-00 through CE2-11 implementation assignments |
 | `CODEX_EXECUTION_PROTOCOL.md` | Ready-to-use Codex workflow and prompts |
-| `SHA256SUMS.txt` | Integrity checksums for package files |
+| `CE2-11_LEGACY_RETIREMENT.md` | Implemented primary-authority readiness boundary and retained-legacy matrix |
+| `IMPLEMENTATION_STATUS.md` | Current code-readiness versus external/physical-retirement status |
+| `EXTERNAL_RETIREMENT_VALIDATION.md` | Private-project CLI, report metrics, gates, and observation workflow |
+| `external-retirement-manifest.example.json` | Generic manifest shape; copy outside Git and replace the local root |
+| `SHA256SUMS.txt` | Canonical-LF integrity checksums; verify with `npm run test:context-engine-v2:docs-integrity` |

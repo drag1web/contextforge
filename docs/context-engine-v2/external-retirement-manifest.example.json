@@ -1,0 +1,29 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "private-retirement-observation",
+  "title": "Private external retirement observation",
+  "candidateFallbackRateThreshold": 0.05,
+  "projects": [
+    {
+      "id": "generic-local-project",
+      "rootPath": "C:/replace/with/local/project",
+      "cases": [
+        {
+          "id": "explicit-service-update",
+          "title": "Update an explicit service owner",
+          "repositoryShape": "service",
+          "task": "Update src/service.ts service implementation",
+          "requestedTaskType": "backend",
+          "expectations": {
+            "expectedOutcome": "grounded_selection",
+            "allowedStatuses": ["v2_applied"],
+            "requiredPaths": ["src/service.ts"],
+            "forbiddenPaths": [],
+            "ambiguityExpected": false,
+            "expectedRollbackReason": null
+          }
+        }
+      ]
+    }
+  ]
+}

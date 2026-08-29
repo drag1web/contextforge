@@ -23,6 +23,24 @@ are not present in this worktree. Consequently:
 No automatic setting migration is performed. `primary -> disabled`,
 `primary -> shadow`, and `primary -> canary` take effect on the next request.
 
+## Authoritative primary rollback amendment
+
+This section supersedes the broader staged-rollout fallback language in CE-05
+for the opt-in `primary` authority mode only. A semantic failure in primary
+mode fails closed. Ambiguity, insufficient evidence, contradictions, projection
+validation failure, compatibility validation failure, and downstream semantic
+failure do not select a legacy winner.
+
+Legacy rollback is permitted only for the closed infrastructure allowlist:
+
+- `capacity_exhausted`;
+- `execution_timeout`;
+- `execution_error` (a tracked investigation execution rejection).
+
+`disabled`, `shadow`, and `canary` semantics are not silently redefined by this
+amendment. Projection, compatibility, and downstream exceptions remain typed
+engine/safe failures rather than rollback reasons.
+
 ## Retirement matrix
 
 | Component | Current callers | Authority before CE2-11 | V2 replacement | Disabled | Shadow | Canary | Rollback | Test/benchmark | Authority retirement | Source removal | Blocking reason if retained |

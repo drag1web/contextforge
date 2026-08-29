@@ -2,7 +2,7 @@
 
 **Project:** ContextForge<br>
 **Baseline:** `0.7.0-alpha` snapshot audited on 2026-07-28<br>
-**Package status:** Approved for staged implementation<br>
+**Package status:** CE2-00 through CE2-10 implemented; CE2-11 code readiness implemented; external retirement validation pending<br>
 **Intended implementer:** Codex or another repository-aware coding agent under human review
 
 ---
@@ -14,6 +14,14 @@ This package defines the architecture, contracts, migration rules, validation mo
 Context Engine v2 is **not** a rewrite of ContextForge as a product and is **not** another ranking layer inside the current selector. It is a new bounded subsystem that investigates a repository iteratively, records claims and evidence, tracks unresolved questions, stops by explicit policy, and only then projects the result into implementation context or a legacy-compatible file selection.
 
 The package is intentionally complete enough to give an implementation agent the full architectural picture, but implementation must still proceed one work order at a time.
+
+The historical work-order specification remains authoritative, but implementation
+status is tracked separately in [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md).
+In particular, checkpoint `d543114` implements CE2-11 retirement readiness,
+not the physical legacy removal described by the final historical work order.
+The global default remains `disabled` and physical retirement still requires
+external observations, an approved fallback threshold, rollback/archive proof,
+and explicit human approval.
 
 ---
 
@@ -42,6 +50,11 @@ The package is intentionally complete enough to give an implementation agent the
 
 8. **CODEX_EXECUTION_PROTOCOL**<br>
    Defines how to hand one work order to Codex, what evidence Codex must return, and how to prevent scope expansion.
+
+9. **Implementation status and external validation**<br>
+   `IMPLEMENTATION_STATUS.md` records the current checkpoint without rewriting
+   historical work orders. `EXTERNAL_RETIREMENT_VALIDATION.md` documents the
+   production-faithful private-project harness and portable observation report.
 
 ---
 
@@ -114,6 +127,10 @@ A coincidentally correct file list without supported reasoning is not sufficient
 ## 6. Versioning and change control
 
 This package is the initial architecture baseline: **CE2 Architecture Baseline 1**.
+
+`SHA256SUMS.txt` hashes the canonical LF representation of each listed document.
+Run `npm run test:context-engine-v2:docs-integrity` from the repository root;
+the verifier normalizes CRLF checkouts before hashing.
 
 Changes to the following require an explicit architecture decision recorded in the relevant document:
 

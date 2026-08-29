@@ -5,8 +5,17 @@ coverage/
 .vite/
 
 .env
+.env.*
+!.env.example
+!.env.*.example
 *.env.disabled
 *.log
+
+*.sqlite
+*.sqlite-*
+*.db
+*.bak
+*.backup.*
 
 apps/desktop/renderer/dist/
 server/dist/
@@ -18,6 +27,7 @@ server/dist/
 Thumbs.db
 
 # Local ContextForge databases and backups
+/server/data/
 data/*.sqlite*
 data/**/*.sqlite*
 data/*.db*
@@ -32,6 +42,9 @@ server/data/**/*.db*
 server/data/*.bak
 server/data/**/*.bak
 server/data/backups/
+
+# Private Context Engine external-validation manifests and reports
+/.contextforge-validation/
 
 # Generated selector benchmark reports and local real-project manifests
 reports/selector-benchmark*/

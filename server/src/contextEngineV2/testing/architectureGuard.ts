@@ -407,6 +407,25 @@ function isAllowedPlannerProductIntegration(
     resolved === `${plannerRoot}/modelplannerlifecycle`;
 }
 
+function isAllowedExternalValidationCommandIntegration(
+  repositoryRoot: string,
+  importingFile: string,
+  importPath: string,
+): boolean {
+  if (!importPath.startsWith(".")) return false;
+  const relative = normalizePath(path.relative(path.join(repositoryRoot, "server", "src"), importingFile));
+  if (relative !== "commands/contextEngineExternalRetirementHarness.ts") return false;
+  const resolved = normalizePath(path.resolve(path.dirname(importingFile), importPath))
+    .replace(/\.(?:js|ts|tsx)$/iu, "")
+    .toLocaleLowerCase("en-US");
+  return [
+    "contextEngineV2/canary/index",
+    "contextEngineV2/retirement/index",
+    "contextEngineV2/shadow/index",
+    "contextEngineV2/validation/index",
+  ].some((target) => resolved === normalizePath(path.join(repositoryRoot, "server", "src", target)).toLocaleLowerCase("en-US"));
+}
+
 function isAllowedModelProviderImport(
   repositoryRoot: string,
   v2Root: string,
@@ -490,7 +509,8 @@ export function evaluateArchitectureImports(input: {
               isAllowedComposerProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
               isAllowedCanaryProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
               isAllowedRetirementProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
-              isAllowedPlannerProductIntegration(input.repositoryRoot, module.filePath, importPath)) {
+              isAllowedPlannerProductIntegration(input.repositoryRoot, module.filePath, importPath) ||
+              isAllowedExternalValidationCommandIntegration(input.repositoryRoot, module.filePath, importPath)) {
             continue;
           }
           violations.push({

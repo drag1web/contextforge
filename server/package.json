@@ -48,7 +48,10 @@
     "test:context-engine-v2:composer": "tsx src/contextEngineV2/testing/contextEngineComposer.smoke.ts",
     "test:context-engine-v2:task-pack-canary": "tsx src/contextEngineV2/testing/contextEngineTaskPackCanary.smoke.ts",
     "test:context-engine-v2:model-planner": "tsx src/contextEngineV2/testing/contextEngineModelPlanner.smoke.ts",
-    "test:context-engine-v2:legacy-retirement": "tsx src/contextEngineV2/testing/contextEngineLegacyRetirement.smoke.ts"
+    "test:context-engine-v2:legacy-retirement": "tsx src/contextEngineV2/testing/contextEngineLegacyRetirement.smoke.ts",
+    "test:context-engine-v2:external-retirement-validation": "tsx src/contextEngineV2/testing/contextEngineExternalRetirementValidation.smoke.ts",
+    "test:context-engine-v2": "npm run test:context-engine-v2:contracts && npm run test:context-engine-v2:architecture && npm run test:context-engine-v2:snapshot && npm run test:context-engine-v2:extraction && npm run test:context-engine-v2:graph && npm run test:context-engine-v2:domain && npm run test:context-engine-v2:runner && npm run test:context-engine-v2:projection && npm run test:context-engine-v2:compatibility && npm run test:context-engine-v2:validation && npm run test:context-engine-v2:shadow && npm run test:context-engine-v2:composer && npm run test:context-engine-v2:task-pack-canary && npm run test:context-engine-v2:model-planner && npm run test:context-engine-v2:legacy-retirement && npm run test:context-engine-v2:external-retirement-validation",
+    "validate:context-engine-v2:external": "tsx src/commands/contextEngineExternalRetirementValidation.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.29.0",

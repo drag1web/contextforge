@@ -5,6 +5,13 @@
 **Status:** Approved staged implementation plan<br>
 **Depends on:** CE-01 through CE-06
 
+> **Current implementation note (2026-08-28):** this file preserves the
+> historical work orders. CE2-00 through CE2-10 implementation and the CE2-11
+> primary-authority retirement-readiness checkpoint are implemented. External
+> cross-project validation, the observation/fallback gates, human approval,
+> global default migration, and the physical CE2-11 legacy removal described
+> here remain pending. See `IMPLEMENTATION_STATUS.md`.
+
 ---
 
 ## 1. Purpose

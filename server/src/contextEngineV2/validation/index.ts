@@ -10,3 +10,5 @@ export * from "./legacyCaseTranslation.js";
 export * from "./fileGoldenStore.js";
 export * from "./validationProjectLoader.js";
 export * from "./deterministicValidationExecutor.js";
+export * from "./externalRetirementManifest.js";
+export * from "./externalRetirementReport.js";

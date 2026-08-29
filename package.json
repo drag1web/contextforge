@@ -43,7 +43,9 @@
     "test:authorization-authority": "npm run test:authorization-authority -w @contextforge/server",
     "test:safety-preconditions": "npm run test:safety-preconditions -w @contextforge/server",
     "test:explicit-create-wiring": "npm run test:explicit-create-wiring -w @contextforge/server",
-    "test:core-freeze-guard": "npm run test:core-freeze-guard -w @contextforge/server"
+    "test:core-freeze-guard": "npm run test:core-freeze-guard -w @contextforge/server",
+    "test:repository-hygiene": "node scripts/repositoryHygiene.smoke.mjs && node scripts/repositoryHygiene.mjs",
+    "test:context-engine-v2:docs-integrity": "node scripts/verifyContextEngineDocs.mjs"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",

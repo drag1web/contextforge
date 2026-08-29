@@ -45,6 +45,16 @@ Goal: publish the refreshed source baseline and expose ContextForge safely to MC
 
 ## Next: v0.7.x — Repository intelligence and MCP hardening
 
+Context Engine v2 implementation status:
+
+- [x] CE2-00 through CE2-10 staged implementation.
+- [x] CE2-11 opt-in primary-authority code readiness at `d543114`.
+- [x] Reproducible external-retirement validation tooling and repository hygiene.
+- [ ] Run approved manifests across real local projects.
+- [ ] Complete the observation window and approve a fallback-rate threshold.
+- [ ] Verify the rollback/archive checkpoint and receive human rollout approval.
+- [ ] Execute physical legacy retirement and change the global default; neither is approved yet.
+
 - [ ] Review live MCP usage across Codex CLI, IDE extension, and desktop surfaces.
 - [ ] Add richer stored Git summaries without allowing arbitrary repository reads through MCP.
 - [ ] Improve older Task Pack explanation compatibility.

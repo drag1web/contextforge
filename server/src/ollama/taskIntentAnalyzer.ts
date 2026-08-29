@@ -1017,6 +1017,13 @@ function buildFallbackIntent({ rawTask, taskType, projectTree = [] }: Pick<Analy
     };
 }
 
+/** Deterministic production fallback used by offline, no-provider validation. */
+export function buildDeterministicTaskIntentFallback(
+    input: Pick<AnalyzeTaskIntentInput, "rawTask" | "taskType"> & { projectTree?: string[] }
+): TaskIntentAnalysis {
+    return buildFallbackIntent(input);
+}
+
 function cleanupJsonCandidate(value: string) {
     return value
         .replace(/^```(?:json)?/i, "")

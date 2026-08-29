@@ -2,7 +2,23 @@
 
 ## Unreleased
 
-No changes recorded yet.
+### Context Engine v2 pre-validation hygiene
+
+- Recorded the CE2-11 opt-in primary-authority checkpoint as retirement
+  readiness rather than completed physical legacy retirement; the global
+  default remains disabled pending external gates and human approval.
+- Added an authoritative primary rollback amendment: only capacity exhaustion,
+  execution timeout, and tracked execution rejection permit lazy legacy
+  rollback; semantic failures continue to fail closed.
+- Added a canonical full Context Engine v2 test command, GitHub Actions coverage,
+  repository-hygiene protection, and platform-independent canonical-LF
+  architecture-document integrity verification.
+- Added a production-faithful offline external-retirement validation CLI with
+  private multi-project manifests, deterministic replay, derived verdicts,
+  safety/rollback metrics, and privacy-safe JSON/Markdown observation reports.
+- Removed tracked workspace backups, an obsolete renderer source backup, and a
+  generated local rules store from the current source tree. Public-history
+  cleanup remains a separate coordinated maintainer operation.
 
 ## 0.7.0-alpha — Desktop Workspace & Local MCP
 
