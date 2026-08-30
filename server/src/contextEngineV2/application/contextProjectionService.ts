@@ -376,7 +376,7 @@ function validateInput(raw: ContextProjectionInput): {
   const filesById = new Map(input.snapshot.files.map((file) => [file.id, file]));
   entities.forEach((entity) => {
     assertEntityEvaluationConsistency({ entity, snapshotId: input.snapshot.id });
-    const requiredFileId = entity.kind === "file" ? entity.id : entity.fileId;
+    const requiredFileId = entity.fileId ?? (entity.kind === "file" ? entity.id : undefined);
     if (requiredFileId !== undefined && !filesById.has(requiredFileId)) {
       throw new Error("unknown_entity_file");
     }

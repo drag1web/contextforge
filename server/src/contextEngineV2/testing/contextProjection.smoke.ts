@@ -6,7 +6,10 @@ import {
   type ContextProjectionInput,
   type InvestigationRunnerResult,
 } from "../application/index.js";
-import { createLegacyTaskFileSelectionProjection } from "../adapters/index.js";
+import {
+  createLegacyTaskFileSelectionProjection,
+  createManifestFactExtractor,
+} from "../adapters/index.js";
 import type {
   ClaimId,
   ContradictionId,
@@ -400,6 +403,30 @@ function scenario(name: string, run: () => void): void {
 }
 
 const service = createContextProjectionService();
+const realManifestContent = JSON.stringify({
+  name: "projection-manifest-fixture",
+  version: "1.0.0",
+});
+const realManifestFile = file({
+  id: "file-real-manifest" as EntityId,
+  path: "package.json",
+  extension: ".json",
+  language: "json",
+  kind: "configuration",
+  sizeBytes: Buffer.byteLength(realManifestContent, "utf8"),
+  contentFingerprint: "fingerprint:real-manifest",
+});
+const realManifestExtraction = await createManifestFactExtractor({
+  nowIso: () => "2026-01-01T00:00:00.000Z",
+  monotonicMs: () => 0,
+}).extract({
+  snapshotId,
+  fileId: realManifestFile.id,
+  path: realManifestFile.normalizedPath,
+  content: realManifestContent,
+  contentFingerprint: realManifestFile.contentFingerprint,
+  language: realManifestFile.language,
+});
 
 function assertInvalidProjectionInput(input: ContextProjectionInput): void {
   assert.throws(
@@ -1280,6 +1307,59 @@ scenario("top-level entity with unknown file id is rejected", () => {
   assertInvalidProjectionInput(input);
 });
 
+scenario("real manifest semantic file entity uses its active snapshot fileId", () => {
+  const manifestEntity = realManifestExtraction.entities.find((entry) => entry.kind === "file");
+  assert.ok(manifestEntity);
+  assert.notEqual(manifestEntity.id, realManifestFile.id);
+  assert.equal(manifestEntity.fileId, realManifestFile.id);
+  const input: ContextProjectionInput = {
+    result: runnerResult({
+      entities: realManifestExtraction.entities,
+      evidence: [],
+      findings: [],
+      facts: realManifestExtraction.facts,
+      safeToProject: false,
+    }),
+    snapshot: snapshot([realManifestFile]),
+    purpose: "legacy_selection",
+    explicitTargets: [],
+    negativeConstraints: [],
+  };
+  const output = service.project(input);
+  assert.equal(output.projection.primaryEntities.length, 0);
+  assert.ok(output.diagnostics.some((entry) => entry.code === "result_not_safe_to_project"));
+});
+
+scenario("file entity without fileId may use a real descriptor identity", () => {
+  const input = fixture();
+  const descriptor = input.snapshot.files[0]!;
+  const target = input.result.entities[0]!;
+  target.id = descriptor.id;
+  target.kind = "file";
+  delete target.fileId;
+  input.result.findings[0]!.entityIds = [descriptor.id];
+  assert.equal(service.project(input).projection.primaryEntities.length, 1);
+});
+
+scenario("explicit invalid fileId does not fall back to a valid file entity id", () => {
+  const input = fixture();
+  const descriptor = input.snapshot.files[0]!;
+  const target = input.result.entities[0]!;
+  target.id = descriptor.id;
+  target.kind = "file";
+  target.fileId = "file-phantom-explicit" as EntityId;
+  input.result.findings[0]!.entityIds = [descriptor.id];
+  assertInvalidProjectionInput(input);
+});
+
+scenario("non-file semantic entity continues to use its active snapshot fileId", () => {
+  const input = fixture();
+  assert.notEqual(input.result.entities[0]!.id, input.snapshot.files[0]!.id);
+  assert.equal(input.result.entities[0]!.kind, "function");
+  assert.equal(input.result.entities[0]!.fileId, input.snapshot.files[0]!.id);
+  assert.equal(service.project(input).projection.primaryEntities.length, 1);
+});
+
 scenario("unknown stop blocker reference is rejected", () => {
   const input = fixture();
   input.result.safeToProject = false;
@@ -1334,5 +1414,5 @@ function outputRole(
   return output.decisions.find((entry) => entry.entityId === entityId)?.role;
 }
 
-assert.equal(scenarioCount, 82);
+assert.equal(scenarioCount, 86);
 console.log(`Context Engine v2 projection smoke passed: ${scenarioCount} scenarios.`);
