@@ -15,6 +15,7 @@ import {
 import { evaluateInvestigationQuestions } from "../application/deterministicQuestionEvaluator.js";
 import { evaluateFactClaimEligibility } from "../application/factClaimEligibility.js";
 import { evaluateKnowledgeGapResolution } from "../application/truthfulGapEvaluator.js";
+import { buildStrictBoundedRelationshipChains } from "../application/strictRelationshipChain.js";
 import { createDeterministicOperationQueue } from "../application/deterministicOperationQueue.js";
 import {
   createDeterministicOperation,
@@ -4286,6 +4287,127 @@ scenario("162. file-backed definition object must exactly exist in extraction en
   invalidExtractionRecord(run.result);
   assert.deepEqual(run.result.entities, []);
   assert.deepEqual(run.result.facts, []);
+});
+
+scenario("163. monotonic runner deadline is distinct from caller cancellation", async () => {
+  const source = snapshot({ suffix: "typed-runner-deadline" });
+  const harness = createRunnerHarness(source);
+  await assertRejects(
+    () => harness.runner.run(baseInput(source, { deadlineMonotonicMs: 0 })),
+    (error) => error instanceof InvestigationRunnerError && error.code === "deadline_exceeded",
+  );
+  assert.equal(harness.cancellation.cancelled, false);
+});
+
+scenario("164. caller cancellation retains precedence over an expired runner deadline", async () => {
+  const source = snapshot({ suffix: "typed-caller-cancellation" });
+  const cancellation = new CancellationState();
+  cancellation.cancelled = true;
+  const harness = createRunnerHarness(source, { cancellation });
+  await assertRejects(
+    () => harness.runner.run(baseInput(source, { deadlineMonotonicMs: 0 })),
+    (error) => error instanceof InvestigationRunnerError && error.code === "cancelled",
+  );
+});
+
+scenario("165. cooperative event-loop yield delivers caller cancellation before another planner round", async () => {
+  const source = snapshot({ suffix: "cooperative-yield" });
+  const cancellation = new CancellationState();
+  const ownerClaim = claim(source, "cooperative-yield");
+  const ownerHypothesis = hypothesis(ownerClaim);
+  const question = openQuestion("cooperative-yield", "critical");
+  const harness = createRunnerHarness(source, { cancellation });
+  const timer = setTimeout(() => {
+    cancellation.cancelled = true;
+  }, 0);
+  const started = performance.now();
+  await assertRejects(
+    () => harness.runner.run(baseInput(source, {
+      questions: [question],
+      claims: [ownerClaim],
+      hypotheses: [ownerHypothesis],
+      operationCandidates: [searchOperation(source, "target")],
+      budget: budget({ maxPlannerRounds: 100 }),
+    })),
+    (error) => error instanceof InvestigationRunnerError && error.code === "cancelled",
+  );
+  clearTimeout(timer);
+  assert.ok(performance.now() - started < 500);
+});
+
+scenario("166. a fast investigation is semantically unchanged by a non-expiring deadline", async () => {
+  const source = snapshot({ suffix: "fast-deadline-parity" });
+  const withoutDeadline = await runInput(baseInput(source, {
+    operationCandidates: [readOperation(source)],
+  }));
+  const withDeadline = await runInput(baseInput(source, {
+    operationCandidates: [readOperation(source)],
+    deadlineMonotonicMs: 10_000,
+  }));
+  assert.deepEqual(withDeadline.result, withoutDeadline.result);
+});
+
+scenario("167. controlled runner timeout classification replays deterministically", async () => {
+  const run = async () => {
+    const source = snapshot({ suffix: "deadline-replay" });
+    const harness = createRunnerHarness(source);
+    try {
+      await harness.runner.run(baseInput(source, { deadlineMonotonicMs: 0 }));
+      return "completed";
+    } catch (error) {
+      return error instanceof InvestigationRunnerError ? error.code : "unexpected";
+    }
+  };
+  assert.deepEqual(await Promise.all([run(), run()]), ["deadline_exceeded", "deadline_exceeded"]);
+});
+
+scenario("168. dense relationship-chain expansion observes bounded infrastructure checkpoints", () => {
+  const source = snapshot({ suffix: "dense-chain-checkpoint" });
+  const entry = syntheticEntity(source, source.files[0]!.normalizedPath, "dense-chain-entry", "module", "entry");
+  const bridge = syntheticEntity(source, source.files[0]!.normalizedPath, "dense-chain-bridge", "module", "bridge");
+  const owner = syntheticEntity(source, source.files[0]!.normalizedPath, "dense-chain-owner", "function", "owner");
+  const origin = syntheticRelation(
+    source,
+    source.files[0]!.normalizedPath,
+    "dense-chain-origin",
+    entry,
+    "contains",
+    bridge,
+  );
+  const first = syntheticRelation(
+    source,
+    source.files[0]!.normalizedPath,
+    "dense-chain-first",
+    bridge,
+    "contains",
+    owner,
+  );
+  const branches = Array.from({ length: 17 }, (_, index) => syntheticRelation(
+    source,
+    source.files[0]!.normalizedPath,
+    `dense-chain-branch-${index}`,
+    owner,
+    "contains",
+    owner,
+  ));
+  const facts = [first, ...branches];
+  let checks = 0;
+  const started = performance.now();
+  assert.throws(
+    () => buildStrictBoundedRelationshipChains({
+      origins: [origin],
+      facts,
+      candidateFact: branches.at(-1)! as Extract<FactRecord, { kind: "relation" }>,
+    }, () => {
+      checks += 1;
+      if (checks >= 1_000) {
+        throw new InvestigationRunnerError("deadline_exceeded", "Fixture deadline reached.");
+      }
+    }),
+    (error) => error instanceof InvestigationRunnerError && error.code === "deadline_exceeded",
+  );
+  assert.equal(checks, 1_000);
+  assert.ok(performance.now() - started < 500);
 });
 
 for (const current of scenarios) {

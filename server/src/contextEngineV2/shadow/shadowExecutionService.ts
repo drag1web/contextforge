@@ -140,8 +140,12 @@ export async function runLiveContextEngineShadow(input: {
     return createFailedContextEngineShadowComparison({
       canonical: input.canonical,
       legacySelection: input.legacySelection,
-      status: settled.status === "timeout" ? "timeout" : "execution_error",
-      issue: settled.status === "timeout" ? "shadow_timeout" : "shadow_execution_error",
+      status: settled.status === "timeout" || settled.status === "deadline_exceeded"
+        ? "timeout"
+        : settled.status === "cancelled" ? "cancelled" : "execution_error",
+      issue: settled.status === "timeout" || settled.status === "deadline_exceeded"
+        ? "shadow_timeout"
+        : settled.status === "cancelled" ? "shadow_cancelled" : "shadow_execution_error",
       timing: timing({ clock, start: started, legacyMs: input.legacyDurationMs, v2Ms, comparisonMs, timeoutMs: policy.timeoutMs }),
       createdAt: clock.nowIso(),
     });

@@ -122,13 +122,17 @@ export function buildStrictBoundedRelationshipChains(input: {
   origins: readonly FactRecord[];
   facts: readonly FactRecord[];
   candidateFact: Extract<FactRecord, { kind: "relation" }>;
-}): FactRecord[][] {
+}, checkpoint?: () => void): FactRecord[][] {
+  checkpoint?.();
   const orderedFacts = [...input.facts]
-    .filter((fact) =>
-      fact.status === "active" && fact.snapshotId === input.candidateFact.snapshotId)
+    .filter((fact) => {
+      checkpoint?.();
+      return fact.status === "active" && fact.snapshotId === input.candidateFact.snapshotId;
+    })
     .sort((left, right) => stableCompare(left.id, right.id));
   const chains: FactRecord[][] = [];
   const visit = (path: FactRecord[]): void => {
+    checkpoint?.();
     const tail = path.at(-1)!;
     if (tail.id === input.candidateFact.id) {
       chains.push(path);
@@ -137,6 +141,7 @@ export function buildStrictBoundedRelationshipChains(input: {
     if (path.length >= MAX_RELATIONSHIP_CHAIN_FACTS) return;
     const seen = new Set(path.map((fact) => fact.id));
     for (const next of orderedFacts) {
+      checkpoint?.();
       if (seen.has(next.id) || !areStrictRelationshipFactsAdjacent(tail, next)) continue;
       visit([...path, next]);
     }
@@ -146,19 +151,28 @@ export function buildStrictBoundedRelationshipChains(input: {
       origin.status === "active" && origin.snapshotId === input.candidateFact.snapshotId)
     .sort((left, right) => stableCompare(left.id, right.id))
     .filter((origin) => {
+      checkpoint?.();
       if (origin.id === input.candidateFact.id) return true;
-      const firstLinks = orderedFacts.filter((fact) =>
-        fact.id !== origin.id && areStrictRelationshipFactsAdjacent(origin, fact));
+      const firstLinks = orderedFacts.filter((fact) => {
+        checkpoint?.();
+        return fact.id !== origin.id && areStrictRelationshipFactsAdjacent(origin, fact);
+      });
       return firstLinks.length === 1;
     })
-    .forEach((origin) => visit([origin]));
+    .forEach((origin) => {
+      checkpoint?.();
+      visit([origin]);
+    });
   const unique = new Map<string, FactRecord[]>();
   for (const chain of chains) {
+    checkpoint?.();
     unique.set(chain.map((fact) => fact.id).join("\0"), chain);
   }
-  return [...unique.values()].sort((left, right) =>
-    stableCompare(
+  return [...unique.values()].sort((left, right) => {
+    checkpoint?.();
+    return stableCompare(
       left.map((fact) => fact.id).join("\0"),
       right.map((fact) => fact.id).join("\0"),
-    ));
+    );
+  });
 }

@@ -3,7 +3,20 @@ import type { ContextEngineShadowExecutionTracker } from "./shadowTypes.js";
 export type SettledShadowExecution<T> =
   | { status: "completed"; value: T }
   | { status: "timeout" }
+  | { status: "deadline_exceeded" }
+  | { status: "cancelled" }
   | { status: "execution_error" };
+
+function classifyExecutionRejection(error: unknown): Exclude<SettledShadowExecution<never>["status"], "completed" | "timeout"> {
+  if (typeof error !== "object" || error === null) return "execution_error";
+  const descriptor = Object.getOwnPropertyDescriptor(error, "code");
+  if (!descriptor || !("value" in descriptor) || typeof descriptor.value !== "string") {
+    return "execution_error";
+  }
+  if (descriptor.value === "deadline_exceeded") return "deadline_exceeded";
+  if (descriptor.value === "cancelled") return "cancelled";
+  return "execution_error";
+}
 
 export async function settleContextEngineShadowExecution<T>(input: {
   execution: Promise<T>;
@@ -11,10 +24,12 @@ export async function settleContextEngineShadowExecution<T>(input: {
   timeoutMs: number;
 }): Promise<SettledShadowExecution<T>> {
   let timer: ReturnType<typeof setTimeout> | undefined;
-  type ExecutionOutcome = { kind: "completed"; value: T } | { kind: "execution_error" };
+  type ExecutionOutcome =
+    | { kind: "completed"; value: T }
+    | { kind: "deadline_exceeded" | "cancelled" | "execution_error" };
   const execution = input.execution.then(
     (value): ExecutionOutcome => ({ kind: "completed", value }),
-    (): ExecutionOutcome => ({ kind: "execution_error" }),
+    (error): ExecutionOutcome => ({ kind: classifyExecutionRejection(error) }),
   );
   const timeout = new Promise<{ kind: "timeout" }>((resolve) => {
     timer = setTimeout(() => {
@@ -27,7 +42,7 @@ export async function settleContextEngineShadowExecution<T>(input: {
   if (settled.kind === "completed") return { status: "completed", value: settled.value };
   if (settled.kind === "timeout") return { status: "timeout" };
   input.abortController.abort();
-  return { status: "execution_error" };
+  return { status: settled.kind };
 }
 
 export function createContextEngineShadowExecutionTracker(input?: {

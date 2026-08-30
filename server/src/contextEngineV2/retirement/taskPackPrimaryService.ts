@@ -169,7 +169,10 @@ export function createTaskPackPrimaryService(
     runtime.parentAbortSignal?.removeEventListener("abort", abortFromParent);
     const executionMs = Math.max(0, dependencies.monotonicMs() - executionStarted);
     if (settled.status !== "completed") {
-      const reason: TaskPackPrimaryRollbackReason = settled.status === "timeout" ? "execution_timeout" : "execution_error";
+      const reason: TaskPackPrimaryRollbackReason =
+        settled.status === "timeout" || settled.status === "deadline_exceeded"
+          ? "execution_timeout"
+          : "execution_error";
       return resolution({ runtime, dependencies, status: "legacy_rollback", reasons: [reason], rollbackReason: reason, executionMs });
     }
     if (dependencies.monotonicMs() >= deadline) {

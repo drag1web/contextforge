@@ -425,6 +425,7 @@ function routeFactEvidence(input: {
   hypotheses: readonly InvestigationHypothesis[];
   allFacts: readonly FactRecord[];
   producedFacts: readonly FactRecord[];
+  checkpoint: () => void;
 }): EvidenceRecord[] {
   const factsById = new Map(input.allFacts.map((fact) => [fact.id, fact]));
   const evidenceByKey = new Map<string, EvidenceRecord>();
@@ -432,9 +433,11 @@ function routeFactEvidence(input: {
   for (const hypothesis of input.hypotheses.filter((candidate) =>
     input.operation.hypothesisIds.includes(candidate.id),
   )) {
+    input.checkpoint();
     const claim = input.claims.find((candidate) => candidate.id === hypothesis.claimId);
     if (!claim) continue;
     for (const fact of input.allFacts) {
+      input.checkpoint();
       const decision = evaluateFactClaimEligibility({
         fact,
         claim,
@@ -444,9 +447,10 @@ function routeFactEvidence(input: {
         facts: input.allFacts,
         snapshot: input.snapshot,
         request: input.request,
-      });
+      }, input.checkpoint);
       if (!decision.eligible) continue;
       for (const factId of decision.supportingFactIds) {
+        input.checkpoint();
         const supportingFact = factsById.get(factId);
         if (!supportingFact || supportingFact.status !== "active") continue;
         const evidence = evidenceForFact(supportingFact, input.operation, claim.id);
@@ -458,6 +462,7 @@ function routeFactEvidence(input: {
     }
   }
   for (const fact of input.producedFacts) {
+    input.checkpoint();
     if (supportedProducedFactIds.has(fact.id)) continue;
     const evidence = evidenceForFact(fact, input.operation, undefined);
     evidenceByKey.set(`context\0${fact.id}`, evidence);
@@ -624,10 +629,15 @@ function calculateCoverage(
 function enrichClaimsWithEvidence(
   claims: readonly ClaimRecord[],
   evidence: readonly EvidenceRecord[],
+  checkpoint: () => void,
 ): ClaimRecord[] {
   return claims.map((rawClaim) => {
+    checkpoint();
     const claim = cloneDomainValue(rawClaim);
-    const claimEvidence = evidence.filter((record) => record.claimId === claim.id);
+    const claimEvidence = evidence.filter((record) => {
+      checkpoint();
+      return record.claimId === claim.id;
+    });
     claim.supportingEvidenceIds = sortedUnique([
       ...claim.supportingEvidenceIds,
       ...claimEvidence.filter((record) => record.role === "supports").map((record) => record.id),
@@ -653,13 +663,17 @@ function deriveImplementationFindings(input: {
   evidence: readonly EvidenceRecord[];
   operation?: InvestigationOperation;
   operationRecords: readonly InvestigationOperationRecord[];
+  checkpoint: () => void;
 }): Finding[] {
   const findings: Finding[] = [];
   if (!input.operation) return findings;
   for (const claim of input.claims.filter(
-    (candidate) =>
-      candidate.type === "implementation_owner" && candidate.status === "supported",
+    (candidate) => {
+      input.checkpoint();
+      return candidate.type === "implementation_owner" && candidate.status === "supported";
+    },
   )) {
+    input.checkpoint();
     const hypothesis = input.hypotheses.find(
       (candidate) => candidate.claimId === claim.id,
     );
@@ -672,8 +686,9 @@ function deriveImplementationFindings(input: {
       facts: input.facts,
       snapshot: input.snapshot,
       request: input.request,
-    });
+    }, input.checkpoint);
     for (const proof of proofs) {
+      input.checkpoint();
       const definitionFact = input.facts.find(
         (fact) =>
           proof.factIds.includes(fact.id) &&
@@ -742,6 +757,7 @@ function rebuildDomainState(input: {
   operationRecords: readonly InvestigationOperationRecord[];
   snapshot: InvestigationRunnerInput["snapshot"];
   request: InvestigationRunnerInput["request"];
+  checkpoint: () => void;
 }): {
   claims: ClaimRecord[];
   hypotheses: InvestigationHypothesis[];
@@ -750,9 +766,12 @@ function rebuildDomainState(input: {
   findingEvaluations: ReturnType<typeof evaluateFindingEligibility>[];
   allRequiredEvidenceSatisfied: boolean;
 } {
-  let claims = enrichClaimsWithEvidence(input.claims, input.evidence);
-  const detections = claims.flatMap((claim) =>
-    detectDeterministicContradictions({
+  input.checkpoint();
+  let claims = enrichClaimsWithEvidence(input.claims, input.evidence, input.checkpoint);
+  const detections: ReturnType<typeof detectDeterministicContradictions> = [];
+  for (const claim of claims) {
+    input.checkpoint();
+    detections.push(...detectDeterministicContradictions({
       claim,
       evidence: input.evidence,
       facts: input.facts,
@@ -767,15 +786,20 @@ function rebuildDomainState(input: {
             ),
           ),
       ),
-    }),
-  );
+    }, input.checkpoint));
+  }
+  input.checkpoint();
   const contradictionRegistry = createContradictionRegistry({
     snapshotId: input.snapshotId,
     claims,
     evidence: input.evidence,
+  }, input.checkpoint);
+  input.contradictions.forEach((record) => {
+    input.checkpoint();
+    contradictionRegistry.add(record);
   });
-  input.contradictions.forEach((record) => contradictionRegistry.add(record));
-  detections.forEach((detection) =>
+  detections.forEach((detection) => {
+    input.checkpoint();
     contradictionRegistry.add({
       id: deterministicApplicationId("contradiction", {
         snapshotId: input.snapshotId,
@@ -787,8 +811,9 @@ function rebuildDomainState(input: {
       type: detection.type,
       severity: detection.severity,
       status: "open",
-    }),
-  );
+    });
+  });
+  input.checkpoint();
   const contradictions = contradictionRegistry.snapshot();
   const ledger = createHypothesisLedger({
     snapshotId: input.snapshotId,
@@ -801,6 +826,7 @@ function rebuildDomainState(input: {
   for (const hypothesis of [...input.hypotheses].sort((left, right) =>
     stableCompare(left.id, right.id),
   )) {
+    input.checkpoint();
     const claim = ledger.getClaim(hypothesis.claimId);
     if (!claim) invalidInput("Hypothesis references an unknown claim.", hypothesis.id);
     const evaluation = evaluateClaim({
@@ -808,7 +834,7 @@ function rebuildDomainState(input: {
       evidence: input.evidence,
       facts: input.facts,
       requirements: hypothesis.requiredEvidence,
-    });
+    }, input.checkpoint);
     allRequiredEvidenceSatisfied &&= evaluation.allRequiredSatisfied;
     if (
       evaluation.hypothesisDisposition === "unresolved" &&
@@ -834,19 +860,21 @@ function rebuildDomainState(input: {
   }
   const hypothesisClaimIds = new Set(input.hypotheses.map((hypothesis) => hypothesis.claimId));
   claims = claims.map((claim) => {
+    input.checkpoint();
     if (hypothesisClaimIds.has(claim.id)) return ledger.getClaim(claim.id)!;
     const evaluation = evaluateClaim({
       claim,
       evidence: input.evidence,
       facts: input.facts,
       requirements: [],
-    });
+    }, input.checkpoint);
     return evaluation.claim;
   });
   const hypotheses = ledger.snapshot();
   const evaluatedClaimsById = new Map(claims.map((claim) => [claim.id, claim]));
   const factsById = new Map(input.facts.map((fact) => [fact.id, fact]));
   const existingFindingIds = new Set(input.findings.map((finding) => finding.id));
+  input.checkpoint();
   const candidateFindings = mergeRecords(
     input.findings,
     deriveImplementationFindings({
@@ -858,10 +886,12 @@ function rebuildDomainState(input: {
       evidence: input.evidence,
       operation: input.operation,
       operationRecords: input.operationRecords,
+      checkpoint: input.checkpoint,
     }).filter((finding) => !existingFindingIds.has(finding.id)),
     "Deterministic finding",
   );
   const evaluatedFindings = candidateFindings.map((rawFinding) => {
+    input.checkpoint();
     const finding = cloneDomainValue(rawFinding);
     const matchingEvidence = input.evidence.filter((record) => {
       if (
@@ -894,8 +924,9 @@ function rebuildDomainState(input: {
     return finding;
   });
   const findingEvaluations = evaluatedFindings
-    .map((finding) =>
-      evaluateFindingEligibility({
+    .map((finding) => {
+      input.checkpoint();
+      return evaluateFindingEligibility({
         finding,
         snapshotId: input.snapshotId,
         evidence: input.evidence,
@@ -903,9 +934,10 @@ function rebuildDomainState(input: {
         entities: input.entities,
         contradictions,
         knowledgeGaps: input.knowledgeGaps,
-      }),
-    )
+      });
+    })
     .sort((left, right) => stableCompare(left.finding.id, right.finding.id));
+  input.checkpoint();
   return {
     claims: [...claims].sort((left, right) => stableCompare(left.id, right.id)),
     hypotheses,
@@ -1209,7 +1241,9 @@ async function executeOperation(
   state: MutableRunnerState,
   operation: InvestigationOperation,
   readCache: Map<FileDescriptor["id"], ReadCacheEntry>,
+  checkpoint: () => void,
 ): Promise<OperationOutcome> {
+  checkpoint();
   const constrainedPath =
     operation.type === "read_file" ||
     operation.type === "read_range" ||
@@ -1542,6 +1576,7 @@ async function executeOperation(
       hypotheses: state.hypotheses,
       allFacts,
       producedFacts: facts,
+      checkpoint,
     });
     const outcome = emptyOutcome(operation);
     outcome.entities = entities;
@@ -1576,9 +1611,11 @@ async function executeOperation(
     let frontier = [source.id];
     const visited = new Set(frontier);
     for (let hop = 0; hop < operation.maxHops && frontier.length > 0; hop += 1) {
+      checkpoint();
       const next: RepositoryEntity["id"][] = [];
       for (const entityId of [...frontier].sort(stableCompare)) {
         for (const predicate of operation.predicates) {
+          checkpoint();
           const result = cloneDomainValue(
             await dependencies.graphStore.getNeighbors({
               snapshotId: input.snapshot.id,
@@ -1588,6 +1625,7 @@ async function executeOperation(
             }),
           );
           for (const edge of result) {
+            checkpoint();
             assertFactEvaluationConsistency({ fact: edge.fact, snapshotId: input.snapshot.id });
             assertFactSnapshotConsistency(edge.fact, input.snapshot);
             assertEntityEvaluationConsistency({ entity: edge.source, snapshotId: input.snapshot.id });
@@ -1613,6 +1651,7 @@ async function executeOperation(
       hypotheses: state.hypotheses,
       allFacts: mergeRecords(state.facts, uniqueFacts, "Relationship evidence routing"),
       producedFacts: uniqueFacts,
+      checkpoint,
     });
     outcome.relationshipHops = Math.min(operation.maxHops, edges.length === 0 ? 0 : operation.maxHops);
     outcome.actualCost = canonicalCost(operation, {
@@ -1742,19 +1781,32 @@ export function createInvestigationRunner(
       const startedAt = dependencies.clock.monotonicMs();
       const initialTimestamp = dependencies.clock.nowIso();
       assertCanonicalUtcTimestamp(initialTimestamp, "Investigation runner timestamp");
-      const checkCancellation = (): void => {
-        if (
-          dependencies.cancellation.isCancellationRequested() ||
-          (input.deadlineMonotonicMs !== undefined &&
-            dependencies.clock.monotonicMs() >= input.deadlineMonotonicMs)
-        ) {
+      let checkpointCount = 0;
+      const checkCancellation = (force = false): void => {
+        checkpointCount += 1;
+        if (!force && checkpointCount % 16 !== 0) return;
+        if (dependencies.cancellation.isCancellationRequested()) {
           throw new InvestigationRunnerError(
             "cancelled",
             "Investigation execution was cancelled by the caller boundary.",
           );
         }
+        if (
+          input.deadlineMonotonicMs !== undefined &&
+          dependencies.clock.monotonicMs() >= input.deadlineMonotonicMs
+        ) {
+          throw new InvestigationRunnerError(
+            "deadline_exceeded",
+            "Investigation execution exceeded its monotonic deadline.",
+          );
+        }
       };
-      checkCancellation();
+      const checkpoint = (): void => checkCancellation(false);
+      const yieldToEventLoop = async (): Promise<void> => {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        checkCancellation(true);
+      };
+      checkCancellation(true);
       const seed = input.request
         ? createDeterministicInvestigationInterpreter().interpret(input.request)
         : {
@@ -1786,11 +1838,13 @@ export function createInvestigationRunner(
         "Initial repository entity",
       );
       entities.forEach((entity) => {
+        checkpoint();
         assertEntityEvaluationConsistency({ entity, snapshotId: input.snapshot.id });
         assertRepositoryEntitySnapshotConsistency(entity, input.snapshot);
       });
       const facts = [...indexDomainRecordsById(input.facts, "Initial fact").values()];
       facts.forEach((fact) => {
+        checkpoint();
         assertFactEvaluationConsistency({ fact, snapshotId: input.snapshot.id });
         try {
           assertFactSnapshotConsistency(fact, input.snapshot);
@@ -1801,7 +1855,7 @@ export function createInvestigationRunner(
           throw error;
         }
       });
-      const evidenceLedger = createEvidenceLedger({ snapshot: input.snapshot, facts });
+      const evidenceLedger = createEvidenceLedger({ snapshot: input.snapshot, facts }, checkpoint);
       evidenceLedger.addMany(input.evidence);
       const evidence = evidenceLedger.snapshot();
       let gaps = mergeRecords(
@@ -1844,7 +1898,10 @@ export function createInvestigationRunner(
         knownEntityIds: entities.map((entity) => entity.id),
         knownHypothesisIds: initialHypotheses.map((hypothesis) => hypothesis.id),
       });
-      gaps.forEach((gap) => gapRegistry.add(gap));
+      gaps.forEach((gap) => {
+        checkpoint();
+        gapRegistry.add(gap);
+      });
       gaps = gapRegistry.snapshot();
       const initialDomain = rebuildDomainState({
         snapshotId: input.snapshot.id,
@@ -1860,7 +1917,9 @@ export function createInvestigationRunner(
         entities,
         findings: [...indexDomainRecordsById(input.findings, "Initial finding").values()],
         occurredAt: initialTimestamp,
+        checkpoint,
       });
+      await yieldToEventLoop();
       const initialGapEvaluation = evaluateKnowledgeGapResolution({
         snapshot: input.snapshot,
         gaps,
@@ -1872,6 +1931,7 @@ export function createInvestigationRunner(
         operationRecords: [],
       });
       gaps = initialGapEvaluation.gaps;
+      checkCancellation(true);
       const initialDomainAfterGaps = rebuildDomainState({
         snapshotId: input.snapshot.id,
         snapshot: input.snapshot,
@@ -1886,7 +1946,9 @@ export function createInvestigationRunner(
         entities,
         findings: initialDomain.findings,
         occurredAt: initialTimestamp,
+        checkpoint,
       });
+      await yieldToEventLoop();
       const initialQuestionEvaluation = evaluateInvestigationQuestions({
         snapshotId: input.snapshot.id,
         questions: initialQuestions,
@@ -2027,7 +2089,7 @@ export function createInvestigationRunner(
       }
 
       while (!stop) {
-        checkCancellation();
+        await yieldToEventLoop();
         const plannerRoundCost = { ...ZERO_COST, plannerRounds: 1 };
         if (!canFitOperationCost(state.budgetState, plannerRoundCost)) {
           state.budgetState = applyOperationCost(state.budgetState, {
@@ -2047,6 +2109,7 @@ export function createInvestigationRunner(
           plannerStateFor(input, state),
           dependencies.plannerSignal,
         );
+        checkCancellation(true);
         state.operationCandidates = mergeCompatibleOperations(
           input.snapshot.id,
           [...state.operationCandidates, ...plan.operations],
@@ -2092,7 +2155,7 @@ export function createInvestigationRunner(
         queue.enqueue(plan.operations);
         let operation = queue.dequeue();
         while (operation && !stop) {
-          checkCancellation();
+          await yieldToEventLoop();
           stop = checkStop("before_operation");
           if (stop) break;
           operation = withCanonicalOperationCost({
@@ -2139,8 +2202,9 @@ export function createInvestigationRunner(
               state,
               operation,
               readCache,
+              checkpoint,
             );
-            checkCancellation();
+            checkCancellation(true);
           } catch (error) {
             if (error instanceof InvestigationRunnerError) throw error;
             outcome = error instanceof RepositoryChangedBoundaryError
@@ -2186,13 +2250,14 @@ export function createInvestigationRunner(
                 "Operation fact",
               );
               candidateFacts.forEach((fact) => {
+                checkpoint();
                 assertFactEvaluationConsistency({ fact, snapshotId: input.snapshot.id });
                 assertFactSnapshotConsistency(fact, input.snapshot);
               });
               const candidateEvidenceLedger = createEvidenceLedger({
                 snapshot: input.snapshot,
                 facts: candidateFacts,
-              });
+              }, checkpoint);
               candidateEvidenceLedger.addMany([...state.evidence, ...outcome.evidence]);
               const candidateEvidence = candidateEvidenceLedger.snapshot();
               const candidateGapRegistry = createKnowledgeGapRegistry({
@@ -2200,8 +2265,14 @@ export function createInvestigationRunner(
                 knownEntityIds: candidateEntities.map((entity) => entity.id),
                 knownHypothesisIds: state.hypotheses.map((hypothesis) => hypothesis.id),
               });
-              state.knowledgeGaps.forEach((gap) => candidateGapRegistry.add(gap));
-              outcome.gaps.forEach((gap) => candidateGapRegistry.add(gap));
+              state.knowledgeGaps.forEach((gap) => {
+                checkpoint();
+                candidateGapRegistry.add(gap);
+              });
+              outcome.gaps.forEach((gap) => {
+                checkpoint();
+                candidateGapRegistry.add(gap);
+              });
               const unevaluatedGaps = candidateGapRegistry.snapshot();
               const occurredAt = dependencies.clock.nowIso();
               assertCanonicalUtcTimestamp(occurredAt, "Operation ingestion timestamp");
@@ -2229,7 +2300,9 @@ export function createInvestigationRunner(
                 findings: state.findings,
                 occurredAt,
                 operationId: operation.id,
+                checkpoint,
               });
+              await yieldToEventLoop();
               const gapEvaluation = evaluateKnowledgeGapResolution({
                 snapshot: input.snapshot,
                 gaps: unevaluatedGaps,
@@ -2240,6 +2313,7 @@ export function createInvestigationRunner(
                 findings: provisionalDomain.findings,
                 operationRecords: [...state.operationRecords, provisionalRecord],
               });
+              checkCancellation(true);
               const domain = rebuildDomainState({
                 snapshotId: input.snapshot.id,
                 snapshot: input.snapshot,
@@ -2256,7 +2330,9 @@ export function createInvestigationRunner(
                 findings: provisionalDomain.findings,
                 occurredAt,
                 operationId: operation.id,
+                checkpoint,
               });
+              await yieldToEventLoop();
               const questionEvaluation = evaluateInvestigationQuestions({
                 snapshotId: input.snapshot.id,
                 questions: state.questions,
@@ -2302,7 +2378,7 @@ export function createInvestigationRunner(
                 safetyBlocked: state.safetyBlocked || outcome.safetyBlocked,
               } satisfies MutableRunnerState;
               candidateState.coverage = calculateCoverage(input, candidateState);
-              checkCancellation();
+              checkCancellation(true);
               const graphEntities = mergeRecords(
                 [],
                 [...outcome.entities, ...deriveEntities(outcome.facts)],

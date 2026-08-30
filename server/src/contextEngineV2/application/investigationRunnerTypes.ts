@@ -275,6 +275,7 @@ export type InvestigationRunnerErrorCode =
   | "invalid_input"
   | "operation_conflict"
   | "operation_failed"
+  | "deadline_exceeded"
   | "cancelled";
 
 export class InvestigationRunnerError extends Error {

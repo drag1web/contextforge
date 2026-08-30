@@ -284,7 +284,11 @@ export function assertClaimLedgerConsistency(input: {
   validateClaim(safeInput.claim, safeInput.evidence);
 }
 
-export function evaluateClaim(rawInput: ClaimEvaluationInput): ClaimEvaluation {
+export function evaluateClaim(
+  rawInput: ClaimEvaluationInput,
+  checkpoint?: () => void,
+): ClaimEvaluation {
+  checkpoint?.();
   const input = cloneDomainValue(rawInput);
   const evidenceById = indexDomainRecordsById(
     input.evidence,
@@ -296,19 +300,22 @@ export function evaluateClaim(rawInput: ClaimEvaluationInput): ClaimEvaluation {
   );
   const evidence = [...evidenceById.values()];
   const facts = [...factsById.values()];
-  facts.forEach((fact) =>
+  facts.forEach((fact) => {
+    checkpoint?.();
     assertFactEvaluationConsistency({
       fact,
       snapshotId: input.claim.snapshotId,
-    }),
-  );
-  evidence.forEach((record) =>
+    });
+  });
+  evidence.forEach((record) => {
+    checkpoint?.();
     assertEvidenceEvaluationConsistency({
       evidence: record,
       facts,
       snapshotId: input.claim.snapshotId,
-    }),
-  );
+    }, checkpoint);
+  });
+  checkpoint?.();
   validateClaim(input.claim, evidence, facts);
   const claim = cloneDomainValue(input.claim);
   const supporting = claim.supportingEvidenceIds
@@ -319,15 +326,16 @@ export function evaluateClaim(rawInput: ClaimEvaluationInput): ClaimEvaluation {
     .filter((record): record is EvidenceRecord => Boolean(record));
   const requirements = [...input.requirements]
     .sort((left, right) => stableCompare(left.id, right.id))
-    .map((requirement) =>
-      evaluateEvidenceRequirement({
+    .map((requirement) => {
+      checkpoint?.();
+      return evaluateEvidenceRequirement({
         requirement,
         evidence: supporting,
         facts,
         snapshotId: claim.snapshotId,
         role: "supports",
-      }),
-    );
+      });
+    });
   if (new Set(requirements.map((entry) => entry.requirementId)).size !== requirements.length) {
     throw new InvestigationDomainError(
       "invalid_record",

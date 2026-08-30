@@ -830,6 +830,46 @@ await scenario("execution failure is normalized without exposing its message", a
   });
   assert.deepEqual(outcome, { status: "execution_error" });
 });
+await scenario("runner self-deadline remains distinct from caller cancellation", async () => {
+  const controller = new AbortController();
+  const outcome = await settleContextEngineShadowExecution({
+    execution: Promise.reject(Object.assign(new Error("portable internal deadline"), {
+      code: "deadline_exceeded",
+    })),
+    abortController: controller,
+    timeoutMs: 50,
+  });
+  assert.deepEqual(outcome, { status: "deadline_exceeded" });
+});
+await scenario("caller cancellation remains a closed execution outcome", async () => {
+  const controller = new AbortController();
+  const outcome = await settleContextEngineShadowExecution({
+    execution: Promise.reject(Object.assign(new Error("portable caller cancellation"), {
+      code: "cancelled",
+    })),
+    abortController: controller,
+    timeoutMs: 50,
+  });
+  assert.deepEqual(outcome, { status: "cancelled" });
+});
+await scenario("execution rejection classification does not invoke code accessors", async () => {
+  let accessed = false;
+  const error = Object.create(null);
+  Object.defineProperty(error, "code", {
+    enumerable: true,
+    get() {
+      accessed = true;
+      return "deadline_exceeded";
+    },
+  });
+  const outcome = await settleContextEngineShadowExecution({
+    execution: Promise.reject(error),
+    abortController: new AbortController(),
+    timeoutMs: 50,
+  });
+  assert.deepEqual(outcome, { status: "execution_error" });
+  assert.equal(accessed, false);
+});
 await scenario("two canonical requests retain isolated project identities", () => {
   const second = prepareContextEngineShadowInput({
     projectId: "project-2", projectRoot: root, inventory, normalizedTask: "Inspect src/service.ts",

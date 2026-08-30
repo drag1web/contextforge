@@ -309,7 +309,8 @@ export function createContradictionRegistry(input: {
   snapshotId: SnapshotId;
   claims: readonly ClaimRecord[];
   evidence: readonly EvidenceRecord[];
-}): ContradictionRegistry {
+}, checkpoint?: () => void): ContradictionRegistry {
+  checkpoint?.();
   const safeInput = cloneDomainValue(input);
   const claims = indexDomainRecordsById(
     safeInput.claims,
@@ -319,12 +320,13 @@ export function createContradictionRegistry(input: {
     safeInput.evidence,
     "Contradiction registry evidence",
   );
-  evidence.forEach((record) =>
+  evidence.forEach((record) => {
+    checkpoint?.();
     assertEvidenceEvaluationConsistency({
       evidence: record,
       snapshotId: safeInput.snapshotId,
-    }),
-  );
+    }, checkpoint);
+  });
   const records = new Map<ContradictionId, ContradictionRecord>();
   const ordered = (predicate?: (record: ContradictionRecord) => boolean) =>
     [...records.values()]
@@ -402,7 +404,8 @@ export function detectDeterministicContradictions(input: {
   facts: readonly FactRecord[];
   claimRequiresSingleValue?: boolean;
   acceptedFactPredicates?: readonly FactRecord["predicate"][];
-}): ContradictionDetection[] {
+}, checkpoint?: () => void): ContradictionDetection[] {
+  checkpoint?.();
   const safeInput = cloneDomainValue(input);
   const evidenceById = indexDomainRecordsById(
     safeInput.evidence,
@@ -419,12 +422,13 @@ export function detectDeterministicContradictions(input: {
     evidence: contextEvidence,
     snapshotId: safeInput.claim.snapshotId,
   });
-  contextFacts.forEach((fact) =>
+  contextFacts.forEach((fact) => {
+    checkpoint?.();
     assertFactEvaluationConsistency({
       fact,
       snapshotId: safeInput.claim.snapshotId,
-    }),
-  );
+    });
+  });
   if (
     contextEvidence.some((record) => record.snapshotId !== safeInput.claim.snapshotId) ||
     contextFacts.some((record) => record.snapshotId !== safeInput.claim.snapshotId)
@@ -434,13 +438,14 @@ export function detectDeterministicContradictions(input: {
       "Contradiction detection cannot mix snapshots.",
     );
   }
-  contextEvidence.forEach((record) =>
+  contextEvidence.forEach((record) => {
+    checkpoint?.();
     assertEvidenceEvaluationConsistency({
       evidence: record,
       facts: contextFacts,
       snapshotId: safeInput.claim.snapshotId,
-    }),
-  );
+    }, checkpoint);
+  });
   const acceptedPredicates = new Set(safeInput.acceptedFactPredicates ?? []);
   const derivationFactIds = new Set(safeInput.claim.derivation.inputFactIds);
   const factIsRelevant = (fact: FactRecord): boolean =>
@@ -468,6 +473,7 @@ export function detectDeterministicContradictions(input: {
   const conflictingCurrentEvidence = new Set<EvidenceId>();
   for (const support of supporting) {
     for (const contradiction of contradicting) {
+      checkpoint?.();
       if (
         semanticFacts(support).some((supportFact) =>
           semanticFacts(contradiction).some(
@@ -492,6 +498,7 @@ export function detectDeterministicContradictions(input: {
     const valuesByBasis = new Map<string, Map<string, EvidenceId[]>>();
     for (const record of supporting) {
       for (const fact of semanticFacts(record)) {
+        checkpoint?.();
         const values = valuesByBasis.get(basisKey(fact)) ?? new Map<string, EvidenceId[]>();
         const valueKey = stableSerialize(fact.object);
         values.set(valueKey, [...(values.get(valueKey) ?? []), record.id]);
@@ -525,6 +532,7 @@ export function detectDeterministicContradictions(input: {
     for (const currentRecord of evidence) {
       for (const staleFact of semanticFacts(staleRecord)) {
         for (const currentFact of semanticFacts(currentRecord)) {
+          checkpoint?.();
           if (
             basisKey(staleFact) === basisKey(currentFact) &&
             (stableSerialize(staleFact.object) !== stableSerialize(currentFact.object) ||
@@ -550,6 +558,7 @@ export function detectDeterministicContradictions(input: {
     ContradictionDetection
   >();
   for (const detection of detections) {
+    checkpoint?.();
     const existing = merged.get(detection.type);
     if (!existing) {
       merged.set(detection.type, detection);

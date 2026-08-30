@@ -340,7 +340,9 @@ export function createTaskPackCanaryService(
     if (settled.status !== "completed") {
       return fallback({
         runtime, cohort, status: "legacy_fallback",
-        reasons: [settled.status === "timeout" ? "execution_timeout" : "execution_error"],
+        reasons: [settled.status === "timeout" || settled.status === "deadline_exceeded"
+          ? "execution_timeout"
+          : "execution_error"],
         started, dependencies, v2Ms,
       });
     }

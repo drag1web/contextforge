@@ -287,7 +287,8 @@ export function assertEvidenceEvaluationConsistency(input: {
   evidence: EvidenceRecord;
   snapshotId: SnapshotId;
   facts?: readonly FactRecord[];
-}): void {
+}, checkpoint?: () => void): void {
+  checkpoint?.();
   const { evidence, snapshotId, facts } = cloneDomainValue(input);
   assertClosedRecord(
     evidence,
@@ -353,9 +354,11 @@ export function assertEvidenceEvaluationConsistency(input: {
   if (facts !== undefined) {
     const factsById = indexDomainRecordsById(facts, "Evidence evaluation fact");
     for (const fact of factsById.values()) {
+      checkpoint?.();
       assertFactEvaluationConsistency({ fact, snapshotId });
     }
     for (const factId of evidence.factIds) {
+      checkpoint?.();
       if (!factsById.has(factId)) {
         throw new InvestigationDomainError(
           "unknown_reference",

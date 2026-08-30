@@ -155,31 +155,44 @@ export function createLiveShadowRepositoryAdapter(
     }
   }
 
-  function search(query: { snapshotId: string; query: string; limit: number }, fields: string[]): SearchResult[] {
+  async function search(
+    query: { snapshotId: string; query: string; limit: number },
+    fields: string[],
+  ): Promise<SearchResult[]> {
     if (input.cancellation.isCancellationRequested() || query.snapshotId !== input.snapshot.id) return [];
     const needle = query.query.trim().toLocaleLowerCase("en-US");
     if (!needle || !Number.isSafeInteger(query.limit) || query.limit < 1) return [];
-    return input.inventory.files.flatMap((file) => {
+    const results: SearchResult[] = [];
+    for (let index = 0; index < input.inventory.files.length; index += 1) {
+      if (index % 32 === 0 && (input.cancellation.isCancellationRequested() || input.abortSignal?.aborted)) {
+        return [];
+      }
+      if (index > 0 && index % 256 === 0) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+        if (input.cancellation.isCancellationRequested() || input.abortSignal?.aborted) return [];
+      }
+      const file = input.inventory.files[index]!;
       const normalized = normalizePath(file.path);
       const descriptor = descriptorsByPath.get(normalized);
-      if (!descriptor || pathMatchesNegativeConstraints(normalized, input.negativeConstraints)) return [];
+      if (!descriptor || pathMatchesNegativeConstraints(normalized, input.negativeConstraints)) continue;
       const values = fields.flatMap((field) => {
         const value = file[field as keyof typeof file];
         return Array.isArray(value) ? value.filter((entry): entry is string => typeof entry === "string") :
           typeof value === "string" ? [value] : [];
       });
-      return values.some((value) => value.toLocaleLowerCase("en-US").includes(needle))
-        ? [{ kind: "lead" as const, snapshotId: input.snapshot.id, path: normalized, entityId: descriptor.id }]
-        : [];
-    }).sort((left, right) => left.path.localeCompare(right.path)).slice(0, Math.min(query.limit, 100));
+      if (values.some((value) => value.toLocaleLowerCase("en-US").includes(needle))) {
+        results.push({ kind: "lead", snapshotId: input.snapshot.id, path: normalized, entityId: descriptor.id });
+      }
+    }
+    return results.sort((left, right) => left.path.localeCompare(right.path)).slice(0, Math.min(query.limit, 100));
   }
 
   return {
     reader: { readFile: read, readRange: read },
     search: {
-      async searchPaths(query) { return search(query, ["path", "name"]); },
-      async searchText(query) { return search(query, ["path", "textHints", "semanticFacts"]); },
-      async searchSymbols(query) { return search(query, ["path", "symbols", "exports", "imports"]); },
+      searchPaths(query) { return search(query, ["path", "name"]); },
+      searchText(query) { return search(query, ["path", "textHints", "semanticFacts"]); },
+      searchSymbols(query) { return search(query, ["path", "symbols", "exports", "imports"]); },
     },
   };
 }

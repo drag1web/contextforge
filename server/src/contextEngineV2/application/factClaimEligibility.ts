@@ -199,7 +199,8 @@ export function deriveImplementationOwnerProofs(input: {
   facts: readonly FactRecord[];
   snapshot: RepositorySnapshot;
   request?: InvestigationRequest;
-}): ImplementationOwnerProof[] {
+}, checkpoint?: () => void): ImplementationOwnerProof[] {
+  checkpoint?.();
   if (
     input.claim.type !== "implementation_owner" ||
     input.hypothesis.claimId !== input.claim.id ||
@@ -234,6 +235,7 @@ export function deriveImplementationOwnerProofs(input: {
   );
   const proofs: ImplementationOwnerProof[] = [];
   for (const candidateFact of candidates) {
+    checkpoint?.();
     const explicitPath = explicitPathProof({
       candidateFact,
       request: input.request,
@@ -256,7 +258,7 @@ export function deriveImplementationOwnerProofs(input: {
       origins,
       facts: relationshipFacts,
       candidateFact,
-    });
+    }, checkpoint);
     if (chains.length !== 1) continue;
     const factIds = chains[0]!.map((fact) => fact.id);
     proofs.push({
@@ -277,7 +279,8 @@ export function evaluateFactClaimEligibility(input: {
   facts: readonly FactRecord[];
   snapshot: RepositorySnapshot;
   request?: InvestigationRequest;
-}): FactClaimEligibilityDecision {
+}, checkpoint?: () => void): FactClaimEligibilityDecision {
+  checkpoint?.();
   if (input.fact.status !== "active") {
     return { eligible: false, reason: "inactive_fact", supportingFactIds: [] };
   }
@@ -294,7 +297,7 @@ export function evaluateFactClaimEligibility(input: {
     return { eligible: false, reason: "claim_semantic_mismatch", supportingFactIds: [] };
   }
   if (input.claim.type === "implementation_owner") {
-    const proof = deriveImplementationOwnerProofs(input).find((candidate) =>
+    const proof = deriveImplementationOwnerProofs(input, checkpoint).find((candidate) =>
       candidate.factIds.includes(input.fact.id),
     );
     return proof

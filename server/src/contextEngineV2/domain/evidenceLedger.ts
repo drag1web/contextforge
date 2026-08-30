@@ -25,8 +25,10 @@ function validateEvidenceRecord(
   evidence: EvidenceRecord,
   facts: readonly FactRecord[],
   snapshot: RepositorySnapshot,
+  checkpoint?: () => void,
 ): void {
-  assertEvidenceEvaluationConsistency({ evidence, facts, snapshotId: snapshot.id });
+  checkpoint?.();
+  assertEvidenceEvaluationConsistency({ evidence, facts, snapshotId: snapshot.id }, checkpoint);
   try {
     assertEvidenceSnapshotConsistency(evidence, facts, snapshot);
   } catch (error) {
@@ -61,13 +63,15 @@ export interface EvidenceLedger {
 export function createEvidenceLedger(input: {
   snapshot: RepositorySnapshot;
   facts: readonly FactRecord[];
-}): EvidenceLedger {
+}, checkpoint?: () => void): EvidenceLedger {
+  checkpoint?.();
   const safeInput = cloneDomainValue(input);
   const snapshot = safeInput.snapshot;
   const facts = [...safeInput.facts];
-  facts.forEach((fact) =>
-    assertFactEvaluationConsistency({ fact, snapshotId: snapshot.id }),
-  );
+  facts.forEach((fact) => {
+    checkpoint?.();
+    assertFactEvaluationConsistency({ fact, snapshotId: snapshot.id });
+  });
   const records = new Map<EvidenceId, EvidenceRecord>();
 
   const sortedRecords = (predicate?: (record: EvidenceRecord) => boolean) =>
@@ -79,9 +83,10 @@ export function createEvidenceLedger(input: {
   const addMany = (batch: readonly EvidenceRecord[]): EvidenceRecord[] => {
     const pending = new Map<EvidenceId, EvidenceRecord>();
     for (const rawEvidence of batch) {
-      validateEvidenceRecord(rawEvidence, facts, snapshot);
+      checkpoint?.();
+      validateEvidenceRecord(rawEvidence, facts, snapshot, checkpoint);
       const evidence = cloneDomainValue(rawEvidence);
-      validateEvidenceRecord(evidence, facts, snapshot);
+      validateEvidenceRecord(evidence, facts, snapshot, checkpoint);
       const existing = pending.get(evidence.id) ?? records.get(evidence.id);
       if (existing && !sameDomainRecord(existing, evidence)) {
         throw new InvestigationDomainError(
@@ -93,6 +98,7 @@ export function createEvidenceLedger(input: {
       pending.set(evidence.id, evidence);
     }
     for (const [id, evidence] of pending) {
+      checkpoint?.();
       if (!records.has(id)) records.set(id, evidence);
     }
     return [...pending.values()]

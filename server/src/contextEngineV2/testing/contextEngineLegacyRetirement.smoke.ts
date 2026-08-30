@@ -441,6 +441,25 @@ await scenario("runner rejection is the execution-error rollback class", () => {
   assert.equal(rejectedRunner.status, "legacy_rollback");
   assert.equal(rejectedRunner.rollbackReason, "execution_error");
 });
+const runnerDeadline = await runFaultClassService({
+  execute: async () => {
+    throw Object.assign(new Error("internal runner deadline"), { code: "deadline_exceeded" });
+  },
+});
+await scenario("runner self-deadline maps to the existing execution-timeout rollback class", () => {
+  assert.equal(runnerDeadline.status, "legacy_rollback");
+  assert.equal(runnerDeadline.rollbackReason, "execution_timeout");
+  assert.deepEqual(runnerDeadline.decision.reasonCodes, ["execution_timeout"]);
+});
+const callerCancellation = await runFaultClassService({
+  execute: async () => {
+    throw Object.assign(new Error("caller cancellation"), { code: "cancelled" });
+  },
+});
+await scenario("caller cancellation is not misreported as runner deadline expiry", () => {
+  assert.equal(callerCancellation.status, "legacy_rollback");
+  assert.equal(callerCancellation.rollbackReason, "execution_error");
+});
 const invalidProjection = await runFaultClassService({ project: () => { throw new Error("private projection failure"); } });
 await scenario("projection validation failure is an engine error without rollback", () => {
   assert.equal(invalidProjection.status, "engine_error");
