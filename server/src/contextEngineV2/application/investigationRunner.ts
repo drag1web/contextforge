@@ -74,7 +74,7 @@ import { evaluateInvestigationQuestions } from "./deterministicQuestionEvaluator
 import { assertExtractionResultBoundToInput } from "./extractionResultBoundary.js";
 import {
   deriveImplementationOwnerProofs,
-  evaluateFactClaimEligibility,
+  evaluateFactClaimEligibilityBatch,
   isFileBackedOwnerDefinitionFact,
 } from "./factClaimEligibility.js";
 import type {
@@ -441,10 +441,9 @@ function routeFactEvidence(input: {
     input.checkpoint();
     const claim = input.claims.find((candidate) => candidate.id === hypothesis.claimId);
     if (!claim) continue;
-    for (const fact of input.allFacts) {
-      input.checkpoint();
-      const decision = evaluateFactClaimEligibility({
-        fact,
+    const decisions = evaluateFactClaimEligibilityBatch(
+      {
+        factsToEvaluate: input.allFacts,
         claim,
         hypothesis,
         operation: input.operation,
@@ -452,7 +451,11 @@ function routeFactEvidence(input: {
         facts: input.allFacts,
         snapshot: input.snapshot,
         request: input.request,
-      }, input.checkpoint);
+      },
+      input.checkpoint,
+    );
+    for (const { decision } of decisions) {
+      input.checkpoint();
       if (!decision.eligible) continue;
       for (const factId of decision.supportingFactIds) {
         input.checkpoint();

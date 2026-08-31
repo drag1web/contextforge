@@ -79,6 +79,26 @@ export interface FactClaimEligibilityDecision {
   supportingFactIds: FactRecord["id"][];
 }
 
+export interface FactClaimEligibilityBatchDecision {
+  factId: FactRecord["id"];
+  decision: FactClaimEligibilityDecision;
+}
+
+export interface FactClaimEligibilityDiagnostics {
+  ownerProofDerivationStarted?(): void;
+  relationshipChainBuildStarted?(): void;
+}
+
+interface FactClaimEligibilityContext {
+  claim: ClaimRecord;
+  hypothesis: InvestigationHypothesis;
+  operation: InvestigationOperation;
+  operationRecords: readonly InvestigationOperationRecord[];
+  facts: readonly FactRecord[];
+  snapshot: RepositorySnapshot;
+  request?: InvestigationRequest;
+}
+
 function factEntities(fact: FactRecord): RepositoryEntity[] {
   return fact.kind === "relation" ? [fact.subject, fact.object] : [fact.subject];
 }
@@ -191,15 +211,12 @@ function explicitSymbolProof(input: {
     : undefined;
 }
 
-export function deriveImplementationOwnerProofs(input: {
-  claim: ClaimRecord;
-  hypothesis: InvestigationHypothesis;
-  operation: InvestigationOperation;
-  operationRecords: readonly InvestigationOperationRecord[];
-  facts: readonly FactRecord[];
-  snapshot: RepositorySnapshot;
-  request?: InvestigationRequest;
-}, checkpoint?: () => void): ImplementationOwnerProof[] {
+export function deriveImplementationOwnerProofs(
+  input: FactClaimEligibilityContext,
+  checkpoint?: () => void,
+  diagnostics?: FactClaimEligibilityDiagnostics,
+): ImplementationOwnerProof[] {
+  diagnostics?.ownerProofDerivationStarted?.();
   checkpoint?.();
   if (
     input.claim.type !== "implementation_owner" ||
@@ -254,11 +271,15 @@ export function deriveImplementationOwnerProofs(input: {
       proofs.push(explicitSymbol);
       continue;
     }
-    const chains = buildStrictBoundedRelationshipChains({
-      origins,
-      facts: relationshipFacts,
-      candidateFact,
-    }, checkpoint);
+    diagnostics?.relationshipChainBuildStarted?.();
+    const chains = buildStrictBoundedRelationshipChains(
+      {
+        origins,
+        facts: relationshipFacts,
+        candidateFact,
+      },
+      checkpoint,
+    );
     if (chains.length !== 1) continue;
     const factIds = chains[0]!.map((fact) => fact.id);
     proofs.push({
@@ -270,39 +291,90 @@ export function deriveImplementationOwnerProofs(input: {
   return proofs.sort((left, right) => stableCompare(left.candidate.id, right.candidate.id));
 }
 
-export function evaluateFactClaimEligibility(input: {
-  fact: FactRecord;
-  claim: ClaimRecord;
-  hypothesis: InvestigationHypothesis;
-  operation: InvestigationOperation;
-  operationRecords: readonly InvestigationOperationRecord[];
-  facts: readonly FactRecord[];
-  snapshot: RepositorySnapshot;
-  request?: InvestigationRequest;
-}, checkpoint?: () => void): FactClaimEligibilityDecision {
-  checkpoint?.();
-  if (input.fact.status !== "active") {
+function evaluateFactSpecificEligibility(
+  fact: FactRecord,
+  context: FactClaimEligibilityContext,
+): FactClaimEligibilityDecision | undefined {
+  if (fact.status !== "active") {
     return { eligible: false, reason: "inactive_fact", supportingFactIds: [] };
   }
   if (
-    input.hypothesis.claimId !== input.claim.id ||
-    !operationServesHypothesis(input.operation, input.hypothesis)
+    context.hypothesis.claimId !== context.claim.id ||
+    !operationServesHypothesis(context.operation, context.hypothesis)
   ) {
     return { eligible: false, reason: "operation_purpose_mismatch", supportingFactIds: [] };
   }
-  if (!requirementAllowsFact(input.fact, input.hypothesis)) {
+  if (!requirementAllowsFact(fact, context.hypothesis)) {
     return { eligible: false, reason: "requirement_mismatch", supportingFactIds: [] };
   }
-  if (!CLAIM_PREDICATES[input.claim.type].has(input.fact.predicate)) {
+  if (!CLAIM_PREDICATES[context.claim.type].has(fact.predicate)) {
     return { eligible: false, reason: "claim_semantic_mismatch", supportingFactIds: [] };
   }
-  if (input.claim.type === "implementation_owner") {
-    const proof = deriveImplementationOwnerProofs(input, checkpoint).find((candidate) =>
-      candidate.factIds.includes(input.fact.id),
-    );
-    return proof
-      ? { eligible: true, reason: "eligible", supportingFactIds: proof.factIds }
-      : { eligible: false, reason: "owner_proof_missing", supportingFactIds: [] };
+  if (context.claim.type === "implementation_owner") {
+    return undefined;
   }
-  return { eligible: true, reason: "eligible", supportingFactIds: [input.fact.id] };
+  return { eligible: true, reason: "eligible", supportingFactIds: [fact.id] };
+}
+
+export function evaluateFactClaimEligibilityBatch(
+  input: FactClaimEligibilityContext & { factsToEvaluate: readonly FactRecord[] },
+  checkpoint?: () => void,
+  diagnostics?: FactClaimEligibilityDiagnostics,
+): FactClaimEligibilityBatchDecision[] {
+  const preliminary = input.factsToEvaluate.map((fact) => {
+    checkpoint?.();
+    return {
+      factId: fact.id,
+      decision: evaluateFactSpecificEligibility(fact, input),
+    };
+  });
+  const ownerProofRequired = preliminary.some((entry) => entry.decision === undefined);
+  const proofByFactId = new Map<FactRecord["id"], ImplementationOwnerProof>();
+  if (ownerProofRequired) {
+    const proofs = deriveImplementationOwnerProofs({
+      claim: input.claim,
+      hypothesis: input.hypothesis,
+      operation: input.operation,
+      operationRecords: input.operationRecords,
+      facts: input.facts,
+      snapshot: input.snapshot,
+      request: input.request,
+    }, checkpoint, diagnostics);
+    for (const proof of proofs) {
+      for (const factId of proof.factIds) {
+        if (!proofByFactId.has(factId)) proofByFactId.set(factId, proof);
+      }
+    }
+  }
+  return preliminary.map((entry) => {
+    if (entry.decision !== undefined) {
+      return { factId: entry.factId, decision: entry.decision };
+    }
+    const proof = proofByFactId.get(entry.factId);
+    return {
+      factId: entry.factId,
+      decision: proof
+        ? { eligible: true, reason: "eligible", supportingFactIds: proof.factIds }
+        : { eligible: false, reason: "owner_proof_missing", supportingFactIds: [] },
+    };
+  });
+}
+
+export function evaluateFactClaimEligibility(
+  input: FactClaimEligibilityContext & { fact: FactRecord },
+  checkpoint?: () => void,
+): FactClaimEligibilityDecision {
+  return evaluateFactClaimEligibilityBatch(
+    {
+      factsToEvaluate: [input.fact],
+      claim: input.claim,
+      hypothesis: input.hypothesis,
+      operation: input.operation,
+      operationRecords: input.operationRecords,
+      facts: input.facts,
+      snapshot: input.snapshot,
+      request: input.request,
+    },
+    checkpoint,
+  )[0]!.decision;
 }

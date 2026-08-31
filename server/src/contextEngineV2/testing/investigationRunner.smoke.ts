@@ -13,7 +13,10 @@ import {
   createInvestigationRunner,
 } from "../application/index.js";
 import { evaluateInvestigationQuestions } from "../application/deterministicQuestionEvaluator.js";
-import { evaluateFactClaimEligibility } from "../application/factClaimEligibility.js";
+import {
+  evaluateFactClaimEligibility,
+  evaluateFactClaimEligibilityBatch,
+} from "../application/factClaimEligibility.js";
 import { evaluateKnowledgeGapResolution } from "../application/truthfulGapEvaluator.js";
 import { buildStrictBoundedRelationshipChains } from "../application/strictRelationshipChain.js";
 import { createDeterministicOperationQueue } from "../application/deterministicOperationQueue.js";
@@ -1052,6 +1055,51 @@ function directOwnerChainRecords(
     importFact,
     containsFact,
     candidate,
+  };
+}
+
+function groundFactForOperation(
+  fact: FactRecord,
+  operationId: OperationId,
+): FactRecord {
+  return {
+    ...fact,
+    provenance: {
+      ...fact.provenance,
+      operationId,
+    },
+  };
+}
+
+function directOwnerEligibilityContext(suffix: string) {
+  const fixture = repositoryFixture(suffix, [
+    { path: "src/candidate.ts", content: "export function CandidateService() {}" },
+    { path: "src/import.ts", content: "export const importModule = true;" },
+    { path: "src/other.ts", content: "export function OtherOwner() {}" },
+    { path: "src/route.ts", content: "export const routeModule = true;" },
+  ]);
+  const ownerClaim = claim(fixture.snapshot, suffix);
+  const ownerHypothesis = hypothesis(ownerClaim);
+  ownerHypothesis.requiredEvidence[0]!.acceptedFactPredicates = [
+    "calls",
+    "contains",
+    "defines_endpoint",
+    "defines_route",
+    "imports",
+    "re_exports",
+  ];
+  const linkedOperation = parsePathOperation(fixture.snapshot, "src/route.ts", {
+    hypotheses: [ownerHypothesis.id],
+  });
+  const records = directOwnerChainRecords(fixture.snapshot, suffix, "connected_call");
+  const facts = records.facts.map((fact) => groundFactForOperation(fact, linkedOperation.id));
+  return {
+    fixture,
+    ownerClaim,
+    ownerHypothesis,
+    linkedOperation,
+    records,
+    facts,
   };
 }
 
@@ -4408,6 +4456,352 @@ scenario("168. dense relationship-chain expansion observes bounded infrastructur
   );
   assert.equal(checks, 1_000);
   assert.ok(performance.now() - started < 500);
+});
+
+scenario("169. implementation-owner batch decisions match repeated scalar decisions", () => {
+  const context = directOwnerEligibilityContext("owner-batch-positive");
+  const shared = {
+    claim: context.ownerClaim,
+    hypothesis: context.ownerHypothesis,
+    operation: context.linkedOperation,
+    operationRecords: [],
+    facts: context.facts,
+    snapshot: context.fixture.snapshot,
+    request: requestFor(context.fixture.snapshot),
+  };
+  const batch = evaluateFactClaimEligibilityBatch({
+    ...shared,
+    factsToEvaluate: context.facts,
+  });
+  const scalar = context.facts.map((fact) => ({
+    factId: fact.id,
+    decision: evaluateFactClaimEligibility({ ...shared, fact }),
+  }));
+  assert.deepEqual(batch, scalar);
+  assert.ok(batch.every(({ decision }) => decision.eligible));
+
+  const reversed = evaluateFactClaimEligibilityBatch({
+    ...shared,
+    factsToEvaluate: [...context.facts].reverse(),
+  });
+  const byFactId = (decisions: typeof batch) => [...decisions]
+    .sort((left, right) => left.factId.localeCompare(right.factId));
+  assert.deepEqual(byFactId(reversed), byFactId(batch));
+});
+
+scenario("170. owner batch preserves every fact-specific negative decision", () => {
+  const fixture = repositoryFixture("owner-batch-negative", [
+    { path: "src/candidate.ts", content: "export function CandidateService() {}" },
+    { path: "src/route.ts", content: "export const routeModule = true;" },
+  ]);
+  const ownerClaim = claim(fixture.snapshot, "owner-batch-negative");
+  const ownerHypothesis = hypothesis(ownerClaim);
+  ownerHypothesis.requiredEvidence[0]!.acceptedFactPredicates = ["contains", "tests"];
+  const linkedOperation = parsePathOperation(fixture.snapshot, "src/route.ts", {
+    hypotheses: [ownerHypothesis.id],
+  });
+  const routeModule = syntheticEntity(
+    fixture.snapshot,
+    "src/route.ts",
+    "owner-batch-negative-route",
+    "module",
+    "route",
+  );
+  const signal = syntheticEntity(
+    fixture.snapshot,
+    "",
+    "owner-batch-negative-signal",
+    "symbol",
+    "CandidateService",
+  );
+  const candidateModule = syntheticEntity(
+    fixture.snapshot,
+    "src/candidate.ts",
+    "owner-batch-negative-module",
+    "module",
+    "candidate",
+  );
+  const candidate = syntheticEntity(
+    fixture.snapshot,
+    "src/candidate.ts",
+    "owner-batch-negative-candidate",
+    "function",
+    "CandidateService",
+  );
+  const inactive = {
+    ...syntheticRelation(
+      fixture.snapshot,
+      "src/route.ts",
+      "owner-batch-negative-inactive",
+      routeModule,
+      "calls",
+      signal,
+    ),
+    status: "invalidated" as const,
+  };
+  const requirementMismatch = syntheticRelation(
+    fixture.snapshot,
+    "src/route.ts",
+    "owner-batch-negative-requirement",
+    routeModule,
+    "imports",
+    signal,
+  );
+  const semanticMismatch = syntheticRelation(
+    fixture.snapshot,
+    "src/route.ts",
+    "owner-batch-negative-semantic",
+    routeModule,
+    "tests",
+    signal,
+  );
+  const missingProof = syntheticRelation(
+    fixture.snapshot,
+    "src/candidate.ts",
+    "owner-batch-negative-missing-proof",
+    candidateModule,
+    "contains",
+    candidate,
+  );
+  const facts = [inactive, requirementMismatch, semanticMismatch, missingProof]
+    .map((fact) => groundFactForOperation(fact, linkedOperation.id));
+  const shared = {
+    claim: ownerClaim,
+    hypothesis: ownerHypothesis,
+    operation: linkedOperation,
+    operationRecords: [],
+    facts,
+    snapshot: fixture.snapshot,
+    request: requestFor(fixture.snapshot),
+  };
+  const batch = evaluateFactClaimEligibilityBatch({ ...shared, factsToEvaluate: facts });
+  const scalar = facts.map((fact) => ({
+    factId: fact.id,
+    decision: evaluateFactClaimEligibility({ ...shared, fact }),
+  }));
+  assert.deepEqual(batch, scalar);
+  assert.deepEqual(batch.map(({ decision }) => decision.reason), [
+    "inactive_fact",
+    "requirement_mismatch",
+    "claim_semantic_mismatch",
+    "owner_proof_missing",
+  ]);
+});
+
+scenario("171. non-owner claim batch decisions remain scalar-equivalent", () => {
+  const context = directOwnerEligibilityContext("owner-batch-non-owner");
+  const behaviorClaim: ClaimRecord = {
+    ...context.ownerClaim,
+    id: id<ClaimId>("claim-owner-batch-behavior"),
+    type: "behavior",
+  };
+  const behaviorHypothesis: InvestigationHypothesis = {
+    ...context.ownerHypothesis,
+    id: id<HypothesisId>("hypothesis-owner-batch-behavior"),
+    claimId: behaviorClaim.id,
+    requiredEvidence: [{
+      ...context.ownerHypothesis.requiredEvidence[0]!,
+      acceptedFactPredicates: ["calls"],
+    }],
+  };
+  const linkedOperation = parsePathOperation(context.fixture.snapshot, "src/route.ts", {
+    hypotheses: [behaviorHypothesis.id],
+  });
+  const facts = context.records.facts
+    .map((fact) => groundFactForOperation(fact, linkedOperation.id));
+  const shared = {
+    claim: behaviorClaim,
+    hypothesis: behaviorHypothesis,
+    operation: linkedOperation,
+    operationRecords: [],
+    facts,
+    snapshot: context.fixture.snapshot,
+    request: requestFor(context.fixture.snapshot),
+  };
+  const batch = evaluateFactClaimEligibilityBatch({ ...shared, factsToEvaluate: facts });
+  const scalar = facts.map((fact) => ({
+    factId: fact.id,
+    decision: evaluateFactClaimEligibility({ ...shared, fact }),
+  }));
+  assert.deepEqual(batch, scalar);
+  assert.equal(batch.filter(({ decision }) => decision.eligible).length, 1);
+  assert.equal(batch.find(({ decision }) => decision.eligible)?.decision.supportingFactIds.length, 1);
+});
+
+scenario("172. ambiguous owner chains remain unproven through the batch path", () => {
+  const context = directOwnerEligibilityContext("owner-batch-ambiguous");
+  const duplicateImport = {
+    ...structuredClone(context.facts[1]!),
+    id: id<FactId>("fact-owner-batch-ambiguous-import-duplicate"),
+  };
+  const facts = [...context.facts, duplicateImport];
+  const shared = {
+    claim: context.ownerClaim,
+    hypothesis: context.ownerHypothesis,
+    operation: context.linkedOperation,
+    operationRecords: [],
+    facts,
+    snapshot: context.fixture.snapshot,
+    request: requestFor(context.fixture.snapshot),
+  };
+  const batch = evaluateFactClaimEligibilityBatch({ ...shared, factsToEvaluate: facts });
+  const scalar = facts.map((fact) => ({
+    factId: fact.id,
+    decision: evaluateFactClaimEligibility({ ...shared, fact }),
+  }));
+  assert.deepEqual(batch, scalar);
+  const candidateFactId = context.facts[2]!.id;
+  assert.deepEqual(batch.find(({ factId }) => factId === candidateFactId)?.decision, {
+    eligible: false,
+    reason: "owner_proof_missing",
+    supportingFactIds: [],
+  });
+});
+
+scenario("173. explicit owner proof remains batch and scalar equivalent", () => {
+  const context = directOwnerEligibilityContext("owner-batch-explicit");
+  const candidateFact = context.facts[2]!;
+  const explicitTargets: InvestigationRequest["explicitTargets"][] = [
+    [{ kind: "path", path: "src/candidate.ts" }],
+    [{ kind: "symbol", symbol: "CandidateService" }],
+  ];
+  for (const targets of explicitTargets) {
+    const shared = {
+      claim: context.ownerClaim,
+      hypothesis: context.ownerHypothesis,
+      operation: context.linkedOperation,
+      operationRecords: [],
+      facts: context.facts,
+      snapshot: context.fixture.snapshot,
+      request: requestFor(context.fixture.snapshot, { explicitTargets: targets }),
+    };
+    let relationshipChainBuilds = 0;
+    const batch = evaluateFactClaimEligibilityBatch(
+      { ...shared, factsToEvaluate: context.facts },
+      undefined,
+      { relationshipChainBuildStarted: () => { relationshipChainBuilds += 1; } },
+    );
+    const scalar = context.facts.map((fact) => ({
+      factId: fact.id,
+      decision: evaluateFactClaimEligibility({ ...shared, fact }),
+    }));
+    assert.deepEqual(batch, scalar);
+    assert.deepEqual(batch.find(({ factId }) => factId === candidateFact.id)?.decision, {
+      eligible: true,
+      reason: "eligible",
+      supportingFactIds: [candidateFact.id],
+    });
+    assert.equal(relationshipChainBuilds, 0);
+  }
+});
+
+scenario("174. owner-proof derivation scales with candidates instead of evaluated facts", () => {
+  const fixture = repositoryFixture("owner-batch-structural", [
+    { path: "src/candidate.ts", content: "export const candidates = true;" },
+    { path: "src/import.ts", content: "export const imports = true;" },
+    { path: "src/route.ts", content: "export const routes = true;" },
+  ]);
+  const ownerClaim = claim(fixture.snapshot, "owner-batch-structural");
+  const ownerHypothesis = hypothesis(ownerClaim);
+  ownerHypothesis.requiredEvidence[0]!.acceptedFactPredicates = ["calls", "contains", "imports"];
+  const linkedOperation = parsePathOperation(fixture.snapshot, "src/route.ts", {
+    hypotheses: [ownerHypothesis.id],
+  });
+  const importedSignal = syntheticEntity(
+    fixture.snapshot,
+    "",
+    "owner-batch-structural-imported",
+    "symbol",
+    "Candidate0",
+    {
+      importedName: "Candidate0",
+      localName: "Candidate0",
+      moduleSpecifier: "./candidate",
+    },
+  );
+  const importModule = syntheticEntity(
+    fixture.snapshot,
+    "src/import.ts",
+    "owner-batch-structural-import-module",
+    "module",
+    "imports",
+  );
+  const candidateModule = syntheticEntity(
+    fixture.snapshot,
+    "src/candidate.ts",
+    "owner-batch-structural-candidate-module",
+    "module",
+    "candidates",
+  );
+  const calls = Array.from({ length: 50 }, (_, index) => {
+    const caller = syntheticEntity(
+      fixture.snapshot,
+      "src/route.ts",
+      `owner-batch-structural-caller-${index}`,
+      "function",
+      `Caller${index}`,
+    );
+    return syntheticRelation(
+      fixture.snapshot,
+      "src/route.ts",
+      `owner-batch-structural-call-${index}`,
+      caller,
+      "calls",
+      importedSignal,
+    );
+  });
+  const importFact = syntheticRelation(
+    fixture.snapshot,
+    "src/import.ts",
+    "owner-batch-structural-import",
+    importModule,
+    "imports",
+    importedSignal,
+  );
+  const candidates = Array.from({ length: 13 }, (_, index) => {
+    const candidate = syntheticEntity(
+      fixture.snapshot,
+      "src/candidate.ts",
+      `owner-batch-structural-candidate-${index}`,
+      "function",
+      `Candidate${index}`,
+    );
+    return syntheticRelation(
+      fixture.snapshot,
+      "src/candidate.ts",
+      `owner-batch-structural-contains-${index}`,
+      candidateModule,
+      "contains",
+      candidate,
+    );
+  });
+  const facts = [...calls, importFact, ...candidates]
+    .map((fact) => groundFactForOperation(fact, linkedOperation.id));
+  let proofDerivations = 0;
+  let relationshipChainBuilds = 0;
+  const decisions = evaluateFactClaimEligibilityBatch(
+    {
+      factsToEvaluate: facts,
+      claim: ownerClaim,
+      hypothesis: ownerHypothesis,
+      operation: linkedOperation,
+      operationRecords: [],
+      facts,
+      snapshot: fixture.snapshot,
+      request: requestFor(fixture.snapshot),
+    },
+    undefined,
+    {
+      ownerProofDerivationStarted: () => { proofDerivations += 1; },
+      relationshipChainBuildStarted: () => { relationshipChainBuilds += 1; },
+    },
+  );
+  assert.equal(facts.length, 64);
+  assert.equal(candidates.length, 13);
+  assert.equal(facts.length * candidates.length, 832);
+  assert.equal(decisions.length, facts.length);
+  assert.equal(proofDerivations, 1);
+  assert.equal(relationshipChainBuilds, candidates.length);
 });
 
 for (const current of scenarios) {
