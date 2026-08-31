@@ -28,6 +28,10 @@ import {
   sortedUnique,
   stableCompare,
 } from "./investigationDomainSupport.js";
+import {
+  assertValidatedDomainContext,
+  type ValidatedDomainContext,
+} from "./validatedDomainContext.js";
 
 const HYPOTHESIS_FIELDS = [
   "id",
@@ -487,16 +491,22 @@ export function createHypothesisLedger(input: {
   claims: readonly ClaimRecord[];
   evidence: readonly EvidenceRecord[];
   knowledgeGaps?: readonly KnowledgeGap[];
-}): HypothesisLedger {
+}, validatedContext?: ValidatedDomainContext): HypothesisLedger {
+  if (validatedContext) assertValidatedDomainContext(validatedContext);
+  validatedContext?.assertCanonical({ evidence: input.evidence });
+  if (validatedContext && input.snapshotId !== validatedContext.snapshotId) {
+    throw new InvestigationDomainError(
+      "snapshot_mismatch",
+      "Hypothesis ledger context belongs to another snapshot.",
+    );
+  }
   const safeInput = cloneDomainValue(input);
   const claims = indexDomainRecordsById(
     safeInput.claims,
     "Hypothesis ledger claim",
   );
-  const evidence = indexDomainRecordsById(
-    safeInput.evidence,
-    "Hypothesis ledger evidence",
-  );
+  const evidence = validatedContext?.evidenceById ??
+    indexDomainRecordsById(safeInput.evidence, "Hypothesis ledger evidence");
   const gaps = indexDomainRecordsById(
     safeInput.knowledgeGaps ?? [],
     "Hypothesis ledger knowledge gap",

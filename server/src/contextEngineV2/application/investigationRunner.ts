@@ -55,6 +55,10 @@ import {
   stableCompare,
   stableSerialize,
 } from "../domain/investigationDomainSupport.js";
+import {
+  createValidatedDomainContext,
+  type ValidatedDomainContext,
+} from "../domain/validatedDomainContext.js";
 import { assertRepositoryEntitySnapshotConsistency } from "../domain/knowledgeGraphInvariant.js";
 import type {
   KnowledgeEdge,
@@ -160,9 +164,10 @@ interface MutableRunnerState {
   questions: InvestigationQuestion[];
   claims: ClaimRecord[];
   hypotheses: InvestigationHypothesis[];
-  entities: RepositoryEntity[];
-  facts: FactRecord[];
-  evidence: EvidenceRecord[];
+  entities: readonly RepositoryEntity[];
+  facts: readonly FactRecord[];
+  evidence: readonly EvidenceRecord[];
+  validationContext: ValidatedDomainContext;
   findings: Finding[];
   findingEvaluations: ReturnType<typeof evaluateFindingEligibility>[];
   contradictions: ContradictionRecord[];
@@ -606,6 +611,7 @@ function calculateCoverage(
     | "filesParsed"
     | "relationshipHops"
     | "knowledgeGaps"
+    | "validationContext"
   >,
 ): InvestigationCoverage {
   return calculateInvestigationCoverage({
@@ -623,7 +629,7 @@ function calculateCoverage(
         .filter((gap) => gap.status === "open" && gap.blocks.length > 0)
         .map((gap) => gap.category),
     ),
-  });
+  }, state.validationContext);
 }
 
 function enrichClaimsWithEvidence(
@@ -758,6 +764,7 @@ function rebuildDomainState(input: {
   snapshot: InvestigationRunnerInput["snapshot"];
   request: InvestigationRunnerInput["request"];
   checkpoint: () => void;
+  validationContext: ValidatedDomainContext;
 }): {
   claims: ClaimRecord[];
   hypotheses: InvestigationHypothesis[];
@@ -786,14 +793,14 @@ function rebuildDomainState(input: {
             ),
           ),
       ),
-    }, input.checkpoint));
+    }, input.checkpoint, input.validationContext));
   }
   input.checkpoint();
   const contradictionRegistry = createContradictionRegistry({
     snapshotId: input.snapshotId,
     claims,
     evidence: input.evidence,
-  }, input.checkpoint);
+  }, input.checkpoint, input.validationContext);
   input.contradictions.forEach((record) => {
     input.checkpoint();
     contradictionRegistry.add(record);
@@ -820,7 +827,7 @@ function rebuildDomainState(input: {
     claims,
     evidence: input.evidence,
     knowledgeGaps: input.knowledgeGaps,
-  });
+  }, input.validationContext);
   input.hypotheses.forEach((hypothesis) => ledger.add(hypothesis));
   let allRequiredEvidenceSatisfied = true;
   for (const hypothesis of [...input.hypotheses].sort((left, right) =>
@@ -834,7 +841,7 @@ function rebuildDomainState(input: {
       evidence: input.evidence,
       facts: input.facts,
       requirements: hypothesis.requiredEvidence,
-    }, input.checkpoint);
+    }, input.checkpoint, input.validationContext);
     allRequiredEvidenceSatisfied &&= evaluation.allRequiredSatisfied;
     if (
       evaluation.hypothesisDisposition === "unresolved" &&
@@ -867,7 +874,7 @@ function rebuildDomainState(input: {
       evidence: input.evidence,
       facts: input.facts,
       requirements: [],
-    }, input.checkpoint);
+    }, input.checkpoint, input.validationContext);
     return evaluation.claim;
   });
   const hypotheses = ledger.snapshot();
@@ -934,7 +941,7 @@ function rebuildDomainState(input: {
         entities: input.entities,
         contradictions,
         knowledgeGaps: input.knowledgeGaps,
-      });
+      }, input.validationContext);
     })
     .sort((left, right) => stableCompare(left.finding.id, right.finding.id));
   input.checkpoint();
@@ -1832,7 +1839,7 @@ export function createInvestigationRunner(
         seed.hypotheses,
         "Initial hypothesis",
       );
-      const entities = mergeRecords(
+      let entities: readonly RepositoryEntity[] = mergeRecords(
         input.entities,
         deriveEntities(input.facts),
         "Initial repository entity",
@@ -1842,7 +1849,9 @@ export function createInvestigationRunner(
         assertEntityEvaluationConsistency({ entity, snapshotId: input.snapshot.id });
         assertRepositoryEntitySnapshotConsistency(entity, input.snapshot);
       });
-      const facts = [...indexDomainRecordsById(input.facts, "Initial fact").values()];
+      let facts: readonly FactRecord[] = [
+        ...indexDomainRecordsById(input.facts, "Initial fact").values(),
+      ];
       facts.forEach((fact) => {
         checkpoint();
         assertFactEvaluationConsistency({ fact, snapshotId: input.snapshot.id });
@@ -1857,7 +1866,16 @@ export function createInvestigationRunner(
       });
       const evidenceLedger = createEvidenceLedger({ snapshot: input.snapshot, facts }, checkpoint);
       evidenceLedger.addMany(input.evidence);
-      const evidence = evidenceLedger.snapshot();
+      let evidence: readonly EvidenceRecord[] = evidenceLedger.snapshot();
+      let validationContext = createValidatedDomainContext({
+        snapshot: input.snapshot,
+        entities,
+        facts,
+        evidence,
+      }, checkpoint);
+      entities = validationContext.entities;
+      facts = validationContext.facts;
+      evidence = validationContext.evidence;
       let gaps = mergeRecords(
         input.knowledgeGaps,
         seed.knowledgeGaps,
@@ -1918,6 +1936,7 @@ export function createInvestigationRunner(
         findings: [...indexDomainRecordsById(input.findings, "Initial finding").values()],
         occurredAt: initialTimestamp,
         checkpoint,
+        validationContext,
       });
       await yieldToEventLoop();
       const initialGapEvaluation = evaluateKnowledgeGapResolution({
@@ -1947,6 +1966,7 @@ export function createInvestigationRunner(
         findings: initialDomain.findings,
         occurredAt: initialTimestamp,
         checkpoint,
+        validationContext,
       });
       await yieldToEventLoop();
       const initialQuestionEvaluation = evaluateInvestigationQuestions({
@@ -1973,6 +1993,7 @@ export function createInvestigationRunner(
         entities,
         facts,
         evidence,
+        validationContext,
         findings: initialDomainAfterGaps.findings,
         findingEvaluations: initialDomainAfterGaps.findingEvaluations,
         contradictions: initialDomainAfterGaps.contradictions,
@@ -2032,8 +2053,8 @@ export function createInvestigationRunner(
       await dependencies.graphStore.beginSnapshot(input.snapshot);
       await dependencies.graphStore.putBatch({
         snapshotId: input.snapshot.id,
-        entities,
-        facts,
+        entities: [...entities],
+        facts: [...facts],
       });
       const stopPolicy = createStopPolicy();
       const readCache = new Map<FileDescriptor["id"], ReadCacheEntry>();
@@ -2065,7 +2086,10 @@ export function createInvestigationRunner(
         >["stage"],
       ): InvestigationStop | null => {
         synchronizeWallTime();
-        const decision = stopPolicy.evaluate(stopState(input, state));
+        const decision = stopPolicy.evaluate(
+          stopState(input, state),
+          state.validationContext,
+        );
         state.trace.push({
           type: "stop_checked",
           round,
@@ -2239,27 +2263,14 @@ export function createInvestigationRunner(
           let producedEvidence: EvidenceRecord[] = [];
           if (outcome.status === "completed") {
             try {
-              const candidateEntities = mergeRecords(
-                state.entities,
-                [...outcome.entities, ...deriveEntities(outcome.facts)],
-                "Operation repository entity",
-              );
-              const candidateFacts = mergeRecords(
-                state.facts,
-                outcome.facts,
-                "Operation fact",
-              );
-              candidateFacts.forEach((fact) => {
-                checkpoint();
-                assertFactEvaluationConsistency({ fact, snapshotId: input.snapshot.id });
-                assertFactSnapshotConsistency(fact, input.snapshot);
-              });
-              const candidateEvidenceLedger = createEvidenceLedger({
-                snapshot: input.snapshot,
-                facts: candidateFacts,
+              const candidateValidationContext = state.validationContext.extend({
+                entities: [...outcome.entities, ...deriveEntities(outcome.facts)],
+                facts: outcome.facts,
+                evidence: outcome.evidence,
               }, checkpoint);
-              candidateEvidenceLedger.addMany([...state.evidence, ...outcome.evidence]);
-              const candidateEvidence = candidateEvidenceLedger.snapshot();
+              const candidateEntities = candidateValidationContext.entities;
+              const candidateFacts = candidateValidationContext.facts;
+              const candidateEvidence = candidateValidationContext.evidence;
               const candidateGapRegistry = createKnowledgeGapRegistry({
                 snapshotId: input.snapshot.id,
                 knownEntityIds: candidateEntities.map((entity) => entity.id),
@@ -2301,6 +2312,7 @@ export function createInvestigationRunner(
                 occurredAt,
                 operationId: operation.id,
                 checkpoint,
+                validationContext: candidateValidationContext,
               });
               await yieldToEventLoop();
               const gapEvaluation = evaluateKnowledgeGapResolution({
@@ -2331,6 +2343,7 @@ export function createInvestigationRunner(
                 occurredAt,
                 operationId: operation.id,
                 checkpoint,
+                validationContext: candidateValidationContext,
               });
               await yieldToEventLoop();
               const questionEvaluation = evaluateInvestigationQuestions({
@@ -2351,6 +2364,7 @@ export function createInvestigationRunner(
                 entities: candidateEntities,
                 facts: candidateFacts,
                 evidence: candidateEvidence,
+                validationContext: candidateValidationContext,
                 claims: domain.claims,
                 hypotheses: domain.hypotheses,
                 contradictions: domain.contradictions,

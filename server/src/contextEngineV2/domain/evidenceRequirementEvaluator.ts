@@ -22,6 +22,10 @@ import {
   stableCompare,
   stableSerialize,
 } from "./investigationDomainSupport.js";
+import {
+  assertValidatedDomainContext,
+  type ValidatedDomainContext,
+} from "./validatedDomainContext.js";
 
 const STRENGTH_ORDER: Readonly<Record<EvidenceStrength, number>> = {
   lead: 0,
@@ -156,7 +160,22 @@ function factMatches(
 
 export function evaluateEvidenceRequirement(
   rawInput: EvidenceRequirementEvaluationInput,
+  validatedContext?: ValidatedDomainContext,
 ): EvidenceRequirementEvaluation {
+  if (validatedContext) {
+    assertValidatedDomainContext(validatedContext);
+    validatedContext.assertCanonical({ facts: rawInput.facts });
+    validatedContext.assertCanonicalEvidenceMembers(rawInput.evidence);
+    if (
+      rawInput.snapshotId !== undefined &&
+      rawInput.snapshotId !== validatedContext.snapshotId
+    ) {
+      throw new InvestigationDomainError(
+        "snapshot_mismatch",
+        "Evidence requirement context belongs to another snapshot.",
+      );
+    }
+  }
   const input = cloneDomainValue(rawInput);
   validateRequirement(input.requirement);
   const requirement = cloneDomainValue(input.requirement);
@@ -170,22 +189,21 @@ export function evaluateEvidenceRequirement(
       "Evidence requirement evaluation role is not supported.",
     );
   }
-  const evidenceById = indexDomainRecordsById(
-    input.evidence,
-    "Evidence requirement evidence",
-  );
-  const factsById = indexDomainRecordsById(
-    input.facts,
-    "Evidence requirement fact",
-  );
+  const evidenceById = validatedContext
+    ? new Map(input.evidence.map((record) => [record.id, record]))
+    : indexDomainRecordsById(input.evidence, "Evidence requirement evidence");
+  const factsById = validatedContext?.factsById ??
+    indexDomainRecordsById(input.facts, "Evidence requirement fact");
   const evidence = [...evidenceById.values()];
-  const facts = [...factsById.values()];
-  facts.forEach((fact) =>
-    assertFactEvaluationConsistency({
-      fact,
-      snapshotId: input.snapshotId ?? fact.snapshotId,
-    }),
-  );
+  const facts = validatedContext?.facts ?? [...factsById.values()];
+  if (!validatedContext) {
+    facts.forEach((fact) =>
+      assertFactEvaluationConsistency({
+        fact,
+        snapshotId: input.snapshotId ?? fact.snapshotId,
+      }),
+    );
+  }
   const factSnapshotIds = sortedUnique(
     facts.map((fact) => fact.snapshotId),
   );
@@ -211,7 +229,7 @@ export function evaluateEvidenceRequirement(
       "Evidence requirement evaluation requires a snapshot context.",
     );
   }
-  if (snapshotId !== undefined) {
+  if (snapshotId !== undefined && !validatedContext) {
     evidence.forEach((record) =>
       assertEvidenceEvaluationConsistency({
         evidence: record,

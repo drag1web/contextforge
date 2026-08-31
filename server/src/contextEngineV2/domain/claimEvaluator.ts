@@ -26,6 +26,10 @@ import {
   sortedUnique,
   stableCompare,
 } from "./investigationDomainSupport.js";
+import {
+  assertValidatedDomainContext,
+  type ValidatedDomainContext,
+} from "./validatedDomainContext.js";
 
 const CLAIM_FIELDS = [
   "id",
@@ -188,6 +192,7 @@ function validateClaim(
   claim: ClaimRecord,
   evidence: readonly EvidenceRecord[],
   facts?: readonly FactRecord[],
+  validatedContext?: ValidatedDomainContext,
 ): void {
   assertClosedRecord(claim, CLAIM_FIELDS, CLAIM_REQUIRED_FIELDS, "Claim record");
   assertPortableIdentifier(claim.id, "Claim id");
@@ -223,7 +228,8 @@ function validateClaim(
     "Claim derivation input fact ids",
   );
   if (facts !== undefined) {
-    const factsById = indexDomainRecordsById(facts, "Claim evaluation fact");
+    const factsById = validatedContext?.factsById ??
+      indexDomainRecordsById(facts, "Claim evaluation fact");
     for (const factId of claim.derivation.inputFactIds) {
       const fact = factsById.get(factId);
       if (!fact) {
@@ -242,10 +248,8 @@ function validateClaim(
   }
   validateClaimEntity(claim.subject, claim.snapshotId);
   validateClaimObject(claim.object, claim.snapshotId);
-  const evidenceById = indexDomainRecordsById(
-    evidence,
-    "Claim evaluation evidence",
-  );
+  const evidenceById = validatedContext?.evidenceById ??
+    indexDomainRecordsById(evidence, "Claim evaluation evidence");
   for (const id of [
     ...claim.supportingEvidenceIds,
     ...claim.contradictingEvidenceIds,
@@ -287,36 +291,49 @@ export function assertClaimLedgerConsistency(input: {
 export function evaluateClaim(
   rawInput: ClaimEvaluationInput,
   checkpoint?: () => void,
+  validatedContext?: ValidatedDomainContext,
 ): ClaimEvaluation {
   checkpoint?.();
+  if (validatedContext) assertValidatedDomainContext(validatedContext);
+  if (
+    validatedContext &&
+    rawInput.claim.snapshotId !== validatedContext.snapshotId
+  ) {
+    throw new InvestigationDomainError(
+      "snapshot_mismatch",
+      "Evaluated claim belongs to another validated snapshot.",
+    );
+  }
+  validatedContext?.assertCanonical({
+    facts: rawInput.facts,
+    evidence: rawInput.evidence,
+  });
   const input = cloneDomainValue(rawInput);
-  const evidenceById = indexDomainRecordsById(
-    input.evidence,
-    "Claim evaluation evidence",
-  );
-  const factsById = indexDomainRecordsById(
-    input.facts,
-    "Claim evaluation fact",
-  );
-  const evidence = [...evidenceById.values()];
-  const facts = [...factsById.values()];
-  facts.forEach((fact) => {
-    checkpoint?.();
-    assertFactEvaluationConsistency({
-      fact,
-      snapshotId: input.claim.snapshotId,
+  const evidenceById = validatedContext?.evidenceById ??
+    indexDomainRecordsById(input.evidence, "Claim evaluation evidence");
+  const factsById = validatedContext?.factsById ??
+    indexDomainRecordsById(input.facts, "Claim evaluation fact");
+  const evidence = validatedContext?.evidence ?? [...evidenceById.values()];
+  const facts = validatedContext?.facts ?? [...factsById.values()];
+  if (!validatedContext) {
+    facts.forEach((fact) => {
+      checkpoint?.();
+      assertFactEvaluationConsistency({
+        fact,
+        snapshotId: input.claim.snapshotId,
+      });
     });
-  });
-  evidence.forEach((record) => {
-    checkpoint?.();
-    assertEvidenceEvaluationConsistency({
-      evidence: record,
-      facts,
-      snapshotId: input.claim.snapshotId,
-    }, checkpoint);
-  });
+    evidence.forEach((record) => {
+      checkpoint?.();
+      assertEvidenceEvaluationConsistency({
+        evidence: record,
+        facts,
+        snapshotId: input.claim.snapshotId,
+      }, checkpoint);
+    });
+  }
   checkpoint?.();
-  validateClaim(input.claim, evidence, facts);
+  validateClaim(input.claim, evidence, facts, validatedContext);
   const claim = cloneDomainValue(input.claim);
   const supporting = claim.supportingEvidenceIds
     .map((id) => evidenceById.get(id))
@@ -334,7 +351,7 @@ export function evaluateClaim(
         facts,
         snapshotId: claim.snapshotId,
         role: "supports",
-      });
+      }, validatedContext);
     });
   if (new Set(requirements.map((entry) => entry.requirementId)).size !== requirements.length) {
     throw new InvestigationDomainError(

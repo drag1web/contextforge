@@ -29,6 +29,10 @@ import {
   sortedUnique,
 } from "./investigationDomainSupport.js";
 import { snapshotInvestigationBudget } from "./investigationBudget.js";
+import {
+  assertValidatedDomainContext,
+  type ValidatedDomainContext,
+} from "./validatedDomainContext.js";
 
 export type StopDecision =
   | { action: "continue"; reason: string }
@@ -57,7 +61,10 @@ export interface StopPolicyState {
 }
 
 export interface StopPolicy {
-  evaluate(state: Readonly<StopPolicyState>): StopDecision;
+  evaluate(
+    state: Readonly<StopPolicyState>,
+    validatedContext?: ValidatedDomainContext,
+  ): StopDecision;
 }
 
 const COVERAGE_FIELDS = [
@@ -177,7 +184,21 @@ function budgetMessage(reason: InvestigationStop["reason"]): string {
   }
 }
 
-function validateState(state: StopPolicyState): StopPolicyState {
+function validateState(
+  state: StopPolicyState,
+  validatedContext?: ValidatedDomainContext,
+): StopPolicyState {
+  if (validatedContext) assertValidatedDomainContext(validatedContext);
+  validatedContext?.assertCanonical({
+    facts: state.facts,
+    evidence: state.evidence,
+  });
+  if (validatedContext && state.snapshotId !== validatedContext.snapshotId) {
+    throw new InvestigationDomainError(
+      "snapshot_mismatch",
+      "Stop-policy context belongs to another snapshot.",
+    );
+  }
   const safe = cloneDomainValue(state);
   assertClosedRecord(safe, STOP_STATE_FIELDS, STOP_STATE_FIELDS, "Stop-policy state");
   assertPortableIdentifier(safe.snapshotId, "Stop-policy snapshot id");
@@ -193,14 +214,10 @@ function validateState(state: StopPolicyState): StopPolicyState {
       throw new InvestigationDomainError("invalid_record", `${label} must be a dense array.`);
     }
   }
-  const evidenceById = indexDomainRecordsById(
-    safe.evidence,
-    "Stop-policy evidence",
-  );
-  const factsById = indexDomainRecordsById(
-    safe.facts,
-    "Stop-policy fact",
-  );
+  const evidenceById = validatedContext?.evidenceById ??
+    indexDomainRecordsById(safe.evidence, "Stop-policy evidence");
+  const factsById = validatedContext?.factsById ??
+    indexDomainRecordsById(safe.facts, "Stop-policy fact");
   safe.evidence = [...evidenceById.values()];
   safe.facts = [...factsById.values()];
   safe.contradictions = [
@@ -224,19 +241,21 @@ function validateState(state: StopPolicyState): StopPolicyState {
       "Stop-policy finding evaluation",
     ).values(),
   ].map((context) => context.evaluation);
-  safe.facts.forEach((record) =>
-    assertFactEvaluationConsistency({
-      fact: record,
-      snapshotId: safe.snapshotId,
-    }),
-  );
-  safe.evidence.forEach((record) =>
-    assertEvidenceEvaluationConsistency({
-      evidence: record,
-      facts: safe.facts,
-      snapshotId: safe.snapshotId,
-    }),
-  );
+  if (!validatedContext) {
+    safe.facts.forEach((record) =>
+      assertFactEvaluationConsistency({
+        fact: record,
+        snapshotId: safe.snapshotId,
+      }),
+    );
+    safe.evidence.forEach((record) =>
+      assertEvidenceEvaluationConsistency({
+        evidence: record,
+        facts: safe.facts,
+        snapshotId: safe.snapshotId,
+      }),
+    );
+  }
   safe.contradictions.forEach((record) =>
     assertContradictionEvaluationConsistency({
       record,
@@ -570,8 +589,8 @@ function validateState(state: StopPolicyState): StopPolicyState {
 
 export function createStopPolicy(): StopPolicy {
   return {
-    evaluate(rawState) {
-      const state = validateState(rawState as StopPolicyState);
+    evaluate(rawState, validatedContext) {
+      const state = validateState(rawState as StopPolicyState, validatedContext);
       const blockingGaps = state.knowledgeGaps.filter(
         (gap) => gap.status === "open" && gap.blocks.length > 0,
       );

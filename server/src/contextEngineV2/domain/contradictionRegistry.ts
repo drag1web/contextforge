@@ -28,6 +28,10 @@ import {
   stableCompare,
   stableSerialize,
 } from "./investigationDomainSupport.js";
+import {
+  assertValidatedDomainContext,
+  type ValidatedDomainContext,
+} from "./validatedDomainContext.js";
 
 const RECORD_FIELDS = [
   "id",
@@ -309,24 +313,32 @@ export function createContradictionRegistry(input: {
   snapshotId: SnapshotId;
   claims: readonly ClaimRecord[];
   evidence: readonly EvidenceRecord[];
-}, checkpoint?: () => void): ContradictionRegistry {
+}, checkpoint?: () => void, validatedContext?: ValidatedDomainContext): ContradictionRegistry {
   checkpoint?.();
+  if (validatedContext) assertValidatedDomainContext(validatedContext);
+  validatedContext?.assertCanonical({ evidence: input.evidence });
+  if (validatedContext && input.snapshotId !== validatedContext.snapshotId) {
+    throw new InvestigationDomainError(
+      "snapshot_mismatch",
+      "Contradiction registry context belongs to another snapshot.",
+    );
+  }
   const safeInput = cloneDomainValue(input);
   const claims = indexDomainRecordsById(
     safeInput.claims,
     "Contradiction registry claim",
   );
-  const evidence = indexDomainRecordsById(
-    safeInput.evidence,
-    "Contradiction registry evidence",
-  );
-  evidence.forEach((record) => {
-    checkpoint?.();
-    assertEvidenceEvaluationConsistency({
-      evidence: record,
-      snapshotId: safeInput.snapshotId,
-    }, checkpoint);
-  });
+  const evidence = validatedContext?.evidenceById ??
+    indexDomainRecordsById(safeInput.evidence, "Contradiction registry evidence");
+  if (!validatedContext) {
+    evidence.forEach((record) => {
+      checkpoint?.();
+      assertEvidenceEvaluationConsistency({
+        evidence: record,
+        snapshotId: safeInput.snapshotId,
+      }, checkpoint);
+    });
+  }
   const records = new Map<ContradictionId, ContradictionRecord>();
   const ordered = (predicate?: (record: ContradictionRecord) => boolean) =>
     [...records.values()]
@@ -404,31 +416,40 @@ export function detectDeterministicContradictions(input: {
   facts: readonly FactRecord[];
   claimRequiresSingleValue?: boolean;
   acceptedFactPredicates?: readonly FactRecord["predicate"][];
-}, checkpoint?: () => void): ContradictionDetection[] {
+}, checkpoint?: () => void, validatedContext?: ValidatedDomainContext): ContradictionDetection[] {
   checkpoint?.();
+  if (validatedContext) assertValidatedDomainContext(validatedContext);
+  validatedContext?.assertCanonical({
+    facts: input.facts,
+    evidence: input.evidence,
+  });
+  if (validatedContext && input.claim.snapshotId !== validatedContext.snapshotId) {
+    throw new InvestigationDomainError(
+      "snapshot_mismatch",
+      "Contradiction detection context belongs to another snapshot.",
+    );
+  }
   const safeInput = cloneDomainValue(input);
-  const evidenceById = indexDomainRecordsById(
-    safeInput.evidence,
-    "Contradiction detection evidence",
-  );
-  const factsById = indexDomainRecordsById(
-    safeInput.facts,
-    "Contradiction detection fact",
-  );
-  const contextEvidence = [...evidenceById.values()];
-  const contextFacts = [...factsById.values()];
+  const evidenceById = validatedContext?.evidenceById ??
+    indexDomainRecordsById(safeInput.evidence, "Contradiction detection evidence");
+  const factsById = validatedContext?.factsById ??
+    indexDomainRecordsById(safeInput.facts, "Contradiction detection fact");
+  const contextEvidence = validatedContext?.evidence ?? [...evidenceById.values()];
+  const contextFacts = validatedContext?.facts ?? [...factsById.values()];
   assertClaimLedgerConsistency({
     claim: safeInput.claim,
     evidence: contextEvidence,
     snapshotId: safeInput.claim.snapshotId,
   });
-  contextFacts.forEach((fact) => {
-    checkpoint?.();
-    assertFactEvaluationConsistency({
-      fact,
-      snapshotId: safeInput.claim.snapshotId,
+  if (!validatedContext) {
+    contextFacts.forEach((fact) => {
+      checkpoint?.();
+      assertFactEvaluationConsistency({
+        fact,
+        snapshotId: safeInput.claim.snapshotId,
+      });
     });
-  });
+  }
   if (
     contextEvidence.some((record) => record.snapshotId !== safeInput.claim.snapshotId) ||
     contextFacts.some((record) => record.snapshotId !== safeInput.claim.snapshotId)
@@ -438,14 +459,16 @@ export function detectDeterministicContradictions(input: {
       "Contradiction detection cannot mix snapshots.",
     );
   }
-  contextEvidence.forEach((record) => {
-    checkpoint?.();
-    assertEvidenceEvaluationConsistency({
-      evidence: record,
-      facts: contextFacts,
-      snapshotId: safeInput.claim.snapshotId,
-    }, checkpoint);
-  });
+  if (!validatedContext) {
+    contextEvidence.forEach((record) => {
+      checkpoint?.();
+      assertEvidenceEvaluationConsistency({
+        evidence: record,
+        facts: contextFacts,
+        snapshotId: safeInput.claim.snapshotId,
+      }, checkpoint);
+    });
+  }
   const acceptedPredicates = new Set(safeInput.acceptedFactPredicates ?? []);
   const derivationFactIds = new Set(safeInput.claim.derivation.inputFactIds);
   const factIsRelevant = (fact: FactRecord): boolean =>

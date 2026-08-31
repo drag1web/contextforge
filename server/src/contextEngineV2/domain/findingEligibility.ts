@@ -25,6 +25,10 @@ import {
   indexDomainRecordsById,
   sortedUnique,
 } from "./investigationDomainSupport.js";
+import {
+  assertValidatedDomainContext,
+  type ValidatedDomainContext,
+} from "./validatedDomainContext.js";
 
 const FINDING_FIELDS = [
   "id",
@@ -85,7 +89,19 @@ export function evaluateFindingEligibility(input: {
   entities: readonly RepositoryEntity[];
   contradictions: readonly ContradictionRecord[];
   knowledgeGaps: readonly KnowledgeGap[];
-}): FindingEligibilityEvaluation {
+}, validatedContext?: ValidatedDomainContext): FindingEligibilityEvaluation {
+  if (validatedContext) assertValidatedDomainContext(validatedContext);
+  validatedContext?.assertCanonical({
+    entities: input.entities,
+    facts: input.facts,
+    evidence: input.evidence,
+  });
+  if (validatedContext && input.snapshotId !== validatedContext.snapshotId) {
+    throw new InvestigationDomainError(
+      "snapshot_mismatch",
+      "Finding eligibility context belongs to another snapshot.",
+    );
+  }
   const safeInput = cloneDomainValue(input);
   assertClosedRecord(
     safeInput,
@@ -138,18 +154,12 @@ export function evaluateFindingEligibility(input: {
   finding.limitations.forEach((limitation) =>
     assertSafeText(limitation, "Finding limitation"),
   );
-  const evidenceById = indexDomainRecordsById(
-    safeInput.evidence,
-    "Finding evaluation evidence",
-  );
-  const factsById = indexDomainRecordsById(
-    safeInput.facts,
-    "Finding evaluation fact",
-  );
-  const entitiesById = indexDomainRecordsById(
-    safeInput.entities,
-    "Finding evaluation entity",
-  );
+  const evidenceById = validatedContext?.evidenceById ??
+    indexDomainRecordsById(safeInput.evidence, "Finding evaluation evidence");
+  const factsById = validatedContext?.factsById ??
+    indexDomainRecordsById(safeInput.facts, "Finding evaluation fact");
+  const entitiesById = validatedContext?.entitiesById ??
+    indexDomainRecordsById(safeInput.entities, "Finding evaluation entity");
   const contradictions = [
     ...indexDomainRecordsById(
       safeInput.contradictions,
@@ -162,38 +172,40 @@ export function evaluateFindingEligibility(input: {
       "Finding evaluation knowledge gap",
     ).values(),
   ];
-  for (const record of factsById.values()) {
-    assertFactEvaluationConsistency({
-      fact: record,
-      snapshotId: safeInput.snapshotId,
-    });
-  }
-  for (const record of evidenceById.values()) {
-    assertEvidenceEvaluationConsistency({
-      evidence: record,
-      snapshotId: record.snapshotId,
-    });
-    for (const factId of record.factIds) {
-      const referencedFact = factsById.get(factId);
-      if (!referencedFact) {
-        throw new InvestigationDomainError(
-          "unknown_reference",
-          "Finding evidence references an unknown fact.",
-        );
-      }
-      if (referencedFact.snapshotId !== record.snapshotId) {
-        throw new InvestigationDomainError(
-          "snapshot_mismatch",
-          "Finding evidence fact belongs to another snapshot.",
-        );
+  if (!validatedContext) {
+    for (const record of factsById.values()) {
+      assertFactEvaluationConsistency({
+        fact: record,
+        snapshotId: safeInput.snapshotId,
+      });
+    }
+    for (const record of evidenceById.values()) {
+      assertEvidenceEvaluationConsistency({
+        evidence: record,
+        snapshotId: record.snapshotId,
+      });
+      for (const factId of record.factIds) {
+        const referencedFact = factsById.get(factId);
+        if (!referencedFact) {
+          throw new InvestigationDomainError(
+            "unknown_reference",
+            "Finding evidence references an unknown fact.",
+          );
+        }
+        if (referencedFact.snapshotId !== record.snapshotId) {
+          throw new InvestigationDomainError(
+            "snapshot_mismatch",
+            "Finding evidence fact belongs to another snapshot.",
+          );
+        }
       }
     }
-  }
-  for (const record of entitiesById.values()) {
-    assertEntityEvaluationConsistency({
-      entity: record,
-      snapshotId: record.snapshotId,
-    });
+    for (const record of entitiesById.values()) {
+      assertEntityEvaluationConsistency({
+        entity: record,
+        snapshotId: record.snapshotId,
+      });
+    }
   }
   contradictions.forEach((record) =>
     assertContradictionEvaluationConsistency({

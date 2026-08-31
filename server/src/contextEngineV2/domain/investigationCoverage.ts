@@ -20,6 +20,10 @@ import {
   stableCompare,
   stableSerialize,
 } from "./investigationDomainSupport.js";
+import {
+  assertValidatedDomainContext,
+  type ValidatedDomainContext,
+} from "./validatedDomainContext.js";
 import { evaluateEvidenceRequirement } from "./evidenceRequirementEvaluator.js";
 
 const QUESTION_FIELDS = [
@@ -133,7 +137,16 @@ export interface InvestigationCoverageInput {
 
 export function calculateInvestigationCoverage(
   rawInput: InvestigationCoverageInput,
+  validatedContext?: ValidatedDomainContext,
 ): InvestigationCoverage {
+  if (validatedContext) assertValidatedDomainContext(validatedContext);
+  validatedContext?.assertCanonical({ evidence: rawInput.evidence });
+  if (validatedContext && rawInput.snapshotId !== validatedContext.snapshotId) {
+    throw new InvestigationDomainError(
+      "snapshot_mismatch",
+      "Coverage context belongs to another snapshot.",
+    );
+  }
   const input = cloneDomainValue(rawInput);
   assertClosedRecord(
     input,
@@ -151,7 +164,7 @@ export function calculateInvestigationCoverage(
       "Coverage hypothesis",
     ).values(),
   ];
-  const evidence = [
+  const evidence = validatedContext?.evidence ?? [
     ...indexDomainRecordsById(input.evidence, "Coverage evidence").values(),
   ];
   questions.forEach(validateQuestion);
@@ -168,12 +181,14 @@ export function calculateInvestigationCoverage(
     throw new InvestigationDomainError("invalid_record", "Files parsed must be a subset of files read.");
   }
   const blockedScopes = validateStringCollection(input.blockedScopes, "Coverage blocked scopes");
-  evidence.forEach((record) =>
-    assertEvidenceEvaluationConsistency({
-      evidence: record,
-      snapshotId: input.snapshotId,
-    }),
-  );
+  if (!validatedContext) {
+    evidence.forEach((record) =>
+      assertEvidenceEvaluationConsistency({
+        evidence: record,
+        snapshotId: input.snapshotId,
+      }),
+    );
+  }
   assertSafeInteger(input.relationshipHops, "Coverage relationship hops");
   if (typeof input.snapshotTruncated !== "boolean") {
     throw new InvestigationDomainError(
@@ -200,7 +215,7 @@ export function calculateInvestigationCoverage(
   );
   const currentEvidenceGroups = new Map<string, string>();
   const observedSourceChains = new Set<string>();
-  for (const evidenceRecord of evidence.sort((left, right) =>
+  for (const evidenceRecord of [...evidence].sort((left, right) =>
     stableCompare(left.id, right.id),
   )) {
     if (

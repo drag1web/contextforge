@@ -40,6 +40,7 @@ import {
   evaluateEvidenceRequirement,
   evaluateFindingEligibility,
 } from "../domain/index.js";
+import { createValidatedDomainContext } from "../domain/validatedDomainContext.js";
 import type {
   ClaimEvaluation,
   FindingEligibilityEvaluation,
@@ -4437,6 +4438,404 @@ scenario("FactRecord context preserves canonical StopPolicy priority", () => {
   assert.equal(stoppedReason(state).reason, "internal_error");
 });
 
+scenario("validated domain context reuses unchanged immutable records", () => {
+  const source = snapshot();
+  const rawFact = fact(source);
+  const rawEvidence = evidence(source, "a", { factIds: [rawFact.id] });
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [rawFact],
+    evidence: [rawEvidence],
+  });
+  const before = context.metrics();
+  const rawFinding = finding(source, [rawEvidence.id]);
+  const first = evaluateFindingEligibility({
+    finding: rawFinding,
+    snapshotId: source.id,
+    evidence: context.evidence,
+    facts: context.facts,
+    entities: context.entities,
+    contradictions: [],
+    knowledgeGaps: [],
+  }, context);
+  const second = evaluateFindingEligibility({
+    finding: rawFinding,
+    snapshotId: source.id,
+    evidence: context.evidence,
+    facts: context.facts,
+    entities: context.entities,
+    contradictions: [],
+    knowledgeGaps: [],
+  }, context);
+  assert.deepEqual(second, first);
+  assert.deepEqual(context.metrics(), before);
+  assert.equal(Object.isFrozen(context.facts[0]), true);
+  assert.equal(Object.isFrozen(context.evidence[0]), true);
+});
+
+scenario("validated domain context indexes iterate in canonical id order", () => {
+  const source = snapshot();
+  const entities = [
+    entity(source, "c"),
+    entity(source, "a"),
+    entity(source, "b"),
+    entity(source),
+  ];
+  const facts = [
+    fact(source, "c"),
+    fact(source, "a"),
+    fact(source, "b"),
+  ];
+  const records = [
+    evidence(source, "c", { factIds: [facts[0]!.id] }),
+    evidence(source, "a", { factIds: [facts[1]!.id] }),
+    evidence(source, "b", { factIds: [facts[2]!.id] }),
+  ];
+  const first = createValidatedDomainContext({
+    snapshot: source,
+    entities,
+    facts,
+    evidence: records,
+  });
+  const second = createValidatedDomainContext({
+    snapshot: source,
+    entities: [...entities].reverse(),
+    facts: [...facts].reverse(),
+    evidence: [...records].reverse(),
+  });
+  assert.deepEqual(second.entities, first.entities);
+  assert.deepEqual(second.facts, first.facts);
+  assert.deepEqual(second.evidence, first.evidence);
+  for (const [array, firstIndex, secondIndex] of [
+    [first.entities, first.entitiesById, second.entitiesById],
+    [first.facts, first.factsById, second.factsById],
+    [first.evidence, first.evidenceById, second.evidenceById],
+  ] as const) {
+    const expectedIds = array.map((record) => record.id);
+    assert.deepEqual([...firstIndex.keys()], expectedIds);
+    assert.deepEqual([...secondIndex.keys()], expectedIds);
+    assert.deepEqual([...firstIndex.values()].map((record) => record.id), expectedIds);
+    assert.deepEqual([...secondIndex.values()].map((record) => record.id), expectedIds);
+    assert.deepEqual(
+      [...firstIndex.entries()].map(([key, record]) => [key, record.id]),
+      expectedIds.map((recordId) => [recordId, recordId]),
+    );
+    assert.deepEqual(
+      [...secondIndex.entries()].map(([key, record]) => [key, record.id]),
+      expectedIds.map((recordId) => [recordId, recordId]),
+    );
+  }
+});
+
+scenario("successful context extension does not mutate parent metrics", () => {
+  const source = snapshot();
+  const sourceFact = fact(source);
+  const parent = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [sourceFact],
+  });
+  const parentMetrics = parent.metrics();
+  const child = parent.extend({
+    evidence: [evidence(source, "child", { factIds: [sourceFact.id] })],
+  });
+  assert.deepEqual(parent.metrics(), parentMetrics);
+  assert.deepEqual(child.metrics(), {
+    ...parentMetrics,
+    evidenceValidations: parentMetrics.evidenceValidations + 1,
+  });
+});
+
+scenario("failed context extension does not mutate parent metrics", () => {
+  const source = snapshot();
+  const original = fact(source);
+  const parent = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [original],
+  });
+  const parentMetrics = parent.metrics();
+  assert.throws(
+    () => parent.extend({
+      facts: [
+        fact(source, "candidate"),
+        { ...original, predicate: "implements" },
+      ],
+    }),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "record_conflict",
+  );
+  assert.deepEqual(parent.metrics(), parentMetrics);
+});
+
+scenario("sibling context extensions evolve metrics independently", () => {
+  const source = snapshot();
+  const parent = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [fact(source)],
+  });
+  const parentMetrics = parent.metrics();
+  const leftFact = fact(source, "left");
+  const rightFact = fact(source, "right");
+  const left = parent.extend({ facts: [leftFact] });
+  const right = parent.extend({ facts: [rightFact] });
+  const leftMetrics = left.metrics();
+  const rightMetrics = right.metrics();
+  const leftChild = left.extend({
+    evidence: [evidence(source, "left", { factIds: [leftFact.id] })],
+  });
+  assert.deepEqual(parent.metrics(), parentMetrics);
+  assert.deepEqual(left.metrics(), leftMetrics);
+  assert.deepEqual(right.metrics(), rightMetrics);
+  assert.deepEqual(leftMetrics, rightMetrics);
+  assert.equal(leftChild.metrics().evidenceValidations, leftMetrics.evidenceValidations + 1);
+  assert.equal(right.metrics().evidenceValidations, rightMetrics.evidenceValidations);
+});
+
+scenario("validated domain context rejects a newly added fact accessor without invocation", () => {
+  const source = snapshot();
+  const context = createValidatedDomainContext({ snapshot: source });
+  const unsafe = fact(source, "unsafe-accessor");
+  let calls = 0;
+  Object.defineProperty(unsafe, "predicate", {
+    enumerable: true,
+    get() {
+      calls += 1;
+      return "configures";
+    },
+  });
+  assert.throws(
+    () => context.extend({ facts: [unsafe] }),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "invalid_record",
+  );
+  assert.equal(calls, 0);
+});
+
+scenario("validated domain context rejects newly added evidence with an unknown fact", () => {
+  const source = snapshot();
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [fact(source)],
+  });
+  const malformed = evidence(source, "unknown", {
+    factIds: [id<FactId>("fact-unknown")],
+  });
+  assert.throws(
+    () => context.extend({ evidence: [malformed] }),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "unknown_reference",
+  );
+});
+
+scenario("changed stale record cannot inherit validated provenance", () => {
+  const source = snapshot();
+  const original = fact(source);
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [original],
+  });
+  assert.throws(
+    () => context.extend({ facts: [{ ...original, status: "superseded" }] }),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "record_conflict",
+  );
+});
+
+scenario("same fact id with incompatible content cannot inherit validated provenance", () => {
+  const source = snapshot();
+  const original = fact(source);
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [original],
+  });
+  assert.throws(
+    () => context.extend({ facts: [{ ...original, predicate: "implements" }] }),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "record_conflict",
+  );
+});
+
+scenario("foreign snapshot records cannot reuse a validated context", () => {
+  const source = snapshot();
+  const foreign = snapshot("foreign");
+  const context = createValidatedDomainContext({ snapshot: source });
+  assert.throws(
+    () => context.extend({
+      entities: [entity(foreign)],
+      facts: [fact(foreign)],
+    }),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "snapshot_mismatch",
+  );
+});
+
+scenario("foreign snapshot claims cannot reuse a validated context", () => {
+  const source = snapshot();
+  const foreign = snapshot("foreign");
+  const sourceFact = fact(source);
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [sourceFact],
+  });
+  assert.throws(
+    () => evaluateClaim({
+      claim: claim(foreign),
+      evidence: context.evidence,
+      facts: context.facts,
+      requirements: [],
+    }, undefined, context),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "snapshot_mismatch",
+  );
+});
+
+scenario("structurally forged validation context cannot bypass runtime provenance", () => {
+  const source = snapshot();
+  const sourceFact = fact(source);
+  const sourceEvidence = evidence(source, "forged", { factIds: [sourceFact.id] });
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [sourceFact],
+    evidence: [sourceEvidence],
+  });
+  const forged = {
+    snapshotId: context.snapshotId,
+    entities: context.entities,
+    facts: context.facts,
+    evidence: context.evidence,
+    entitiesById: context.entitiesById,
+    factsById: context.factsById,
+    evidenceById: context.evidenceById,
+    extend: context.extend.bind(context),
+    assertCanonical: context.assertCanonical.bind(context),
+    assertCanonicalFactMembers: context.assertCanonicalFactMembers.bind(context),
+    assertCanonicalEvidenceMembers: context.assertCanonicalEvidenceMembers.bind(context),
+    metrics: context.metrics.bind(context),
+  };
+  assert.throws(
+    () => evaluateFindingEligibility({
+      finding: finding(source, [sourceEvidence.id]),
+      snapshotId: source.id,
+      evidence: context.evidence,
+      facts: context.facts,
+      entities: context.entities,
+      contradictions: [],
+      knowledgeGaps: [],
+    }, forged),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "invalid_record",
+  );
+});
+
+scenario("validated context structurally bounds repeated fact and evidence validation", () => {
+  const source = snapshot();
+  const facts = Array.from({ length: 32 }, (_, index) =>
+    fact(source, `bounded-${index}`),
+  );
+  const records = facts.map((record, index) =>
+    evidence(source, `bounded-${index}`, {
+      factIds: [record.id],
+      group: `bounded-group-${index}`,
+    }),
+  );
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts,
+    evidence: records,
+  });
+  for (let index = 0; index < 10; index += 1) {
+    const result = evaluateEvidenceRequirement({
+      requirement: requirement("bounded"),
+      evidence: context.evidence,
+      facts: context.facts,
+      snapshotId: source.id,
+      role: "supports",
+    }, context);
+    assert.equal(result.satisfied, true);
+  }
+  assert.deepEqual(context.metrics(), {
+    entityValidations: 1,
+    factValidations: 32,
+    evidenceValidations: 32,
+    compatibleRecordsReused: 0,
+  });
+});
+
+scenario("validated context preserves grounded safe-stop and safety-restricted semantics", () => {
+  const source = snapshot();
+  for (const rawState of [
+    baseStopState(),
+    {
+      ...baseStopState(),
+      allRequiredEvidenceSatisfied: false,
+      knowledgeGaps: [gap(source, "parity")],
+    },
+    {
+      ...baseStopState(),
+      safetyBlocked: true,
+      knowledgeGaps: [
+        gap(source, "protected-parity", { category: "safety_restricted" }),
+      ],
+    },
+  ]) {
+    const baseline = createStopPolicy().evaluate(rawState);
+    const context = createValidatedDomainContext({
+      snapshot: source,
+      facts: rawState.facts,
+      evidence: rawState.evidence,
+    });
+    const optimized = createStopPolicy().evaluate({
+      ...rawState,
+      facts: context.facts,
+      evidence: context.evidence,
+    }, context);
+    assert.deepEqual(optimized, baseline);
+  }
+});
+
+scenario("validated context preserves deterministic contradiction semantics", () => {
+  const source = snapshot();
+  const sourceFact = fact(source);
+  const sourceClaim = claim(source);
+  const support = evidence(source, "support", {
+    claimId: sourceClaim.id,
+    role: "supports",
+    factIds: [sourceFact.id],
+  });
+  const opposed = evidence(source, "opposed", {
+    claimId: sourceClaim.id,
+    role: "contradicts",
+    factIds: [sourceFact.id],
+  });
+  const input = {
+    claim: sourceClaim,
+    evidence: [support, opposed],
+    facts: [sourceFact],
+  };
+  const baseline = detectDeterministicContradictions(input);
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: input.facts,
+    evidence: input.evidence,
+  });
+  const optimized = detectDeterministicContradictions({
+    ...input,
+    evidence: context.evidence,
+    facts: context.facts,
+  }, undefined, context);
+  assert.deepEqual(optimized, baseline);
+});
+
 for (const entry of scenarios) {
   try {
     entry.run();
@@ -4445,5 +4844,5 @@ for (const entry of scenarios) {
   }
 }
 
-assert.equal(scenarios.length, 267);
+assert.equal(scenarios.length, 282);
 console.log(`Context Engine v2 investigation domain smoke passed: ${scenarios.length} scenarios.`);
