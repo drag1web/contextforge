@@ -32,6 +32,14 @@ const ACTIVITY_COPY = Object.freeze({
     details: "Building a Task Pack",
     state: "Preparing grounded context"
   },
+  analyzing_task_context: {
+    details: "Analyzing task context",
+    state: "Finding grounded evidence"
+  },
+  generating_task_pack: {
+    details: "Generating a Task Pack",
+    state: "Building grounded context"
+  },
   context_review: {
     details: "Reviewing grounded context",
     state: "Selecting relevant evidence"

@@ -20,6 +20,7 @@ import { Sidebar, type AppPageId } from "../components/layout/Sidebar";
 import {
   resolveDiscordPresenceActivity,
   setDiscordPresenceActivity,
+  type DiscordPresenceActivity,
 } from "../lib/discordPresence";
 
 import { StatusBar } from "../components/ui/StatusBar";
@@ -318,6 +319,8 @@ export function DashboardPage() {
   const [activePage, setActivePage] = useState<AppPageId>("dashboard");
   const [reportsPresenceActivity, setReportsPresenceActivity] =
     useState<"reports" | "validation_lab">("reports");
+  const [operationPresenceActivity, setOperationPresenceActivity] =
+    useState<DiscordPresenceActivity | null>(null);
   const [pageDirection, setPageDirection] = useState(1);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
   const [onboardingDismissedThisSession, setOnboardingDismissedThisSession] =
@@ -337,7 +340,7 @@ export function DashboardPage() {
     globalSearch: () => setIsGlobalSearchOpen(true),
   });
 
-  const discordPresenceActivity = resolveDiscordPresenceActivity({
+  const pageDiscordPresenceActivity = resolveDiscordPresenceActivity({
     activePage,
     hasGeneratedTaskPack: Boolean(dashboard.generatedTaskPack),
     hasContextComposerPreview: Boolean(dashboard.contextComposerPreview),
@@ -345,10 +348,53 @@ export function DashboardPage() {
     hasSelectedProjectDetails: selectedProjectDetailsId !== null,
     reportsActivity: reportsPresenceActivity,
   });
+  const discordPresenceActivity =
+    operationPresenceActivity ?? pageDiscordPresenceActivity;
 
   useEffect(() => {
     void setDiscordPresenceActivity(discordPresenceActivity);
   }, [discordPresenceActivity]);
+
+  const handleAnalyzeTaskContextWithPresence = useCallback(
+    async (...args: Parameters<typeof dashboard.handleAnalyzeTaskContext>) => {
+      setOperationPresenceActivity("analyzing_task_context");
+
+      try {
+        await dashboard.handleAnalyzeTaskContext(...args);
+      } finally {
+        setOperationPresenceActivity(null);
+      }
+    },
+    [dashboard.handleAnalyzeTaskContext],
+  );
+
+  const handleCreateTaskPackWithPresence = useCallback(
+    async (...args: Parameters<typeof dashboard.handleCreateTaskPack>) => {
+      setOperationPresenceActivity("generating_task_pack");
+
+      try {
+        await dashboard.handleCreateTaskPack(...args);
+      } finally {
+        setOperationPresenceActivity(null);
+      }
+    },
+    [dashboard.handleCreateTaskPack],
+  );
+
+  const handleCreateTaskPackFromComposerWithPresence = useCallback(
+    async (
+      ...args: Parameters<typeof dashboard.handleCreateTaskPackFromComposer>
+    ) => {
+      setOperationPresenceActivity("generating_task_pack");
+
+      try {
+        await dashboard.handleCreateTaskPackFromComposer(...args);
+      } finally {
+        setOperationPresenceActivity(null);
+      }
+    },
+    [dashboard.handleCreateTaskPackFromComposer],
+  );
 
   const handleNavigate = useCallback(
     (nextPage: AppPageId) => {
@@ -585,7 +631,7 @@ export function DashboardPage() {
           preview={dashboard.contextComposerPreview}
           isLoading={dashboard.isLoading}
           onClose={() => dashboard.setContextComposerPreview(null)}
-          onGenerate={dashboard.handleCreateTaskPackFromComposer}
+          onGenerate={handleCreateTaskPackFromComposerWithPresence}
         />
       );
     }
@@ -598,9 +644,9 @@ export function DashboardPage() {
           contextPreview={dashboard.taskPackContextPreview}
           onChange={dashboard.setTaskPackDraft}
           onClose={() => dashboard.setTaskPackDraft(null)}
-          onAnalyzeContext={dashboard.handleAnalyzeTaskContext}
+          onAnalyzeContext={handleAnalyzeTaskContextWithPresence}
           onOpenContextComposer={dashboard.handleOpenTaskContextComposer}
-          onGenerate={dashboard.handleCreateTaskPack}
+          onGenerate={handleCreateTaskPackWithPresence}
         />
       );
     }
@@ -627,9 +673,9 @@ export function DashboardPage() {
           contextPreview={dashboard.taskPackContextPreview}
           onChange={dashboard.setTaskPackDraft}
           onClose={() => dashboard.setTaskPackDraft(null)}
-          onAnalyzeContext={dashboard.handleAnalyzeTaskContext}
+          onAnalyzeContext={handleAnalyzeTaskContextWithPresence}
           onOpenContextComposer={dashboard.handleOpenTaskContextComposer}
-          onGenerate={dashboard.handleCreateTaskPack}
+          onGenerate={handleCreateTaskPackWithPresence}
         />
       );
     }
