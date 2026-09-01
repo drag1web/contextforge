@@ -16,7 +16,11 @@ import {
 
 import type { Project, TaskPack, WorkspaceSearchResult } from "../../types";
 import { searchWorkspace } from "../../api/client";
-import { keyboardShortcuts, type ShortcutActionId } from "../../config/keyboardShortcuts";
+import type { ShortcutActionId } from "../../config/keyboardShortcuts";
+import {
+  getEffectiveKeyboardShortcut,
+  getEffectiveKeyboardShortcuts
+} from "../../lib/keyboardShortcutPreferences";
 import {
   navigationSections,
   type AppPageId
@@ -212,7 +216,9 @@ export function GlobalSearchModal({
         kind: t("globalSearch.kindAction"),
         keywords: "add project scan repository folder local добавить проект папка репозиторий",
         icon: Plus,
-        status: "Ctrl Shift O",
+        status:
+          getEffectiveKeyboardShortcut("addProject")?.displayKeys ??
+          "Ctrl Shift O",
         actionType: "open",
         action: () => {
           onClose();
@@ -226,7 +232,9 @@ export function GlobalSearchModal({
         kind: t("globalSearch.kindAction"),
         keywords: "settings ollama generation defaults model настройки модель генерация",
         icon: Settings,
-        status: "Ctrl ,",
+        status:
+          getEffectiveKeyboardShortcut("openSettings")?.displayKeys ??
+          "Ctrl ,",
         actionType: "open",
         action: () => {
           onNavigate("settings");
@@ -342,7 +350,7 @@ export function GlobalSearchModal({
       .slice(0, 8);
   }, [deepItems, filteredLocalItems, query]);
 
-  const enabledShortcuts = keyboardShortcuts.slice(0, 6);
+  const enabledShortcuts = getEffectiveKeyboardShortcuts().slice(0, 6);
   const hasQuery = query.trim().length > 0;
   const hasAnyResults = displayItems.length > 0;
 
@@ -381,7 +389,8 @@ export function GlobalSearchModal({
           />
 
           <span className="shrink-0 rounded-lg border border-neutral-900 bg-neutral-950 px-2 py-1 font-mono text-[10px] text-neutral-600">
-            Ctrl F
+            {getEffectiveKeyboardShortcut("globalSearch")?.displayKeys ??
+              "Ctrl F"}
           </span>
         </div>
 
