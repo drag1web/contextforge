@@ -4,6 +4,7 @@ const {
   ipcMain,
   dialog,
   Menu,
+  Notification,
   powerMonitor,
   safeStorage,
   screen,
@@ -37,6 +38,17 @@ const appIconPath = path.join(
   "assets",
   process.platform === "win32" ? "icon.ico" : "icon.png"
 );
+
+const DESKTOP_NOTIFICATION_COPY = Object.freeze({
+  task_pack_generated: {
+    title: "ContextForge",
+    body: "Task Pack generated successfully."
+  },
+  validation_finished: {
+    title: "ContextForge",
+    body: "Validation Lab run finished."
+  }
+});
 
 function getDesktopAppVersion() {
   if (!isDev) {
@@ -497,6 +509,41 @@ ipcMain.handle("window:set-taskbar-progress", (event, active) => {
     win.setProgressBar(-1);
   }
 
+  return true;
+});
+
+ipcMain.handle("desktop-notification:show", (event, kind) => {
+  if (
+    typeof kind !== "string" ||
+    !Object.prototype.hasOwnProperty.call(DESKTOP_NOTIFICATION_COPY, kind) ||
+    !Notification.isSupported()
+  ) {
+    return false;
+  }
+
+  const win = getWindowFromEvent(event);
+
+  if (
+    win &&
+    !win.isDestroyed() &&
+    win.isFocused() &&
+    !win.isMinimized()
+  ) {
+    return false;
+  }
+
+  const copy = DESKTOP_NOTIFICATION_COPY[kind];
+  const notification = new Notification({
+    title: copy.title,
+    body: copy.body,
+    icon: appIconPath
+  });
+
+  notification.on("click", () => {
+    focusMainWindow();
+  });
+
+  notification.show();
   return true;
 });
 

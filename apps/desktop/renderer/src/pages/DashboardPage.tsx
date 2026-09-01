@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   AnimatePresence,
   motion,
@@ -23,6 +23,7 @@ import {
   type DiscordPresenceActivity,
 } from "../lib/discordPresence";
 import { setDesktopTaskbarProgress } from "../lib/desktopTaskbarProgress";
+import { showDesktopNotification } from "../lib/desktopNotifications";
 
 import { StatusBar } from "../components/ui/StatusBar";
 import { ProjectsSection } from "../components/projects/ProjectsSection";
@@ -322,6 +323,8 @@ export function DashboardPage() {
     useState<"reports" | "validation_lab">("reports");
   const [operationPresenceActivity, setOperationPresenceActivity] =
     useState<DiscordPresenceActivity | null>(null);
+  const previousOperationForNotificationRef =
+    useRef<DiscordPresenceActivity | null>(null);
   const [pageDirection, setPageDirection] = useState(1);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
   const [onboardingDismissedThisSession, setOnboardingDismissedThisSession] =
@@ -366,6 +369,27 @@ export function DashboardPage() {
     },
     [],
   );
+
+  useEffect(() => {
+    const previousOperation = previousOperationForNotificationRef.current;
+    previousOperationForNotificationRef.current = operationPresenceActivity;
+
+    if (operationPresenceActivity !== null) {
+      return;
+    }
+
+    if (
+      previousOperation === "generating_task_pack" &&
+      dashboard.generatedTaskPack
+    ) {
+      void showDesktopNotification("task_pack_generated");
+      return;
+    }
+
+    if (previousOperation === "running_validation") {
+      void showDesktopNotification("validation_finished");
+    }
+  }, [dashboard.generatedTaskPack, operationPresenceActivity]);
 
   const handleAnalyzeTaskContextWithPresence = useCallback(
     async (...args: Parameters<typeof dashboard.handleAnalyzeTaskContext>) => {

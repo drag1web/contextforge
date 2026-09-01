@@ -46,6 +46,11 @@ contextBridge.exposeInMainWorld("contextforge", {
       ipcRenderer.invoke("discord-presence:get-status")
   },
 
+  desktopNotifications: {
+    show: (kind) =>
+      ipcRenderer.invoke("desktop-notification:show", kind)
+  },
+
   taskbarProgress: {
     setActive: (active) =>
       ipcRenderer.invoke("window:set-taskbar-progress", active === true)
