@@ -29,10 +29,12 @@ import {
   sortedUnique,
 } from "./investigationDomainSupport.js";
 import { snapshotInvestigationBudget } from "./investigationBudget.js";
+import type { ValidatedDomainContext } from "./validatedDomainContext.js";
 import {
-  assertValidatedDomainContext,
-  type ValidatedDomainContext,
-} from "./validatedDomainContext.js";
+  STOP_POLICY_ENVELOPE_FIELDS,
+  cloneValidatedStopPolicyEnvelope,
+  type ValidatedDomainEnvelopeDiagnostics,
+} from "./validatedDomainEnvelope.js";
 
 export type StopDecision =
   | { action: "continue"; reason: string }
@@ -83,15 +85,6 @@ const COVERAGE_FIELDS = [
   "evidenceIndependentGroups",
   "snapshotTruncated",
   "blockedScopes",
-] as const;
-const STOP_STATE_FIELDS = [
-  "snapshotId", "purpose", "coverage", "budgetState", "evidence", "facts",
-  "findingEvaluations", "contradictions", "knowledgeGaps",
-  "criticalQuestionsNonApplicable", "allRequiredEvidenceSatisfied",
-  "internalInvariantFailure", "repositoryChanged", "safetyBlocked",
-  "deterministicResolutionAvailable", "snapshotTruncationBlocksCritical",
-  "searchExhausted", "openDeterministicOperationCount",
-  "repositoryResolvableGapIds",
 ] as const;
 const FINDING_EVALUATION_FIELDS = [
   "finding", "eligible", "safeToProject", "limitations",
@@ -187,20 +180,29 @@ function budgetMessage(reason: InvestigationStop["reason"]): string {
 function validateState(
   state: StopPolicyState,
   validatedContext?: ValidatedDomainContext,
+  envelopeDiagnostics?: ValidatedDomainEnvelopeDiagnostics,
 ): StopPolicyState {
-  if (validatedContext) assertValidatedDomainContext(validatedContext);
-  validatedContext?.assertCanonical({
-    facts: state.facts,
-    evidence: state.evidence,
-  });
-  if (validatedContext && state.snapshotId !== validatedContext.snapshotId) {
+  const safe = validatedContext
+    ? cloneValidatedStopPolicyEnvelope(
+        state,
+        validatedContext,
+        envelopeDiagnostics,
+      )
+    : cloneDomainValue(state);
+  if (!validatedContext) {
+    assertClosedRecord(
+      safe,
+      STOP_POLICY_ENVELOPE_FIELDS,
+      STOP_POLICY_ENVELOPE_FIELDS,
+      "Stop-policy state",
+    );
+  }
+  if (validatedContext && safe.snapshotId !== validatedContext.snapshotId) {
     throw new InvestigationDomainError(
       "snapshot_mismatch",
       "Stop-policy context belongs to another snapshot.",
     );
   }
-  const safe = cloneDomainValue(state);
-  assertClosedRecord(safe, STOP_STATE_FIELDS, STOP_STATE_FIELDS, "Stop-policy state");
   assertPortableIdentifier(safe.snapshotId, "Stop-policy snapshot id");
   for (const [value, label] of [
     [safe.evidence, "Stop-policy evidence"],
@@ -218,8 +220,12 @@ function validateState(
     indexDomainRecordsById(safe.evidence, "Stop-policy evidence");
   const factsById = validatedContext?.factsById ??
     indexDomainRecordsById(safe.facts, "Stop-policy fact");
-  safe.evidence = [...evidenceById.values()];
-  safe.facts = [...factsById.values()];
+  safe.evidence = validatedContext
+    ? validatedContext.evidence
+    : [...evidenceById.values()];
+  safe.facts = validatedContext
+    ? validatedContext.facts
+    : [...factsById.values()];
   safe.contradictions = [
     ...indexDomainRecordsById(
       safe.contradictions,
@@ -587,10 +593,16 @@ function validateState(
   return safe;
 }
 
-export function createStopPolicy(): StopPolicy {
+export function createStopPolicy(
+  envelopeDiagnostics?: ValidatedDomainEnvelopeDiagnostics,
+): StopPolicy {
   return {
     evaluate(rawState, validatedContext) {
-      const state = validateState(rawState as StopPolicyState, validatedContext);
+      const state = validateState(
+        rawState as StopPolicyState,
+        validatedContext,
+        envelopeDiagnostics,
+      );
       const blockingGaps = state.knowledgeGaps.filter(
         (gap) => gap.status === "open" && gap.blocks.length > 0,
       );

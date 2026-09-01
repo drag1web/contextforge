@@ -14,6 +14,7 @@ import {
   assertValidatedDomainContext,
   type ValidatedDomainContext,
 } from "./validatedDomainContext.js";
+import type { StopPolicyState } from "./stopPolicy.js";
 
 export interface ValidatedDomainEnvelopeDiagnostics {
   mutableEnvelopeClones: number;
@@ -22,6 +23,20 @@ export interface ValidatedDomainEnvelopeDiagnostics {
 }
 
 type DescriptorValues = ReadonlyMap<string, unknown>;
+
+export const STOP_POLICY_ENVELOPE_FIELDS = [
+  "snapshotId", "purpose", "coverage", "budgetState", "evidence", "facts",
+  "findingEvaluations", "contradictions", "knowledgeGaps",
+  "criticalQuestionsNonApplicable", "allRequiredEvidenceSatisfied",
+  "internalInvariantFailure", "repositoryChanged", "safetyBlocked",
+  "deterministicResolutionAvailable", "snapshotTruncationBlocksCritical",
+  "searchExhausted", "openDeterministicOperationCount",
+  "repositoryResolvableGapIds",
+] as const;
+
+const STOP_POLICY_MUTABLE_FIELDS = STOP_POLICY_ENVELOPE_FIELDS.filter(
+  (field) => field !== "facts" && field !== "evidence",
+);
 
 function invalidEnvelope(label: string): InvestigationDomainError {
   return new InvestigationDomainError(
@@ -319,4 +334,32 @@ export function cloneValidatedHypothesisLedgerEnvelope(
   }>(values, ["snapshotId", "claims", "knowledgeGaps"], diagnostics);
   recordCanonicalReuse(diagnostics, 0, context.evidence.length);
   return { ...mutable, evidence: context.evidence };
+}
+
+export function cloneValidatedStopPolicyEnvelope(
+  rawInput: unknown,
+  context: ValidatedDomainContext,
+  diagnostics?: ValidatedDomainEnvelopeDiagnostics,
+): StopPolicyState {
+  assertValidatedDomainContext(context);
+  const values = inspectClosedEnvelope(
+    rawInput,
+    STOP_POLICY_ENVELOPE_FIELDS,
+    STOP_POLICY_ENVELOPE_FIELDS,
+    "Stop-policy state",
+  );
+  const facts = values.get("facts") as readonly FactRecord[];
+  const evidence = values.get("evidence") as readonly EvidenceRecord[];
+  context.assertCanonical({ facts, evidence });
+  const mutable = cloneMutableFields<Omit<StopPolicyState, "facts" | "evidence">>(
+    values,
+    STOP_POLICY_MUTABLE_FIELDS,
+    diagnostics,
+  );
+  recordCanonicalReuse(diagnostics, context.facts.length, context.evidence.length);
+  return {
+    ...mutable,
+    facts: context.facts,
+    evidence: context.evidence,
+  };
 }

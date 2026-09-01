@@ -60,6 +60,95 @@ function scenario(name: string, run: () => void): void {
   scenarios.push({ name, run });
 }
 
+interface CanonicalDescriptorInspectionProbe {
+  factInspections(): number;
+  evidenceInspections(): number;
+  reset(): void;
+  restore(): void;
+}
+
+function installCanonicalDescriptorInspectionProbe(
+  facts: readonly FactRecord[],
+  evidence: readonly EvidenceRecord[],
+): CanonicalDescriptorInspectionProbe {
+  const canonicalFacts = new Set<object>(facts);
+  const canonicalEvidence = new Set<object>(evidence);
+  let factInspections = 0;
+  let evidenceInspections = 0;
+  const observe = (target: unknown): void => {
+    if (typeof target !== "object" || target === null) return;
+    if (canonicalFacts.has(target)) factInspections += 1;
+    if (canonicalEvidence.has(target)) evidenceInspections += 1;
+  };
+  const getOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+  const getOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
+  const getPrototypeOf = Object.getPrototypeOf;
+  const ownKeys = Reflect.ownKeys;
+  const getOwnPropertyDescriptorDescriptor = Object.getOwnPropertyDescriptor(
+    Object,
+    "getOwnPropertyDescriptor",
+  )!;
+  const getOwnPropertyDescriptorsDescriptor = Object.getOwnPropertyDescriptor(
+    Object,
+    "getOwnPropertyDescriptors",
+  )!;
+  const getPrototypeOfDescriptor = Object.getOwnPropertyDescriptor(
+    Object,
+    "getPrototypeOf",
+  )!;
+  const ownKeysDescriptor = Object.getOwnPropertyDescriptor(Reflect, "ownKeys")!;
+  Object.defineProperty(Object, "getOwnPropertyDescriptor", {
+    ...getOwnPropertyDescriptorDescriptor,
+    value: ((target: object, key: PropertyKey) => {
+      observe(target);
+      return getOwnPropertyDescriptor(target, key);
+    }) as typeof Object.getOwnPropertyDescriptor,
+  });
+  Object.defineProperty(Object, "getOwnPropertyDescriptors", {
+    ...getOwnPropertyDescriptorsDescriptor,
+    value: ((target: object) => {
+      observe(target);
+      return getOwnPropertyDescriptors(target);
+    }) as typeof Object.getOwnPropertyDescriptors,
+  });
+  Object.defineProperty(Object, "getPrototypeOf", {
+    ...getPrototypeOfDescriptor,
+    value: ((target: object) => {
+      observe(target);
+      return getPrototypeOf(target);
+    }) as typeof Object.getPrototypeOf,
+  });
+  Object.defineProperty(Reflect, "ownKeys", {
+    ...ownKeysDescriptor,
+    value: ((target: object) => {
+      observe(target);
+      return ownKeys(target);
+    }) as typeof Reflect.ownKeys,
+  });
+  return {
+    factInspections: () => factInspections,
+    evidenceInspections: () => evidenceInspections,
+    reset() {
+      factInspections = 0;
+      evidenceInspections = 0;
+    },
+    restore() {
+      Object.defineProperty(
+        Object,
+        "getOwnPropertyDescriptor",
+        getOwnPropertyDescriptorDescriptor,
+      );
+      Object.defineProperty(
+        Object,
+        "getOwnPropertyDescriptors",
+        getOwnPropertyDescriptorsDescriptor,
+      );
+      Object.defineProperty(Object, "getPrototypeOf", getPrototypeOfDescriptor);
+      Object.defineProperty(Reflect, "ownKeys", ownKeysDescriptor);
+    },
+  };
+}
+
 function id<T extends string>(value: string): T {
   return value as T;
 }
@@ -5386,58 +5475,16 @@ scenario("validated mixed envelope work scales with mutable envelope rather than
     evidence: records,
   });
   const diagnostics = createValidatedDomainEnvelopeDiagnostics();
-  const canonicalFacts = new Set<object>(context.facts);
-  const canonicalEvidence = new Set<object>(context.evidence);
-  let canonicalFactInspections = 0;
-  let canonicalEvidenceInspections = 0;
-  const observeCanonicalTarget = (target: unknown): void => {
-    if (typeof target !== "object" || target === null) return;
-    if (canonicalFacts.has(target)) canonicalFactInspections += 1;
-    if (canonicalEvidence.has(target)) canonicalEvidenceInspections += 1;
-  };
-  const originalGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
-  const originalGetOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
-  const originalGetPrototypeOf = Object.getPrototypeOf;
-  const originalOwnKeys = Reflect.ownKeys;
-  Object.defineProperty(Object, "getOwnPropertyDescriptor", {
-    configurable: true,
-    writable: true,
-    value: ((target: object, key: PropertyKey) => {
-      observeCanonicalTarget(target);
-      return originalGetOwnPropertyDescriptor(target, key);
-    }) as typeof Object.getOwnPropertyDescriptor,
-  });
-  Object.defineProperty(Object, "getOwnPropertyDescriptors", {
-    configurable: true,
-    writable: true,
-    value: ((target: object) => {
-      observeCanonicalTarget(target);
-      return originalGetOwnPropertyDescriptors(target);
-    }) as typeof Object.getOwnPropertyDescriptors,
-  });
-  Object.defineProperty(Object, "getPrototypeOf", {
-    configurable: true,
-    writable: true,
-    value: ((target: object) => {
-      observeCanonicalTarget(target);
-      return originalGetPrototypeOf(target);
-    }) as typeof Object.getPrototypeOf,
-  });
-  Object.defineProperty(Reflect, "ownKeys", {
-    configurable: true,
-    writable: true,
-    value: ((target: object) => {
-      observeCanonicalTarget(target);
-      return originalOwnKeys(target);
-    }) as typeof Reflect.ownKeys,
-  });
+  const probe = installCanonicalDescriptorInspectionProbe(
+    context.facts,
+    context.evidence,
+  );
   try {
     cloneDomainValue(context.facts[0]);
     cloneDomainValue(context.evidence[0]);
-    assert.ok(canonicalFactInspections > 0);
-    assert.ok(canonicalEvidenceInspections > 0);
-    canonicalFactInspections = 0;
-    canonicalEvidenceInspections = 0;
+    assert.ok(probe.factInspections() > 0);
+    assert.ok(probe.evidenceInspections() > 0);
+    probe.reset();
 
     for (let round = 0; round < 10; round += 1) {
       const evaluation = evaluateClaim({
@@ -5465,29 +5512,10 @@ scenario("validated mixed envelope work scales with mutable envelope rather than
       assert.equal(requirementEnvelope.facts, context.facts);
       assert.equal(requirementEnvelope.evidence[0], context.evidence[0]);
     }
-    assert.equal(canonicalFactInspections, 0);
-    assert.equal(canonicalEvidenceInspections, 0);
+    assert.equal(probe.factInspections(), 0);
+    assert.equal(probe.evidenceInspections(), 0);
   } finally {
-    Object.defineProperty(Object, "getOwnPropertyDescriptor", {
-      configurable: true,
-      writable: true,
-      value: originalGetOwnPropertyDescriptor,
-    });
-    Object.defineProperty(Object, "getOwnPropertyDescriptors", {
-      configurable: true,
-      writable: true,
-      value: originalGetOwnPropertyDescriptors,
-    });
-    Object.defineProperty(Object, "getPrototypeOf", {
-      configurable: true,
-      writable: true,
-      value: originalGetPrototypeOf,
-    });
-    Object.defineProperty(Reflect, "ownKeys", {
-      configurable: true,
-      writable: true,
-      value: originalOwnKeys,
-    });
+    probe.restore();
   }
   assert.deepEqual(diagnostics, {
     mutableEnvelopeClones: 20,
@@ -5502,6 +5530,280 @@ scenario("validated mixed envelope work scales with mutable envelope rather than
   });
 });
 
+scenario("validated StopPolicy decisions preserve raw exhaustive semantics", () => {
+  const cases: Array<{ name: string; state: StopPolicyState }> = [];
+  const add = (name: string, mutate: (state: StopPolicyState) => void): void => {
+    const state = baseStopState();
+    mutate(state);
+    cases.push({ name, state });
+  };
+  add("internal_error", (state) => { state.internalInvariantFailure = true; });
+  add("repository_changed", (state) => { state.repositoryChanged = true; });
+  add("safety_blocked", (state) => { state.safetyBlocked = true; });
+  add("sufficient_evidence", () => undefined);
+  add("clarification_required", (state) => {
+    state.allRequiredEvidenceSatisfied = false;
+    state.knowledgeGaps = [gap(snapshot(), "stop-parity-intent", {
+      category: "ambiguous_user_intent",
+    })];
+  });
+  add("contradictory_evidence", (state) => {
+    state.allRequiredEvidenceSatisfied = false;
+    state.contradictions = [contradiction(
+      snapshot(),
+      id<ClaimId>("claim-owner"),
+      [id<EvidenceId>("evidence-a")],
+      "stop-parity",
+    )];
+  });
+  for (const [name, costOverride, budgetOverride] of [
+    ["operation_budget_exhausted", { operations: 1 }, { maxOperations: 1 }],
+    ["file_budget_exhausted", { fileReads: 1 }, { maxFileReads: 1 }],
+    ["byte_budget_exhausted", { fileBytes: 1 }, { maxFileBytes: 1 }],
+    ["time_budget_exhausted", { wallTimeMs: 1 }, { maxWallTimeMs: 1 }],
+    ["planner_round_budget_exhausted", { plannerRounds: 1 }, { maxPlannerRounds: 1 }],
+  ] as const) {
+    add(name, (state) => {
+      state.allRequiredEvidenceSatisfied = false;
+      state.budgetState = applyOperationCost(
+        createInvestigationBudgetState(budget(budgetOverride)),
+        cost(costOverride),
+      );
+    });
+  }
+  add("repository_snapshot_truncated", (state) => {
+    state.allRequiredEvidenceSatisfied = false;
+    state.coverage.snapshotTruncated = true;
+    state.snapshotTruncationBlocksCritical = true;
+  });
+  add("no_grounded_lead", (state) => {
+    state.allRequiredEvidenceSatisfied = false;
+    state.evidence = [];
+    state.findingEvaluations = [];
+    state.searchExhausted = true;
+  });
+  add("continue", (state) => {
+    state.allRequiredEvidenceSatisfied = false;
+  });
+
+  for (const entry of cases) {
+    const rawDecision = createStopPolicy().evaluate(entry.state);
+    const source = snapshot();
+    const context = createValidatedDomainContext({
+      snapshot: source,
+      facts: entry.state.facts,
+      evidence: entry.state.evidence,
+    });
+    const optimizedDecision = createStopPolicy().evaluate({
+      ...entry.state,
+      facts: context.facts,
+      evidence: context.evidence,
+    }, context);
+    assert.deepEqual(optimizedDecision, rawDecision, entry.name);
+  }
+});
+
+scenario("validated StopPolicy rejects hostile envelopes and copied provenance", () => {
+  const source = snapshot();
+  const rawState = baseStopState();
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    facts: rawState.facts,
+    evidence: rawState.evidence,
+  });
+  const state: StopPolicyState = {
+    ...rawState,
+    facts: context.facts,
+    evidence: context.evidence,
+  };
+  const rejectsInvalidRecord = (candidate: unknown, candidateContext: unknown = context): void => {
+    assert.throws(
+      () => createStopPolicy().evaluate(candidate as StopPolicyState, candidateContext as never),
+      (error: unknown) =>
+        error instanceof InvestigationDomainError && error.code === "invalid_record",
+    );
+  };
+
+  for (const field of ["coverage", "budgetState", "facts", "evidence", "knowledgeGaps"] as const) {
+    let calls = 0;
+    const hostile = { ...state } as Record<string, unknown>;
+    Object.defineProperty(hostile, field, {
+      enumerable: true,
+      get() {
+        calls += 1;
+        return state[field];
+      },
+    });
+    rejectsInvalidRecord(hostile);
+    assert.equal(calls, 0);
+  }
+
+  let nestedCalls = 0;
+  const hostileCoverage = { ...state.coverage } as Record<string, unknown>;
+  Object.defineProperty(hostileCoverage, "filesRead", {
+    enumerable: true,
+    get() {
+      nestedCalls += 1;
+      return 1;
+    },
+  });
+  rejectsInvalidRecord({ ...state, coverage: hostileCoverage });
+  const hostileGap = gap(source, "stop-nested-accessor") as unknown as Record<string, unknown>;
+  Object.defineProperty(hostileGap, "question", {
+    enumerable: true,
+    get() {
+      nestedCalls += 1;
+      return "Unsafe accessor";
+    },
+  });
+  rejectsInvalidRecord({ ...state, knowledgeGaps: [hostileGap] });
+  assert.equal(nestedCalls, 0);
+
+  rejectsInvalidRecord({ ...state, unexpected: true });
+  const symbolState = { ...state } as Record<PropertyKey, unknown>;
+  Object.defineProperty(symbolState, Symbol("stop-policy"), {
+    enumerable: true,
+    value: true,
+  });
+  rejectsInvalidRecord(symbolState);
+  rejectsInvalidRecord(Object.assign(Object.create({ inherited: true }), state));
+  rejectsInvalidRecord({ ...state, facts: [...context.facts] });
+  rejectsInvalidRecord({ ...state, evidence: [...context.evidence] });
+  rejectsInvalidRecord({ ...state, facts: Object.freeze([...context.facts]) });
+  rejectsInvalidRecord({
+    ...state,
+    facts: Object.freeze(context.facts.map((record, index) =>
+      index === 0 ? Object.freeze({ ...record, predicate: "imports" }) : record,
+    )),
+  });
+
+  const foreign = snapshot("stop-policy-foreign");
+  const foreignFact = fact(foreign, "stop-policy-foreign");
+  const foreignEvidence = evidence(foreign, "stop-policy-foreign", {
+    factIds: [foreignFact.id],
+  });
+  const foreignContext = createValidatedDomainContext({
+    snapshot: foreign,
+    facts: [foreignFact],
+    evidence: [foreignEvidence],
+  });
+  rejectsInvalidRecord({
+    ...state,
+    facts: foreignContext.facts,
+    evidence: foreignContext.evidence,
+  });
+  rejectsInvalidRecord(state, {
+    snapshotId: context.snapshotId,
+    facts: context.facts,
+    evidence: context.evidence,
+  });
+});
+
+scenario("validated StopPolicy preserves mutable and canonical isolation", () => {
+  const source = snapshot();
+  const rawState = baseStopState();
+  const callerKnowledgeGaps = [gap(source, "stop-isolation", { blocks: [] })];
+  const callerResolvableGapIds: KnowledgeGapId[] = [];
+  rawState.knowledgeGaps = callerKnowledgeGaps;
+  rawState.repositoryResolvableGapIds = callerResolvableGapIds;
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    facts: rawState.facts,
+    evidence: rawState.evidence,
+  });
+  const state: StopPolicyState = {
+    ...rawState,
+    facts: context.facts,
+    evidence: context.evidence,
+  };
+  const stableState = cloneDomainValue(rawState);
+  const decision = createStopPolicy().evaluate(state, context);
+  const stableDecision = cloneDomainValue(decision);
+  state.coverage.filesRead = 0;
+  callerKnowledgeGaps.push(gap(source, "stop-isolation-late", { blocks: [] }));
+  callerResolvableGapIds.push(id<KnowledgeGapId>("gap-stop-isolation-late"));
+  assert.deepEqual(decision, stableDecision);
+  assert.throws(() => {
+    (context.facts[0] as { status: string }).status = "superseded";
+  });
+  assert.throws(() => {
+    (context.evidence[0] as { summary: string }).summary = "Changed";
+  });
+  assert.equal(context.facts[0]!.status, "active");
+  assert.equal(context.evidence[0]!.summary, "Observed evidence a");
+  if (decision.action === "stop") {
+    decision.stop.budgetState.usage.operations = 99;
+    assert.equal(rawState.budgetState.usage.operations, 0);
+  }
+  const replay = createStopPolicy().evaluate({
+    ...stableState,
+    facts: context.facts,
+    evidence: context.evidence,
+  }, context);
+  assert.deepEqual(replay, stableDecision);
+});
+
+scenario("validated StopPolicy work scales with mutable envelope", () => {
+  const source = snapshot();
+  const facts = Array.from({ length: 200 }, (_, index) =>
+    fact(source, `stop-bounded-${index}`),
+  );
+  const records = Array.from({ length: 300 }, (_, index) => {
+    const sourceFact = facts[index % facts.length]!;
+    return evidence(source, `stop-bounded-${index}`, {
+      factIds: [sourceFact.id],
+      group: `stop-bounded-group-${index}`,
+    });
+  });
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts,
+    evidence: records,
+  });
+  const state: StopPolicyState = {
+    ...baseStopState(),
+    purpose: "review_context",
+    facts: context.facts,
+    evidence: context.evidence,
+    findingEvaluations: [],
+    allRequiredEvidenceSatisfied: false,
+  };
+  const diagnostics = createValidatedDomainEnvelopeDiagnostics();
+  const policy = createStopPolicy(diagnostics);
+  const probe = installCanonicalDescriptorInspectionProbe(
+    context.facts,
+    context.evidence,
+  );
+  let negativeFactInspections = 0;
+  let negativeEvidenceInspections = 0;
+  try {
+    cloneDomainValue({ fact: context.facts[0], evidence: context.evidence[0] });
+    negativeFactInspections = probe.factInspections();
+    negativeEvidenceInspections = probe.evidenceInspections();
+    assert.ok(negativeFactInspections > 0);
+    assert.ok(negativeEvidenceInspections > 0);
+    probe.reset();
+    for (let round = 0; round < 50; round += 1) {
+      assert.deepEqual(policy.evaluate(state, context), {
+        action: "continue",
+        reason: "More deterministic evidence can still be gathered within policy.",
+      });
+    }
+    assert.equal(probe.factInspections(), 0);
+    assert.equal(probe.evidenceInspections(), 0);
+  } finally {
+    probe.restore();
+  }
+  assert.ok(negativeFactInspections > 0);
+  assert.ok(negativeEvidenceInspections > 0);
+  assert.deepEqual(diagnostics, {
+    mutableEnvelopeClones: 50,
+    canonicalFactReferencesReused: 10_000,
+    canonicalEvidenceReferencesReused: 15_000,
+  });
+});
+
 for (const entry of scenarios) {
   try {
     entry.run();
@@ -5510,5 +5812,5 @@ for (const entry of scenarios) {
   }
 }
 
-assert.equal(scenarios.length, 289);
+assert.equal(scenarios.length, 293);
 console.log(`Context Engine v2 investigation domain smoke passed: ${scenarios.length} scenarios.`);
