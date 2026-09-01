@@ -3,6 +3,26 @@ import { stableCompare, stableSerialize } from "../domain/investigationDomainSup
 
 const MAX_RELATIONSHIP_CHAIN_FACTS = 16;
 
+export interface StrictRelationshipAdjacencyDiagnostics {
+  relationshipAdjacencyPreparationStarted?(): void;
+  relationshipAdjacencyPredicateEvaluated?(): void;
+  relationshipPreparedChainBuildStarted?(): void;
+}
+
+export interface PreparedStrictRelationshipAdjacency {
+  readonly snapshotId: FactRecord["snapshotId"];
+}
+
+class PreparedStrictRelationshipAdjacencyImpl
+implements PreparedStrictRelationshipAdjacency {
+  constructor(
+    readonly snapshotId: FactRecord["snapshotId"],
+    readonly orderedFacts: readonly FactRecord[],
+    readonly orderedOrigins: readonly FactRecord[],
+    readonly adjacentByLeft: ReadonlyMap<FactRecord, readonly FactRecord[]>,
+  ) {}
+}
+
 function sameEntitySemanticShape(
   left: RepositoryEntity,
   right: RepositoryEntity,
@@ -122,7 +142,7 @@ export function buildStrictBoundedRelationshipChains(input: {
   origins: readonly FactRecord[];
   facts: readonly FactRecord[];
   candidateFact: Extract<FactRecord, { kind: "relation" }>;
-}, checkpoint?: () => void): FactRecord[][] {
+}, checkpoint?: () => void, diagnostics?: StrictRelationshipAdjacencyDiagnostics): FactRecord[][] {
   checkpoint?.();
   const orderedFacts = [...input.facts]
     .filter((fact) => {
@@ -142,7 +162,9 @@ export function buildStrictBoundedRelationshipChains(input: {
     const seen = new Set(path.map((fact) => fact.id));
     for (const next of orderedFacts) {
       checkpoint?.();
-      if (seen.has(next.id) || !areStrictRelationshipFactsAdjacent(tail, next)) continue;
+      if (seen.has(next.id)) continue;
+      diagnostics?.relationshipAdjacencyPredicateEvaluated?.();
+      if (!areStrictRelationshipFactsAdjacent(tail, next)) continue;
       visit([...path, next]);
     }
   };
@@ -155,8 +177,110 @@ export function buildStrictBoundedRelationshipChains(input: {
       if (origin.id === input.candidateFact.id) return true;
       const firstLinks = orderedFacts.filter((fact) => {
         checkpoint?.();
-        return fact.id !== origin.id && areStrictRelationshipFactsAdjacent(origin, fact);
+        if (fact.id === origin.id) return false;
+        diagnostics?.relationshipAdjacencyPredicateEvaluated?.();
+        return areStrictRelationshipFactsAdjacent(origin, fact);
       });
+      return firstLinks.length === 1;
+    })
+    .forEach((origin) => {
+      checkpoint?.();
+      visit([origin]);
+    });
+  const unique = new Map<string, FactRecord[]>();
+  for (const chain of chains) {
+    checkpoint?.();
+    unique.set(chain.map((fact) => fact.id).join("\0"), chain);
+  }
+  return [...unique.values()].sort((left, right) => {
+    checkpoint?.();
+    return stableCompare(
+      left.map((fact) => fact.id).join("\0"),
+      right.map((fact) => fact.id).join("\0"),
+    );
+  });
+}
+
+export function prepareStrictRelationshipAdjacency(input: {
+  origins: readonly FactRecord[];
+  facts: readonly FactRecord[];
+  snapshotId: FactRecord["snapshotId"];
+}, checkpoint?: () => void, diagnostics?: StrictRelationshipAdjacencyDiagnostics): PreparedStrictRelationshipAdjacency {
+  diagnostics?.relationshipAdjacencyPreparationStarted?.();
+  checkpoint?.();
+  const orderedFacts = [...input.facts]
+    .filter((fact) => {
+      checkpoint?.();
+      return fact.status === "active" && fact.snapshotId === input.snapshotId;
+    })
+    .sort((left, right) => stableCompare(left.id, right.id));
+  const orderedOrigins = [...input.origins]
+    .filter((origin) => {
+      checkpoint?.();
+      return origin.status === "active" && origin.snapshotId === input.snapshotId;
+    })
+    .sort((left, right) => stableCompare(left.id, right.id));
+  const possibleLeft: FactRecord[] = [];
+  const seenLeft = new Set<FactRecord>();
+  for (const fact of [...orderedOrigins, ...orderedFacts]) {
+    checkpoint?.();
+    if (seenLeft.has(fact)) continue;
+    seenLeft.add(fact);
+    possibleLeft.push(fact);
+  }
+  const adjacentByLeft = new Map<FactRecord, readonly FactRecord[]>();
+  for (const left of possibleLeft) {
+    checkpoint?.();
+    const adjacent: FactRecord[] = [];
+    for (const right of orderedFacts) {
+      checkpoint?.();
+      diagnostics?.relationshipAdjacencyPredicateEvaluated?.();
+      if (areStrictRelationshipFactsAdjacent(left, right)) adjacent.push(right);
+    }
+    adjacentByLeft.set(left, Object.freeze(adjacent));
+  }
+  return new PreparedStrictRelationshipAdjacencyImpl(
+    input.snapshotId,
+    Object.freeze(orderedFacts),
+    Object.freeze(orderedOrigins),
+    adjacentByLeft,
+  );
+}
+
+export function buildStrictBoundedRelationshipChainsFromPrepared(input: {
+  prepared: PreparedStrictRelationshipAdjacency;
+  candidateFact: Extract<FactRecord, { kind: "relation" }>;
+}, checkpoint?: () => void, diagnostics?: StrictRelationshipAdjacencyDiagnostics): FactRecord[][] {
+  diagnostics?.relationshipPreparedChainBuildStarted?.();
+  checkpoint?.();
+  if (!(input.prepared instanceof PreparedStrictRelationshipAdjacencyImpl)) {
+    throw new TypeError("Prepared strict relationship adjacency is not authentic.");
+  }
+  const prepared = input.prepared;
+  if (input.candidateFact.snapshotId !== prepared.snapshotId) return [];
+  const chains: FactRecord[][] = [];
+  const visit = (path: FactRecord[]): void => {
+    checkpoint?.();
+    const tail = path.at(-1)!;
+    if (tail.id === input.candidateFact.id) {
+      chains.push(path);
+      return;
+    }
+    if (path.length >= MAX_RELATIONSHIP_CHAIN_FACTS) return;
+    const seen = new Set(path.map((fact) => fact.id));
+    for (const next of prepared.adjacentByLeft.get(tail) ?? []) {
+      checkpoint?.();
+      if (seen.has(next.id)) continue;
+      visit([...path, next]);
+    }
+  };
+  prepared.orderedOrigins
+    .filter((origin) => {
+      checkpoint?.();
+      if (origin.id === input.candidateFact.id) return true;
+      const firstLinks = (prepared.adjacentByLeft.get(origin) ?? []).filter(
+        (fact) => fact.id !== origin.id,
+      );
       return firstLinks.length === 1;
     })
     .forEach((origin) => {

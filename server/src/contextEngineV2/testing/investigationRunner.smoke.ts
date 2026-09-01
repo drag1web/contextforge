@@ -14,11 +14,16 @@ import {
 } from "../application/index.js";
 import { evaluateInvestigationQuestions } from "../application/deterministicQuestionEvaluator.js";
 import {
+  deriveImplementationOwnerProofs,
   evaluateFactClaimEligibility,
   evaluateFactClaimEligibilityBatch,
 } from "../application/factClaimEligibility.js";
 import { evaluateKnowledgeGapResolution } from "../application/truthfulGapEvaluator.js";
-import { buildStrictBoundedRelationshipChains } from "../application/strictRelationshipChain.js";
+import {
+  buildStrictBoundedRelationshipChains,
+  buildStrictBoundedRelationshipChainsFromPrepared,
+  prepareStrictRelationshipAdjacency,
+} from "../application/strictRelationshipChain.js";
 import { createDeterministicOperationQueue } from "../application/deterministicOperationQueue.js";
 import {
   createDeterministicOperation,
@@ -4676,10 +4681,16 @@ scenario("173. explicit owner proof remains batch and scalar equivalent", () => 
       request: requestFor(context.fixture.snapshot, { explicitTargets: targets }),
     };
     let relationshipChainBuilds = 0;
+    let adjacencyPreparations = 0;
+    let preparedChainBuilds = 0;
     const batch = evaluateFactClaimEligibilityBatch(
       { ...shared, factsToEvaluate: context.facts },
       undefined,
-      { relationshipChainBuildStarted: () => { relationshipChainBuilds += 1; } },
+      {
+        relationshipChainBuildStarted: () => { relationshipChainBuilds += 1; },
+        relationshipAdjacencyPreparationStarted: () => { adjacencyPreparations += 1; },
+        relationshipPreparedChainBuildStarted: () => { preparedChainBuilds += 1; },
+      },
     );
     const scalar = context.facts.map((fact) => ({
       factId: fact.id,
@@ -4692,6 +4703,8 @@ scenario("173. explicit owner proof remains batch and scalar equivalent", () => 
       supportingFactIds: [candidateFact.id],
     });
     assert.equal(relationshipChainBuilds, 0);
+    assert.equal(adjacencyPreparations, 0);
+    assert.equal(preparedChainBuilds, 0);
   }
 });
 
@@ -4779,6 +4792,9 @@ scenario("174. owner-proof derivation scales with candidates instead of evaluate
     .map((fact) => groundFactForOperation(fact, linkedOperation.id));
   let proofDerivations = 0;
   let relationshipChainBuilds = 0;
+  let adjacencyPreparations = 0;
+  let adjacencyEvaluations = 0;
+  let preparedChainBuilds = 0;
   const decisions = evaluateFactClaimEligibilityBatch(
     {
       factsToEvaluate: facts,
@@ -4794,6 +4810,9 @@ scenario("174. owner-proof derivation scales with candidates instead of evaluate
     {
       ownerProofDerivationStarted: () => { proofDerivations += 1; },
       relationshipChainBuildStarted: () => { relationshipChainBuilds += 1; },
+      relationshipAdjacencyPreparationStarted: () => { adjacencyPreparations += 1; },
+      relationshipAdjacencyPredicateEvaluated: () => { adjacencyEvaluations += 1; },
+      relationshipPreparedChainBuildStarted: () => { preparedChainBuilds += 1; },
     },
   );
   assert.equal(facts.length, 64);
@@ -4802,6 +4821,345 @@ scenario("174. owner-proof derivation scales with candidates instead of evaluate
   assert.equal(decisions.length, facts.length);
   assert.equal(proofDerivations, 1);
   assert.equal(relationshipChainBuilds, candidates.length);
+  assert.equal(adjacencyPreparations, 1);
+  assert.equal(preparedChainBuilds, candidates.length);
+  assert.equal(adjacencyEvaluations, facts.length * facts.length);
+});
+
+scenario("175. prepared strict adjacency is a brute-force semantic oracle match", () => {
+  const fixture = repositoryFixture("prepared-chain-parity", [
+    { path: "src/candidate.ts", content: "export function CandidateService() {}" },
+    { path: "src/graph.ts", content: "export const graph = true;" },
+    { path: "src/route.ts", content: "export const route = true;" },
+  ]);
+  const source = fixture.snapshot;
+  const graphEntity = (suffix: string) => syntheticEntity(
+    source,
+    "src/graph.ts",
+    `prepared-chain-${suffix}`,
+    "module",
+    suffix,
+  );
+  const graphRelation = (
+    suffix: string,
+    subject: RepositoryEntity,
+    predicate: string,
+    object: RepositoryEntity,
+  ) => syntheticRelation(
+    source,
+    "src/graph.ts",
+    `prepared-chain-${suffix}`,
+    subject,
+    predicate,
+    object,
+  ) as Extract<FactRecord, { kind: "relation" }>;
+  const compare = (input: Parameters<typeof buildStrictBoundedRelationshipChains>[0]) => {
+    const brute = buildStrictBoundedRelationshipChains(input);
+    const prepared = prepareStrictRelationshipAdjacency({
+      origins: input.origins,
+      facts: input.facts,
+      snapshotId: input.candidateFact.snapshotId,
+    });
+    const indexed = buildStrictBoundedRelationshipChainsFromPrepared({
+      prepared,
+      candidateFact: input.candidateFact,
+    });
+    assert.deepEqual(indexed, brute);
+    return indexed;
+  };
+
+  const direct = graphRelation("direct", graphEntity("direct-subject"), "contains", graphEntity("direct-owner"));
+  assert.deepEqual(compare({ origins: [direct], facts: [direct], candidateFact: direct }), [[direct]]);
+
+  const multiNodes = Array.from({ length: 4 }, (_, index) => graphEntity(`multi-${index}`));
+  const multiOrigin = graphRelation("multi-origin", multiNodes[0]!, "calls", multiNodes[1]!);
+  const multiBridge = graphRelation("multi-bridge", multiNodes[1]!, "contains", multiNodes[2]!);
+  const multiCandidate = graphRelation("multi-candidate", multiNodes[2]!, "contains", multiNodes[3]!);
+  assert.deepEqual(compare({
+    origins: [multiOrigin],
+    facts: [multiBridge, multiCandidate],
+    candidateFact: multiCandidate,
+  }).map((chain) => chain.map((fact) => fact.id)), [[
+    multiOrigin.id,
+    multiBridge.id,
+    multiCandidate.id,
+  ]]);
+
+  const ambiguousNodes = Array.from({ length: 6 }, (_, index) => graphEntity(`ambiguous-${index}`));
+  const ambiguousOrigin = graphRelation("ambiguous-origin", ambiguousNodes[0]!, "calls", ambiguousNodes[1]!);
+  const ambiguousFirst = graphRelation("ambiguous-first", ambiguousNodes[1]!, "contains", ambiguousNodes[2]!);
+  const ambiguousLeft = graphRelation("ambiguous-left", ambiguousNodes[2]!, "calls", ambiguousNodes[3]!);
+  const ambiguousRight = graphRelation("ambiguous-right", ambiguousNodes[2]!, "contains", ambiguousNodes[3]!);
+  const ambiguousCandidate = graphRelation("ambiguous-candidate", ambiguousNodes[3]!, "contains", ambiguousNodes[4]!);
+  const ambiguousChains = compare({
+    origins: [ambiguousOrigin],
+    facts: [ambiguousFirst, ambiguousLeft, ambiguousRight, ambiguousCandidate],
+    candidateFact: ambiguousCandidate,
+  });
+  assert.ok(ambiguousChains.length > 1);
+
+  const disconnectedOrigin = graphRelation("none-origin", graphEntity("none-a"), "calls", graphEntity("none-b"));
+  const disconnectedCandidate = graphRelation("none-candidate", graphEntity("none-c"), "contains", graphEntity("none-d"));
+  assert.deepEqual(compare({
+    origins: [disconnectedOrigin],
+    facts: [disconnectedCandidate],
+    candidateFact: disconnectedCandidate,
+  }), []);
+
+  const cycleNodes = Array.from({ length: 6 }, (_, index) => graphEntity(`cycle-${index}`));
+  const cycleOrigin = graphRelation("cycle-origin", cycleNodes[0]!, "calls", cycleNodes[1]!);
+  const cycleFirst = graphRelation("cycle-first", cycleNodes[1]!, "contains", cycleNodes[2]!);
+  const cycleForward = graphRelation("cycle-forward", cycleNodes[2]!, "contains", cycleNodes[3]!);
+  const cycleBack = graphRelation("cycle-back", cycleNodes[3]!, "calls", cycleNodes[2]!);
+  const cycleCandidate = graphRelation("cycle-candidate", cycleNodes[3]!, "contains", cycleNodes[4]!);
+  assert.ok(compare({
+    origins: [cycleOrigin],
+    facts: [cycleFirst, cycleForward, cycleBack, cycleCandidate],
+    candidateFact: cycleCandidate,
+  }).length > 0);
+
+  const depthNodes = Array.from({ length: 18 }, (_, index) => graphEntity(`depth-${index}`));
+  const depthFacts = Array.from({ length: 17 }, (_, index) => graphRelation(
+    `depth-${index}`,
+    depthNodes[index]!,
+    "contains",
+    depthNodes[index + 1]!,
+  ));
+  const boundaryChains = compare({
+    origins: [depthFacts[0]!],
+    facts: depthFacts.slice(1),
+    candidateFact: depthFacts[15]!,
+  });
+  assert.equal(boundaryChains.length, 1);
+  assert.equal(boundaryChains[0]!.length, 16);
+  assert.deepEqual(compare({
+    origins: [depthFacts[0]!],
+    facts: depthFacts.slice(1),
+    candidateFact: depthFacts[16]!,
+  }), []);
+
+  const routeModule = syntheticEntity(source, "src/route.ts", "prepared-route-module", "module", "route");
+  const imported = syntheticEntity(source, "", "prepared-route-imported", "symbol", "CandidateService", {
+    importedName: "CandidateService",
+    localName: "CandidateService",
+    moduleSpecifier: "./candidate",
+  });
+  const candidateModule = syntheticEntity(source, "src/candidate.ts", "prepared-candidate-module", "module", "candidate");
+  const candidateOwner = syntheticEntity(source, "src/candidate.ts", "prepared-candidate-owner", "function", "CandidateService");
+  const importOrigin = syntheticRelation(
+    source,
+    "src/route.ts",
+    "prepared-relative-import",
+    routeModule,
+    "imports",
+    imported,
+  ) as Extract<FactRecord, { kind: "relation" }>;
+  const importedCandidate = syntheticRelation(
+    source,
+    "src/candidate.ts",
+    "prepared-relative-candidate",
+    candidateModule,
+    "contains",
+    candidateOwner,
+  ) as Extract<FactRecord, { kind: "relation" }>;
+  assert.equal(compare({
+    origins: [importOrigin],
+    facts: [importedCandidate],
+    candidateFact: importedCandidate,
+  }).length, 1);
+
+  const endpoint = graphEntity("route-endpoint");
+  const routeOrigin = graphRelation("route-origin", routeModule, "defines_route", endpoint);
+  const routeCandidate = graphRelation("route-candidate", routeModule, "contains", graphEntity("route-owner"));
+  assert.equal(compare({
+    origins: [routeOrigin],
+    facts: [routeCandidate],
+    candidateFact: routeCandidate,
+  }).length, 1);
+
+  const selfOrigin = graphRelation("self-origin", graphEntity("self-a"), "calls", graphEntity("self-b"));
+  const selfCandidate = graphRelation("self-candidate", selfOrigin.object, "contains", graphEntity("self-owner"));
+  const selfChains = compare({
+    origins: [selfOrigin],
+    facts: [selfOrigin, selfCandidate],
+    candidateFact: selfCandidate,
+  });
+  assert.equal(selfChains.length, 1);
+  assert.deepEqual(selfChains[0]!.map((fact) => fact.id), [selfOrigin.id, selfCandidate.id]);
+});
+
+scenario("176. prepared adjacency preserves permutation and cancellation behavior", () => {
+  const fixture = repositoryFixture("prepared-chain-order", [
+    { path: "src/graph.ts", content: "export const graph = true;" },
+  ]);
+  const source = fixture.snapshot;
+  const entity = (suffix: string) => syntheticEntity(
+    source,
+    "src/graph.ts",
+    `prepared-order-${suffix}`,
+    "module",
+    suffix,
+  );
+  const relation = (
+    suffix: string,
+    subject: RepositoryEntity,
+    object: RepositoryEntity,
+  ) => syntheticRelation(
+    source,
+    "src/graph.ts",
+    `prepared-order-${suffix}`,
+    subject,
+    "contains",
+    object,
+  ) as Extract<FactRecord, { kind: "relation" }>;
+  const nodes = Array.from({ length: 8 }, (_, index) => entity(`${index}`));
+  const origins = [
+    relation("origin-a", nodes[0]!, nodes[1]!),
+    relation("origin-b", nodes[4]!, nodes[5]!),
+  ];
+  const bridges = [
+    relation("bridge-a", nodes[1]!, nodes[2]!),
+    relation("bridge-b", nodes[5]!, nodes[6]!),
+  ];
+  const candidates = [
+    relation("candidate-a", nodes[2]!, nodes[3]!),
+    relation("candidate-b", nodes[6]!, nodes[7]!),
+  ];
+  const facts = [...bridges, ...candidates];
+  const buildAll = (
+    orderedOrigins: readonly FactRecord[],
+    orderedFacts: readonly FactRecord[],
+    orderedCandidates: readonly Extract<FactRecord, { kind: "relation" }>[],
+  ) => {
+    const prepared = prepareStrictRelationshipAdjacency({
+      origins: orderedOrigins,
+      facts: orderedFacts,
+      snapshotId: source.id,
+    });
+    return orderedCandidates.map((candidateFact) => ({
+      candidateId: candidateFact.id,
+      chains: buildStrictBoundedRelationshipChainsFromPrepared({ prepared, candidateFact }),
+    })).sort((left, right) => left.candidateId.localeCompare(right.candidateId));
+  };
+  const forward = buildAll(origins, facts, candidates);
+  const permuted = buildAll([...origins].reverse(), [...facts].reverse(), [...candidates].reverse());
+  assert.deepEqual(permuted, forward);
+  for (const candidateFact of candidates) {
+    const brute = buildStrictBoundedRelationshipChains({ origins, facts, candidateFact });
+    const prepared = forward.find((result) => result.candidateId === candidateFact.id)?.chains;
+    assert.deepEqual(prepared, brute);
+  }
+
+  let preparationChecks = 0;
+  assert.throws(
+    () => prepareStrictRelationshipAdjacency({
+      origins,
+      facts,
+      snapshotId: source.id,
+    }, () => {
+      preparationChecks += 1;
+      if (preparationChecks === 8) {
+        throw new InvestigationRunnerError("deadline_exceeded", "Fixture deadline reached.");
+      }
+    }),
+    (error) => error instanceof InvestigationRunnerError && error.code === "deadline_exceeded",
+  );
+  assert.equal(preparationChecks, 8);
+
+  const prepared = prepareStrictRelationshipAdjacency({ origins, facts, snapshotId: source.id });
+  let traversalChecks = 0;
+  assert.throws(
+    () => buildStrictBoundedRelationshipChainsFromPrepared({
+      prepared,
+      candidateFact: candidates[0]!,
+    }, () => {
+      traversalChecks += 1;
+      if (traversalChecks === 3) {
+        throw new InvestigationRunnerError("cancelled", "Fixture cancellation reached.");
+      }
+    }),
+    (error) => error instanceof InvestigationRunnerError && error.code === "cancelled",
+  );
+  assert.equal(traversalChecks, 3);
+});
+
+scenario("177. proof-local prepared adjacency removes the candidate multiplier", () => {
+  const fixture = repositoryFixture("prepared-chain-structural", [
+    { path: "src/graph.ts", content: "export const graph = true;" },
+  ]);
+  const source = fixture.snapshot;
+  const entity = (suffix: string) => syntheticEntity(
+    source,
+    "src/graph.ts",
+    `prepared-structural-${suffix}`,
+    "module",
+    suffix,
+  );
+  const relation = (
+    suffix: string,
+    subject: RepositoryEntity,
+    object: RepositoryEntity,
+  ) => syntheticRelation(
+    source,
+    "src/graph.ts",
+    `prepared-structural-${suffix}`,
+    subject,
+    "calls",
+    object,
+  ) as Extract<FactRecord, { kind: "relation" }>;
+  const origins = Array.from({ length: 120 }, (_, index) => relation(
+    `origin-${index}`,
+    entity(`origin-subject-${index}`),
+    entity(`origin-object-${index}`),
+  ));
+  const fillers = Array.from({ length: 32 }, (_, index) => relation(
+    `filler-${index}`,
+    entity(`filler-subject-${index}`),
+    entity(`filler-object-${index}`),
+  ));
+  const candidates = Array.from({ length: 13 }, (_, index) => relation(
+    `candidate-${index}`,
+    entity(`candidate-subject-${index}`),
+    entity(`candidate-object-${index}`),
+  ));
+  const facts = [...origins, ...fillers, ...candidates];
+  let bruteEvaluations = 0;
+  const brute = candidates.map((candidateFact) => buildStrictBoundedRelationshipChains(
+    { origins, facts, candidateFact },
+    undefined,
+    { relationshipAdjacencyPredicateEvaluated: () => { bruteEvaluations += 1; } },
+  ));
+  assert.ok(bruteEvaluations > 0);
+  assert.equal(bruteEvaluations, candidates.length * origins.length * (facts.length - 1));
+
+  let preparations = 0;
+  let preparedEvaluations = 0;
+  let preparedBuilds = 0;
+  const diagnostics = {
+    relationshipAdjacencyPreparationStarted: () => { preparations += 1; },
+    relationshipAdjacencyPredicateEvaluated: () => { preparedEvaluations += 1; },
+    relationshipPreparedChainBuildStarted: () => { preparedBuilds += 1; },
+  };
+  const prepared = prepareStrictRelationshipAdjacency(
+    { origins, facts, snapshotId: source.id },
+    undefined,
+    diagnostics,
+  );
+  const afterPreparation = preparedEvaluations;
+  const indexed = candidates.map((candidateFact) => buildStrictBoundedRelationshipChainsFromPrepared(
+    { prepared, candidateFact },
+    undefined,
+    diagnostics,
+  ));
+  assert.deepEqual(indexed, brute);
+  assert.equal(facts.length, 165);
+  assert.equal(origins.length, 120);
+  assert.equal(candidates.length, 13);
+  assert.equal(preparations, 1);
+  assert.equal(preparedBuilds, candidates.length);
+  assert.equal(afterPreparation, facts.length * facts.length);
+  assert.equal(preparedEvaluations, afterPreparation);
+  assert.ok(preparedEvaluations < bruteEvaluations);
 });
 
 for (const current of scenarios) {

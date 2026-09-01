@@ -11,7 +11,12 @@ import type {
 import { sortedUnique, stableCompare } from "../domain/investigationDomainSupport.js";
 import { isFileBackedDefinitionFact } from "./entityRolePolicy.js";
 import { pathMatchesNegativeConstraints } from "./negativeConstraintMatcher.js";
-import { buildStrictBoundedRelationshipChains } from "./strictRelationshipChain.js";
+import {
+  buildStrictBoundedRelationshipChainsFromPrepared,
+  prepareStrictRelationshipAdjacency,
+  type PreparedStrictRelationshipAdjacency,
+  type StrictRelationshipAdjacencyDiagnostics,
+} from "./strictRelationshipChain.js";
 
 const CLAIM_PREDICATES: Readonly<Record<ClaimRecord["type"], ReadonlySet<string>>> = {
   implementation_owner: new Set([
@@ -84,7 +89,8 @@ export interface FactClaimEligibilityBatchDecision {
   decision: FactClaimEligibilityDecision;
 }
 
-export interface FactClaimEligibilityDiagnostics {
+export interface FactClaimEligibilityDiagnostics
+extends StrictRelationshipAdjacencyDiagnostics {
   ownerProofDerivationStarted?(): void;
   relationshipChainBuildStarted?(): void;
 }
@@ -251,6 +257,7 @@ export function deriveImplementationOwnerProofs(
         isFileBackedOwnerDefinitionFact(fact, input.snapshot)),
   );
   const proofs: ImplementationOwnerProof[] = [];
+  let prepared: PreparedStrictRelationshipAdjacency | undefined;
   for (const candidateFact of candidates) {
     checkpoint?.();
     const explicitPath = explicitPathProof({
@@ -272,13 +279,22 @@ export function deriveImplementationOwnerProofs(
       continue;
     }
     diagnostics?.relationshipChainBuildStarted?.();
-    const chains = buildStrictBoundedRelationshipChains(
+    prepared ??= prepareStrictRelationshipAdjacency(
       {
         origins,
         facts: relationshipFacts,
+        snapshotId: input.snapshot.id,
+      },
+      checkpoint,
+      diagnostics,
+    );
+    const chains = buildStrictBoundedRelationshipChainsFromPrepared(
+      {
+        prepared,
         candidateFact,
       },
       checkpoint,
+      diagnostics,
     );
     if (chains.length !== 1) continue;
     const factIds = chains[0]!.map((fact) => fact.id);
