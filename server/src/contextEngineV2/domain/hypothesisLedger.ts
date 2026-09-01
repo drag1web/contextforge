@@ -29,9 +29,9 @@ import {
   stableCompare,
 } from "./investigationDomainSupport.js";
 import {
-  assertValidatedDomainContext,
   type ValidatedDomainContext,
 } from "./validatedDomainContext.js";
+import { cloneValidatedHypothesisLedgerEnvelope } from "./validatedDomainEnvelope.js";
 
 const HYPOTHESIS_FIELDS = [
   "id",
@@ -396,13 +396,14 @@ function validateEvaluatedClaim(
   hypothesis: InvestigationHypothesis,
   evidence: ReadonlyMap<EvidenceId, EvidenceRecord>,
   snapshotId: SnapshotId,
+  validatedContext?: ValidatedDomainContext,
 ): ClaimRecord {
   const claim = cloneDomainValue(evaluation.claim);
   assertClaimLedgerConsistency({
     claim,
-    evidence: [...evidence.values()],
+    evidence: validatedContext?.evidence ?? [...evidence.values()],
     snapshotId,
-  });
+  }, validatedContext);
   if (claim.id !== hypothesis.claimId || claim.snapshotId !== snapshotId) {
     throw new InvestigationDomainError(
       "snapshot_mismatch",
@@ -492,15 +493,15 @@ export function createHypothesisLedger(input: {
   evidence: readonly EvidenceRecord[];
   knowledgeGaps?: readonly KnowledgeGap[];
 }, validatedContext?: ValidatedDomainContext): HypothesisLedger {
-  if (validatedContext) assertValidatedDomainContext(validatedContext);
-  validatedContext?.assertCanonical({ evidence: input.evidence });
-  if (validatedContext && input.snapshotId !== validatedContext.snapshotId) {
+  const safeInput = validatedContext
+    ? cloneValidatedHypothesisLedgerEnvelope(input, validatedContext)
+    : cloneDomainValue(input);
+  if (validatedContext && safeInput.snapshotId !== validatedContext.snapshotId) {
     throw new InvestigationDomainError(
       "snapshot_mismatch",
       "Hypothesis ledger context belongs to another snapshot.",
     );
   }
-  const safeInput = cloneDomainValue(input);
   const claims = indexDomainRecordsById(
     safeInput.claims,
     "Hypothesis ledger claim",
@@ -600,6 +601,7 @@ export function createHypothesisLedger(input: {
         hypothesis,
         evidence,
         inputSnapshotId,
+        validatedContext,
       );
       const blocking = sortedUnique(evaluationInput.blockingContradictionIds ?? []);
       let target = hypothesis.status;

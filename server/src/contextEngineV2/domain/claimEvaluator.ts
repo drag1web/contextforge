@@ -27,9 +27,12 @@ import {
   stableCompare,
 } from "./investigationDomainSupport.js";
 import {
-  assertValidatedDomainContext,
   type ValidatedDomainContext,
 } from "./validatedDomainContext.js";
+import {
+  cloneValidatedClaimEvaluationEnvelope,
+  cloneValidatedClaimLedgerEnvelope,
+} from "./validatedDomainEnvelope.js";
 
 const CLAIM_FIELDS = [
   "id",
@@ -277,15 +280,22 @@ export function assertClaimLedgerConsistency(input: {
   claim: ClaimRecord;
   evidence: readonly EvidenceRecord[];
   snapshotId: ClaimRecord["snapshotId"];
-}): void {
-  const safeInput = cloneDomainValue(input);
+}, validatedContext?: ValidatedDomainContext): void {
+  const safeInput = validatedContext
+    ? cloneValidatedClaimLedgerEnvelope(input, validatedContext)
+    : cloneDomainValue(input);
   if (safeInput.claim.snapshotId !== safeInput.snapshotId) {
     throw new InvestigationDomainError(
       "snapshot_mismatch",
       "Evaluated claim belongs to another snapshot.",
     );
   }
-  validateClaim(safeInput.claim, safeInput.evidence);
+  validateClaim(
+    safeInput.claim,
+    safeInput.evidence,
+    undefined,
+    validatedContext,
+  );
 }
 
 export function evaluateClaim(
@@ -294,21 +304,18 @@ export function evaluateClaim(
   validatedContext?: ValidatedDomainContext,
 ): ClaimEvaluation {
   checkpoint?.();
-  if (validatedContext) assertValidatedDomainContext(validatedContext);
+  const input = validatedContext
+    ? cloneValidatedClaimEvaluationEnvelope(rawInput, validatedContext)
+    : cloneDomainValue(rawInput);
   if (
     validatedContext &&
-    rawInput.claim.snapshotId !== validatedContext.snapshotId
+    input.claim.snapshotId !== validatedContext.snapshotId
   ) {
     throw new InvestigationDomainError(
       "snapshot_mismatch",
       "Evaluated claim belongs to another validated snapshot.",
     );
   }
-  validatedContext?.assertCanonical({
-    facts: rawInput.facts,
-    evidence: rawInput.evidence,
-  });
-  const input = cloneDomainValue(rawInput);
   const evidenceById = validatedContext?.evidenceById ??
     indexDomainRecordsById(input.evidence, "Claim evaluation evidence");
   const factsById = validatedContext?.factsById ??

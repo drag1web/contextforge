@@ -23,9 +23,9 @@ import {
   stableSerialize,
 } from "./investigationDomainSupport.js";
 import {
-  assertValidatedDomainContext,
   type ValidatedDomainContext,
 } from "./validatedDomainContext.js";
+import { cloneValidatedEvidenceRequirementEnvelope } from "./validatedDomainEnvelope.js";
 
 const STRENGTH_ORDER: Readonly<Record<EvidenceStrength, number>> = {
   lead: 0,
@@ -162,21 +162,19 @@ export function evaluateEvidenceRequirement(
   rawInput: EvidenceRequirementEvaluationInput,
   validatedContext?: ValidatedDomainContext,
 ): EvidenceRequirementEvaluation {
-  if (validatedContext) {
-    assertValidatedDomainContext(validatedContext);
-    validatedContext.assertCanonical({ facts: rawInput.facts });
-    validatedContext.assertCanonicalEvidenceMembers(rawInput.evidence);
-    if (
-      rawInput.snapshotId !== undefined &&
-      rawInput.snapshotId !== validatedContext.snapshotId
-    ) {
-      throw new InvestigationDomainError(
-        "snapshot_mismatch",
-        "Evidence requirement context belongs to another snapshot.",
-      );
-    }
+  const input = validatedContext
+    ? cloneValidatedEvidenceRequirementEnvelope(rawInput, validatedContext)
+    : cloneDomainValue(rawInput);
+  if (
+    validatedContext &&
+    input.snapshotId !== undefined &&
+    input.snapshotId !== validatedContext.snapshotId
+  ) {
+    throw new InvestigationDomainError(
+      "snapshot_mismatch",
+      "Evidence requirement context belongs to another snapshot.",
+    );
   }
-  const input = cloneDomainValue(rawInput);
   validateRequirement(input.requirement);
   const requirement = cloneDomainValue(input.requirement);
   if (

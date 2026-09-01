@@ -29,9 +29,12 @@ import {
   stableSerialize,
 } from "./investigationDomainSupport.js";
 import {
-  assertValidatedDomainContext,
   type ValidatedDomainContext,
 } from "./validatedDomainContext.js";
+import {
+  cloneValidatedContradictionDetectionEnvelope,
+  cloneValidatedContradictionRegistryEnvelope,
+} from "./validatedDomainEnvelope.js";
 
 const RECORD_FIELDS = [
   "id",
@@ -315,15 +318,15 @@ export function createContradictionRegistry(input: {
   evidence: readonly EvidenceRecord[];
 }, checkpoint?: () => void, validatedContext?: ValidatedDomainContext): ContradictionRegistry {
   checkpoint?.();
-  if (validatedContext) assertValidatedDomainContext(validatedContext);
-  validatedContext?.assertCanonical({ evidence: input.evidence });
-  if (validatedContext && input.snapshotId !== validatedContext.snapshotId) {
+  const safeInput = validatedContext
+    ? cloneValidatedContradictionRegistryEnvelope(input, validatedContext)
+    : cloneDomainValue(input);
+  if (validatedContext && safeInput.snapshotId !== validatedContext.snapshotId) {
     throw new InvestigationDomainError(
       "snapshot_mismatch",
       "Contradiction registry context belongs to another snapshot.",
     );
   }
-  const safeInput = cloneDomainValue(input);
   const claims = indexDomainRecordsById(
     safeInput.claims,
     "Contradiction registry claim",
@@ -418,18 +421,15 @@ export function detectDeterministicContradictions(input: {
   acceptedFactPredicates?: readonly FactRecord["predicate"][];
 }, checkpoint?: () => void, validatedContext?: ValidatedDomainContext): ContradictionDetection[] {
   checkpoint?.();
-  if (validatedContext) assertValidatedDomainContext(validatedContext);
-  validatedContext?.assertCanonical({
-    facts: input.facts,
-    evidence: input.evidence,
-  });
-  if (validatedContext && input.claim.snapshotId !== validatedContext.snapshotId) {
+  const safeInput = validatedContext
+    ? cloneValidatedContradictionDetectionEnvelope(input, validatedContext)
+    : cloneDomainValue(input);
+  if (validatedContext && safeInput.claim.snapshotId !== validatedContext.snapshotId) {
     throw new InvestigationDomainError(
       "snapshot_mismatch",
       "Contradiction detection context belongs to another snapshot.",
     );
   }
-  const safeInput = cloneDomainValue(input);
   const evidenceById = validatedContext?.evidenceById ??
     indexDomainRecordsById(safeInput.evidence, "Contradiction detection evidence");
   const factsById = validatedContext?.factsById ??
@@ -440,7 +440,7 @@ export function detectDeterministicContradictions(input: {
     claim: safeInput.claim,
     evidence: contextEvidence,
     snapshotId: safeInput.claim.snapshotId,
-  });
+  }, validatedContext);
   if (!validatedContext) {
     contextFacts.forEach((fact) => {
       checkpoint?.();

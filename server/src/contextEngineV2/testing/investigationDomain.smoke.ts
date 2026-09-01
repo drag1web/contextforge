@@ -41,6 +41,12 @@ import {
   evaluateFindingEligibility,
 } from "../domain/index.js";
 import { createValidatedDomainContext } from "../domain/validatedDomainContext.js";
+import { cloneDomainValue } from "../domain/investigationDomainSupport.js";
+import {
+  cloneValidatedClaimEvaluationEnvelope,
+  cloneValidatedEvidenceRequirementEnvelope,
+  createValidatedDomainEnvelopeDiagnostics,
+} from "../domain/validatedDomainEnvelope.js";
 import type {
   ClaimEvaluation,
   FindingEligibilityEvaluation,
@@ -4836,6 +4842,666 @@ scenario("validated context preserves deterministic contradiction semantics", ()
   assert.deepEqual(optimized, baseline);
 });
 
+scenario("validated mixed envelopes preserve claim and requirement semantics", () => {
+  const source = snapshot();
+  const sourceFact = fact(source);
+  const sourceClaim = claim(source, [id<EvidenceId>("evidence-support")]);
+  const support = evidence(source, "support", {
+    claimId: sourceClaim.id,
+    factIds: [sourceFact.id],
+  });
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [sourceFact],
+    evidence: [support],
+  });
+  const rawClaimInput = {
+    claim: sourceClaim,
+    evidence: [support],
+    facts: [sourceFact],
+    requirements: [requirement()],
+  };
+  const rawClaim = evaluateClaim(rawClaimInput);
+  const optimizedClaim = evaluateClaim({
+    ...rawClaimInput,
+    facts: context.facts,
+    evidence: context.evidence,
+  }, undefined, context);
+  assert.deepEqual(optimizedClaim, rawClaim);
+
+  const opposed = evidence(source, "claim-opposed", {
+    claimId: sourceClaim.id,
+    role: "contradicts",
+    strength: "conclusive",
+    factIds: [sourceFact.id],
+  });
+  const contradictedClaim = claim(
+    source,
+    [support.id],
+    [opposed.id],
+  );
+  const contradictedContext = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [sourceFact],
+    evidence: [support, opposed],
+  });
+  assert.deepEqual(
+    evaluateClaim({
+      claim: contradictedClaim,
+      evidence: contradictedContext.evidence,
+      facts: contradictedContext.facts,
+      requirements: [requirement()],
+    }, undefined, contradictedContext),
+    evaluateClaim({
+      claim: contradictedClaim,
+      evidence: [support, opposed],
+      facts: [sourceFact],
+      requirements: [requirement()],
+    }),
+  );
+
+  const unresolvedClaim = claim(source, [], []);
+  const unresolvedContext = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [sourceFact],
+  });
+  assert.deepEqual(
+    evaluateClaim({
+      claim: unresolvedClaim,
+      evidence: unresolvedContext.evidence,
+      facts: unresolvedContext.facts,
+      requirements: [requirement()],
+    }, undefined, unresolvedContext),
+    evaluateClaim({
+      claim: unresolvedClaim,
+      evidence: [],
+      facts: [sourceFact],
+      requirements: [requirement()],
+    }),
+  );
+
+  for (const sourceEvidence of [[support], []] as const) {
+    const rawRequirement = evaluateEvidenceRequirement({
+      requirement: requirement("parity"),
+      evidence: sourceEvidence,
+      facts: [sourceFact],
+      snapshotId: source.id,
+      role: "supports",
+    });
+    const optimizedRequirement = evaluateEvidenceRequirement({
+      requirement: requirement("parity"),
+      evidence: sourceEvidence.length === 0 ? [] : context.evidence,
+      facts: context.facts,
+      snapshotId: source.id,
+      role: "supports",
+    }, context);
+    assert.deepEqual(optimizedRequirement, rawRequirement);
+  }
+});
+
+scenario("validated mixed envelopes preserve contradiction registry and detection semantics", () => {
+  const source = snapshot();
+  const sourceFact = fact(source);
+  const sourceClaim = claim(
+    source,
+    [id<EvidenceId>("evidence-support")],
+    [id<EvidenceId>("evidence-opposed")],
+  );
+  const support = evidence(source, "support", {
+    claimId: sourceClaim.id,
+    role: "supports",
+    factIds: [sourceFact.id],
+  });
+  const opposed = evidence(source, "opposed", {
+    claimId: sourceClaim.id,
+    role: "contradicts",
+    factIds: [sourceFact.id],
+  });
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [sourceFact],
+    evidence: [support, opposed],
+  });
+  const rawDetections = detectDeterministicContradictions({
+    claim: sourceClaim,
+    evidence: [support, opposed],
+    facts: [sourceFact],
+  });
+  const optimizedDetections = detectDeterministicContradictions({
+    claim: sourceClaim,
+    evidence: context.evidence,
+    facts: context.facts,
+  }, undefined, context);
+  assert.deepEqual(optimizedDetections, rawDetections);
+  const supportOnlyContext = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [sourceFact],
+    evidence: [support],
+  });
+  const supportOnlyClaim = claim(source, [support.id]);
+  assert.deepEqual(
+    detectDeterministicContradictions({
+      claim: supportOnlyClaim,
+      evidence: supportOnlyContext.evidence,
+      facts: supportOnlyContext.facts,
+    }, undefined, supportOnlyContext),
+    detectDeterministicContradictions({
+      claim: supportOnlyClaim,
+      evidence: [support],
+      facts: [sourceFact],
+    }),
+  );
+
+  const rawRegistry = createContradictionRegistry({
+    snapshotId: source.id,
+    claims: [sourceClaim],
+    evidence: [support, opposed],
+  });
+  const optimizedRegistry = createContradictionRegistry({
+    snapshotId: source.id,
+    claims: [sourceClaim],
+    evidence: context.evidence,
+  }, undefined, context);
+  const record = contradiction(source, sourceClaim.id, [support.id, opposed.id]);
+  rawRegistry.add(record);
+  optimizedRegistry.add(record);
+  assert.deepEqual(optimizedRegistry.snapshot(), rawRegistry.snapshot());
+});
+
+scenario("validated mixed envelopes preserve supported and unresolved hypothesis semantics", () => {
+  const source = snapshot();
+  const sourceFact = fact(source);
+  const sourceClaim = claim(source, [id<EvidenceId>("evidence-support")]);
+  const support = evidence(source, "support", {
+    claimId: sourceClaim.id,
+    factIds: [sourceFact.id],
+  });
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [sourceFact],
+    evidence: [support],
+  });
+  const rawEvaluation = evaluateClaim({
+    claim: sourceClaim,
+    evidence: [support],
+    facts: [sourceFact],
+    requirements: [requirement()],
+  });
+  const optimizedEvaluation = evaluateClaim({
+    claim: sourceClaim,
+    evidence: context.evidence,
+    facts: context.facts,
+    requirements: [requirement()],
+  }, undefined, context);
+  const rawLedger = createHypothesisLedger({
+    snapshotId: source.id,
+    claims: [sourceClaim],
+    evidence: [support],
+  });
+  const optimizedLedger = createHypothesisLedger({
+    snapshotId: source.id,
+    claims: [sourceClaim],
+    evidence: context.evidence,
+  }, context);
+  const sourceHypothesis = hypothesis(sourceClaim);
+  rawLedger.add(sourceHypothesis);
+  optimizedLedger.add(sourceHypothesis);
+  const transition = {
+    hypothesisId: sourceHypothesis.id,
+    reason: "Equivalent authenticated evaluation.",
+    occurredAt: timestamp,
+  };
+  rawLedger.applyClaimEvaluation({ ...transition, evaluation: rawEvaluation });
+  optimizedLedger.applyClaimEvaluation({
+    ...transition,
+    evaluation: optimizedEvaluation,
+  });
+  assert.deepEqual(optimizedLedger.snapshot(), rawLedger.snapshot());
+
+  const unresolvedClaim = claim(source, [], [], { id: id<ClaimId>("claim-unresolved") });
+  const rawUnresolved = createHypothesisLedger({
+    snapshotId: source.id,
+    claims: [unresolvedClaim],
+    evidence: [],
+  });
+  const emptyContext = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [sourceFact],
+  });
+  const optimizedUnresolved = createHypothesisLedger({
+    snapshotId: source.id,
+    claims: [unresolvedClaim],
+    evidence: emptyContext.evidence,
+  }, emptyContext);
+  const openHypothesis = hypothesis(unresolvedClaim, {
+    id: id<HypothesisId>("hypothesis-unresolved"),
+    requiredEvidence: [],
+  });
+  rawUnresolved.add(openHypothesis);
+  optimizedUnresolved.add(openHypothesis);
+  const unresolvedTransition = {
+    hypothesisId: openHypothesis.id,
+    reason: "Equivalent unresolved evaluation.",
+    occurredAt: timestamp,
+  };
+  rawUnresolved.markUnresolved(unresolvedTransition);
+  optimizedUnresolved.markUnresolved(unresolvedTransition);
+  assert.deepEqual(optimizedUnresolved.snapshot(), rawUnresolved.snapshot());
+});
+
+scenario("validated mixed envelopes reject hostile outer and mutable accessors", () => {
+  const source = snapshot();
+  const sourceFact = fact(source);
+  const sourceEvidence = evidence(source, "accessor", { factIds: [sourceFact.id] });
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [sourceFact],
+    evidence: [sourceEvidence],
+  });
+  let calls = 0;
+  const outer = {
+    evidence: context.evidence,
+    facts: context.facts,
+    requirements: [],
+  } as Record<string, unknown>;
+  Object.defineProperty(outer, "claim", {
+    enumerable: true,
+    get() {
+      calls += 1;
+      return claim(source);
+    },
+  });
+  assert.throws(
+    () => evaluateClaim(outer as never, undefined, context),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "invalid_record",
+  );
+  const requirementsOuter = {
+    claim: claim(source),
+    evidence: context.evidence,
+    facts: context.facts,
+  } as Record<string, unknown>;
+  Object.defineProperty(requirementsOuter, "requirements", {
+    enumerable: true,
+    get() {
+      calls += 1;
+      return [];
+    },
+  });
+  assert.throws(
+    () => evaluateClaim(requirementsOuter as never, undefined, context),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "invalid_record",
+  );
+  const nestedClaim = claim(source);
+  Object.defineProperty(nestedClaim, "status", {
+    enumerable: true,
+    get() {
+      calls += 1;
+      return "proposed";
+    },
+  });
+  assert.throws(
+    () => evaluateClaim({
+      claim: nestedClaim,
+      evidence: context.evidence,
+      facts: context.facts,
+      requirements: [],
+    }, undefined, context),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "invalid_record",
+  );
+  const requirementInput = {
+    requirement: requirement("accessor"),
+    evidence: context.evidence,
+    facts: context.facts,
+    snapshotId: source.id,
+  } as Record<string, unknown>;
+  Object.defineProperty(requirementInput, "role", {
+    enumerable: true,
+    get() {
+      calls += 1;
+      return "supports";
+    },
+  });
+  assert.throws(
+    () => evaluateEvidenceRequirement(requirementInput as never, context),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "invalid_record",
+  );
+  const registryInput = {
+    claims: [claim(source)],
+    evidence: context.evidence,
+  } as Record<string, unknown>;
+  Object.defineProperty(registryInput, "snapshotId", {
+    enumerable: true,
+    get() {
+      calls += 1;
+      return source.id;
+    },
+  });
+  assert.throws(
+    () => createContradictionRegistry(registryInput as never, undefined, context),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "invalid_record",
+  );
+  assert.equal(calls, 0);
+});
+
+scenario("validated mixed envelopes reject copied canonical provenance", () => {
+  const source = snapshot();
+  const sourceFact = fact(source);
+  const sourceEvidence = evidence(source, "copied", { factIds: [sourceFact.id] });
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [sourceFact],
+    evidence: [sourceEvidence],
+  });
+  assert.throws(
+    () => evaluateClaim({
+      claim: claim(source),
+      evidence: context.evidence,
+      facts: [...context.facts],
+      requirements: [],
+    }, undefined, context),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "invalid_record",
+  );
+  assert.throws(
+    () => detectDeterministicContradictions({
+      claim: claim(source),
+      evidence: [...context.evidence],
+      facts: context.facts,
+    }, undefined, context),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "invalid_record",
+  );
+  const copiedEvidence = structuredClone(context.evidence[0]!);
+  assert.throws(
+    () => evaluateEvidenceRequirement({
+      requirement: requirement("copied"),
+      evidence: [copiedEvidence],
+      facts: context.facts,
+      snapshotId: source.id,
+    }, context),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "invalid_record",
+  );
+  assert.throws(
+    () => evaluateEvidenceRequirement({
+      requirement: requirement("changed"),
+      evidence: [{ ...copiedEvidence, summary: "Changed same-id evidence" }],
+      facts: context.facts,
+      snapshotId: source.id,
+    }, context),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "invalid_record",
+  );
+  const foreign = snapshot("mixed-foreign");
+  const foreignFact = fact(foreign);
+  const foreignContext = createValidatedDomainContext({
+    snapshot: foreign,
+    entities: [entity(foreign)],
+    facts: [foreignFact],
+  });
+  assert.throws(
+    () => evaluateClaim({
+      claim: claim(source),
+      evidence: context.evidence,
+      facts: foreignContext.facts,
+      requirements: [],
+    }, undefined, context),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "invalid_record",
+  );
+  const forged = {
+    snapshotId: context.snapshotId,
+    entities: context.entities,
+    facts: context.facts,
+    evidence: context.evidence,
+    entitiesById: context.entitiesById,
+    factsById: context.factsById,
+    evidenceById: context.evidenceById,
+    extend: context.extend.bind(context),
+    assertCanonical: context.assertCanonical.bind(context),
+    assertCanonicalFactMembers: context.assertCanonicalFactMembers.bind(context),
+    assertCanonicalEvidenceMembers: context.assertCanonicalEvidenceMembers.bind(context),
+    metrics: context.metrics.bind(context),
+  };
+  assert.throws(
+    () => evaluateClaim({
+      claim: claim(source),
+      evidence: context.evidence,
+      facts: context.facts,
+      requirements: [],
+    }, undefined, forged),
+    (error: unknown) =>
+      error instanceof InvestigationDomainError && error.code === "invalid_record",
+  );
+});
+
+scenario("validated mixed envelope outputs preserve mutation isolation", () => {
+  const source = snapshot();
+  const sourceFact = fact(source);
+  const sourceClaim = claim(source, [id<EvidenceId>("evidence-isolation")]);
+  const sourceEvidence = evidence(source, "isolation", {
+    claimId: sourceClaim.id,
+    factIds: [sourceFact.id],
+  });
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts: [sourceFact],
+    evidence: [sourceEvidence],
+  });
+  assert.throws(() => {
+    (context.facts[0] as { status: string }).status = "superseded";
+  });
+  const mutableRequirement = requirement();
+  const first = evaluateClaim({
+    claim: sourceClaim,
+    evidence: context.evidence,
+    facts: context.facts,
+    requirements: [mutableRequirement],
+  }, undefined, context);
+  first.claim.status = "rejected";
+  sourceClaim.statement = "Caller-owned claim changed after evaluation.";
+  mutableRequirement.minimumIndependentGroups = 99;
+  assert.equal(first.requirements[0]!.satisfied, true);
+  const second = evaluateClaim({
+    claim: claim(source, [sourceEvidence.id]),
+    evidence: context.evidence,
+    facts: context.facts,
+    requirements: [requirement()],
+  }, undefined, context);
+  assert.equal(second.claim.status, "supported");
+  assert.notEqual(second.claim.statement, sourceClaim.statement);
+
+  const registry = createContradictionRegistry({
+    snapshotId: source.id,
+    claims: [claim(source, [sourceEvidence.id])],
+    evidence: context.evidence,
+  }, undefined, context);
+  registry.add(contradiction(
+    source,
+    id<ClaimId>("claim-owner"),
+    [sourceEvidence.id],
+    "isolation",
+    { type: "custom" },
+  ));
+  const registrySnapshot = registry.snapshot();
+  registrySnapshot[0]!.severity = "informational";
+  assert.equal(registry.snapshot()[0]!.severity, "blocking");
+
+  const ledgerClaim = claim(source, [sourceEvidence.id]);
+  const ledger = createHypothesisLedger({
+    snapshotId: source.id,
+    claims: [ledgerClaim],
+    evidence: context.evidence,
+  }, context);
+  const callerHypothesis = hypothesis(ledgerClaim);
+  ledger.add(callerHypothesis);
+  callerHypothesis.status = "rejected";
+  assert.equal(ledger.snapshot()[0]!.status, "open");
+  const ledgerSnapshot = ledger.snapshot();
+  ledgerSnapshot[0]!.status = "rejected";
+  assert.equal(ledger.snapshot()[0]!.status, "open");
+});
+
+scenario("validated mixed envelope work scales with mutable envelope rather than canonical state", () => {
+  const source = snapshot();
+  const facts = Array.from({ length: 200 }, (_, index) =>
+    fact(source, `mixed-${index}`),
+  );
+  const sourceClaim = claim(source, [], [], {
+    derivation: {
+      ruleId: "rule.owner",
+      ruleVersion: "1.0.0",
+      inputFactIds: [facts[0]!.id],
+    },
+  });
+  const records = Array.from({ length: 100 }, (_, index) =>
+    evidence(source, `mixed-${index}`, {
+      claimId: sourceClaim.id,
+      factIds: [facts[index]!.id],
+      group: `mixed-group-${index}`,
+    }),
+  );
+  sourceClaim.supportingEvidenceIds = records
+    .map((record) => record.id)
+    .sort();
+  const context = createValidatedDomainContext({
+    snapshot: source,
+    entities: [entity(source)],
+    facts,
+    evidence: records,
+  });
+  const diagnostics = createValidatedDomainEnvelopeDiagnostics();
+  const canonicalFacts = new Set<object>(context.facts);
+  const canonicalEvidence = new Set<object>(context.evidence);
+  let canonicalFactInspections = 0;
+  let canonicalEvidenceInspections = 0;
+  const observeCanonicalTarget = (target: unknown): void => {
+    if (typeof target !== "object" || target === null) return;
+    if (canonicalFacts.has(target)) canonicalFactInspections += 1;
+    if (canonicalEvidence.has(target)) canonicalEvidenceInspections += 1;
+  };
+  const originalGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
+  const originalGetOwnPropertyDescriptors = Object.getOwnPropertyDescriptors;
+  const originalGetPrototypeOf = Object.getPrototypeOf;
+  const originalOwnKeys = Reflect.ownKeys;
+  Object.defineProperty(Object, "getOwnPropertyDescriptor", {
+    configurable: true,
+    writable: true,
+    value: ((target: object, key: PropertyKey) => {
+      observeCanonicalTarget(target);
+      return originalGetOwnPropertyDescriptor(target, key);
+    }) as typeof Object.getOwnPropertyDescriptor,
+  });
+  Object.defineProperty(Object, "getOwnPropertyDescriptors", {
+    configurable: true,
+    writable: true,
+    value: ((target: object) => {
+      observeCanonicalTarget(target);
+      return originalGetOwnPropertyDescriptors(target);
+    }) as typeof Object.getOwnPropertyDescriptors,
+  });
+  Object.defineProperty(Object, "getPrototypeOf", {
+    configurable: true,
+    writable: true,
+    value: ((target: object) => {
+      observeCanonicalTarget(target);
+      return originalGetPrototypeOf(target);
+    }) as typeof Object.getPrototypeOf,
+  });
+  Object.defineProperty(Reflect, "ownKeys", {
+    configurable: true,
+    writable: true,
+    value: ((target: object) => {
+      observeCanonicalTarget(target);
+      return originalOwnKeys(target);
+    }) as typeof Reflect.ownKeys,
+  });
+  try {
+    cloneDomainValue(context.facts[0]);
+    cloneDomainValue(context.evidence[0]);
+    assert.ok(canonicalFactInspections > 0);
+    assert.ok(canonicalEvidenceInspections > 0);
+    canonicalFactInspections = 0;
+    canonicalEvidenceInspections = 0;
+
+    for (let round = 0; round < 10; round += 1) {
+      const evaluation = evaluateClaim({
+        claim: sourceClaim,
+        facts: context.facts,
+        evidence: context.evidence,
+        requirements: [requirement(`mixed-${round}`)],
+      }, undefined, context);
+      assert.equal(evaluation.claim.status, "supported");
+      const claimEnvelope = cloneValidatedClaimEvaluationEnvelope({
+        claim: sourceClaim,
+        facts: context.facts,
+        evidence: context.evidence,
+        requirements: [requirement(`mixed-${round}`)],
+      }, context, diagnostics);
+      assert.equal(claimEnvelope.facts, context.facts);
+      assert.equal(claimEnvelope.evidence, context.evidence);
+      const requirementEnvelope = cloneValidatedEvidenceRequirementEnvelope({
+        requirement: requirement(`mixed-${round}`),
+        facts: context.facts,
+        evidence: context.evidence,
+        snapshotId: source.id,
+        role: "supports",
+      }, context, diagnostics);
+      assert.equal(requirementEnvelope.facts, context.facts);
+      assert.equal(requirementEnvelope.evidence[0], context.evidence[0]);
+    }
+    assert.equal(canonicalFactInspections, 0);
+    assert.equal(canonicalEvidenceInspections, 0);
+  } finally {
+    Object.defineProperty(Object, "getOwnPropertyDescriptor", {
+      configurable: true,
+      writable: true,
+      value: originalGetOwnPropertyDescriptor,
+    });
+    Object.defineProperty(Object, "getOwnPropertyDescriptors", {
+      configurable: true,
+      writable: true,
+      value: originalGetOwnPropertyDescriptors,
+    });
+    Object.defineProperty(Object, "getPrototypeOf", {
+      configurable: true,
+      writable: true,
+      value: originalGetPrototypeOf,
+    });
+    Object.defineProperty(Reflect, "ownKeys", {
+      configurable: true,
+      writable: true,
+      value: originalOwnKeys,
+    });
+  }
+  assert.deepEqual(diagnostics, {
+    mutableEnvelopeClones: 20,
+    canonicalFactReferencesReused: 4_000,
+    canonicalEvidenceReferencesReused: 2_000,
+  });
+  assert.deepEqual(context.metrics(), {
+    entityValidations: 1,
+    factValidations: 200,
+    evidenceValidations: 100,
+    compatibleRecordsReused: 0,
+  });
+});
+
 for (const entry of scenarios) {
   try {
     entry.run();
@@ -4844,5 +5510,5 @@ for (const entry of scenarios) {
   }
 }
 
-assert.equal(scenarios.length, 282);
+assert.equal(scenarios.length, 289);
 console.log(`Context Engine v2 investigation domain smoke passed: ${scenarios.length} scenarios.`);
