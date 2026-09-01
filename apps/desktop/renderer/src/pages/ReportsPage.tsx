@@ -46,6 +46,7 @@ interface ReportsPageProps {
   onOpenTaskPacks: () => void;
   onOpenTaskPack: (taskPack: TaskPack) => void;
   onPresenceActivityChange?: (activity: "reports" | "validation_lab") => void;
+  onValidationRunStateChange?: (running: boolean) => void;
 }
 
 type ReportsTab = "overview" | "readiness" | "activity" | "validation";
@@ -659,6 +660,7 @@ export function ReportsPage({
   onOpenTaskPacks,
   onOpenTaskPack,
   onPresenceActivityChange,
+  onValidationRunStateChange,
 }: ReportsPageProps) {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<ReportsTab>("overview");
@@ -1489,7 +1491,10 @@ export function ReportsPage({
           ) : null}
 
           {activeTab === "validation" ? (
-            <ValidationLab projects={projects} />
+            <ValidationLab
+              projects={projects}
+              onRunningChange={onValidationRunStateChange}
+            />
           ) : null}
         </motion.div>
       </AnimatePresence>

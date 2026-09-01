@@ -396,6 +396,10 @@ export function DashboardPage() {
     [dashboard.handleCreateTaskPackFromComposer],
   );
 
+  const handleValidationRunStateChange = useCallback((running: boolean) => {
+    setOperationPresenceActivity(running ? "running_validation" : null);
+  }, []);
+
   const handleNavigate = useCallback(
     (nextPage: AppPageId) => {
       const currentIndex = getPageOrderIndex(activePage);
@@ -783,6 +787,7 @@ export function DashboardPage() {
           onOpenTaskPacks={() => handleNavigate("taskPacks")}
           onOpenTaskPack={dashboard.setGeneratedTaskPack}
           onPresenceActivityChange={setReportsPresenceActivity}
+          onValidationRunStateChange={handleValidationRunStateChange}
         />
       );
     }

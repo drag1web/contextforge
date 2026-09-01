@@ -8,6 +8,7 @@ export type DiscordPresenceActivity =
   | "task_pack_builder"
   | "analyzing_task_context"
   | "generating_task_pack"
+  | "running_validation"
   | "context_review"
   | "task_pack_result"
   | "agents"

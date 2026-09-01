@@ -51,6 +51,7 @@ import { CustomSelect, type SelectOption } from "../ui/CustomSelect";
 
 interface ValidationLabProps {
   projects: Project[];
+  onRunningChange?: (running: boolean) => void;
 }
 
 interface RunProgress {
@@ -130,7 +131,10 @@ function resolvedCaseSettings(
   };
 }
 
-export function ValidationLab({ projects }: ValidationLabProps) {
+export function ValidationLab({
+  projects,
+  onRunningChange,
+}: ValidationLabProps) {
   const { t } = useTranslation();
   const [manifest, setManifest] = useState<ValidationManifest | null>(null);
   const [sourceFileName, setSourceFileName] = useState("");
@@ -138,6 +142,19 @@ export function ValidationLab({ projects }: ValidationLabProps) {
     projects[0]?.id ?? null,
   );
   const [isRunning, setIsRunning] = useState(false);
+
+  // Validation Lab operation presence follows the component run lifecycle.
+  useEffect(() => {
+    onRunningChange?.(isRunning);
+  }, [isRunning, onRunningChange]);
+
+  useEffect(
+    () => () => {
+      onRunningChange?.(false);
+    },
+    [onRunningChange],
+  );
+
   const [progress, setProgress] = useState<RunProgress>({
     completed: 0,
     total: 0,
