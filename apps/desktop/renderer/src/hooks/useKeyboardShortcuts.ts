@@ -1,16 +1,23 @@
 import { useEffect } from "react";
 import {
-  keyboardShortcuts,
   matchesKeyboardShortcut,
   type ShortcutActionId
 } from "../config/keyboardShortcuts";
+import {
+  getEffectiveKeyboardShortcuts,
+  isKeyboardShortcutCaptureActive
+} from "../lib/keyboardShortcutPreferences";
 
 type ShortcutHandlers = Partial<Record<ShortcutActionId, () => void>>;
 
 export function useKeyboardShortcuts(handlers: ShortcutHandlers) {
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
-      const shortcut = keyboardShortcuts.find((item) =>
+      if (isKeyboardShortcutCaptureActive()) {
+        return;
+      }
+
+      const shortcut = getEffectiveKeyboardShortcuts().find((item) =>
         matchesKeyboardShortcut(event, item)
       );
 

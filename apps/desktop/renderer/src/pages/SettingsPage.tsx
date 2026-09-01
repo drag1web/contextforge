@@ -5,7 +5,6 @@ import {
   Bot,
   ChevronDown,
   CheckCircle2,
-  Circle,
   Cpu,
   Download,
   Gauge,
@@ -43,10 +42,10 @@ import type { AppSettings, OllamaModel, OllamaStatus, SelectorPipelineDiagnostic
 import { CustomSelect } from "../components/ui/CustomSelect";
 import { Button } from "../components/ui/Button";
 import { DesktopExperiencePanel } from "../components/settings/DesktopExperiencePanel";
+import { KeyboardShortcutEditor } from "../components/settings/KeyboardShortcutEditor";
 import { HorizontalSlidingSelector, VerticalSlidingSelector } from "../components/ui/SlidingSelectors";
 import { WorkspacePageHeader } from "../components/layout/WorkspacePageHeader";
 import { appMeta } from "../config/appMeta";
-import { keyboardShortcuts } from "../config/keyboardShortcuts";
 import { TARGET_TOOL_OPTIONS } from "../components/ai/aiToolOptions";
 import {
   getSelectorModeCopy,
@@ -3071,63 +3070,7 @@ export function SettingsPage() {
                     title={t("settings.keyboardShortcuts")}
                     description={t("settings.keyboardShortcutsDesc")}
                   >
-                    <div className="grid gap-3 md:grid-cols-2">
-                      {keyboardShortcuts.map((shortcut) => (
-                        <div
-                          key={shortcut.id}
-                          className="rounded-2xl border border-neutral-900 bg-black/40 p-4"
-                        >
-                          <div className="mb-2 flex items-start justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="truncate text-sm font-medium text-white">
-                                {t(`settings.shortcut.${shortcut.id}.label`)}
-                              </p>
-
-                              <p className="mt-1 text-sm leading-5 text-neutral-500">
-                                {t(`settings.shortcut.${shortcut.id}.description`)}
-                              </p>
-                            </div>
-
-                            {shortcut.enabled ? (
-                              <CheckCircle2
-                                size={16}
-                                className="mt-0.5 shrink-0 text-emerald-300"
-                              />
-                            ) : (
-                              <Circle
-                                size={16}
-                                className="mt-0.5 shrink-0 text-neutral-700"
-                              />
-                            )}
-                          </div>
-
-                          <div className="flex items-center justify-between gap-3">
-                            <span className="rounded-full border border-neutral-800 bg-neutral-950 px-2.5 py-1 text-[11px] text-neutral-400">
-                              {shortcut.displayKeys}
-                            </span>
-
-                            <span className="text-xs text-neutral-700">
-                              {shortcut.enabled ? t("common.enabled") : t("common.soon")}
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </SettingCard>
-
-
-                  <SettingCard
-                    icon={<SlidersHorizontal size={18} />}
-                    label={t("settings.planned")}
-                    title={t("settings.shortcutEditor")}
-                    description={t("settings.shortcutEditorDescription")}
-                    defaultOpen={false}
-                  >
-                    <div className="grid gap-3 md:grid-cols-3">
-                      <PlannedInterfaceFeature icon={Keyboard} title={t("settings.shortcutRemapping")} description={t("settings.shortcutRemappingDesc")} badge={t("settings.planned")} />
-                      <PlannedInterfaceFeature icon={ShieldCheck} title={t("settings.shortcutConflicts")} description={t("settings.shortcutConflictsDesc")} badge={t("settings.planned")} />
-                      <PlannedInterfaceFeature icon={Download} title={t("settings.shortcutProfiles")} description={t("settings.shortcutProfilesDesc")} badge={t("settings.planned")} />
-                    </div>
+                    <KeyboardShortcutEditor />
                   </SettingCard>                </>
               )}
 
