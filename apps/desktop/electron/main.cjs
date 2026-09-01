@@ -21,11 +21,15 @@ const {
   findDesktopConnectUrl,
   parseDesktopConnectUrl
 } = require("./deep-link.cjs");
+const {
+  createDiscordPresenceService
+} = require("./discord-presence.cjs");
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 const desktopHeartbeatIntervalMs = 60_000;
 let desktopHeartbeatTimer = null;
 let desktopSyncService = null;
+let discordPresenceService = null;
 let pendingDesktopLaunchRequest = null;
 
 const appIconPath = path.join(
@@ -477,6 +481,17 @@ ipcMain.handle("window:is-maximized", (event) => {
   return Boolean(win?.isMaximized());
 });
 
+ipcMain.handle("discord-presence:set-activity", async (_event, activity) => {
+  return discordPresenceService?.setActivity(activity) ?? false;
+});
+
+ipcMain.handle("discord-presence:get-status", async () => {
+  return discordPresenceService?.getStatus() ?? {
+    connected: false,
+    activity: "dashboard"
+  };
+});
+
 app.setName("ContextForge");
 
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
@@ -504,6 +519,11 @@ app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
   Menu.setApplicationMenu(null);
   registerDesktopProtocolClient();
+
+  discordPresenceService = createDiscordPresenceService({
+    clientId: "1544321040098791444"
+  });
+  discordPresenceService.start();
 
   const initialDeepLink = findDesktopConnectUrl(process.argv);
   if (initialDeepLink) queueDesktopConnectUrl(initialDeepLink);
@@ -533,6 +553,8 @@ app.whenReady().then(async () => {
 
 app.on("before-quit", () => {
   stopDesktopHeartbeat();
+  discordPresenceService?.stop();
+  discordPresenceService = null;
 });
 
 app.on("window-all-closed", () => {

@@ -39,6 +39,12 @@ contextBridge.exposeInMainWorld("contextforge", {
       };
     }
   },
+  discordPresence: {
+    setActivity: (activity) =>
+      ipcRenderer.invoke("discord-presence:set-activity", activity),
+    getStatus: () =>
+      ipcRenderer.invoke("discord-presence:get-status")
+  },
 
   windowControls: {
     minimize: () => ipcRenderer.send("window:minimize"),

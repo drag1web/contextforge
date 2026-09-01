@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
@@ -45,6 +45,7 @@ interface ReportsPageProps {
   onOpenProjects: () => void;
   onOpenTaskPacks: () => void;
   onOpenTaskPack: (taskPack: TaskPack) => void;
+  onPresenceActivityChange?: (activity: "reports" | "validation_lab") => void;
 }
 
 type ReportsTab = "overview" | "readiness" | "activity" | "validation";
@@ -657,9 +658,20 @@ export function ReportsPage({
   onOpenProjects,
   onOpenTaskPacks,
   onOpenTaskPack,
+  onPresenceActivityChange,
 }: ReportsPageProps) {
   const { t, i18n } = useTranslation();
   const [activeTab, setActiveTab] = useState<ReportsTab>("overview");
+
+  useEffect(() => {
+    onPresenceActivityChange?.(
+      activeTab === "validation" ? "validation_lab" : "reports",
+    );
+
+    return () => {
+      onPresenceActivityChange?.("reports");
+    };
+  }, [activeTab, onPresenceActivityChange]);
   const [projectLens, setProjectLens] = useState<ProjectLens>("all");
   const [exportStatusMessage, setExportStatusMessage] = useState<string | null>(
     null,

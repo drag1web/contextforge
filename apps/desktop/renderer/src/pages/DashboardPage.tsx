@@ -17,6 +17,10 @@ import type { AppSettings } from "../types";
 import { AppTitleBar } from "../components/layout/AppTitleBar";
 import { PageTransition } from "../components/layout/PageTransition";
 import { Sidebar, type AppPageId } from "../components/layout/Sidebar";
+import {
+  resolveDiscordPresenceActivity,
+  setDiscordPresenceActivity,
+} from "../lib/discordPresence";
 
 import { StatusBar } from "../components/ui/StatusBar";
 import { ProjectsSection } from "../components/projects/ProjectsSection";
@@ -312,6 +316,8 @@ export function DashboardPage() {
   const dashboard = useDashboardController();
 
   const [activePage, setActivePage] = useState<AppPageId>("dashboard");
+  const [reportsPresenceActivity, setReportsPresenceActivity] =
+    useState<"reports" | "validation_lab">("reports");
   const [pageDirection, setPageDirection] = useState(1);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
   const [onboardingDismissedThisSession, setOnboardingDismissedThisSession] =
@@ -330,6 +336,19 @@ export function DashboardPage() {
   useKeyboardShortcuts({
     globalSearch: () => setIsGlobalSearchOpen(true),
   });
+
+  const discordPresenceActivity = resolveDiscordPresenceActivity({
+    activePage,
+    hasGeneratedTaskPack: Boolean(dashboard.generatedTaskPack),
+    hasContextComposerPreview: Boolean(dashboard.contextComposerPreview),
+    hasTaskPackDraft: Boolean(dashboard.taskPackDraft),
+    hasSelectedProjectDetails: selectedProjectDetailsId !== null,
+    reportsActivity: reportsPresenceActivity,
+  });
+
+  useEffect(() => {
+    void setDiscordPresenceActivity(discordPresenceActivity);
+  }, [discordPresenceActivity]);
 
   const handleNavigate = useCallback(
     (nextPage: AppPageId) => {
@@ -717,6 +736,7 @@ export function DashboardPage() {
           onOpenProjects={() => handleNavigate("projects")}
           onOpenTaskPacks={() => handleNavigate("taskPacks")}
           onOpenTaskPack={dashboard.setGeneratedTaskPack}
+          onPresenceActivityChange={setReportsPresenceActivity}
         />
       );
     }
