@@ -24,6 +24,11 @@ import {
 } from "../lib/discordPresence";
 import { setDesktopTaskbarProgress } from "../lib/desktopTaskbarProgress";
 import { showDesktopNotification } from "../lib/desktopNotifications";
+import {
+  consumeDesktopNavigationRequest,
+  subscribeDesktopNavigationRequests,
+  type DesktopNavigationPage,
+} from "../lib/desktopNavigation";
 
 import { StatusBar } from "../components/ui/StatusBar";
 import { ProjectsSection } from "../components/projects/ProjectsSection";
@@ -471,6 +476,32 @@ export function DashboardPage() {
       unsubscribe();
     };
   }, [handleNavigate]);
+
+  const handleDesktopNavigationRequest = useCallback(
+    (page: DesktopNavigationPage) => {
+      handleNavigate(page);
+    },
+    [handleNavigate],
+  );
+
+  useEffect(() => {
+    let disposed = false;
+
+    void consumeDesktopNavigationRequest().then((page) => {
+      if (!disposed && page) {
+        handleDesktopNavigationRequest(page);
+      }
+    });
+
+    const unsubscribe = subscribeDesktopNavigationRequests(
+      handleDesktopNavigationRequest,
+    );
+
+    return () => {
+      disposed = true;
+      unsubscribe();
+    };
+  }, [handleDesktopNavigationRequest]);
 
   const handleOpenProjectDetails = useCallback(
     (projectId: number) => {

@@ -28,10 +28,18 @@ const {
 
 const isDev = Boolean(process.env.ELECTRON_RENDERER_URL);
 const desktopHeartbeatIntervalMs = 60_000;
+const DESKTOP_NAVIGATION_PAGES = new Set([
+  "dashboard",
+  "projects",
+  "taskPacks",
+  "reports",
+  "settings"
+]);
 let desktopHeartbeatTimer = null;
 let desktopSyncService = null;
 let discordPresenceService = null;
 let pendingDesktopLaunchRequest = null;
+let pendingDesktopNavigationPage = null;
 
 const appIconPath = path.join(
   __dirname,
@@ -122,6 +130,101 @@ function focusMainWindow() {
   if (win.isMinimized()) win.restore();
   win.show();
   win.focus();
+}
+
+function findDesktopNavigationPage(commandLine) {
+  if (!Array.isArray(commandLine)) {
+    return null;
+  }
+
+  const prefix = "--contextforge-page=";
+
+  for (const rawArg of commandLine) {
+    if (typeof rawArg !== "string" || !rawArg.startsWith(prefix)) {
+      continue;
+    }
+
+    const page = rawArg.slice(prefix.length);
+    return DESKTOP_NAVIGATION_PAGES.has(page) ? page : null;
+  }
+
+  return null;
+}
+
+function queueDesktopNavigationPage(page) {
+  if (!DESKTOP_NAVIGATION_PAGES.has(page)) {
+    return false;
+  }
+
+  pendingDesktopNavigationPage = page;
+
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send("desktop-navigation:request", page);
+    }
+  }
+
+  focusMainWindow();
+  return true;
+}
+
+function getDesktopTaskLaunchArguments(page) {
+  const pageArg = `--contextforge-page=${page}`;
+
+  if (process.defaultApp && process.argv[1]) {
+    return `"${path.resolve(process.argv[1])}" ${pageArg}`;
+  }
+
+  return pageArg;
+}
+
+function registerWindowsUserTasks() {
+  if (process.platform !== "win32") {
+    return false;
+  }
+
+  return app.setUserTasks([
+    {
+      program: process.execPath,
+      arguments: getDesktopTaskLaunchArguments("dashboard"),
+      iconPath: appIconPath,
+      iconIndex: 0,
+      title: "Open Dashboard",
+      description: "Open the ContextForge dashboard"
+    },
+    {
+      program: process.execPath,
+      arguments: getDesktopTaskLaunchArguments("projects"),
+      iconPath: appIconPath,
+      iconIndex: 0,
+      title: "Open Projects",
+      description: "Open the ContextForge projects workspace"
+    },
+    {
+      program: process.execPath,
+      arguments: getDesktopTaskLaunchArguments("taskPacks"),
+      iconPath: appIconPath,
+      iconIndex: 0,
+      title: "Open Task Packs",
+      description: "Open the Task Pack archive"
+    },
+    {
+      program: process.execPath,
+      arguments: getDesktopTaskLaunchArguments("reports"),
+      iconPath: appIconPath,
+      iconIndex: 0,
+      title: "Open Reports",
+      description: "Open workspace reports"
+    },
+    {
+      program: process.execPath,
+      arguments: getDesktopTaskLaunchArguments("settings"),
+      iconPath: appIconPath,
+      iconIndex: 0,
+      title: "Open Settings",
+      description: "Open ContextForge settings"
+    }
+  ]);
 }
 
 function queueDesktopConnectUrl(rawUrl) {
@@ -408,6 +511,12 @@ ipcMain.handle("desktop-sync:peek-launch-request", async () =>
   pendingDesktopLaunchRequest
 );
 
+ipcMain.handle("desktop-navigation:consume", async () => {
+  const page = pendingDesktopNavigationPage;
+  pendingDesktopNavigationPage = null;
+  return page;
+});
+
 ipcMain.handle("desktop-sync:consume-launch-request", async () => {
   const request = pendingDesktopLaunchRequest;
   pendingDesktopLaunchRequest = null;
@@ -568,6 +677,12 @@ if (!hasSingleInstanceLock) {
   app.on("second-instance", (_event, commandLine) => {
     const deepLink = findDesktopConnectUrl(commandLine);
     if (deepLink) queueDesktopConnectUrl(deepLink);
+
+    const navigationPage = findDesktopNavigationPage(commandLine);
+    if (navigationPage) {
+      queueDesktopNavigationPage(navigationPage);
+    }
+
     focusMainWindow();
   });
 }
@@ -585,6 +700,7 @@ app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
   Menu.setApplicationMenu(null);
   registerDesktopProtocolClient();
+  registerWindowsUserTasks();
 
   discordPresenceService = createDiscordPresenceService({
     clientId: "1544321040098791444"
@@ -593,6 +709,11 @@ app.whenReady().then(async () => {
 
   const initialDeepLink = findDesktopConnectUrl(process.argv);
   if (initialDeepLink) queueDesktopConnectUrl(initialDeepLink);
+
+  const initialNavigationPage = findDesktopNavigationPage(process.argv);
+  if (initialNavigationPage) {
+    pendingDesktopNavigationPage = initialNavigationPage;
+  }
 
   try {
     desktopSyncService = createDesktopSync();

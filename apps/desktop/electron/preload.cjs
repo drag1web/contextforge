@@ -46,6 +46,19 @@ contextBridge.exposeInMainWorld("contextforge", {
       ipcRenderer.invoke("discord-presence:get-status")
   },
 
+  desktopNavigation: {
+    consume: () =>
+      ipcRenderer.invoke("desktop-navigation:consume"),
+    onRequest: (handler) => {
+      const listener = (_event, page) => handler(page);
+      ipcRenderer.on("desktop-navigation:request", listener);
+
+      return () => {
+        ipcRenderer.removeListener("desktop-navigation:request", listener);
+      };
+    }
+  },
+
   desktopNotifications: {
     show: (kind) =>
       ipcRenderer.invoke("desktop-notification:show", kind)
