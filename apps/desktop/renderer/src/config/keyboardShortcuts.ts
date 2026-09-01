@@ -54,8 +54,7 @@ export const keyboardShortcuts: KeyboardShortcut[] = [
     key: "k",
     code: "KeyK",
     ctrl: true,
-    enabled: false,
-    placeholder: true,
+    enabled: true,
     preventDefault: true
   },
   {

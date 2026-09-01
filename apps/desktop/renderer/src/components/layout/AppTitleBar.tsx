@@ -34,7 +34,6 @@ import type {
     AiProviderStatus,
     AppSettings
 } from "../../types";
-import { NavigationAssistantModal } from "../modals/NavigationAssistantModal";
 import contextforgeMarkWhite from "../../assets/brand/contextforge-mark-white.png";
 import {
     pageMetaMap,
@@ -46,6 +45,7 @@ interface AppTitleBarProps {
     isLoading?: boolean;
     onAddProject?: () => void;
     onNavigate?: (page: AppPageId) => void;
+    onOpenNavigationAssistant?: () => void;
 }
 
 type OpenTitlebarPanel = "version" | "ai" | null;
@@ -123,10 +123,10 @@ export function AppTitleBar({
     activePage = "dashboard",
     isLoading = false,
     onAddProject,
-    onNavigate
+    onNavigate,
+    onOpenNavigationAssistant
 }: AppTitleBarProps) {
     const { t, i18n } = useTranslation();
-    const [isNavigationOpen, setIsNavigationOpen] = useState(false);
     const [openPanel, setOpenPanel] = useState<OpenTitlebarPanel>(null);
     const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
     const [aiStatus, setAiStatus] = useState<AiProviderStatus | null>(null);
@@ -435,8 +435,8 @@ export function AppTitleBar({
 
                 <button
                     type="button"
-                    onClick={() => setIsNavigationOpen(true)}
-                    disabled={!onNavigate}
+                    onClick={onOpenNavigationAssistant}
+                    disabled={!onNavigate || !onOpenNavigationAssistant}
                     className="app-no-drag group absolute left-1/2 top-1/2 hidden h-7 w-[238px] -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-1.5 overflow-hidden rounded-full border border-white/10 bg-white/[0.035] px-2.5 text-[11px] text-neutral-500 shadow-[0_8px_22px_rgba(0,0,0,0.30)] transition-[border-color,background-color,color,box-shadow,opacity] duration-200 hover:border-white hover:bg-white hover:text-black hover:shadow-[0_10px_26px_rgba(0,0,0,0.38)] disabled:pointer-events-none disabled:opacity-60 lg:flex"
                     title={t("titlebar.openNavigationAssistant")}
                 >
@@ -595,14 +595,6 @@ export function AppTitleBar({
                 </div>
             </header>
 
-            {isNavigationOpen && onNavigate && (
-                <NavigationAssistantModal
-                    activePage={activePage}
-                    onNavigate={onNavigate}
-                    onAddProject={onAddProject}
-                    onClose={() => setIsNavigationOpen(false)}
-                />
-            )}
         </>
     );
 }

@@ -60,6 +60,7 @@ import { LoadingOverlay } from "../components/ui/LoadingOverlay";
 import { FirstRunOnboardingOverlay } from "../components/onboarding/FirstRunOnboardingOverlay";
 
 import { GlobalSearchModal } from "../components/modals/GlobalSearchModal";
+import { NavigationAssistantModal } from "../components/modals/NavigationAssistantModal";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
 import i18n, { applyAppLanguage } from "../i18n";
 
@@ -332,6 +333,8 @@ export function DashboardPage() {
     useRef<DiscordPresenceActivity | null>(null);
   const [pageDirection, setPageDirection] = useState(1);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
+  const [isNavigationAssistantOpen, setIsNavigationAssistantOpen] =
+    useState(false);
   const [onboardingDismissedThisSession, setOnboardingDismissedThisSession] =
     useState(false);
   const [selectedProjectDetailsId, setSelectedProjectDetailsId] = useState<
@@ -455,6 +458,7 @@ export function DashboardPage() {
 
   useKeyboardShortcuts({
       globalSearch: () => setIsGlobalSearchOpen(true),
+      navigationAssistant: () => setIsNavigationAssistantOpen(true),
       addProject: () => {
         if (!dashboard.isLoading) {
           void dashboard.handleSelectProject();
@@ -971,6 +975,7 @@ export function DashboardPage() {
           isLoading={dashboard.isLoading}
           onAddProject={dashboard.handleSelectProject}
           onNavigate={handleNavigate}
+          onOpenNavigationAssistant={() => setIsNavigationAssistantOpen(true)}
         />
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
@@ -999,6 +1004,18 @@ export function DashboardPage() {
             onClose={() => dashboard.setAgentsPreview(null)}
             onSave={dashboard.handleSaveAgentsFile}
             onRegenerate={dashboard.handleRegenerateAgentsPreview}
+          />
+        )}
+
+        {isNavigationAssistantOpen && (
+          <NavigationAssistantModal
+            activePage={activePage}
+            onNavigate={(page) => {
+              setIsNavigationAssistantOpen(false);
+              handleNavigate(page);
+            }}
+            onAddProject={dashboard.handleSelectProject}
+            onClose={() => setIsNavigationAssistantOpen(false)}
           />
         )}
 
