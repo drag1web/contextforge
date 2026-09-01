@@ -1,5 +1,6 @@
 {
   "name": "contextforge",
+  "productName": "ContextForge",
   "version": "0.7.0-alpha",
   "private": true,
   "description": "Desktop AI devtool for preparing software projects for AI agents.",
