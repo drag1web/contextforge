@@ -42,6 +42,7 @@ import {
 import type { AppSettings, OllamaModel, OllamaStatus, SelectorPipelineDiagnostics, StorageAuditResult, WorkspaceBackupExportResult } from "../types";
 import { CustomSelect } from "../components/ui/CustomSelect";
 import { Button } from "../components/ui/Button";
+import { DesktopExperiencePanel } from "../components/settings/DesktopExperiencePanel";
 import { HorizontalSlidingSelector, VerticalSlidingSelector } from "../components/ui/SlidingSelectors";
 import { WorkspacePageHeader } from "../components/layout/WorkspacePageHeader";
 import { appMeta } from "../config/appMeta";
@@ -118,8 +119,7 @@ const SETTINGS_SECTIONS: Array<{
       id: "privacy",
       label: "Privacy",
       labelKey: "settings.privacy",
-      icon: ShieldCheck,
-      status: "soon"
+      icon: ShieldCheck
     },
     {
       id: "storage",
@@ -3129,6 +3129,10 @@ export function SettingsPage() {
                       <PlannedInterfaceFeature icon={Download} title={t("settings.shortcutProfiles")} description={t("settings.shortcutProfilesDesc")} badge={t("settings.planned")} />
                     </div>
                   </SettingCard>                </>
+              )}
+
+              {activeSection === "privacy" && (
+                <DesktopExperiencePanel />
               )}
 
               {(activeSection === "privacy" || activeSection === "updates") && (

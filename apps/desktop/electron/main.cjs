@@ -47,6 +47,84 @@ const appIconPath = path.join(
   process.platform === "win32" ? "icon.ico" : "icon.png"
 );
 
+const DEFAULT_DESKTOP_PREFERENCES = Object.freeze({
+  discordRichPresence: true,
+  windowsNotifications: true,
+  taskbarActivity: true,
+  windowsJumpList: true
+});
+
+let desktopPreferences = { ...DEFAULT_DESKTOP_PREFERENCES };
+
+function getDesktopPreferencesPath() {
+  return path.join(app.getPath("userData"), "desktop-preferences.json");
+}
+
+function sanitizeDesktopPreferences(input) {
+  const source = input && typeof input === "object" ? input : {};
+
+  return {
+    discordRichPresence:
+      typeof source.discordRichPresence === "boolean"
+        ? source.discordRichPresence
+        : DEFAULT_DESKTOP_PREFERENCES.discordRichPresence,
+    windowsNotifications:
+      typeof source.windowsNotifications === "boolean"
+        ? source.windowsNotifications
+        : DEFAULT_DESKTOP_PREFERENCES.windowsNotifications,
+    taskbarActivity:
+      typeof source.taskbarActivity === "boolean"
+        ? source.taskbarActivity
+        : DEFAULT_DESKTOP_PREFERENCES.taskbarActivity,
+    windowsJumpList:
+      typeof source.windowsJumpList === "boolean"
+        ? source.windowsJumpList
+        : DEFAULT_DESKTOP_PREFERENCES.windowsJumpList
+  };
+}
+
+function readDesktopPreferences() {
+  try {
+    const raw = fs.readFileSync(getDesktopPreferencesPath(), "utf-8");
+    return sanitizeDesktopPreferences(JSON.parse(raw));
+  } catch {
+    return { ...DEFAULT_DESKTOP_PREFERENCES };
+  }
+}
+
+function writeDesktopPreferences(preferences) {
+  try {
+    fs.writeFileSync(
+      getDesktopPreferencesPath(),
+      JSON.stringify(preferences, null, 2),
+      "utf-8"
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function broadcastDesktopPreferences() {
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.webContents.send("desktop-preferences:changed", desktopPreferences);
+    }
+  }
+}
+
+function clearTaskbarProgressForAllWindows() {
+  if (process.platform !== "win32") {
+    return;
+  }
+
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) {
+      win.setProgressBar(-1);
+    }
+  }
+}
+
 const DESKTOP_NOTIFICATION_COPY = Object.freeze({
   task_pack_generated: {
     title: "ContextForge",
@@ -602,12 +680,69 @@ ipcMain.handle("window:is-maximized", (event) => {
   return Boolean(win?.isMaximized());
 });
 
+ipcMain.handle("desktop-preferences:get", async () => ({
+  ...desktopPreferences
+}));
+
+ipcMain.handle("desktop-preferences:update", async (_event, input) => {
+  const next = {
+    ...desktopPreferences
+  };
+
+  if (typeof input?.discordRichPresence === "boolean") {
+    next.discordRichPresence = input.discordRichPresence;
+  }
+
+  if (typeof input?.windowsNotifications === "boolean") {
+    next.windowsNotifications = input.windowsNotifications;
+  }
+
+  if (typeof input?.taskbarActivity === "boolean") {
+    next.taskbarActivity = input.taskbarActivity;
+  }
+
+  if (typeof input?.windowsJumpList === "boolean") {
+    next.windowsJumpList = input.windowsJumpList;
+  }
+
+  desktopPreferences = sanitizeDesktopPreferences(next);
+  writeDesktopPreferences(desktopPreferences);
+
+  if (desktopPreferences.discordRichPresence) {
+    discordPresenceService?.start();
+  } else {
+    discordPresenceService?.stop();
+  }
+
+  if (!desktopPreferences.taskbarActivity) {
+    clearTaskbarProgressForAllWindows();
+  }
+
+  if (process.platform === "win32") {
+    if (desktopPreferences.windowsJumpList) {
+      registerWindowsUserTasks();
+    } else {
+      app.setUserTasks([]);
+    }
+  }
+
+  broadcastDesktopPreferences();
+  return { ...desktopPreferences };
+});
+
 ipcMain.handle("window:set-taskbar-progress", (event, active) => {
   if (process.platform !== "win32") {
     return false;
   }
 
   const win = getWindowFromEvent(event);
+
+  if (!desktopPreferences.taskbarActivity) {
+    if (win && !win.isDestroyed()) {
+      win.setProgressBar(-1);
+    }
+    return false;
+  }
   if (!win || win.isDestroyed()) {
     return false;
   }
@@ -622,6 +757,10 @@ ipcMain.handle("window:set-taskbar-progress", (event, active) => {
 });
 
 ipcMain.handle("desktop-notification:show", (event, kind) => {
+  if (!desktopPreferences.windowsNotifications) {
+    return false;
+  }
+
   if (
     typeof kind !== "string" ||
     !Object.prototype.hasOwnProperty.call(DESKTOP_NOTIFICATION_COPY, kind) ||
@@ -700,12 +839,23 @@ app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
   Menu.setApplicationMenu(null);
   registerDesktopProtocolClient();
-  registerWindowsUserTasks();
+
+  desktopPreferences = readDesktopPreferences();
+
+  if (process.platform === "win32") {
+    if (desktopPreferences.windowsJumpList) {
+      registerWindowsUserTasks();
+    } else {
+      app.setUserTasks([]);
+    }
+  }
 
   discordPresenceService = createDiscordPresenceService({
     clientId: "1544321040098791444"
   });
-  discordPresenceService.start();
+  if (desktopPreferences.discordRichPresence) {
+    discordPresenceService.start();
+  }
 
   const initialDeepLink = findDesktopConnectUrl(process.argv);
   if (initialDeepLink) queueDesktopConnectUrl(initialDeepLink);
