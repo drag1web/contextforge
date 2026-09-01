@@ -481,6 +481,25 @@ ipcMain.handle("window:is-maximized", (event) => {
   return Boolean(win?.isMaximized());
 });
 
+ipcMain.handle("window:set-taskbar-progress", (event, active) => {
+  if (process.platform !== "win32") {
+    return false;
+  }
+
+  const win = getWindowFromEvent(event);
+  if (!win || win.isDestroyed()) {
+    return false;
+  }
+
+  if (active === true) {
+    win.setProgressBar(2, { mode: "indeterminate" });
+  } else {
+    win.setProgressBar(-1);
+  }
+
+  return true;
+});
+
 ipcMain.handle("discord-presence:set-activity", async (_event, activity) => {
   return discordPresenceService?.setActivity(activity) ?? false;
 });

@@ -22,6 +22,7 @@ import {
   setDiscordPresenceActivity,
   type DiscordPresenceActivity,
 } from "../lib/discordPresence";
+import { setDesktopTaskbarProgress } from "../lib/desktopTaskbarProgress";
 
 import { StatusBar } from "../components/ui/StatusBar";
 import { ProjectsSection } from "../components/projects/ProjectsSection";
@@ -354,6 +355,17 @@ export function DashboardPage() {
   useEffect(() => {
     void setDiscordPresenceActivity(discordPresenceActivity);
   }, [discordPresenceActivity]);
+
+  useEffect(() => {
+    void setDesktopTaskbarProgress(operationPresenceActivity !== null);
+  }, [operationPresenceActivity]);
+
+  useEffect(
+    () => () => {
+      void setDesktopTaskbarProgress(false);
+    },
+    [],
+  );
 
   const handleAnalyzeTaskContextWithPresence = useCallback(
     async (...args: Parameters<typeof dashboard.handleAnalyzeTaskContext>) => {

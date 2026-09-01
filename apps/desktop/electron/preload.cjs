@@ -46,6 +46,11 @@ contextBridge.exposeInMainWorld("contextforge", {
       ipcRenderer.invoke("discord-presence:get-status")
   },
 
+  taskbarProgress: {
+    setActive: (active) =>
+      ipcRenderer.invoke("window:set-taskbar-progress", active === true)
+  },
+
   windowControls: {
     minimize: () => ipcRenderer.send("window:minimize"),
     toggleMaximize: () => ipcRenderer.send("window:toggle-maximize"),
