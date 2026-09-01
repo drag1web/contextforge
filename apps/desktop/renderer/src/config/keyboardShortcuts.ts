@@ -67,8 +67,7 @@ export const keyboardShortcuts: KeyboardShortcut[] = [
     code: "KeyO",
     ctrl: true,
     shift: true,
-    enabled: false,
-    placeholder: true,
+    enabled: true,
     preventDefault: true
   },
   {
@@ -93,8 +92,7 @@ export const keyboardShortcuts: KeyboardShortcut[] = [
     code: "KeyP",
     ctrl: true,
     shift: true,
-    enabled: false,
-    placeholder: true,
+    enabled: true,
     preventDefault: true
   },
   {
@@ -105,8 +103,7 @@ export const keyboardShortcuts: KeyboardShortcut[] = [
     key: ",",
     code: "Comma",
     ctrl: true,
-    enabled: false,
-    placeholder: true,
+    enabled: true,
     preventDefault: true
   }
 ];

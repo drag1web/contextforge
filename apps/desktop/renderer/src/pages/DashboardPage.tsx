@@ -345,11 +345,7 @@ export function DashboardPage() {
   const [bootProgress, setBootProgress] = useState(12);
   const [bootStatus, setBootStatus] = useState(() => i18n.t("splash.starting"));
 
-  useKeyboardShortcuts({
-    globalSearch: () => setIsGlobalSearchOpen(true),
-  });
-
-  const pageDiscordPresenceActivity = resolveDiscordPresenceActivity({
+    const pageDiscordPresenceActivity = resolveDiscordPresenceActivity({
     activePage,
     hasGeneratedTaskPack: Boolean(dashboard.generatedTaskPack),
     hasContextComposerPreview: Boolean(dashboard.contextComposerPreview),
@@ -456,6 +452,17 @@ export function DashboardPage() {
     },
     [activePage, dashboard],
   );
+
+  useKeyboardShortcuts({
+      globalSearch: () => setIsGlobalSearchOpen(true),
+      addProject: () => {
+        if (!dashboard.isLoading) {
+          void dashboard.handleSelectProject();
+        }
+      },
+      openTaskPacks: () => handleNavigate("taskPacks"),
+      openSettings: () => handleNavigate("settings"),
+    });
 
   useEffect(() => {
     const bridge = window.contextforge?.desktopSync;
