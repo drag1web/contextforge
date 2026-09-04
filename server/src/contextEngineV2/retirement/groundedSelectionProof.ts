@@ -8,6 +8,7 @@ import type { ContextEngineShadowCanonicalInput } from "../shadow/index.js";
 import { pathMatchesNegativeConstraints } from "../application/negativeConstraintMatcher.js";
 import { buildStrictBoundedRelationshipChains } from "../application/strictRelationshipChain.js";
 import { isExactDocumentIdentityFact } from "../application/documentIdentity.js";
+import { isExactConfigurationIdentityFact } from "../application/configurationIdentity.js";
 import type {
   GroundedSelectionProof,
   TaskPackPrimaryMappedFile,
@@ -157,6 +158,33 @@ function proofForEditable(input: {
       ambiguityResolved: true,
       constraintsSatisfied: true,
       proofKind: "direct_document_identity",
+    });
+    trustedGroundedSelectionProofs.add(proof);
+    return proof;
+  }
+  const directConfigurationIdentity = descriptor.kind === "configuration" && inventory.kind === "config" &&
+    facts.some((fact) => fact !== undefined && fact.subject.id === decision.entityId &&
+      isExactConfigurationIdentityFact({
+        fact,
+        snapshot: input.canonical.snapshot,
+        context: {
+          normalizedTask: input.canonical.normalizedTask,
+          explicitTargets: input.canonical.explicitTargets,
+          negativeConstraints: input.canonical.negativeConstraints,
+        },
+      }));
+  if (directConfigurationIdentity) {
+    const proof: GroundedSelectionProof = Object.freeze({
+      schemaVersion: 1,
+      path: input.path,
+      role: input.role,
+      evidenceCurrent: true,
+      findingConfirmed: true,
+      targetRoleSupported: true,
+      snapshotCurrent: true,
+      ambiguityResolved: true,
+      constraintsSatisfied: true,
+      proofKind: "direct_configuration_identity",
     });
     trustedGroundedSelectionProofs.add(proof);
     return proof;

@@ -1151,7 +1151,7 @@ export function createTaskPackPrimaryProductionEnvelope(input: {
         ownershipEvidence: editable
           ? proof?.proofKind === "direct_definition"
             ? ("symbol_exact" as const)
-            : proof?.proofKind === "direct_document_identity"
+            : proof?.proofKind === "direct_document_identity" || proof?.proofKind === "direct_configuration_identity"
               ? ("content_supported" as const)
               : ("reference_graph" as const)
           : ("reference_graph" as const),
@@ -1163,6 +1163,8 @@ export function createTaskPackPrimaryProductionEnvelope(input: {
         reason: editable
           ? proof?.proofKind === "direct_document_identity"
             ? "Current snapshot identity confirms the explicitly requested documentation file."
+            : proof?.proofKind === "direct_configuration_identity"
+              ? "Current snapshot identity confirms the explicitly requested configuration file."
             : "Current repository relationship evidence confirms implementation ownership."
           : "Current repository relationship evidence supports inspect-only context.",
       },

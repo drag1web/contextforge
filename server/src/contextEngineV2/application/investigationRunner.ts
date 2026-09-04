@@ -101,6 +101,10 @@ import {
   createExactDocumentIdentity,
   isExactDocumentIdentityFact,
 } from "./documentIdentity.js";
+import {
+  createExactConfigurationIdentity,
+  isExactConfigurationIdentityFact,
+} from "./configurationIdentity.js";
 import { isOperationRetryEligible } from "./operationRetryPolicy.js";
 import { evaluateKnowledgeGapResolution } from "./truthfulGapEvaluator.js";
 
@@ -714,7 +718,21 @@ function deriveImplementationFindings(input: {
             },
           }) && fact.subject.id === proof.candidate.id)
         : undefined;
-      const definitionFact = proof.basis === "document_identity"
+      const configurationIdentityFact = proof.basis === "configuration_identity"
+        ? input.facts.find((fact) => proof.factIds.includes(fact.id) &&
+          input.request !== undefined && isExactConfigurationIdentityFact({
+            fact,
+            snapshot: input.snapshot,
+            context: {
+              normalizedTask: input.request.task.normalizedTask,
+              explicitTargets: input.request.explicitTargets,
+              negativeConstraints: input.request.negativeConstraints,
+            },
+          }) && fact.subject.id === proof.candidate.id)
+        : undefined;
+      const identityFact = documentIdentityFact ?? configurationIdentityFact;
+      const identityBasis = proof.basis === "document_identity" || proof.basis === "configuration_identity";
+      const definitionFact = identityBasis
         ? undefined
         : input.facts.find(
           (fact) =>
@@ -722,9 +740,9 @@ function deriveImplementationFindings(input: {
             isFileBackedOwnerDefinitionFact(fact, input.snapshot) &&
             fact.object.id === proof.candidate.id,
         );
-      const definitionSource = documentIdentityFact?.source ?? definitionFact?.source;
+      const definitionSource = identityFact?.source ?? definitionFact?.source;
       if (
-        (proof.basis === "document_identity" ? documentIdentityFact === undefined : definitionFact === undefined) ||
+        (identityBasis ? identityFact === undefined : definitionFact === undefined) ||
         proof.candidate.fileId === undefined ||
         definitionSource?.kind !== "source_span" ||
         !input.snapshot.files.some(
@@ -758,7 +776,9 @@ function deriveImplementationFindings(input: {
         type: "implementation_target",
         statement: proof.basis === "document_identity"
           ? "A snapshot-verified explicit documentation path identifies the document that owns the requested edit."
-          : "A deterministic grounded owner proof identifies this repository entity.",
+          : proof.basis === "configuration_identity"
+            ? "A snapshot-verified explicit configuration path identifies the configuration artifact that owns the requested edit."
+            : "A deterministic grounded owner proof identifies this repository entity.",
         entityIds: [proof.candidate.id],
         evidenceIds,
         status: proofs.length === 1 ? "confirmed" : "probable",
@@ -1460,9 +1480,23 @@ async function executeOperation(
           observedAt: dependencies.clock.nowIso(),
         })
         : null;
-      if (documentIdentity) {
-        outcome.entities = [documentIdentity.entity];
-        outcome.facts = [documentIdentity.fact];
+      const configurationIdentity = servesOwner && input.request
+        ? createExactConfigurationIdentity({
+          context: {
+            normalizedTask: input.request.task.normalizedTask,
+            explicitTargets: input.request.explicitTargets,
+            negativeConstraints: input.request.negativeConstraints,
+          },
+          file,
+          source,
+          operation,
+          observedAt: dependencies.clock.nowIso(),
+        })
+        : null;
+      const exactArtifactIdentity = documentIdentity ?? configurationIdentity;
+      if (exactArtifactIdentity) {
+        outcome.entities = [exactArtifactIdentity.entity];
+        outcome.facts = [exactArtifactIdentity.fact];
         outcome.evidence = routeFactEvidence({
           snapshot: input.snapshot,
           request: input.request,
@@ -1470,11 +1504,12 @@ async function executeOperation(
           operationRecords: state.operationRecords,
           claims: state.claims,
           hypotheses: state.hypotheses,
-          allFacts: mergeRecords(state.facts, [documentIdentity.fact], "Document identity fact"),
-          producedFacts: [documentIdentity.fact],
+          allFacts: mergeRecords(state.facts, [exactArtifactIdentity.fact], "Artifact identity fact"),
+          producedFacts: [exactArtifactIdentity.fact],
           checkpoint,
         });
-      } else {
+      }
+      if (!documentIdentity) {
         outcome.candidates = [
           createDeterministicOperation(input.snapshot.id, {
             type: "parse_file",

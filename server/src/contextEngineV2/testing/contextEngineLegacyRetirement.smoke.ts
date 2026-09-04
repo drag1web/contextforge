@@ -387,6 +387,156 @@ await scenario("repository command metadata remains supporting evidence rather t
   assert.equal(supportingEnvelope.selectedFiles.find((file) => file.path === packagePath)?.usage, "inspect-only");
   assert.equal(supportingEnvelope.selectedFiles.find((file) => file.path === supportingSourcePath)?.usage, "inspect-only");
 });
+
+const configurationRoot = await fs.mkdtemp(path.join(os.tmpdir(), "context-engine-configuration-"));
+const configurationPath = "config/tool.json";
+const configurationPackagePath = "package.json";
+const serverConfigurationPath = "server/config.ts";
+const configurationSource = '{"maxItems":25,"plugins":[]}\n';
+const configurationPackageSource = JSON.stringify({ scripts: { verify: "node verify.mjs" } }, null, 2);
+const serverConfigurationSource = "export const port = 3000;\n";
+await fs.mkdir(path.join(configurationRoot, "config"), { recursive: true });
+await fs.mkdir(path.join(configurationRoot, "server"), { recursive: true });
+await fs.writeFile(path.join(configurationRoot, configurationPath), configurationSource, "utf8");
+await fs.writeFile(path.join(configurationRoot, configurationPackagePath), configurationPackageSource, "utf8");
+await fs.writeFile(path.join(configurationRoot, serverConfigurationPath), serverConfigurationSource, "utf8");
+const configurationInventory: ProjectInventory = {
+  rootPath: configurationRoot,
+  files: [
+    {
+      path: configurationPath, name: "tool.json", extension: ".json", kind: "config", role: "config",
+      imports: [], exports: [], symbols: [], textHints: ["maxItems", "plugins"],
+      contentPreview: configurationSource.trim(), sizeBytes: Buffer.byteLength(configurationSource), depth: 1,
+      canReadText: true, isLikelyGenerated: false,
+    },
+    {
+      path: configurationPackagePath, name: "package.json", extension: ".json", kind: "config", role: "config",
+      imports: [], exports: [], symbols: [], textHints: ["verify"],
+      contentPreview: configurationPackageSource.replace(/\s+/gu, " ").trim(), sizeBytes: Buffer.byteLength(configurationPackageSource), depth: 0,
+      canReadText: true, isLikelyGenerated: false,
+    },
+    {
+      path: serverConfigurationPath, name: "config.ts", extension: ".ts", kind: "config", role: "config",
+      imports: [], exports: ["port"], symbols: ["port"], textHints: ["server", "port"],
+      contentPreview: serverConfigurationSource.trim(), sizeBytes: Buffer.byteLength(serverConfigurationSource), depth: 1,
+      canReadText: true, isLikelyGenerated: false,
+    },
+  ],
+  totalFiles: 3, scannedFiles: 3, truncated: false, notes: [],
+};
+const configurationTask = `In ${configurationPath} set maxItems to 50. Do not change package scripts, plugins, aliases, or server configuration.`;
+const configurationIntent: TaskIntentAnalysis = {
+  taskArea: "build", intentTags: ["build-config"], domainTerms: ["maxItems"],
+  mentionedEntities: [configurationPath], fileRoleHints: ["config"], recommendedSearchTerms: ["maxItems"],
+  riskLevel: "low", confidence: 1, notes: [], source: "fallback", durationMs: 0,
+  structuredIntent: {
+    schemaVersion: 1,
+    primaryTargets: [{
+      kind: "explicit_file", value: configurationPath, path: configurationPath, provenance: "user_confirmed",
+      confidence: 1, evidence: "Exact path provided by the user.",
+    }],
+    positiveActions: ["configure"],
+    protectedScopes: ["package scripts", "plugins", "aliases", "server configuration"],
+    allowedEditScope: "target_with_supporting_context", needsStyles: false, needsBackend: false,
+    ambiguities: [], modelNotes: [],
+  },
+  taskUnderstanding: {
+    schemaVersion: 1, goal: "Update one bounded configuration property", action: "configure",
+    targetHints: [configurationPath], requestedChanges: ["Set maxItems"],
+    constraints: ["Do not change package scripts, plugins, aliases, or server configuration"],
+    interpretationRisk: "objective", changeDefinition: "bounded",
+    explicitValues: [{ kind: "number", value: "50", exact: true, source: "user" }],
+    missingInformation: [], readiness: "ready", canProceed: true, clarificationQuestion: null,
+    confidence: 1, source: "merged", reasons: [],
+  },
+};
+const configurationBasis = createContextEngineShadowExecutionBasis({
+  policy: fixturePolicy,
+  requestedTaskType: "general",
+  effectiveTaskArea: "build",
+  plannerMode: "deterministic",
+});
+const configurationCanonical = prepareContextEngineShadowInput({
+  projectId: "configuration-fixture", projectRoot: configurationRoot, inventory: configurationInventory,
+  normalizedTask: configurationTask,
+  structuredTargets: configurationIntent.structuredIntent.primaryTargets,
+  protectedScopes: configurationIntent.structuredIntent.protectedScopes,
+  executionBasis: configurationBasis,
+  createdAt: "2026-09-04T00:00:00.000Z",
+});
+let configurationDownstream: ReturnType<typeof validateTaskPackPrimaryCandidate> | undefined;
+const configurationStarted = Math.floor(performance.now());
+const configurationResolution = await runLiveTaskPackPrimary({
+  canonical: configurationCanonical,
+  requestStartedMonotonicMs: configurationStarted,
+  requestDeadlineMonotonicMs: configurationStarted + configurationBasis.policy.timeoutMs,
+  validateDownstream: (candidate, proofs) => {
+    configurationDownstream = validateTaskPackPrimaryCandidate({
+      rawTask: configurationTask,
+      requestedTaskType: "general",
+      effectiveTaskArea: "build",
+      inventory: configurationInventory,
+      taskIntent: configurationIntent,
+      contextQualityMode: "balanced",
+      candidate,
+      proofs,
+    });
+    return {
+      validatedFiles: configurationDownstream.validatedFiles,
+      validation: configurationDownstream.validation,
+    };
+  },
+});
+await scenario("an exact existing configuration target receives truthful configuration-identity authority", () => {
+  assert.equal(configurationResolution.status, "v2_applied", JSON.stringify(configurationResolution.decision));
+  assert.deepEqual(configurationResolution.adoptedFiles, [{
+    path: configurationPath, kind: "config", role: "target", usage: "inspect-and-edit",
+  }]);
+  assert.equal(configurationResolution.groundedProofs[0]?.proofKind, "direct_configuration_identity");
+  assert.equal(configurationDownstream?.validation.authorizationPreserved, true);
+});
+await scenario("configuration support stays inspect-only without independent authority", () => {
+  const supportingEnvelope = createTaskPackPrimaryProductionEnvelope({
+    candidate: [
+      ...(configurationResolution.adoptedFiles ?? []),
+      { path: configurationPackagePath, kind: "config", role: "supporting", usage: "inspect-only" },
+      { path: serverConfigurationPath, kind: "config", role: "supporting", usage: "inspect-only" },
+    ],
+    proofs: configurationResolution.groundedProofs,
+    inventory: configurationInventory,
+    requestedTaskType: "general",
+    effectiveTaskArea: "build",
+    userConfirmedTargetPaths: [configurationPath],
+  });
+  assert.deepEqual(
+    supportingEnvelope.selectedFiles
+      .filter((file) => file.usage === "inspect-and-edit" || file.usage === "create-and-edit")
+      .map((file) => file.path),
+    [configurationPath],
+  );
+  assert.equal(supportingEnvelope.selectedFiles.find((file) => file.path === configurationPackagePath)?.usage, "inspect-only");
+  assert.equal(supportingEnvelope.selectedFiles.find((file) => file.path === serverConfigurationPath)?.usage, "inspect-only");
+});
+await scenario("configuration identity does not authorize protected package or server config candidates", () => {
+  const unsafeEnvelope = createTaskPackPrimaryProductionEnvelope({
+    candidate: [
+      ...(configurationResolution.adoptedFiles ?? []),
+      { path: configurationPackagePath, kind: "config", role: "target", usage: "inspect-and-edit" },
+      { path: serverConfigurationPath, kind: "config", role: "target", usage: "inspect-and-edit" },
+    ],
+    proofs: configurationResolution.groundedProofs,
+    inventory: configurationInventory,
+    requestedTaskType: "general",
+    effectiveTaskArea: "build",
+    userConfirmedTargetPaths: [configurationPath],
+  });
+  assert.deepEqual(unsafeEnvelope.selectedFiles.map((file) => file.path), [configurationPath]);
+});
+await scenario("same-file configuration safeguards remain in the production task contract input", () => {
+  assert.deepEqual(configurationIntent.taskUnderstanding.constraints, [
+    "Do not change package scripts, plugins, aliases, or server configuration",
+  ]);
+});
 await scenario("connected entry-to-owner evidence emits an exact relationship chain", () => assert.equal(
   realResolution.groundedProofs.find((proof) => proof.path === "src/service.ts")?.proofKind,
   "exact_relationship_chain",
@@ -986,5 +1136,6 @@ await writer.close(250);
 await fs.rm(root, { recursive: true, force: true });
 await fs.rm(ambiguousRoot, { recursive: true, force: true });
 await fs.rm(documentationRoot, { recursive: true, force: true });
+await fs.rm(configurationRoot, { recursive: true, force: true });
 assert.ok(scenarioCount >= 140, `expected at least 140 retirement scenarios, received ${scenarioCount}`);
 console.log(`Context Engine v2 legacy retirement smoke passed: ${scenarioCount} scenarios.`);

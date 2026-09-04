@@ -9,6 +9,7 @@ import type {
 import { stableCompare } from "../domain/investigationDomainSupport.js";
 import { buildStrictBoundedRelationshipChains } from "./strictRelationshipChain.js";
 import { isSnapshotBoundDocumentIdentityFact } from "./documentIdentity.js";
+import { isSnapshotBoundConfigurationIdentityFact } from "./configurationIdentity.js";
 const DIRECT_FILE_FINDINGS = new Set<Finding["type"]>([
   "behavior_summary",
   "constraint",
@@ -162,6 +163,11 @@ export function evaluateProjectionEvidenceForEntity(input: {
       fact,
       snapshot: input.snapshot,
     }));
+  const configurationIdentityFacts = proofFacts.filter((fact) =>
+    fact.subject.id === input.entity.id && isSnapshotBoundConfigurationIdentityFact({
+      fact,
+      snapshot: input.snapshot,
+    }));
   const explicitEntityTarget = explicitTargetMatchesEntity({
     entity: input.entity,
     snapshot: input.snapshot,
@@ -187,6 +193,9 @@ export function evaluateProjectionEvidenceForEntity(input: {
         const directDocumentIdentity = recordFacts.some((fact) =>
           documentIdentityFacts.some((identity) => identity.id === fact.id));
         if (directDocumentIdentity && explicitEntityTarget) return true;
+        const directConfigurationIdentity = recordFacts.some((fact) =>
+          configurationIdentityFacts.some((identity) => identity.id === fact.id));
+        if (directConfigurationIdentity && explicitEntityTarget) return true;
         const directDefinition = recordFacts.some((fact) =>
           definitionFacts.some((definition) => definition.id === fact.id) &&
           (explicitEntityTarget || connectedDefinitionIds.has(fact.id)));

@@ -13,6 +13,7 @@ import {
   createInvestigationRunner,
 } from "../application/index.js";
 import { DOCUMENT_IDENTITY_PREDICATE } from "../application/documentIdentity.js";
+import { CONFIGURATION_IDENTITY_PREDICATE } from "../application/configurationIdentity.js";
 import { evaluateInvestigationQuestions } from "../application/deterministicQuestionEvaluator.js";
 import {
   deriveImplementationOwnerProofs,
@@ -5300,6 +5301,174 @@ scenario("186. document identity result is invariant to snapshot file ordering",
 scenario("187. document identity replay is deterministic", async () => {
   const first = await runExactDocumentationFixture({ suffix: "document-replay", path: "CONTRIBUTING.md" });
   const second = await runExactDocumentationFixture({ suffix: "document-replay", path: "CONTRIBUTING.md" });
+  assert.deepEqual(second.result, first.result);
+});
+
+async function runExactConfigurationFixture(input: {
+  suffix: string;
+  path: string;
+  task?: string;
+  explicit?: boolean;
+  generated?: boolean;
+  secretRisk?: RepositorySnapshot["files"][number]["secretRisk"];
+  negativeConstraints?: InvestigationRequest["negativeConstraints"];
+  reverseInventory?: boolean;
+}) {
+  const fixture = repositoryFixture(input.suffix, [
+    {
+      path: input.path,
+      content: '{"maxItems":25}\n',
+      kind: "configuration",
+      generated: input.generated,
+      secretRisk: input.secretRisk,
+    },
+    {
+      path: "src/application.ts",
+      content: "export const application = true;\n",
+      kind: "source",
+    },
+  ]);
+  if (input.reverseInventory) fixture.snapshot.files.reverse();
+  return runStructuredRepositoryFixture({
+    source: fixture.snapshot,
+    adapterFiles: fixture.adapterFiles,
+    task: input.task ?? `In ${input.path} set maxItems to 50.`,
+    explicitTargets: input.explicit === false ? [] : [{ kind: "path", path: input.path }],
+    negativeConstraints: input.negativeConstraints,
+  });
+}
+
+scenario("188. exact existing configuration target produces current configuration identity", async () => {
+  const { result } = await runExactConfigurationFixture({ suffix: "configuration-tool", path: "config/tool.json" });
+  assert.equal(result.stop.reason, "sufficient_evidence");
+  assert.equal(result.safeToProject, true);
+  assert.ok(result.facts.some((fact) => fact.predicate === CONFIGURATION_IDENTITY_PREDICATE));
+  assert.ok(result.findings.some((finding) =>
+    finding.type === "implementation_target" &&
+    finding.status === "confirmed" &&
+    finding.authorizationHint === "eligible"));
+});
+
+scenario("189. non-Vite configuration target uses the same identity rule", async () => {
+  const { result } = await runExactConfigurationFixture({ suffix: "configuration-tsconfig", path: "tsconfig.json" });
+  const identity = result.facts.find((fact) => fact.predicate === CONFIGURATION_IDENTITY_PREDICATE);
+  assert.ok(identity);
+  assert.equal(identity.subject.fileId, result.entities.find((entity) => entity.id === identity.subject.id)?.fileId);
+});
+
+scenario("190. same-file member safeguards do not become whole-file configuration negatives", async () => {
+  const { result } = await runExactConfigurationFixture({
+    suffix: "configuration-member-safeguards",
+    path: "config/tool.json",
+    task: "In config/tool.json set maxItems to 50. Do not change plugins or aliases.",
+  });
+  assert.equal(result.stop.reason, "sufficient_evidence");
+  assert.ok(result.facts.some((fact) => fact.predicate === CONFIGURATION_IDENTITY_PREDICATE));
+});
+
+scenario("191. missing configuration update target gains no configuration identity", async () => {
+  const fixture = repositoryFixture("configuration-missing", [
+    { path: "config/existing.json", content: '{"enabled":true}\n', kind: "configuration" },
+  ]);
+  const { result } = await runStructuredRepositoryFixture({
+    source: fixture.snapshot,
+    adapterFiles: fixture.adapterFiles,
+    task: "Update config/missing.json.",
+    explicitTargets: [{ kind: "path", path: "config/missing.json" }],
+  });
+  assert.equal(result.facts.some((fact) => fact.predicate === CONFIGURATION_IDENTITY_PREDICATE), false);
+});
+
+scenario("192. vague configuration task gains no exact-configuration authority", async () => {
+  const { result } = await runExactConfigurationFixture({
+    suffix: "configuration-vague",
+    path: "config/tool.json",
+    task: "Update the build configuration.",
+    explicit: false,
+  });
+  assert.equal(result.facts.some((fact) => fact.predicate === CONFIGURATION_IDENTITY_PREDICATE), false);
+});
+
+scenario("193. generated configuration target remains non-editable", async () => {
+  const { result } = await runExactConfigurationFixture({
+    suffix: "configuration-generated",
+    path: "config/generated.json",
+    generated: true,
+  });
+  assert.equal(result.facts.some((fact) => fact.predicate === CONFIGURATION_IDENTITY_PREDICATE), false);
+});
+
+scenario("194. secret-bearing configuration target cannot obtain configuration identity", async () => {
+  const { result } = await runExactConfigurationFixture({
+    suffix: "configuration-secret",
+    path: ".env",
+    task: "Update .env.",
+    secretRisk: "known",
+  });
+  assert.equal(result.facts.some((fact) => fact.predicate === CONFIGURATION_IDENTITY_PREDICATE), false);
+  assert.equal(result.findings.some((finding) => finding.authorizationHint === "eligible"), false);
+});
+
+scenario("195. machine-managed lockfile cannot obtain configuration identity", async () => {
+  const { result } = await runExactConfigurationFixture({
+    suffix: "configuration-lockfile",
+    path: "package-lock.json",
+    task: "Update package-lock.json.",
+  });
+  assert.equal(result.facts.some((fact) => fact.predicate === CONFIGURATION_IDENTITY_PREDICATE), false);
+});
+
+scenario("196. explicit negative configuration path blocks configuration identity", async () => {
+  const { result } = await runExactConfigurationFixture({
+    suffix: "configuration-contradiction",
+    path: "config/tool.json",
+    task: "Edit config/tool.json, but do not modify config/tool.json.",
+    negativeConstraints: [{ kind: "path", pattern: "config/tool.json" }],
+  });
+  assert.equal(result.facts.some((fact) => fact.predicate === CONFIGURATION_IDENTITY_PREDICATE), false);
+});
+
+scenario("197. exact source target cannot use configuration identity", async () => {
+  const fixture = repositoryFixture("configuration-source-control", [
+    { path: "src/application.ts", content: "export const application = true;\n", kind: "source" },
+  ]);
+  const { result } = await runStructuredRepositoryFixture({
+    source: fixture.snapshot,
+    adapterFiles: fixture.adapterFiles,
+    task: "Update src/application.ts.",
+    explicitTargets: [{ kind: "path", path: "src/application.ts" }],
+  });
+  assert.equal(result.facts.some((fact) => fact.predicate === CONFIGURATION_IDENTITY_PREDICATE), false);
+});
+
+scenario("198. documentation keeps document identity and never gains configuration identity", async () => {
+  const { result } = await runExactDocumentationFixture({ suffix: "configuration-doc-control", path: "docs/setup.md" });
+  assert.ok(result.facts.some((fact) => fact.predicate === DOCUMENT_IDENTITY_PREDICATE));
+  assert.equal(result.facts.some((fact) => fact.predicate === CONFIGURATION_IDENTITY_PREDICATE), false);
+});
+
+scenario("199. configuration identity asserts no current property or value", async () => {
+  const { result } = await runExactConfigurationFixture({ suffix: "configuration-truth", path: "config/tool.json" });
+  const identity = result.facts.find((fact) => fact.predicate === CONFIGURATION_IDENTITY_PREDICATE);
+  assert.ok(identity);
+  assert.deepEqual(identity.object, { type: "boolean", value: true });
+  assert.equal(JSON.stringify(identity).includes("maxItems"), false);
+  assert.equal(JSON.stringify(identity).includes("50"), false);
+});
+
+scenario("200. configuration identity result is invariant to snapshot file ordering", async () => {
+  const normal = await runExactConfigurationFixture({ suffix: "configuration-order", path: "tsconfig.json" });
+  const reversed = await runExactConfigurationFixture({
+    suffix: "configuration-order",
+    path: "tsconfig.json",
+    reverseInventory: true,
+  });
+  assert.deepEqual(reversed.result, normal.result);
+});
+
+scenario("201. configuration identity replay is deterministic", async () => {
+  const first = await runExactConfigurationFixture({ suffix: "configuration-replay", path: "config/tool.json" });
+  const second = await runExactConfigurationFixture({ suffix: "configuration-replay", path: "config/tool.json" });
   assert.deepEqual(second.result, first.result);
 });
 
