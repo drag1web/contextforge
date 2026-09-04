@@ -96,7 +96,10 @@ function selection(files: SelectedTaskFile[], targets: string[]): TaskFileSelect
   };
 }
 
-function inventory(paths: string[]): ProjectInventory {
+function inventory(
+  paths: string[],
+  symbolsByPath: Readonly<Record<string, readonly string[]>> = {},
+): ProjectInventory {
   return {
     rootPath: "/fixture",
     files: paths.map((filePath) => {
@@ -116,8 +119,8 @@ function inventory(paths: string[]): ProjectInventory {
                 ? "ui-component"
                 : "component",
         imports: [],
-        exports: [],
-        symbols: [],
+        exports: [...(symbolsByPath[filePath] ?? [])],
+        symbols: [...(symbolsByPath[filePath] ?? [])],
         textHints: [],
         sizeBytes: 1,
         depth: filePath.split("/").length - 1,
@@ -137,10 +140,11 @@ function run(input: {
   inventoryPaths: string[];
   files: SelectedTaskFile[];
   authorizedTargets: string[];
+  symbolsByPath?: Readonly<Record<string, readonly string[]>>;
 }) {
   return enforceExecutionAuthorizationAuthority({
     rawTask: input.task,
-    inventory: inventory(input.inventoryPaths),
+    inventory: inventory(input.inventoryPaths, input.symbolsByPath),
     fileSelection: selection(input.files, input.authorizedTargets),
     qualityStatus: "ready",
   });
@@ -336,4 +340,175 @@ function assertInvestigation(result: TaskFileSelection) {
   assert.deepEqual(authorized(result), [target]);
 }
 
-console.log("Core Freeze Guard smoke passed (10 scenarios).");
+// Exact file-level negatives remain final over otherwise authorized edits.
+{
+  const target = "src/feature.ts";
+  const protectedFile = "src/config.ts";
+  const result = run({
+    task: `Change ${target}. Do not edit ${protectedFile}.`,
+    inventoryPaths: [target, protectedFile],
+    files: [selected(target), selected(protectedFile)],
+    authorizedTargets: [target, protectedFile],
+  });
+  assert.deepEqual(authorized(result), [target]);
+  assert.equal(result.selectedFiles.find((file) => file.path === protectedFile)?.usage, "inspect-only");
+}
+
+// A unique basename is still a whole-file protection reference.
+{
+  const target = "src/feature.ts";
+  const protectedFile = "src/config.ts";
+  const result = run({
+    task: `Change ${target}. Do not touch config.ts.`,
+    inventoryPaths: [target, protectedFile],
+    files: [selected(target), selected(protectedFile)],
+    authorizedTargets: [target, protectedFile],
+  });
+  assert.deepEqual(authorized(result), [target]);
+  assert.equal(result.selectedFiles.find((file) => file.path === protectedFile)?.usage, "inspect-only");
+}
+
+// Directory-scoped protection remains file-wide for paths under that directory.
+{
+  const target = "src/feature.ts";
+  const protectedFile = "src/private/tokenStore.ts";
+  const result = run({
+    task: `Change ${target}. Do not change files under src/private.`,
+    inventoryPaths: [target, protectedFile],
+    files: [selected(target), selected(protectedFile)],
+    authorizedTargets: [target, protectedFile],
+  });
+  assertInvestigation(result);
+  assert.equal(result.selectedFiles.find((file) => file.path === protectedFile)?.usage, "inspect-only");
+}
+
+// A protected member does not freeze its containing exact editable file.
+{
+  const target = "src/types/options.ts";
+  const result = run({
+    task: `In ${target} change OptionA. Do not change OptionB.`,
+    inventoryPaths: [target],
+    files: [selected(target)],
+    authorizedTargets: [target],
+    symbolsByPath: { [target]: ["OptionA", "OptionB"] },
+  });
+  assert.equal(result.diagnostics?.executionContract?.mode, "implementation");
+  assert.deepEqual(authorized(result), [target]);
+}
+
+// A sibling-member restriction remains granular inside one exact editable file.
+{
+  const target = "src/types/options.ts";
+  const result = run({
+    task: `In ${target} change DEFAULT_OPTIONS.pageSize. Do not change any other default option.`,
+    inventoryPaths: [target],
+    files: [selected(target)],
+    authorizedTargets: [target],
+    symbolsByPath: { [target]: ["DEFAULT_OPTIONS"] },
+  });
+  assert.equal(result.diagnostics?.executionContract?.mode, "implementation");
+  assert.deepEqual(authorized(result), [target]);
+}
+
+// A direct positive/negative file contradiction remains blocked.
+{
+  const target = "src/types/options.ts";
+  const result = run({
+    task: `Edit ${target}; do not edit ${target}.`,
+    inventoryPaths: [target],
+    files: [selected(target)],
+    authorizedTargets: [target],
+  });
+  assertInvestigation(result);
+}
+
+// A protected symbol that is not the requested member does not revoke file authority.
+{
+  const target = "src/types/options.ts";
+  const result = run({
+    task: `In ${target} change OptionA. Do not change OptionB.`,
+    inventoryPaths: [target],
+    files: [selected(target)],
+    authorizedTargets: [target],
+    symbolsByPath: { [target]: ["OptionA", "OptionB"] },
+  });
+  assert.deepEqual(authorized(result), [target]);
+}
+
+// A member requested and forbidden by the same task remains blocked.
+{
+  const target = "src/types/options.ts";
+  const result = run({
+    task: `In ${target} change OptionA; do not change OptionA.`,
+    inventoryPaths: [target],
+    files: [selected(target)],
+    authorizedTargets: [target],
+    symbolsByPath: { [target]: ["OptionA"] },
+  });
+  assertInvestigation(result);
+}
+
+// Lexical overlap with a file stem is not file-level protection evidence.
+{
+  const target = "src/types/settings.ts";
+  const result = run({
+    task: `In ${target} change FeatureFlag. Do not change any other default setting.`,
+    inventoryPaths: [target],
+    files: [selected(target)],
+    authorizedTargets: [target],
+    symbolsByPath: { [target]: ["FeatureFlag"] },
+  });
+  assert.equal(result.diagnostics?.executionContract?.mode, "implementation");
+  assert.deepEqual(authorized(result), [target]);
+}
+
+// Deliberate category-level protection remains whole-file protection.
+{
+  const target = "src/feature.ts";
+  const protectedFile = "src/components/ui/Button.tsx";
+  const result = run({
+    task: `Change ${target}. Do not modify shared UI components.`,
+    inventoryPaths: [target, protectedFile],
+    files: [selected(target), selected(protectedFile)],
+    authorizedTargets: [target, protectedFile],
+  });
+  assertInvestigation(result);
+  assert.equal(result.selectedFiles.find((file) => file.path === protectedFile)?.usage, "inspect-only");
+}
+
+// A protected member's owner cannot become an implicit editable substitute.
+{
+  const target = "src/feature.ts";
+  const protectedFile = "src/pages/RunDetails.tsx";
+  const result = run({
+    task: `Change ${target}. Do not change RunDetails.`,
+    inventoryPaths: [target, protectedFile],
+    files: [selected(target), selected(protectedFile)],
+    authorizedTargets: [target, protectedFile],
+    symbolsByPath: { [protectedFile]: ["RunDetails"] },
+  });
+  assertInvestigation(result);
+  assert.equal(result.selectedFiles.find((file) => file.path === protectedFile)?.usage, "inspect-only");
+}
+
+// File/member classification and final authority are invariant to input ordering.
+{
+  const target = "src/types/options.ts";
+  const reference = "src/types/optionsConsumer.ts";
+  const input = {
+    task: `In ${target} change OptionA. Do not change OptionB.`,
+    inventoryPaths: [target, reference],
+    authorizedTargets: [target],
+    symbolsByPath: { [target]: ["OptionA", "OptionB"] },
+  };
+  const first = run({ ...input, files: [selected(target), selected(reference, "inspect-only")] });
+  const second = run({ ...input, inventoryPaths: [...input.inventoryPaths].reverse(), files: [selected(reference, "inspect-only"), selected(target)] });
+  const summarize = (result: TaskFileSelection) => ({
+    authorized: [...authorized(result)].sort(),
+    files: result.selectedFiles.map((file) => ({ path: file.path, usage: file.usage })).sort((left, right) => left.path.localeCompare(right.path)),
+    mode: result.diagnostics?.executionContract?.mode,
+  });
+  assert.deepEqual(summarize(first), summarize(second));
+}
+
+console.log("Core Freeze Guard smoke passed (22 scenarios).");

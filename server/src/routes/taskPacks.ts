@@ -1010,12 +1010,14 @@ function buildEffectiveExecutionContract({
   taskIntent,
   fileSelection,
   repositoryGroundedProofs,
+  verifiedExplicitPrimaryTargetPaths,
 }: {
   rawTask: string;
   inventory: ProjectInventory;
   taskIntent?: TaskIntentAnalysis;
   fileSelection: TaskFileSelection;
   repositoryGroundedProofs?: readonly RepositoryGroundedAuthorizationProof[];
+  verifiedExplicitPrimaryTargetPaths?: readonly string[];
 }): TaskExecutionContract {
   const canonicalContract = fileSelection.diagnostics?.executionContract;
   if (canonicalContract) return canonicalContract;
@@ -1060,6 +1062,7 @@ function buildEffectiveExecutionContract({
     existingImplementationRequiresReview:
       fileSelection.diagnostics?.existingImplementationRequiresReview ?? false,
     repositoryGroundedProofs,
+    verifiedExplicitPrimaryTargetPaths,
   });
 }
 
@@ -1247,6 +1250,9 @@ export function validateTaskPackPrimaryCandidate(input: {
     taskIntent: input.taskIntent,
     fileSelection: explicit.selection,
     repositoryGroundedProofs: input.proofs,
+    verifiedExplicitPrimaryTargetPaths: exactStructuredTargetsPreserved
+      ? userConfirmedTargetPaths
+      : [],
   });
   const withContract: TaskFileSelection = {
     ...explicit.selection,

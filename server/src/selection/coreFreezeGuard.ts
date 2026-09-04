@@ -95,6 +95,31 @@ function collectProtectedEntityPhrases(
   return uniqueStrings(phrases);
 }
 
+function isWholeFileProtectionPhrase(rawEntity: string) {
+  const entity = stripEntityNoise(rawEntity).trim();
+  if (!entity) return false;
+  if (extractClassifiedFileMentions(entity).length > 0) return true;
+  if (/[\\/]/u.test(entity)) return true;
+  return /(?:shared\s+ui\s+components?|company\s+(?:data|content)|home\s+page|главн\p{L}*\s+страниц|electron\s+shortcuts?|application\s+source\s+code|source\s+code|^(?:layouts?|лейаут\p{L}*|pages?|страниц\p{L}*|forms?|форм\p{L}*|routes?|endpoints?|роут\p{L}*|маршрут\p{L}*|schemas?|схем\p{L}*|api|backend(?:\s+api)?|апи|бэкенд|configs?|configuration|settings?)$)/iu.test(entity);
+}
+
+function fileContainsProtectedMember(
+  file: ProjectInventoryFile | undefined,
+  rawEntity: string,
+) {
+  if (!file) return false;
+  const normalizedEntity = rawEntity.normalize("NFKC").toLowerCase();
+  const memberCandidates = uniqueStrings([
+    ...(file.symbols ?? []),
+    ...(file.exports ?? []),
+  ]);
+  return memberCandidates.some((candidate) => {
+    const normalizedCandidate = candidate.normalize("NFKC").toLowerCase();
+    return new RegExp(`(?:^|[^\\p{L}\\p{N}_])${escapeRegExp(normalizedCandidate)}(?:$|[^\\p{L}\\p{N}_])`, "iu")
+      .test(normalizedEntity);
+  });
+}
+
 function fileStem(filePath: string) {
   const name = path.basename(normalizePath(filePath));
   return name.replace(/\.[^.]+$/u, "");
@@ -192,7 +217,16 @@ export function resolveProtectedSelectedPaths(input: {
   const protectedPaths = input.selectedFiles
     .filter((selected) => {
       const file = inventoryFileByPath(input.inventory, selected.path);
-      return phrases.some((phrase) => matchesProtectedEntity(file, selected.path, phrase));
+      return phrases.some((phrase) => {
+        if (isWholeFileProtectionPhrase(phrase)) {
+          return matchesProtectedEntity(file, selected.path, phrase);
+        }
+        const memberMatchesFile = fileContainsProtectedMember(file, phrase) ||
+          matchesProtectedEntity(file, selected.path, phrase);
+        if (!memberMatchesFile) return false;
+        return isAffirmativeMutationMention(input.rawTask, phrase) ||
+          !isDirectMutationMention(input.rawTask, selected.path);
+      });
     })
     .map((selected) => selected.path);
 
@@ -239,6 +273,20 @@ function isDirectMutationMention(rawTask: string, mention: string) {
   });
 }
 
+function isAffirmativeMutationMention(rawTask: string, mention: string) {
+  const action = String.raw`(?:edit|change|update|modify|fix|replace|rename|move|remove|delete|set|add|wire|редактир\p{L}*|измен\p{L}*|обнов\p{L}*|исправ\p{L}*|замен\p{L}*|переимен\p{L}*|удал\p{L}*|добав\p{L}*)`;
+  const negation = String.raw`(?:do\s+not|don't|dont|must\s+not|should\s+not|never|не)`;
+  return occurrenceContexts(rawTask, mention).some(({ before, after }) => {
+    const trailing = before.slice(-160);
+    const leading = after.slice(0, 160);
+    const actionBefore = new RegExp(`${action}[^.!?;\n]{0,100}$`, "iu").test(trailing);
+    const negatedBefore = new RegExp(`${negation}[^.!?;\n]{0,30}${action}[^.!?;\n]{0,100}$`, "iu").test(trailing);
+    const actionAfter = new RegExp(`^\\s*(?:,|:|-)?\\s*${action}\\b`, "iu").test(leading);
+    const negatedAfter = new RegExp(`^\\s*(?:,|:|-)?\\s*${negation}[^.!?;\n]{0,30}${action}\\b`, "iu").test(leading);
+    return (actionBefore && !negatedBefore) || (actionAfter && !negatedAfter);
+  });
+}
+
 function resolveInventoryMention(
   inventory: ProjectInventory,
   rawMention: string,
@@ -274,7 +322,13 @@ export function resolveDirectExistingMutationTargets(input: {
     const matchedPath = resolveInventoryMention(input.inventory, mention.path);
     if (!matchedPath) continue;
     const file = inventoryFileByPath(input.inventory, matchedPath);
-    if (protectedPhrases.some((phrase) => matchesProtectedEntity(file, matchedPath, phrase))) {
+    if (protectedPhrases.some((phrase) => {
+      if (isWholeFileProtectionPhrase(phrase)) {
+        return matchesProtectedEntity(file, matchedPath, phrase);
+      }
+      return fileContainsProtectedMember(file, phrase) &&
+        isAffirmativeMutationMention(input.rawTask, phrase);
+    })) {
       continue;
     }
     targets.push(matchedPath);

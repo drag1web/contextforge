@@ -218,6 +218,39 @@ await scenario("an exact explicit user target retains user-text provenance", () 
     }),
   );
 });
+await scenario("an exact grounded primary target outranks inferred single-layer taxonomy", () => {
+  const explicitIntent: TaskIntentAnalysis = {
+    ...structuredClone(taskIntent),
+    taskArea: "ui",
+    structuredIntent: {
+      ...structuredClone(taskIntent.structuredIntent),
+      primaryTargets: [{
+        kind: "explicit_file", value: "src/service.ts", path: "src/service.ts", provenance: "user_confirmed",
+        confidence: 1, evidence: "Exact path provided by the user.",
+      }],
+    },
+    taskUnderstanding: {
+      ...structuredClone(taskIntent.taskUnderstanding),
+      targetHints: ["src/service.ts"],
+      changeDefinition: "exact",
+    },
+  };
+  const explicitResult = validateTaskPackPrimaryCandidate({
+    rawTask: "In src/service.ts update handleRequest.", requestedTaskType: "general", effectiveTaskArea: "ui",
+    inventory, taskIntent: explicitIntent, contextQualityMode: "balanced",
+    candidate: realResolution.adoptedFiles ?? [], proofs: realResolution.groundedProofs,
+  });
+  assert.equal(explicitResult.validation.passed, true, JSON.stringify(explicitResult.validation));
+  assert.equal(explicitResult.validation.authorizationPreserved, true);
+  assert.deepEqual(
+    explicitResult.productionSelection.selectedFiles
+      .filter((file) => file.usage === "inspect-and-edit" || file.usage === "create-and-edit")
+      .map((file) => file.path),
+    ["src/service.ts"],
+  );
+  assert.equal(explicitResult.productionSelection.diagnostics?.executionContract?.requiredLayers.includes("ui"), true);
+  assert.equal(explicitResult.productionSelection.diagnostics?.executionContract?.missingConfirmedLayers?.includes("ui"), true);
+});
 await scenario("connected entry-to-owner evidence emits an exact relationship chain", () => assert.equal(
   realResolution.groundedProofs.find((proof) => proof.path === "src/service.ts")?.proofKind,
   "exact_relationship_chain",

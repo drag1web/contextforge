@@ -781,6 +781,274 @@ function run() {
     scenarios += 1;
   }
 
+  const exactPrimaryTarget = (
+    path: string,
+    semanticRoles: Array<"display" | "reference"> = ["reference"],
+  ) => ({
+    path,
+    usage: "inspect-and-edit",
+    evidenceLevel: "graph_supported" as const,
+    selectionEvidence: {
+      targetSource: "user_text" as const,
+      pathValidity: "inventory_exact" as const,
+      ownershipEvidence: "symbol_exact" as const,
+      actionConfidence: "confirmed_edit" as const,
+      semanticRoles,
+      symbols: ["TargetOwner"],
+      chain: [],
+      negativeConstraintConflicts: [],
+      reason: "The exact current target has a grounded owner proof.",
+    },
+  });
+  const supportingFile = (path: string) => ({
+    path,
+    usage: "inspect-only",
+    evidenceLevel: "inventory_exact" as const,
+    selectionEvidence: {
+      targetSource: "ranking" as const,
+      pathValidity: "inventory_exact" as const,
+      ownershipEvidence: "reference_graph" as const,
+      actionConfidence: "inspect_only" as const,
+      semanticRoles: ["reference" as const],
+      symbols: [],
+      chain: [],
+      negativeConstraintConflicts: [],
+      reason: "Relevant supporting context only.",
+    },
+  });
+  const groundedProof = (path: string) => ({
+    path,
+    role: "target" as const,
+    evidenceCurrent: true as const,
+    findingConfirmed: true as const,
+    targetRoleSupported: true as const,
+    snapshotCurrent: true as const,
+    ambiguityResolved: true as const,
+    constraintsSatisfied: true as const,
+  });
+  const explicitStructuredIntent = (path: string) => ({
+    schemaVersion: 1 as const,
+    primaryTargets: [{
+      kind: "explicit_file" as const,
+      value: path,
+      path,
+      confidence: 1,
+      evidence: "Exact path provided by the user.",
+      provenance: "user_confirmed" as const,
+    }],
+    positiveActions: ["Update the exact target."],
+    protectedScopes: [],
+    allowedEditScope: "target_with_supporting_context" as const,
+    needsStyles: false,
+    needsBackend: null,
+    ambiguities: [],
+    modelNotes: [],
+  });
+  const inventoryFile = (
+    path: string,
+    role: "types" | "component" = "types",
+  ) => ({ path, kind: "source" as const, role });
+
+  // A verified exact primary target outranks a single inferred area/layer mismatch.
+  {
+    const target = "src/types/options.ts";
+    const rawTask = `In ${target} update TargetOwner.`;
+    const base = buildTaskExecutionContract({
+      rawTask,
+      projectTree: [target],
+      taskArea: "ui",
+      understanding: understanding({ targetHints: [target], changeDefinition: "exact" }),
+      structuredIntent: explicitStructuredIntent(target),
+      fileRoleHints: ["types"],
+    });
+    const gated = applySelectionEvidenceGate({
+      contract: base,
+      rawTask,
+      selectedFiles: [exactPrimaryTarget(target)],
+      inventoryFiles: [inventoryFile(target)],
+      repositoryGroundedProofs: [groundedProof(target)],
+      verifiedExplicitPrimaryTargetPaths: [target],
+    });
+    assert.deepEqual(base.requiredLayers, ["ui"]);
+    assert.deepEqual(gated.missingConfirmedLayers, ["ui"]);
+    assert.equal(gated.mode, "implementation");
+    assert.deepEqual(gated.authorization?.authorizedTargets, [target]);
+    scenarios += 1;
+  }
+
+  // Matching inferred area behavior remains unchanged.
+  {
+    const target = "src/components/TargetPanel.tsx";
+    const rawTask = `In ${target} update TargetOwner.`;
+    const base = buildTaskExecutionContract({
+      rawTask,
+      projectTree: [target],
+      taskArea: "ui",
+      understanding: understanding({ targetHints: [target], changeDefinition: "exact" }),
+      structuredIntent: explicitStructuredIntent(target),
+      fileRoleHints: ["component"],
+    });
+    const gated = applySelectionEvidenceGate({
+      contract: base,
+      rawTask,
+      selectedFiles: [exactPrimaryTarget(target, ["display"])],
+      inventoryFiles: [inventoryFile(target, "component")],
+      repositoryGroundedProofs: [groundedProof(target)],
+      verifiedExplicitPrimaryTargetPaths: [target],
+    });
+    assert.equal(gated.mode, "implementation");
+    assert.deepEqual(gated.missingConfirmedLayers, []);
+    assert.deepEqual(gated.authorization?.authorizedTargets, [target]);
+    scenarios += 1;
+  }
+
+  // Explicitly requested multi-layer work remains incomplete when one layer is absent.
+  {
+    const target = "src/components/TargetPanel.tsx";
+    const rawTask = `Update the UI in ${target} and update the backend API.`;
+    const base = buildTaskExecutionContract({
+      rawTask,
+      projectTree: [target, "server/src/api.ts"],
+      taskArea: "fullstack",
+      understanding: understanding({ targetHints: [target], changeDefinition: "exact" }),
+      structuredIntent: explicitStructuredIntent(target),
+      fileRoleHints: ["component", "api"],
+    });
+    const gated = applySelectionEvidenceGate({
+      contract: base,
+      rawTask,
+      selectedFiles: [exactPrimaryTarget(target, ["display"])],
+      inventoryFiles: [inventoryFile(target, "component"), { path: "server/src/api.ts", kind: "source", role: "api-route" }],
+      repositoryGroundedProofs: [groundedProof(target)],
+      verifiedExplicitPrimaryTargetPaths: [target],
+    });
+    assert.equal(base.requiredLayers.includes("ui"), true);
+    assert.equal(base.requiredLayers.includes("backend"), true);
+    assert.equal(gated.mode, "investigation");
+    assert.ok(gated.implementationGateReasons.some((reason) => reason.includes("backend")));
+    scenarios += 1;
+  }
+
+  // Without exact primary-target provenance, inferred layer behavior is unchanged.
+  {
+    const target = "src/types/options.ts";
+    const rawTask = "Update the UI behavior.";
+    const base = buildTaskExecutionContract({
+      rawTask,
+      projectTree: [target],
+      taskArea: "ui",
+      understanding: understanding(),
+      structuredIntent: null,
+      fileRoleHints: ["types"],
+    });
+    const gated = applySelectionEvidenceGate({
+      contract: base,
+      rawTask,
+      selectedFiles: [exactPrimaryTarget(target)],
+      inventoryFiles: [inventoryFile(target)],
+      repositoryGroundedProofs: [groundedProof(target)],
+    });
+    assert.equal(gated.mode, "investigation");
+    assert.ok(gated.implementationGateReasons.some((reason) => reason.includes("layer coverage")));
+    scenarios += 1;
+  }
+
+  // A model/inventory proposal cannot use the exact-primary exception.
+  {
+    const target = "src/types/options.ts";
+    const rawTask = "Update the UI behavior.";
+    const base = buildTaskExecutionContract({
+      rawTask,
+      projectTree: [target],
+      taskArea: "ui",
+      understanding: understanding(),
+      structuredIntent: null,
+      fileRoleHints: ["types"],
+    });
+    const exact = exactPrimaryTarget(target);
+    const proposed = {
+      ...exact,
+      selectionEvidence: {
+        ...exact.selectionEvidence,
+        targetSource: "ranking" as const,
+      },
+    };
+    const gated = applySelectionEvidenceGate({
+      contract: base,
+      rawTask,
+      selectedFiles: [proposed],
+      inventoryFiles: [inventoryFile(target)],
+      repositoryGroundedProofs: [groundedProof(target)],
+      verifiedExplicitPrimaryTargetPaths: [target],
+    });
+    assert.equal(gated.mode, "investigation");
+    assert.deepEqual(gated.authorization?.authorizedTargets, []);
+    scenarios += 1;
+  }
+
+  // A useful sibling remains inspect-only while the exact target stays editable.
+  {
+    const target = "src/types/options.ts";
+    const sibling = "src/components/OptionsPanel.tsx";
+    const rawTask = `In ${target} update TargetOwner.`;
+    const base = buildTaskExecutionContract({
+      rawTask,
+      projectTree: [target, sibling],
+      taskArea: "ui",
+      understanding: understanding({ targetHints: [target], changeDefinition: "exact" }),
+      structuredIntent: explicitStructuredIntent(target),
+      fileRoleHints: ["types", "component"],
+    });
+    const gated = applySelectionEvidenceGate({
+      contract: base,
+      rawTask,
+      selectedFiles: [exactPrimaryTarget(target), supportingFile(sibling)],
+      inventoryFiles: [inventoryFile(target), inventoryFile(sibling, "component")],
+      repositoryGroundedProofs: [groundedProof(target)],
+      verifiedExplicitPrimaryTargetPaths: [target],
+    });
+    assert.equal(gated.mode, "implementation");
+    assert.deepEqual(gated.authorization?.authorizedTargets, [target]);
+    assert.equal(gated.targetEvidence.find((item) => item.path === sibling)?.confirmedForImplementation, false);
+    scenarios += 1;
+  }
+
+  // Equivalent selection/inventory ordering produces the same authority result.
+  {
+    const target = "src/types/options.ts";
+    const sibling = "src/components/OptionsPanel.tsx";
+    const rawTask = `In ${target} update TargetOwner.`;
+    const base = buildTaskExecutionContract({
+      rawTask,
+      projectTree: [target, sibling],
+      taskArea: "ui",
+      understanding: understanding({ targetHints: [target], changeDefinition: "exact" }),
+      structuredIntent: explicitStructuredIntent(target),
+      fileRoleHints: ["types", "component"],
+    });
+    const evaluate = (reversed: boolean) => applySelectionEvidenceGate({
+      contract: structuredClone(base),
+      rawTask,
+      selectedFiles: reversed
+        ? [supportingFile(sibling), exactPrimaryTarget(target)]
+        : [exactPrimaryTarget(target), supportingFile(sibling)],
+      inventoryFiles: reversed
+        ? [inventoryFile(sibling, "component"), inventoryFile(target)]
+        : [inventoryFile(target), inventoryFile(sibling, "component")],
+      repositoryGroundedProofs: [groundedProof(target)],
+      verifiedExplicitPrimaryTargetPaths: [target],
+    });
+    const summarize = (contract: ReturnType<typeof evaluate>) => ({
+      mode: contract.mode,
+      confirmed: [...contract.confirmedTargets].sort(),
+      authorized: [...(contract.authorization?.authorizedTargets ?? [])].sort(),
+      gates: [...contract.implementationGateReasons].sort(),
+      evidence: contract.targetEvidence.map((item) => ({ path: item.path, confirmed: item.confirmedForImplementation })).sort((left, right) => String(left.path).localeCompare(String(right.path))),
+    });
+    assert.deepEqual(summarize(evaluate(false)), summarize(evaluate(true)));
+    scenarios += 1;
+  }
+
   console.log(`task execution contract smoke passed: ${scenarios} scenarios`);
 }
 

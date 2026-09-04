@@ -705,6 +705,43 @@ function inferRequiredLayers({
   return layers.filter((layer) => !protectedLayers.has(layer));
 }
 
+function inferExplicitMultiLayerObligations(rawTask: string) {
+  let taskText = String(rawTask || "").normalize("NFKC").toLowerCase();
+  for (const mention of extractClassifiedFileMentions(rawTask)) {
+    taskText = taskText.replaceAll(mention.path.replace(/\\/gu, "/").toLowerCase(), " ");
+  }
+
+  const detected = new Set<TaskExecutionLayer>();
+  if (/(?:\b(?:frontend|renderer|ui|interface|screen|page|component)\b|интерфейс|фронтенд|рендерер|экран|страниц|компонент)/iu.test(taskText)) {
+    detected.add("ui");
+  }
+  if (/(?:\b(?:client api|api client|frontend api|renderer api|client contract)\b|клиентск\w*\s+api|api[- ]клиент|клиентск\w*\s+контракт)/iu.test(taskText)) {
+    detected.add("client-api");
+  }
+  if (/(?:\b(?:backend|server|api|endpoint|route)\b|сервер|бэк|бекенд|бэкенд|апи|эндпоинт|маршрут)/iu.test(taskText)) {
+    detected.add("backend");
+  }
+  if (/(?:\b(?:state|store|cache|reducer|controller|session)\b|состояни|кеш|кэш|контроллер|сесси)/iu.test(taskText)) {
+    detected.add("state");
+  }
+  if (/(?:\b(?:database|storage|repository|migration|schema|sqlite|postgres|persist)\b|баз\w*\s+данн|хранилищ|репозитор|миграц|схем|сохран)/iu.test(taskText)) {
+    detected.add("storage");
+  }
+  if (/(?:\b(?:test|tests|spec|coverage)\b|тест|покрыт)/iu.test(taskText)) {
+    detected.add("tests");
+  }
+  if (/(?:\b(?:config|configuration|settings file)\b|конфиг|файл\w*\s+настро)/iu.test(taskText)) {
+    detected.add("config");
+  }
+  if (/(?:\b(?:docs|documentation|readme)\b|документ|ридми)/iu.test(taskText)) {
+    detected.add("docs");
+  }
+
+  if (detected.size < 2) return [];
+  return (["ui", "client-api", "backend", "state", "storage", "tests", "config", "docs"] as const)
+    .filter((layer) => detected.has(layer));
+}
+
 function pathMatchesLayer(
   pathValue: string,
   layer: TaskExecutionLayer,
@@ -1103,6 +1140,7 @@ export function applySelectionEvidenceGate(input: {
     role: ProjectInventoryFileRole;
   }>;
   repositoryGroundedProofs?: readonly RepositoryGroundedAuthorizationProof[];
+  verifiedExplicitPrimaryTargetPaths?: readonly string[];
 }): TaskExecutionContract {
   const repositoryGroundedProofsByPath = new Map(
     (input.repositoryGroundedProofs ?? []).map((proof) => [normalizeForCompare(proof.path), proof]),
@@ -1199,6 +1237,41 @@ export function applySelectionEvidenceGate(input: {
   const missingConfirmedTargets = normalizedContractConfirmedTargets.filter(
     (target) => !selectedPaths.has(normalizeForCompare(target)),
   );
+  const verifiedExplicitPrimaryTargetPaths = new Set(
+    (input.verifiedExplicitPrimaryTargetPaths ?? []).map(normalizeForCompare),
+  );
+  const isVerifiedExplicitPrimaryEditable = (file: (typeof editable)[number]) => {
+    const normalizedPath = normalizeForCompare(file.path);
+    const evidence = file.selectionEvidence;
+    const targetEvidence = normalizedContractTargetEvidence.find(
+      (target) => target.path && normalizeForCompare(target.path) === normalizedPath,
+    );
+    return Boolean(
+      verifiedExplicitPrimaryTargetPaths.has(normalizedPath) &&
+      input.rawTask &&
+      taskExplicitlyNamesTarget(input.rawTask, file.path) &&
+      inventoryByPath.has(normalizedPath) &&
+      evidence?.targetSource === "user_text" &&
+      evidence.pathValidity === "inventory_exact" &&
+      evidence.actionConfidence === "confirmed_edit" &&
+      evidence.negativeConstraintConflicts.length === 0 &&
+      targetEvidence?.evidenceLevel === "user_confirmed" &&
+      targetEvidence.confirmedForImplementation &&
+      repositoryGroundedProofIsValid(
+        repositoryGroundedProofsByPath.get(normalizedPath),
+        file.path,
+      )
+    );
+  };
+  const verifiedExplicitPrimarySelection = Boolean(
+    editable.length > 0 &&
+    editable.every(isVerifiedExplicitPrimaryEditable) &&
+    normalizedContractConfirmedTargets.length > 0 &&
+    normalizedContractConfirmedTargets.every((target) => {
+      const normalizedTarget = normalizeForCompare(target);
+      return verifiedExplicitPrimaryTargetPaths.has(normalizedTarget) && selectedPaths.has(normalizedTarget);
+    }),
+  );
   const candidateLayerCoverage = input.contract.requiredLayers.filter((layer) =>
     input.selectedFiles.some((file) =>
       pathMatchesLayer(
@@ -1222,6 +1295,13 @@ export function applySelectionEvidenceGate(input: {
   const missingConfirmedLayers = input.contract.requiredLayers.filter(
     (layer) => !confirmedLayerCoverage.includes(layer),
   );
+  const explicitMultiLayerObligations = new Set(
+    inferExplicitMultiLayerObligations(input.rawTask ?? "")
+      .filter((layer) => input.contract.requiredLayers.includes(layer)),
+  );
+  const blockingMissingConfirmedLayers = verifiedExplicitPrimarySelection
+    ? missingConfirmedLayers.filter((layer) => explicitMultiLayerObligations.has(layer))
+    : missingConfirmedLayers;
   const gateReasons = uniqueStrings(
     [
       ...input.contract.implementationGateReasons.filter((reason) =>
@@ -1252,9 +1332,9 @@ export function applySelectionEvidenceGate(input: {
       missingRequiredLayers.length > 0
         ? `Required layer coverage is incomplete: ${missingRequiredLayers.join(", ")}.`
         : "",
-      missingConfirmedLayers.length > 0 &&
+      blockingMissingConfirmedLayers.length > 0 &&
       input.contract.requiredLayers.length > 0
-        ? `Confirmed layer coverage is incomplete: ${missingConfirmedLayers.join(", ")}.`
+        ? `Confirmed layer coverage is incomplete: ${blockingMissingConfirmedLayers.join(", ")}.`
         : "",
       missingConfirmedTargets.length > 0 && !hasTrustedEditableEvidence
         ? `Final selection omitted confirmed target(s): ${missingConfirmedTargets.join(", ")}.`
