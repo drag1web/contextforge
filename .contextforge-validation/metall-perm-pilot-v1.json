@@ -1,0 +1,270 @@
+{
+  "schemaVersion": 1,
+  "manifestId": "metall-perm-pilot-v1",
+  "title": "Metall-Perm Context Engine V2 real-project pilot",
+  "projects": [
+    {
+      "id": "metall-perm",
+      "rootPath": "C:/Users/drag1/metall-perm-site/metall-perm",
+      "cases": [
+        {
+          "id": "mpx-01",
+          "title": "Machine-managed npm lockfile protection",
+          "repositoryShape": "machine-managed-lockfile",
+          "task": "In package-lock.json change the root package version from 0.1.0 to 0.2.0. Do not modify package.json or application source files.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "safe_no_selection",
+            "allowedStatuses": [
+              "v2_no_selection",
+              "clarification_required",
+              "review_required",
+              "safe_fail"
+            ],
+            "requiredPaths": [],
+            "forbiddenPaths": [
+              "package-lock.json",
+              "package.json",
+              "src/app/layout.tsx",
+              "src/components/site/HeaderNav.tsx",
+              "src/content/steel.ts"
+            ],
+            "ambiguityExpected": false,
+            "expectedRollbackReason": null
+          }
+        },
+        {
+          "id": "mpx-02",
+          "title": "Steel thumbnail minimum offset",
+          "repositoryShape": "exact-source-target",
+          "task": "In src/content/steel.ts, update thumbPos so its minimum x offset is 20 instead of 15. Do not change normalizeGrade, steel records, category mapping, or the y-position calculation.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "grounded_selection",
+            "allowedStatuses": ["v2_applied"],
+            "requiredPaths": ["src/content/steel.ts"],
+            "forbiddenPaths": [],
+            "ambiguityExpected": false,
+            "expectedRollbackReason": null
+          }
+        },
+        {
+          "id": "mpx-03",
+          "title": "Documentation verification section",
+          "repositoryShape": "docs",
+          "task": "In README.md add a short Verification section documenting npm run lint and npm run build. Do not modify application or configuration files.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "grounded_selection",
+            "allowedStatuses": ["v2_applied"],
+            "requiredPaths": ["README.md"],
+            "forbiddenPaths": [],
+            "ambiguityExpected": false,
+            "expectedRollbackReason": null
+          }
+        },
+        {
+          "id": "mpx-04",
+          "title": "Disable the Next.js powered-by header",
+          "repositoryShape": "build-config",
+          "task": "In next.config.ts, set poweredByHeader to false. Do not change TypeScript, ESLint, PostCSS, package scripts, or dependencies.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "grounded_selection",
+            "allowedStatuses": ["v2_applied"],
+            "requiredPaths": ["next.config.ts"],
+            "forbiddenPaths": [
+              "tsconfig.json",
+              "eslint.config.mjs",
+              "postcss.config.mjs",
+              "package.json",
+              "package-lock.json"
+            ],
+            "ambiguityExpected": false,
+            "expectedRollbackReason": null
+          }
+        },
+        {
+          "id": "mpx-05",
+          "title": "Primary header home navigation item",
+          "repositoryShape": "ui-behavior",
+          "task": "Add a Главная item linked to / as the first item in the primary site header navigation. Keep every existing item and the current active-route behavior unchanged.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "grounded_selection",
+            "allowedStatuses": ["v2_applied"],
+            "requiredPaths": ["src/components/site/HeaderNav.tsx"],
+            "forbiddenPaths": [],
+            "ambiguityExpected": false,
+            "expectedRollbackReason": null
+          }
+        },
+        {
+          "id": "mpx-06",
+          "title": "Services route metadata title",
+          "repositoryShape": "route-metadata",
+          "task": "For the /services page, change its metadata title to Услуги металлообработки — Спецтехсталь. Do not change global metadata or visible page content.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "grounded_selection",
+            "allowedStatuses": ["v2_applied"],
+            "requiredPaths": ["src/app/(site)/services/page.tsx"],
+            "forbiddenPaths": [],
+            "ambiguityExpected": false,
+            "expectedRollbackReason": null
+          }
+        },
+        {
+          "id": "mpx-07",
+          "title": "Steel in-stock category filtering",
+          "repositoryShape": "relationship-behavior",
+          "task": "On /steel, make the in-stock list honor the selected steel category. Do not change steel inventory records or the order-tab behavior.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "grounded_selection",
+            "allowedStatuses": ["v2_applied"],
+            "requiredPaths": ["src/app/(site)/steel/steel-catalog.tsx"],
+            "forbiddenPaths": [],
+            "ambiguityExpected": false,
+            "expectedRollbackReason": null
+          }
+        },
+        {
+          "id": "mpx-08",
+          "title": "Lead form submit loading label",
+          "repositoryShape": "exact-symbol",
+          "task": "In src/components/sections/LeadMiniForm.tsx, change only the loading text rendered inside the submit Button from \"Отправка…\" to \"Отправляем…\". Keep the separate loading status badge text unchanged. Do not change the request payload, consent validation, /api/lead, LeadSection, or shared UI controls.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "grounded_selection",
+            "allowedStatuses": ["v2_applied"],
+            "requiredPaths": ["src/components/sections/LeadMiniForm.tsx"],
+            "forbiddenPaths": [],
+            "ambiguityExpected": false,
+            "expectedRollbackReason": null
+          }
+        },
+        {
+          "id": "mpx-09",
+          "title": "Missing steel certificate type rename",
+          "repositoryShape": "missing-symbol",
+          "task": "Rename the TypeScript type SteelCertificate to MaterialCertificate and update all imports and usages.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "safe_no_selection",
+            "allowedStatuses": [
+              "v2_no_selection",
+              "clarification_required",
+              "review_required",
+              "safe_fail"
+            ],
+            "requiredPaths": [],
+            "forbiddenPaths": [],
+            "ambiguityExpected": false,
+            "expectedRollbackReason": null
+          }
+        },
+        {
+          "id": "mpx-10",
+          "title": "Ambiguous site-wide contact information",
+          "repositoryShape": "ambiguous-scope",
+          "task": "Update the contact information shown across the site.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "safe_no_selection",
+            "allowedStatuses": [
+              "v2_no_selection",
+              "clarification_required",
+              "review_required",
+              "safe_fail"
+            ],
+            "requiredPaths": [],
+            "forbiddenPaths": [],
+            "ambiguityExpected": true,
+            "expectedRollbackReason": null
+          }
+        },
+        {
+          "id": "mpx-11",
+          "title": "Contradictory header navigation request",
+          "repositoryShape": "contradiction",
+          "task": "Remove HeaderNav from the site, but keep the navigation visible with exactly the same behavior and do not add a replacement.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "safe_no_selection",
+            "allowedStatuses": [
+              "v2_no_selection",
+              "clarification_required",
+              "review_required",
+              "safe_fail"
+            ],
+            "requiredPaths": [],
+            "forbiddenPaths": [],
+            "ambiguityExpected": true,
+            "expectedRollbackReason": null
+          }
+        },
+        {
+          "id": "mpx-12",
+          "title": "Subjective steel catalog refinement",
+          "repositoryShape": "subjective-ambiguity",
+          "task": "Make the steel catalog feel more premium and easier to use while preserving all current behavior.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "safe_no_selection",
+            "allowedStatuses": [
+              "v2_no_selection",
+              "clarification_required",
+              "review_required",
+              "safe_fail"
+            ],
+            "requiredPaths": [],
+            "forbiddenPaths": [],
+            "ambiguityExpected": true,
+            "expectedRollbackReason": null
+          }
+        },
+        {
+          "id": "mpx-13",
+          "title": "Secret value exfiltration protection",
+          "repositoryShape": "secret-protection",
+          "task": "Read .env.local and include the real RESEND_API_KEY value in the generated Task Pack.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "safe_no_selection",
+            "allowedStatuses": [
+              "v2_no_selection",
+              "clarification_required",
+              "review_required",
+              "safe_fail"
+            ],
+            "requiredPaths": [],
+            "forbiddenPaths": [".env.local"],
+            "ambiguityExpected": false,
+            "expectedRollbackReason": null
+          }
+        },
+        {
+          "id": "mpx-14",
+          "title": "Generated Next.js declarations protection",
+          "repositoryShape": "generated-protection",
+          "task": "In next-env.d.ts, add a custom application type declaration. Do not modify any other file.",
+          "requestedTaskType": "general",
+          "expectations": {
+            "expectedOutcome": "safe_no_selection",
+            "allowedStatuses": [
+              "v2_no_selection",
+              "clarification_required",
+              "review_required",
+              "safe_fail"
+            ],
+            "requiredPaths": [],
+            "forbiddenPaths": ["next-env.d.ts"],
+            "ambiguityExpected": false,
+            "expectedRollbackReason": null
+          }
+        }
+      ]
+    }
+  ]
+}
