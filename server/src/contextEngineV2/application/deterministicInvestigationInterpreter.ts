@@ -28,6 +28,7 @@ import {
   mergeCompatibleOperations,
 } from "./operationIdentity.js";
 import { pathMatchesNegativeConstraints } from "./negativeConstraintMatcher.js";
+import { DOCUMENT_IDENTITY_PREDICATE } from "./documentIdentity.js";
 
 const ZERO_COST = {
   operations: 0,
@@ -100,7 +101,10 @@ function gapCategoryFor(category: SeedDimension): KnowledgeGap["category"] {
 function predicatesFor(category: SeedDimension, seedKey: unknown): string[] {
   switch (category) {
     case "owner":
-      return ["calls", "contains", "defines_endpoint", "defines_route", "imports", "re_exports"];
+      return typeof seedKey === "object" && seedKey !== null &&
+          "kind" in seedKey && seedKey.kind === "document_path"
+        ? [DOCUMENT_IDENTITY_PREDICATE]
+        : ["calls", "contains", "defines_endpoint", "defines_route", "imports", "re_exports"];
     case "behavior":
       return ["calls", "contains", "defines_endpoint"];
     case "data_flow":
@@ -314,7 +318,10 @@ export function createDeterministicInvestigationInterpreter(): DeterministicInve
             addDimension({
               category: "owner",
               priority: "critical",
-              seedKey: { kind: "path", fileId: file.id },
+              seedKey: {
+                kind: file.kind === "documentation" ? "document_path" : "path",
+                fileId: file.id,
+              },
               source: "explicit_path",
               operation: createDeterministicOperation(request.snapshot.id, {
                 type: "read_file",

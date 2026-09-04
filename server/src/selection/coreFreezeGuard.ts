@@ -100,7 +100,7 @@ function isWholeFileProtectionPhrase(rawEntity: string) {
   if (!entity) return false;
   if (extractClassifiedFileMentions(entity).length > 0) return true;
   if (/[\\/]/u.test(entity)) return true;
-  return /(?:shared\s+ui\s+components?|company\s+(?:data|content)|home\s+page|главн\p{L}*\s+страниц|electron\s+shortcuts?|application\s+source\s+code|source\s+code|^(?:layouts?|лейаут\p{L}*|pages?|страниц\p{L}*|forms?|форм\p{L}*|routes?|endpoints?|роут\p{L}*|маршрут\p{L}*|schemas?|схем\p{L}*|api|backend(?:\s+api)?|апи|бэкенд|configs?|configuration|settings?)$)/iu.test(entity);
+  return /(?:shared\s+ui\s+components?|company\s+(?:data|content)|home\s+page|главн\p{L}*\s+страниц|electron\s+shortcuts?|application\s+source\s+(?:code|files?)|source\s+(?:code|files?)|^(?:layouts?|лейаут\p{L}*|pages?|страниц\p{L}*|forms?|форм\p{L}*|routes?|endpoints?|роут\p{L}*|маршрут\p{L}*|schemas?|схем\p{L}*|api|backend(?:\s+api)?|апи|бэкенд|configs?|configuration|settings?)$)/iu.test(entity);
 }
 
 function fileContainsProtectedMember(
@@ -169,6 +169,9 @@ function matchesProtectedEntity(
   }
   if (/electron\s+shortcuts?/iu.test(normalizedEntity)) {
     return normalizedPath.includes("electron") && normalizedPath.includes("shortcut");
+  }
+  if (/^(?:application\s+source\s+(?:code|files?)|source\s+(?:code|files?))$/iu.test(normalizedEntity)) {
+    return file?.kind === "source";
   }
   if (/^(?:layout|layouts|лейаут\p{L}*)$/iu.test(normalizedEntity)) {
     return stemCompact === "layout" || role === "layout";

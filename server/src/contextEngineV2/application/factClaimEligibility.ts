@@ -12,6 +12,10 @@ import { sortedUnique, stableCompare } from "../domain/investigationDomainSuppor
 import { isFileBackedDefinitionFact } from "./entityRolePolicy.js";
 import { pathMatchesNegativeConstraints } from "./negativeConstraintMatcher.js";
 import {
+  DOCUMENT_IDENTITY_PREDICATE,
+  isExactDocumentIdentityFact,
+} from "./documentIdentity.js";
+import {
   buildStrictBoundedRelationshipChainsFromPrepared,
   prepareStrictRelationshipAdjacency,
   type PreparedStrictRelationshipAdjacency,
@@ -26,6 +30,7 @@ const CLAIM_PREDICATES: Readonly<Record<ClaimRecord["type"], ReadonlySet<string>
     "defines_route",
     "imports",
     "re_exports",
+    DOCUMENT_IDENTITY_PREDICATE,
   ]),
   supporting_context: new Set([
     "calls",
@@ -69,7 +74,7 @@ const OWNER_ENTITY_KINDS = new Set([
 export interface ImplementationOwnerProof {
   candidate: RepositoryEntity;
   factIds: FactRecord["id"][];
-  basis: "explicit_path" | "explicit_symbol" | "relationship_chain";
+  basis: "explicit_path" | "explicit_symbol" | "relationship_chain" | "document_identity";
 }
 
 export interface FactClaimEligibilityDecision {
@@ -242,6 +247,25 @@ export function deriveImplementationOwnerProofs(
         operationRecords: input.operationRecords,
       }),
   );
+  const documentProofs = new Map<RepositoryEntity["id"], ImplementationOwnerProof>();
+  for (const fact of groundedFacts) {
+    checkpoint?.();
+    if (!input.request || !isExactDocumentIdentityFact({
+      fact,
+      snapshot: input.snapshot,
+      context: {
+        normalizedTask: input.request.task.normalizedTask,
+        explicitTargets: input.request.explicitTargets,
+        negativeConstraints: input.request.negativeConstraints,
+      },
+    })) continue;
+    const existing = documentProofs.get(fact.subject.id);
+    documentProofs.set(fact.subject.id, {
+      candidate: fact.subject,
+      factIds: sortedUnique([...(existing?.factIds ?? []), fact.id]),
+      basis: "document_identity",
+    });
+  }
   const candidates = groundedFacts.filter(
     (fact): fact is Extract<FactRecord, { kind: "relation" }> =>
       isFileBackedOwnerDefinitionFact(fact, input.snapshot) &&
@@ -256,7 +280,7 @@ export function deriveImplementationOwnerProofs(
       (OWNER_LINK_PREDICATES.has(fact.predicate) ||
         isFileBackedOwnerDefinitionFact(fact, input.snapshot)),
   );
-  const proofs: ImplementationOwnerProof[] = [];
+  const proofs: ImplementationOwnerProof[] = [...documentProofs.values()];
   let prepared: PreparedStrictRelationshipAdjacency | undefined;
   for (const candidateFact of candidates) {
     checkpoint?.();

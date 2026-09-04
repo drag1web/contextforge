@@ -1149,7 +1149,11 @@ export function createTaskPackPrimaryProductionEnvelope(input: {
           : ("ranking" as const),
         pathValidity: "inventory_exact" as const,
         ownershipEvidence: editable
-          ? proof?.proofKind === "direct_definition" ? ("symbol_exact" as const) : ("reference_graph" as const)
+          ? proof?.proofKind === "direct_definition"
+            ? ("symbol_exact" as const)
+            : proof?.proofKind === "direct_document_identity"
+              ? ("content_supported" as const)
+              : ("reference_graph" as const)
           : ("reference_graph" as const),
         actionConfidence: editable ? ("confirmed_edit" as const) : ("inspect_only" as const),
         semanticRoles: ["reference" as const],
@@ -1157,7 +1161,9 @@ export function createTaskPackPrimaryProductionEnvelope(input: {
         chain: [],
         negativeConstraintConflicts: [],
         reason: editable
-          ? "Current repository relationship evidence confirms implementation ownership."
+          ? proof?.proofKind === "direct_document_identity"
+            ? "Current snapshot identity confirms the explicitly requested documentation file."
+            : "Current repository relationship evidence confirms implementation ownership."
           : "Current repository relationship evidence supports inspect-only context.",
       },
     }];

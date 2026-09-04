@@ -251,6 +251,142 @@ await scenario("an exact grounded primary target outranks inferred single-layer 
   assert.equal(explicitResult.productionSelection.diagnostics?.executionContract?.requiredLayers.includes("ui"), true);
   assert.equal(explicitResult.productionSelection.diagnostics?.executionContract?.missingConfirmedLayers?.includes("ui"), true);
 });
+
+const documentationRoot = await fs.mkdtemp(path.join(os.tmpdir(), "context-engine-documentation-"));
+const documentationPath = "docs/setup.md";
+const supportingSourcePath = "src/application.ts";
+const packagePath = "package.json";
+const documentationSource = "# Setup\n\nExisting instructions.\n";
+const supportingSource = "export const application = true;\n";
+const packageSource = JSON.stringify({ scripts: { verify: "node verify.mjs" } }, null, 2);
+await fs.mkdir(path.join(documentationRoot, "docs"), { recursive: true });
+await fs.mkdir(path.join(documentationRoot, "src"), { recursive: true });
+await fs.writeFile(path.join(documentationRoot, documentationPath), documentationSource, "utf8");
+await fs.writeFile(path.join(documentationRoot, supportingSourcePath), supportingSource, "utf8");
+await fs.writeFile(path.join(documentationRoot, packagePath), packageSource, "utf8");
+const documentationInventory: ProjectInventory = {
+  rootPath: documentationRoot,
+  files: [
+    {
+      path: documentationPath, name: "setup.md", extension: ".md", kind: "docs", role: "docs",
+      imports: [], exports: [], symbols: [], textHints: ["setup", "verify"],
+      contentPreview: documentationSource.replace(/\s+/gu, " ").trim(), sizeBytes: Buffer.byteLength(documentationSource), depth: 1,
+      canReadText: true, isLikelyGenerated: false,
+    },
+    {
+      path: supportingSourcePath, name: "application.ts", extension: ".ts", kind: "source", role: "app-entry",
+      imports: [], exports: ["application"], symbols: ["application"], textHints: ["application"],
+      contentPreview: supportingSource.trim(), sizeBytes: Buffer.byteLength(supportingSource), depth: 1,
+      canReadText: true, isLikelyGenerated: false,
+    },
+    {
+      path: packagePath, name: "package.json", extension: ".json", kind: "config", role: "config",
+      imports: [], exports: [], symbols: [], textHints: ["verify"],
+      contentPreview: packageSource.replace(/\s+/gu, " ").trim(), sizeBytes: Buffer.byteLength(packageSource), depth: 0,
+      canReadText: true, isLikelyGenerated: false,
+    },
+  ],
+  totalFiles: 3, scannedFiles: 3, truncated: false, notes: [],
+};
+const documentationTask = `In ${documentationPath} add a verification section for npm run verify. Do not modify application source files.`;
+const documentationIntent: TaskIntentAnalysis = {
+  taskArea: "docs", intentTags: ["documentation"], domainTerms: ["verification"],
+  mentionedEntities: [documentationPath], fileRoleHints: ["docs"], recommendedSearchTerms: ["verification"],
+  riskLevel: "low", confidence: 1, notes: [], source: "fallback", durationMs: 0,
+  structuredIntent: {
+    schemaVersion: 1,
+    primaryTargets: [{
+      kind: "explicit_file", value: documentationPath, path: documentationPath, provenance: "user_confirmed",
+      confidence: 1, evidence: "Exact path provided by the user.",
+    }],
+    positiveActions: ["update"], protectedScopes: ["application source files"],
+    allowedEditScope: "target_with_supporting_context", needsStyles: false, needsBackend: false,
+    ambiguities: [], modelNotes: [],
+  },
+  taskUnderstanding: {
+    schemaVersion: 1, goal: "Update the exact documentation file", action: "update",
+    targetHints: [documentationPath], requestedChanges: ["Add the requested section"],
+    constraints: ["Do not modify application source files"], interpretationRisk: "objective",
+    changeDefinition: "bounded",
+    explicitValues: [{ kind: "text", value: "npm run verify", exact: true, source: "user" }],
+    missingInformation: [],
+    readiness: "ready", canProceed: true, clarificationQuestion: null, confidence: 1, source: "merged", reasons: [],
+  },
+};
+const documentationBasis = createContextEngineShadowExecutionBasis({
+  policy: fixturePolicy,
+  requestedTaskType: "general",
+  effectiveTaskArea: "docs",
+  plannerMode: "deterministic",
+});
+const documentationCanonical = prepareContextEngineShadowInput({
+  projectId: "documentation-fixture", projectRoot: documentationRoot, inventory: documentationInventory,
+  normalizedTask: documentationTask,
+  structuredTargets: documentationIntent.structuredIntent.primaryTargets,
+  protectedScopes: documentationIntent.structuredIntent.protectedScopes,
+  executionBasis: documentationBasis,
+  createdAt: "2026-09-04T00:00:00.000Z",
+});
+let documentationDownstream: ReturnType<typeof validateTaskPackPrimaryCandidate> | undefined;
+const documentationStarted = Math.floor(performance.now());
+const documentationResolution = await runLiveTaskPackPrimary({
+  canonical: documentationCanonical,
+  requestStartedMonotonicMs: documentationStarted,
+  requestDeadlineMonotonicMs: documentationStarted + documentationBasis.policy.timeoutMs,
+  validateDownstream: (candidate, proofs) => {
+    documentationDownstream = validateTaskPackPrimaryCandidate({
+      rawTask: documentationTask,
+      requestedTaskType: "general",
+      effectiveTaskArea: "docs",
+      inventory: documentationInventory,
+      taskIntent: documentationIntent,
+      contextQualityMode: "balanced",
+      candidate,
+      proofs,
+    });
+    return {
+      validatedFiles: documentationDownstream.validatedFiles,
+      validation: documentationDownstream.validation,
+    };
+  },
+});
+await scenario("an exact existing documentation target receives truthful document-identity authority", () => {
+  assert.equal(documentationResolution.status, "v2_applied", JSON.stringify(documentationResolution.decision));
+  assert.deepEqual(documentationResolution.adoptedFiles, [{
+    path: documentationPath, kind: "docs", role: "target", usage: "inspect-and-edit",
+  }]);
+  assert.equal(documentationResolution.groundedProofs[0]?.proofKind, "direct_document_identity");
+  assert.equal(documentationDownstream?.validation.authorizationPreserved, true);
+});
+await scenario("documentation identity is generic to non-README documentation paths", () => {
+  assert.equal(documentationResolution.groundedProofs[0]?.path, documentationPath);
+});
+await scenario("application source protection keeps supporting source non-editable", () => {
+  assert.equal(documentationResolution.adoptedFiles?.some((file) => file.path === supportingSourcePath), false);
+});
+await scenario("repository command metadata remains supporting evidence rather than edit authority", () => {
+  assert.equal(JSON.parse(packageSource).scripts.verify, "node verify.mjs");
+  const supportingEnvelope = createTaskPackPrimaryProductionEnvelope({
+    candidate: [
+      ...(documentationResolution.adoptedFiles ?? []),
+      { path: packagePath, kind: "config", role: "supporting", usage: "inspect-only" },
+      { path: supportingSourcePath, kind: "source", role: "supporting", usage: "inspect-only" },
+    ],
+    proofs: documentationResolution.groundedProofs,
+    inventory: documentationInventory,
+    requestedTaskType: "general",
+    effectiveTaskArea: "docs",
+    userConfirmedTargetPaths: [documentationPath],
+  });
+  assert.deepEqual(
+    supportingEnvelope.selectedFiles
+      .filter((file) => file.usage === "inspect-and-edit" || file.usage === "create-and-edit")
+      .map((file) => file.path),
+    [documentationPath],
+  );
+  assert.equal(supportingEnvelope.selectedFiles.find((file) => file.path === packagePath)?.usage, "inspect-only");
+  assert.equal(supportingEnvelope.selectedFiles.find((file) => file.path === supportingSourcePath)?.usage, "inspect-only");
+});
 await scenario("connected entry-to-owner evidence emits an exact relationship chain", () => assert.equal(
   realResolution.groundedProofs.find((proof) => proof.path === "src/service.ts")?.proofKind,
   "exact_relationship_chain",
@@ -849,5 +985,6 @@ await timeoutTracker.close(1);
 await writer.close(250);
 await fs.rm(root, { recursive: true, force: true });
 await fs.rm(ambiguousRoot, { recursive: true, force: true });
+await fs.rm(documentationRoot, { recursive: true, force: true });
 assert.ok(scenarioCount >= 140, `expected at least 140 retirement scenarios, received ${scenarioCount}`);
 console.log(`Context Engine v2 legacy retirement smoke passed: ${scenarioCount} scenarios.`);

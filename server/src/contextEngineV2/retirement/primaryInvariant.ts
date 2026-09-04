@@ -127,7 +127,7 @@ function assertProofs(value: unknown, selected: unknown): void {
         proof.evidenceCurrent !== true || proof.findingConfirmed !== true ||
         proof.targetRoleSupported !== true || proof.snapshotCurrent !== true ||
         proof.ambiguityResolved !== true || proof.constraintsSatisfied !== true ||
-        !["direct_definition", "exact_relationship_chain"].includes(proof.proofKind) ||
+        !["direct_definition", "direct_document_identity", "exact_relationship_chain"].includes(proof.proofKind) ||
         !selectedPaths.has(proof.path) || proofPaths.has(proof.path)) fail();
     proofPaths.add(proof.path);
   }

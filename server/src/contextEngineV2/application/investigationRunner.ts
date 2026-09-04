@@ -97,6 +97,10 @@ import {
   withCanonicalOperationCost,
 } from "./operationCost.js";
 import { pathMatchesNegativeConstraints } from "./negativeConstraintMatcher.js";
+import {
+  createExactDocumentIdentity,
+  isExactDocumentIdentityFact,
+} from "./documentIdentity.js";
 import { isOperationRetryEligible } from "./operationRetryPolicy.js";
 import { evaluateKnowledgeGapResolution } from "./truthfulGapEvaluator.js";
 
@@ -698,15 +702,29 @@ function deriveImplementationFindings(input: {
     }, input.checkpoint);
     for (const proof of proofs) {
       input.checkpoint();
-      const definitionFact = input.facts.find(
-        (fact) =>
-          proof.factIds.includes(fact.id) &&
-          isFileBackedOwnerDefinitionFact(fact, input.snapshot) &&
-          fact.object.id === proof.candidate.id,
-      );
-      const definitionSource = definitionFact?.source;
+      const documentIdentityFact = proof.basis === "document_identity"
+        ? input.facts.find((fact) => proof.factIds.includes(fact.id) &&
+          input.request !== undefined && isExactDocumentIdentityFact({
+            fact,
+            snapshot: input.snapshot,
+            context: {
+              normalizedTask: input.request.task.normalizedTask,
+              explicitTargets: input.request.explicitTargets,
+              negativeConstraints: input.request.negativeConstraints,
+            },
+          }) && fact.subject.id === proof.candidate.id)
+        : undefined;
+      const definitionFact = proof.basis === "document_identity"
+        ? undefined
+        : input.facts.find(
+          (fact) =>
+            proof.factIds.includes(fact.id) &&
+            isFileBackedOwnerDefinitionFact(fact, input.snapshot) &&
+            fact.object.id === proof.candidate.id,
+        );
+      const definitionSource = documentIdentityFact?.source ?? definitionFact?.source;
       if (
-        definitionFact === undefined ||
+        (proof.basis === "document_identity" ? documentIdentityFact === undefined : definitionFact === undefined) ||
         proof.candidate.fileId === undefined ||
         definitionSource?.kind !== "source_span" ||
         !input.snapshot.files.some(
@@ -738,7 +756,9 @@ function deriveImplementationFindings(input: {
         }) as Finding["id"],
         snapshotId: input.snapshot.id,
         type: "implementation_target",
-        statement: "A deterministic grounded owner proof identifies this repository entity.",
+        statement: proof.basis === "document_identity"
+          ? "A snapshot-verified explicit documentation path identifies the document that owns the requested edit."
+          : "A deterministic grounded owner proof identifies this repository entity.",
         entityIds: [proof.candidate.id],
         evidenceIds,
         status: proofs.length === 1 ? "confirmed" : "probable",
@@ -1421,18 +1441,53 @@ async function executeOperation(
     });
     if (operation.type === "read_file") {
       readCache.set(file.id, { result: cloneDomainValue(result) });
-      outcome.candidates = [
-        createDeterministicOperation(input.snapshot.id, {
-          type: "parse_file",
-          path: file.normalizedPath,
-          reason: "Extract deterministic facts from snapshot-verified content.",
-          questionIds: sortedUnique(operation.questionIds),
-          hypothesisIds: sortedUnique(operation.hypothesisIds),
-          priority: operation.priority,
-          estimatedCost: { ...ZERO_COST, operations: 1, parsedFiles: 1 },
-          safetyClassification: "safe",
-        }),
-      ];
+      const ownerClaimIds = new Set(state.claims
+        .filter((claim) => claim.type === "implementation_owner")
+        .map((claim) => claim.id));
+      const servesOwner = state.hypotheses.some((hypothesis) =>
+        ownerClaimIds.has(hypothesis.claimId) && operation.hypothesisIds.includes(hypothesis.id));
+      const source = sourceFromRead(input.snapshot.id, result);
+      const documentIdentity = servesOwner && input.request
+        ? createExactDocumentIdentity({
+          context: {
+            normalizedTask: input.request.task.normalizedTask,
+            explicitTargets: input.request.explicitTargets,
+            negativeConstraints: input.request.negativeConstraints,
+          },
+          file,
+          source,
+          operation,
+          observedAt: dependencies.clock.nowIso(),
+        })
+        : null;
+      if (documentIdentity) {
+        outcome.entities = [documentIdentity.entity];
+        outcome.facts = [documentIdentity.fact];
+        outcome.evidence = routeFactEvidence({
+          snapshot: input.snapshot,
+          request: input.request,
+          operation,
+          operationRecords: state.operationRecords,
+          claims: state.claims,
+          hypotheses: state.hypotheses,
+          allFacts: mergeRecords(state.facts, [documentIdentity.fact], "Document identity fact"),
+          producedFacts: [documentIdentity.fact],
+          checkpoint,
+        });
+      } else {
+        outcome.candidates = [
+          createDeterministicOperation(input.snapshot.id, {
+            type: "parse_file",
+            path: file.normalizedPath,
+            reason: "Extract deterministic facts from snapshot-verified content.",
+            questionIds: sortedUnique(operation.questionIds),
+            hypothesisIds: sortedUnique(operation.hypothesisIds),
+            priority: operation.priority,
+            estimatedCost: { ...ZERO_COST, operations: 1, parsedFiles: 1 },
+            safetyClassification: "safe",
+          }),
+        ];
+      }
     } else {
       const source = sourceFromRead(input.snapshot.id, result);
       assertSourceSpanEvaluationConsistency({ span: source, snapshotId: input.snapshot.id });

@@ -99,6 +99,7 @@ function selection(files: SelectedTaskFile[], targets: string[]): TaskFileSelect
 function inventory(
   paths: string[],
   symbolsByPath: Readonly<Record<string, readonly string[]>> = {},
+  kindsByPath: Readonly<Record<string, ProjectInventory["files"][number]["kind"]>> = {},
 ): ProjectInventory {
   return {
     rootPath: "/fixture",
@@ -108,7 +109,7 @@ function inventory(
         path: filePath,
         name,
         extension: name.includes(".") ? `.${name.split(".").pop()}` : "",
-        kind: "source",
+        kind: kindsByPath[filePath] ?? "source",
         role: filePath.includes("/api/")
           ? "api-route"
           : name.startsWith("layout.")
@@ -141,10 +142,11 @@ function run(input: {
   files: SelectedTaskFile[];
   authorizedTargets: string[];
   symbolsByPath?: Readonly<Record<string, readonly string[]>>;
+  kindsByPath?: Readonly<Record<string, ProjectInventory["files"][number]["kind"]>>;
 }) {
   return enforceExecutionAuthorizationAuthority({
     rawTask: input.task,
-    inventory: inventory(input.inventoryPaths, input.symbolsByPath),
+    inventory: inventory(input.inventoryPaths, input.symbolsByPath, input.kindsByPath),
     fileSelection: selection(input.files, input.authorizedTargets),
     qualityStatus: "ready",
   });
@@ -476,6 +478,34 @@ function assertInvestigation(result: TaskFileSelection) {
   assert.equal(result.selectedFiles.find((file) => file.path === protectedFile)?.usage, "inspect-only");
 }
 
+// A genuine application-source category prohibition protects source files without freezing docs.
+{
+  const target = "docs/setup.md";
+  const applicationSource = "src/App.tsx";
+  const serverSource = "server/index.ts";
+  const result = run({
+    task: `Update ${target}. Do not modify application source files.`,
+    inventoryPaths: [target, applicationSource, serverSource],
+    files: [selected(target), selected(applicationSource, "inspect-only"), selected(serverSource, "inspect-only")],
+    authorizedTargets: [target],
+    kindsByPath: { [target]: "docs" },
+  });
+  assert.deepEqual(authorized(result), [target]);
+  assert.equal(result.selectedFiles.find((file) => file.path === target)?.usage, "inspect-and-edit");
+  assert.equal(result.selectedFiles.find((file) => file.path === applicationSource)?.usage, "inspect-only");
+  assert.equal(result.selectedFiles.find((file) => file.path === serverSource)?.usage, "inspect-only");
+
+  const unsafeProposal = run({
+    task: `Update ${target}. Do not modify application source files.`,
+    inventoryPaths: [target, applicationSource],
+    files: [selected(target), selected(applicationSource)],
+    authorizedTargets: [target, applicationSource],
+    kindsByPath: { [target]: "docs" },
+  });
+  assertInvestigation(unsafeProposal);
+  assert.equal(unsafeProposal.selectedFiles.find((file) => file.path === applicationSource)?.usage, "inspect-only");
+}
+
 // A protected member's owner cannot become an implicit editable substitute.
 {
   const target = "src/feature.ts";
@@ -511,4 +541,4 @@ function assertInvestigation(result: TaskFileSelection) {
   assert.deepEqual(summarize(first), summarize(second));
 }
 
-console.log("Core Freeze Guard smoke passed (22 scenarios).");
+console.log("Core Freeze Guard smoke passed (23 scenarios).");

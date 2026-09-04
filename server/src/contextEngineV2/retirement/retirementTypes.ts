@@ -79,7 +79,7 @@ export interface GroundedSelectionProof {
   snapshotCurrent: true;
   ambiguityResolved: true;
   constraintsSatisfied: true;
-  proofKind: "direct_definition" | "exact_relationship_chain";
+  proofKind: "direct_definition" | "direct_document_identity" | "exact_relationship_chain";
 }
 
 export interface TaskPackPrimaryDownstreamValidation {

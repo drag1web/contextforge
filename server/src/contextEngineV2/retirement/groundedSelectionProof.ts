@@ -7,6 +7,7 @@ import type { FactRecord } from "../contracts/index.js";
 import type { ContextEngineShadowCanonicalInput } from "../shadow/index.js";
 import { pathMatchesNegativeConstraints } from "../application/negativeConstraintMatcher.js";
 import { buildStrictBoundedRelationshipChains } from "../application/strictRelationshipChain.js";
+import { isExactDocumentIdentityFact } from "../application/documentIdentity.js";
 import type {
   GroundedSelectionProof,
   TaskPackPrimaryMappedFile,
@@ -128,6 +129,39 @@ function proofForEditable(input: {
     fact!.snapshotId !== input.result.snapshotId || fact!.status !== "active"
   )) return null;
 
+  const descriptor = input.canonical.snapshot.files.find((file) => file.normalizedPath === input.path);
+  const inventory = input.canonical.inventory.files.find((file) => normalizePath(file.path) === input.path);
+  if (!descriptor || !inventory || !descriptor.readable || !inventory.canReadText ||
+      descriptor.secretRisk !== "none" || descriptor.generated || inventory.isLikelyGenerated ||
+      pathMatchesNegativeConstraints(input.path, input.canonical.negativeConstraints)) return null;
+  const directDocumentIdentity = descriptor.kind === "documentation" && inventory.kind === "docs" &&
+    facts.some((fact) => fact !== undefined && fact.subject.id === decision.entityId &&
+      isExactDocumentIdentityFact({
+        fact,
+        snapshot: input.canonical.snapshot,
+        context: {
+          normalizedTask: input.canonical.normalizedTask,
+          explicitTargets: input.canonical.explicitTargets,
+          negativeConstraints: input.canonical.negativeConstraints,
+        },
+      }));
+  if (directDocumentIdentity) {
+    const proof: GroundedSelectionProof = Object.freeze({
+      schemaVersion: 1,
+      path: input.path,
+      role: input.role,
+      evidenceCurrent: true,
+      findingConfirmed: true,
+      targetRoleSupported: true,
+      snapshotCurrent: true,
+      ambiguityResolved: true,
+      constraintsSatisfied: true,
+      proofKind: "direct_document_identity",
+    });
+    trustedGroundedSelectionProofs.add(proof);
+    return proof;
+  }
+
   const candidateDefinitions = facts.filter((fact): fact is Extract<FactRecord, { kind: "relation" }> =>
     fact!.kind === "relation" &&
     fact!.predicate === "contains" &&
@@ -167,11 +201,6 @@ function proofForEditable(input: {
     }),
   );
   if (!directDefinition || hasCompetingDefinition || hasInventoryCompetingDefinition) return null;
-  const descriptor = input.canonical.snapshot.files.find((file) => file.normalizedPath === input.path);
-  const inventory = input.canonical.inventory.files.find((file) => normalizePath(file.path) === input.path);
-  if (!descriptor || !inventory || !descriptor.readable || !inventory.canReadText ||
-      descriptor.secretRisk !== "none" || descriptor.generated || inventory.isLikelyGenerated ||
-      pathMatchesNegativeConstraints(input.path, input.canonical.negativeConstraints)) return null;
   if (input.trace.reviewRequired || input.trace.findingIds.length === 0 || input.trace.evidenceIds.length === 0) return null;
 
   const proof: GroundedSelectionProof = Object.freeze({

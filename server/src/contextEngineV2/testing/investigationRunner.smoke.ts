@@ -12,6 +12,7 @@ import {
   createDeterministicInvestigationPlanner,
   createInvestigationRunner,
 } from "../application/index.js";
+import { DOCUMENT_IDENTITY_PREDICATE } from "../application/documentIdentity.js";
 import { evaluateInvestigationQuestions } from "../application/deterministicQuestionEvaluator.js";
 import {
   deriveImplementationOwnerProofs,
@@ -181,6 +182,7 @@ function repositoryFixture(
     kind?: RepositorySnapshot["files"][number]["kind"];
     readable?: boolean;
     secretRisk?: RepositorySnapshot["files"][number]["secretRisk"];
+    generated?: boolean;
   }>,
   truncated = false,
 ): {
@@ -203,12 +205,12 @@ function repositoryFixture(
       path: file.path,
       normalizedPath: file.path,
       extension,
-      language: extension === ".json" ? "json" : "typescript",
+      language: extension === ".json" ? "json" : extension === ".md" || extension === ".mdx" ? "markdown" : "typescript",
       kind: file.kind ?? (extension === ".json" ? "configuration" : "source"),
       sizeBytes: new TextEncoder().encode(file.content).byteLength,
       contentFingerprint: `content-${suffix}-${index + 1}`,
       readable: file.readable ?? true,
-      generated: false,
+      generated: file.generated ?? false,
       secretRisk: file.secretRisk ?? "none",
       attributes: {},
     } satisfies RepositorySnapshot["files"][number];
@@ -5160,6 +5162,145 @@ scenario("177. proof-local prepared adjacency removes the candidate multiplier",
   assert.equal(afterPreparation, facts.length * facts.length);
   assert.equal(preparedEvaluations, afterPreparation);
   assert.ok(preparedEvaluations < bruteEvaluations);
+});
+
+async function runExactDocumentationFixture(input: {
+  suffix: string;
+  path: string;
+  task?: string;
+  explicit?: boolean;
+  generated?: boolean;
+  negativeConstraints?: InvestigationRequest["negativeConstraints"];
+  reverseInventory?: boolean;
+}) {
+  const fixture = repositoryFixture(input.suffix, [
+    {
+      path: input.path,
+      content: "# Documentation\n\nCurrent guidance.\n",
+      kind: "documentation",
+      generated: input.generated,
+    },
+    {
+      path: "src/application.ts",
+      content: "export const application = true;\n",
+      kind: "source",
+    },
+  ]);
+  if (input.reverseInventory) fixture.snapshot.files.reverse();
+  return runStructuredRepositoryFixture({
+    source: fixture.snapshot,
+    adapterFiles: fixture.adapterFiles,
+    task: input.task ?? `Update ${input.path} with bounded documentation text.`,
+    explicitTargets: input.explicit === false ? [] : [{ kind: "path", path: input.path }],
+    negativeConstraints: input.negativeConstraints,
+  });
+}
+
+scenario("178. exact existing documentation target produces current document identity", async () => {
+  const { result } = await runExactDocumentationFixture({ suffix: "document-readme", path: "README.md" });
+  assert.equal(result.stop.reason, "sufficient_evidence");
+  assert.equal(result.safeToProject, true);
+  assert.ok(result.facts.some((fact) => fact.predicate === DOCUMENT_IDENTITY_PREDICATE));
+  assert.ok(result.findings.some((finding) =>
+    finding.type === "implementation_target" &&
+    finding.status === "confirmed" &&
+    finding.authorizationHint === "eligible"));
+});
+
+scenario("179. non-README documentation target uses the same identity rule", async () => {
+  const { result } = await runExactDocumentationFixture({ suffix: "document-setup", path: "docs/setup.md" });
+  const identity = result.facts.find((fact) => fact.predicate === DOCUMENT_IDENTITY_PREDICATE);
+  assert.ok(identity);
+  assert.equal(identity.subject.fileId, result.entities.find((entity) => entity.id === identity.subject.id)?.fileId);
+  assert.equal(result.stop.reason, "sufficient_evidence");
+});
+
+scenario("180. missing documentation update target gains no document identity", async () => {
+  const fixture = repositoryFixture("document-missing", [
+    { path: "docs/existing.md", content: "# Existing\n", kind: "documentation" },
+  ]);
+  const { result } = await runStructuredRepositoryFixture({
+    source: fixture.snapshot,
+    adapterFiles: fixture.adapterFiles,
+    task: "Update docs/missing.md with bounded text.",
+    explicitTargets: [{ kind: "path", path: "docs/missing.md" }],
+  });
+  assert.equal(result.facts.some((fact) => fact.predicate === DOCUMENT_IDENTITY_PREDICATE), false);
+  assert.notEqual(result.stop.reason, "sufficient_evidence");
+});
+
+scenario("181. vague documentation task gains no exact-document authority", async () => {
+  const { result } = await runExactDocumentationFixture({
+    suffix: "document-vague",
+    path: "README.md",
+    task: "Update the documentation.",
+    explicit: false,
+  });
+  assert.equal(result.facts.some((fact) => fact.predicate === DOCUMENT_IDENTITY_PREDICATE), false);
+  assert.equal(result.findings.some((finding) => finding.authorizationHint === "eligible"), false);
+});
+
+scenario("182. generated documentation target remains non-editable", async () => {
+  const { result } = await runExactDocumentationFixture({
+    suffix: "document-generated",
+    path: "docs/generated.md",
+    generated: true,
+  });
+  assert.equal(result.facts.some((fact) => fact.predicate === DOCUMENT_IDENTITY_PREDICATE), false);
+  assert.equal(result.findings.some((finding) => finding.authorizationHint === "eligible"), false);
+});
+
+scenario("183. explicit negative document path blocks document identity", async () => {
+  const { result } = await runExactDocumentationFixture({
+    suffix: "document-contradiction",
+    path: "README.md",
+    task: "Edit README.md, but do not modify README.md.",
+    negativeConstraints: [{ kind: "path", pattern: "README.md" }],
+  });
+  assert.equal(result.facts.some((fact) => fact.predicate === DOCUMENT_IDENTITY_PREDICATE), false);
+  assert.equal(result.findings.some((finding) => finding.authorizationHint === "eligible"), false);
+});
+
+scenario("184. exact source target cannot use documentation identity", async () => {
+  const fixture = repositoryFixture("document-source-control", [
+    { path: "src/application.ts", content: "export const application = true;\n", kind: "source" },
+  ]);
+  const { result } = await runStructuredRepositoryFixture({
+    source: fixture.snapshot,
+    adapterFiles: fixture.adapterFiles,
+    task: "Update src/application.ts.",
+    explicitTargets: [{ kind: "path", path: "src/application.ts" }],
+  });
+  assert.equal(result.facts.some((fact) => fact.predicate === DOCUMENT_IDENTITY_PREDICATE), false);
+});
+
+scenario("185. exact configuration target cannot use documentation identity", async () => {
+  const fixture = repositoryFixture("document-config-control", [
+    { path: "config/options.json", content: '{"enabled":true}\n', kind: "configuration" },
+  ]);
+  const { result } = await runStructuredRepositoryFixture({
+    source: fixture.snapshot,
+    adapterFiles: fixture.adapterFiles,
+    task: "Update config/options.json.",
+    explicitTargets: [{ kind: "path", path: "config/options.json" }],
+  });
+  assert.equal(result.facts.some((fact) => fact.predicate === DOCUMENT_IDENTITY_PREDICATE), false);
+});
+
+scenario("186. document identity result is invariant to snapshot file ordering", async () => {
+  const normal = await runExactDocumentationFixture({ suffix: "document-order", path: "docs/setup.md" });
+  const reversed = await runExactDocumentationFixture({
+    suffix: "document-order",
+    path: "docs/setup.md",
+    reverseInventory: true,
+  });
+  assert.deepEqual(reversed.result, normal.result);
+});
+
+scenario("187. document identity replay is deterministic", async () => {
+  const first = await runExactDocumentationFixture({ suffix: "document-replay", path: "CONTRIBUTING.md" });
+  const second = await runExactDocumentationFixture({ suffix: "document-replay", path: "CONTRIBUTING.md" });
+  assert.deepEqual(second.result, first.result);
 });
 
 for (const current of scenarios) {
