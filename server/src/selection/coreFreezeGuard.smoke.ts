@@ -7,6 +7,7 @@ import type {
 import type { ProjectInventory } from "../scanner/projectInventoryScanner.js";
 import type { TaskExecutionContract } from "../taskPacks/taskExecutionContract.js";
 import { enforceExecutionAuthorizationAuthority } from "./executionAuthorizationAuthority.js";
+import { resolveProtectedSelectedPaths } from "./coreFreezeGuard.js";
 
 function selected(
   path: string,
@@ -100,6 +101,7 @@ function inventory(
   paths: string[],
   symbolsByPath: Readonly<Record<string, readonly string[]>> = {},
   kindsByPath: Readonly<Record<string, ProjectInventory["files"][number]["kind"]>> = {},
+  routePathsByPath: Readonly<Record<string, string>> = {},
 ): ProjectInventory {
   return {
     rootPath: "/fixture",
@@ -119,6 +121,7 @@ function inventory(
               : filePath.includes("/components/ui/")
                 ? "ui-component"
                 : "component",
+        routePath: routePathsByPath[filePath],
         imports: [],
         exports: [...(symbolsByPath[filePath] ?? [])],
         symbols: [...(symbolsByPath[filePath] ?? [])],
@@ -143,10 +146,16 @@ function run(input: {
   authorizedTargets: string[];
   symbolsByPath?: Readonly<Record<string, readonly string[]>>;
   kindsByPath?: Readonly<Record<string, ProjectInventory["files"][number]["kind"]>>;
+  routePathsByPath?: Readonly<Record<string, string>>;
 }) {
   return enforceExecutionAuthorizationAuthority({
     rawTask: input.task,
-    inventory: inventory(input.inventoryPaths, input.symbolsByPath, input.kindsByPath),
+    inventory: inventory(
+      input.inventoryPaths,
+      input.symbolsByPath,
+      input.kindsByPath,
+      input.routePathsByPath,
+    ),
     fileSelection: selection(input.files, input.authorizedTargets),
     qualityStatus: "ready",
   });
@@ -464,6 +473,72 @@ function assertInvestigation(result: TaskFileSelection) {
   assert.deepEqual(authorized(result), [target]);
 }
 
+// A protected application route resolves to its exact route owner, not a
+// component whose file name happens to share a route segment.
+{
+  const target = "src/components/sections/LeadMiniForm.tsx";
+  const routeOwner = "src/app/api/lead/route.ts";
+  const projectInventory = inventory(
+    [target, routeOwner],
+    {},
+    {},
+    { [routeOwner]: "/api/lead" },
+  );
+  const protection = resolveProtectedSelectedPaths({
+    rawTask: `In ${target}, change the submit loading label. Do not change /api/lead.`,
+    inventory: projectInventory,
+    selectedFiles: [selected(target), selected(routeOwner, "inspect-only")],
+  });
+  assert.deepEqual(protection.protectedPaths, [routeOwner]);
+}
+
+// Exact route protection remains final when the route owner itself is selected.
+{
+  const routeOwner = "src/app/api/orders/route.ts";
+  const projectInventory = inventory(
+    [routeOwner],
+    {},
+    {},
+    { [routeOwner]: "/api/orders" },
+  );
+  const protection = resolveProtectedSelectedPaths({
+    rawTask: "Do not change /api/orders.",
+    inventory: projectInventory,
+    selectedFiles: [selected(routeOwner)],
+  });
+  assert.deepEqual(protection.protectedPaths, [routeOwner]);
+}
+
+// A route reference without a matching route owner cannot freeze a similarly
+// named component through generic token overlap.
+{
+  const component = "src/components/orders/OrdersSummary.tsx";
+  const protection = resolveProtectedSelectedPaths({
+    rawTask: `Change ${component}. Do not change /api/orders.`,
+    inventory: inventory([component]),
+    selectedFiles: [selected(component)],
+  });
+  assert.deepEqual(protection.protectedPaths, []);
+}
+
+// Preserving a separate member in the same exact target, alongside an exact
+// protected route, does not promote either restriction into a file freeze.
+{
+  const target = "src/components/forms/CheckoutForm.tsx";
+  const routeOwner = "src/app/api/checkout/route.ts";
+  const result = run({
+    task: `In ${target}, change only SubmitLoadingLabel. Keep LoadingStatusBadge unchanged. Do not change /api/checkout.`,
+    inventoryPaths: [target, routeOwner],
+    files: [selected(target)],
+    authorizedTargets: [target],
+    symbolsByPath: { [target]: ["SubmitLoadingLabel", "LoadingStatusBadge"] },
+    routePathsByPath: { [routeOwner]: "/api/checkout" },
+  });
+  assert.equal(result.diagnostics?.executionContract?.mode, "implementation");
+  assert.deepEqual(authorized(result), [target]);
+  assert.equal(result.selectedFiles[0]?.usage, "inspect-and-edit");
+}
+
 // Deliberate category-level protection remains whole-file protection.
 {
   const target = "src/feature.ts";
@@ -541,4 +616,4 @@ function assertInvestigation(result: TaskFileSelection) {
   assert.deepEqual(summarize(first), summarize(second));
 }
 
-console.log("Core Freeze Guard smoke passed (23 scenarios).");
+console.log("Core Freeze Guard smoke passed (27 scenarios).");

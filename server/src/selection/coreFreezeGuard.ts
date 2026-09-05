@@ -125,6 +125,50 @@ function fileStem(filePath: string) {
   return name.replace(/\.[^.]+$/u, "");
 }
 
+function normalizeRouteIdentity(value: string) {
+  const normalized = value
+    .normalize("NFKC")
+    .trim()
+    .replace(/\/+/gu, "/");
+  return (normalized.length > 1
+    ? normalized.replace(/\/+$/u, "")
+    : normalized
+  ).toLowerCase();
+}
+
+function applicationRouteIdentity(rawEntity: string) {
+  const entity = stripEntityNoise(rawEntity).normalize("NFKC").trim();
+  if (
+    !entity.startsWith("/") ||
+    entity.startsWith("//") ||
+    /[\\\s?#]/u.test(entity) ||
+    /(?:^|\/)[^/]+\.[A-Za-z0-9]{1,12}\/?$/u.test(entity)
+  ) {
+    return null;
+  }
+
+  const normalized = normalizeRouteIdentity(entity);
+  const segments = normalized.split("/").filter(Boolean);
+  if (segments.some((segment) => segment === "." || segment === "..")) {
+    return null;
+  }
+  return normalized;
+}
+
+function fileOwnsRoute(
+  file: ProjectInventoryFile | undefined,
+  routeIdentity: string,
+) {
+  if (!file) return false;
+  const routes = [
+    file.routePath,
+    ...(file.semanticFacts?.routePaths ?? []),
+  ].filter((value): value is string => typeof value === "string");
+  return routes.some(
+    (routePath) => normalizeRouteIdentity(routePath) === routeIdentity,
+  );
+}
+
 function matchesProtectedEntity(
   file: ProjectInventoryFile | undefined,
   filePath: string,
@@ -152,6 +196,11 @@ function matchesProtectedEntity(
       );
     }
     return path.basename(normalizedPath) === normalizedEntityPath;
+  }
+
+  const routeIdentity = applicationRouteIdentity(normalizedEntity);
+  if (routeIdentity) {
+    return fileOwnsRoute(file, routeIdentity);
   }
 
   if (/shared\s+ui\s+components?/iu.test(normalizedEntity)) {
