@@ -1,0 +1,88 @@
+name: Feature request
+description: Suggest a focused ContextForge improvement
+title: "[Feature] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Focused product problems and concrete workflows are more useful than broad requests to “make it smarter.” An issue records a proposal; it does not approve a particular Context Engine architecture.
+
+        Do not include secrets, credentials, private source, raw AI content, private validation data, or absolute local paths.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or use case
+      description: What workflow is currently difficult, unsafe, repetitive, or missing?
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposed-behavior
+    attributes:
+      label: Proposed behavior
+      description: Describe the focused outcome you would like ContextForge to support.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Affected area
+      options:
+        - Desktop workspace
+        - Projects / scanner
+        - Context Builder
+        - Task Packs
+        - MCP
+        - GitHub integration
+        - Account & Sync / Desktop Link
+        - AI providers
+        - Context Engine / grounding
+        - Packaging / installer / updates
+        - Documentation
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: benefit
+    attributes:
+      label: Why this helps
+      description: Explain who benefits and how this improves the workflow.
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Describe any workarounds or alternative approaches you considered.
+
+  - type: dropdown
+    id: privacy-impact
+    attributes:
+      label: Local-first / privacy impact
+      options:
+        - No expected impact
+        - Reads additional local project data
+        - Sends additional data to an external service
+        - Changes permissions / authorization
+        - Not sure
+    validations:
+      required: true
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add mockups or other non-sensitive context if useful.
+
+  - type: checkboxes
+    id: scope-confirmation
+    attributes:
+      label: Scope confirmation
+      options:
+        - label: I have described a focused problem and have not included secrets, credentials, private source, or private validation data.
+          required: true

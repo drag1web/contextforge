@@ -1,0 +1,103 @@
+name: Bug report
+description: Report a reproducible ContextForge problem
+title: "[Bug] "
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting a problem. Do not paste secrets, credentials, private source code, raw AI prompts or responses, absolute local paths, private validation manifests, databases, or access tokens.
+
+        Security vulnerabilities must use the private GitHub Security Advisory flow instead of a public issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: ContextForge version or commit
+      description: Provide the affected release or commit.
+      placeholder: v0.7.0-alpha or a commit SHA
+    validations:
+      required: true
+
+  - type: dropdown
+    id: operating-system
+    attributes:
+      label: Operating system
+      description: Select the environment where the problem occurred.
+      options:
+        - Windows 11
+        - Windows 10
+        - macOS
+        - Linux
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: affected-area
+    attributes:
+      label: Affected area
+      options:
+        - Dashboard / navigation
+        - Projects / scanner / readiness
+        - Context Builder
+        - Task Packs
+        - MCP
+        - GitHub integration
+        - Account & Sync / Desktop Link
+        - AI provider / Ollama
+        - Settings
+        - Context Engine / grounding
+        - Build / development environment
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: Describe the observed behavior and its impact without including private data.
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps to reproduce
+      description: Provide the smallest reproducible sequence. Do not upload an entire repository or database.
+      placeholder: |
+        1. Open ...
+        2. Select ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-behavior
+    attributes:
+      label: Expected behavior
+      description: Describe what you expected to happen.
+    validations:
+      required: true
+
+  - type: textarea
+    id: diagnostics
+    attributes:
+      label: Relevant logs or diagnostics
+      description: Redact secrets, tokens, credentials, private source, raw AI content, and absolute local paths before pasting minimal relevant diagnostics.
+      render: shell
+
+  - type: textarea
+    id: additional-context
+    attributes:
+      label: Additional context
+      description: Add any other non-sensitive context that may help reproduce the problem.
+
+  - type: checkboxes
+    id: privacy-confirmation
+    attributes:
+      label: Privacy confirmation
+      options:
+        - label: I removed secrets, credentials, private source, raw AI content, private validation data, and absolute local paths from this report.
+          required: true

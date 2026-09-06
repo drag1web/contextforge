@@ -169,6 +169,8 @@ Electron desktop shell
 
 ## Documentation
 
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution workflow and validation guidance.
+- [`SECURITY.md`](SECURITY.md) — private vulnerability reporting and current security boundaries.
 - [`docs/mcp.md`](docs/mcp.md) — local MCP server and Codex setup.
 - [`docs/MVP.md`](docs/MVP.md) — current alpha product boundary and release checklist.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — completed milestones and next product phases.
