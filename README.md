@@ -172,6 +172,7 @@ Electron desktop shell
 - [`docs/mcp.md`](docs/mcp.md) — local MCP server and Codex setup.
 - [`docs/MVP.md`](docs/MVP.md) — current alpha product boundary and release checklist.
 - [`docs/ROADMAP.md`](docs/ROADMAP.md) — completed milestones and next product phases.
+- [`docs/CONTEXT_ENGINE_V2_ROADMAP.md`](docs/CONTEXT_ENGINE_V2_ROADMAP.md) — frozen CE2 baseline, deferred semantics, and rollout gates.
 - [`docs/VALIDATION_LAB.md`](docs/VALIDATION_LAB.md) — portable sequential validation workflow.
 - [`docs/SELECTOR_BENCHMARK.md`](docs/SELECTOR_BENCHMARK.md) — selector benchmark model and private-manifest boundary.
 - [`CHANGELOG.md`](CHANGELOG.md) — detailed release history.

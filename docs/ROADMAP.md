@@ -1,10 +1,10 @@
-# ContextForge Roadmap
+﻿# ContextForge Roadmap
 
 This roadmap summarizes completed product milestones and the next release phases. Detailed implementation history remains in [`CHANGELOG.md`](../CHANGELOG.md).
 
 ## Completed foundation
 
-### v0.5.x — Local desktop MVP
+### v0.5.x â€” Local desktop MVP
 
 - SQLite-first desktop storage without a Docker requirement.
 - Project scanner, readiness, Scanners workspace, Project Memory, and reports.
@@ -12,15 +12,15 @@ This roadmap summarizes completed product milestones and the next release phases
 - Task Pack Builder, archive, exports, templates, rules, acceptance criteria, and Context Composer.
 - Local Git context, Diff Review Lite, storage audit, backup export, and onboarding foundation.
 
-### v0.6.0 — Optional GitHub issue loop
+### v0.6.0 â€” Optional GitHub issue loop
 
 - GitHub device authentication and connected-account status.
-- Local project → repository linking through Git remotes.
-- GitHub Issue → local Task Pack.
-- Task Pack → GitHub Issue.
+- Local project â†’ repository linking through Git remotes.
+- GitHub Issue â†’ local Task Pack.
+- Task Pack â†’ GitHub Issue.
 - Optional workflow metadata without mandatory login or source upload.
 
-### v0.6.1–v0.6.7 — Universal grounding and Task Understanding
+### v0.6.1â€“v0.6.7 â€” Universal grounding and Task Understanding
 
 - Secret, unsafe-path, prompt-injection, destructive-intent, and explicit-target protection.
 - Deterministic retrieval, semantic relationships, ownership evidence, and bounded context assembly.
@@ -28,7 +28,7 @@ This roadmap summarizes completed product milestones and the next release phases
 - Task Understanding, focused clarification, exact-value preservation, and configurable interaction modes.
 - Canonical core, authorization authority, safety preconditions, explicit create/wiring, supporting-context grounding, and Validation Lab.
 
-## v0.7.0-alpha — Desktop Workspace & Local MCP
+## v0.7.0-alpha â€” Desktop Workspace & Local MCP
 
 Goal: publish the refreshed source baseline and expose ContextForge safely to MCP-compatible clients.
 
@@ -43,17 +43,22 @@ Goal: publish the refreshed source baseline and expose ContextForge safely to MC
 - [x] Add desktop MCP status, permissions, Codex setup snippets, and connection testing.
 - [x] Publish a GitHub source pre-release with synchronized metadata and cleaned repository documentation.
 
-## Next: v0.7.x — Repository intelligence and MCP hardening
+## Next: v0.7.x â€” Repository intelligence and MCP hardening
 
 Context Engine v2 implementation status:
 
 - [x] CE2-00 through CE2-10 staged implementation.
 - [x] CE2-11 opt-in primary-authority code readiness at `d543114`.
-- [x] Reproducible external-retirement validation tooling and repository hygiene.
-- [ ] Run approved manifests across real local projects.
+- [x] Pre-validation hygiene and reproducible external-validation tooling.
+- [x] Phase A2 exact source-file identity, frozen at `checkpoint-ce2-a2-2026-09-06`.
+- [x] Real-project validation started with GameHub and Metall-Perm; known safe limitations remain.
+- [ ] Resume further CE2 semantic work only through the dedicated [Context Engine V2 roadmap](CONTEXT_ENGINE_V2_ROADMAP.md).
 - [ ] Complete the observation window and approve a fallback-rate threshold.
 - [ ] Verify the rollback/archive checkpoint and receive human rollout approval.
-- [ ] Execute physical legacy retirement and change the global default; neither is approved yet.
+- [ ] Change the global default; it remains disabled and no rollout is approved.
+- [ ] Consider physical legacy retirement only after the stronger, separate retirement gates pass.
+
+Further CE2 semantic development is intentionally paused after Phase A2 while ContextForge product and Desktop work resume.
 
 - [ ] Review live MCP usage across Codex CLI, IDE extension, and desktop surfaces.
 - [ ] Add richer stored Git summaries without allowing arbitrary repository reads through MCP.
@@ -63,7 +68,7 @@ Context Engine v2 implementation status:
 - [ ] Review enough live Shadow runs before changing any default.
 - [ ] Expand deep ownership adapters beyond TypeScript/JavaScript.
 
-## v0.8.x — Task Pack lifecycle and output review
+## v0.8.x â€” Task Pack lifecycle and output review
 
 - [ ] Task Pack drafts, versions, comparison, and lifecycle states.
 - [ ] Split large work into bounded frontend, backend, tests, docs, and review packs.
@@ -71,7 +76,7 @@ Context Engine v2 implementation status:
 - [ ] Warn about unexpected edits, generated files, secrets, and scope drift.
 - [ ] Add explicit multi-step handoff without silently executing agent tasks.
 
-## v0.9.x — Production desktop hardening
+## v0.9.x â€” Production desktop hardening
 
 - [ ] Installer and portable packaging.
 - [ ] Signed releases and update flow.
@@ -80,7 +85,7 @@ Context Engine v2 implementation status:
 - [ ] Accessibility, keyboard, reduced-motion, and error-boundary audit.
 - [ ] Security and privacy review of all external integration surfaces.
 
-## v1.0.0 — Stable local-first release
+## v1.0.0 â€” Stable local-first release
 
 - [ ] Add and scan a project without Docker or mandatory sign-in.
 - [ ] Understand and clarify a natural-language task.
@@ -89,3 +94,4 @@ Context Engine v2 implementation status:
 - [ ] Reuse ContextForge context through a stable local MCP boundary.
 - [ ] Keep source code local unless the user explicitly starts an external workflow.
 - [ ] Preserve data safely across upgrades with a packaged desktop release.
+
