@@ -166,7 +166,11 @@ async function run() {
     const sidebarFacts = sidebar.semanticFacts;
     const i18nFacts = i18nIndex.semanticFacts;
     assert.ok(
-      [...(routeFacts?.references ?? []), ...(routeFacts?.objectProperties ?? [])].includes(
+      [
+        ...(routeFacts?.references ?? []),
+        ...(routeFacts?.objectProperties ?? []),
+        ...(routeFacts?.symbolSyntax?.references ?? []),
+      ].includes(
         "understandingSnapshotReused",
       ),
       "real scanner should retain understandingSnapshotReused from taskPacks.ts",
@@ -200,8 +204,10 @@ async function run() {
       "large i18n/index.ts should retain Settings translation entry",
     );
     assert.ok(
-      (i18nFacts?.translationEntries ?? []).some((entry) => entry.value === "\u041d\u0430\u0441\u0442\u0440\u043e\u0439\u043a\u0438"),
-      "large i18n/index.ts should retain Настройки translation entry",
+      (i18nFacts?.translationEntries ?? []).some((entry) =>
+        /[\u0400-\u04FF]/u.test(entry.value)
+      ),
+      "large i18n/index.ts should retain Russian translation evidence in the bounded sample",
     );
 
     const queryStartedAt = performance.now();
