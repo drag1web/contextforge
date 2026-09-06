@@ -9,6 +9,7 @@ import { pathMatchesNegativeConstraints } from "../application/negativeConstrain
 import { buildStrictBoundedRelationshipChains } from "../application/strictRelationshipChain.js";
 import { isExactDocumentIdentityFact } from "../application/documentIdentity.js";
 import { isExactConfigurationIdentityFact } from "../application/configurationIdentity.js";
+import { isExactSourceIdentityFact } from "../application/sourceIdentity.js";
 import type {
   GroundedSelectionProof,
   TaskPackPrimaryMappedFile,
@@ -185,6 +186,33 @@ function proofForEditable(input: {
       ambiguityResolved: true,
       constraintsSatisfied: true,
       proofKind: "direct_configuration_identity",
+    });
+    trustedGroundedSelectionProofs.add(proof);
+    return proof;
+  }
+  const directSourceIdentity = descriptor.kind === "source" && inventory.kind === "source" &&
+    facts.some((fact) => fact !== undefined && fact.subject.id === decision.entityId &&
+      isExactSourceIdentityFact({
+        fact,
+        snapshot: input.canonical.snapshot,
+        context: {
+          normalizedTask: input.canonical.normalizedTask,
+          explicitTargets: input.canonical.explicitTargets,
+          negativeConstraints: input.canonical.negativeConstraints,
+        },
+      }));
+  if (directSourceIdentity) {
+    const proof: GroundedSelectionProof = Object.freeze({
+      schemaVersion: 1,
+      path: input.path,
+      role: input.role,
+      evidenceCurrent: true,
+      findingConfirmed: true,
+      targetRoleSupported: true,
+      snapshotCurrent: true,
+      ambiguityResolved: true,
+      constraintsSatisfied: true,
+      proofKind: "direct_source_identity",
     });
     trustedGroundedSelectionProofs.add(proof);
     return proof;

@@ -30,6 +30,10 @@ import {
 import { pathMatchesNegativeConstraints } from "./negativeConstraintMatcher.js";
 import { DOCUMENT_IDENTITY_PREDICATE } from "./documentIdentity.js";
 import { CONFIGURATION_IDENTITY_PREDICATE } from "./configurationIdentity.js";
+import {
+  SOURCE_IDENTITY_PREDICATE,
+  isExactExplicitSourceTarget,
+} from "./sourceIdentity.js";
 
 const ZERO_COST = {
   operations: 0,
@@ -105,6 +109,7 @@ function predicatesFor(category: SeedDimension, seedKey: unknown): string[] {
       if (typeof seedKey === "object" && seedKey !== null && "kind" in seedKey) {
         if (seedKey.kind === "document_path") return [DOCUMENT_IDENTITY_PREDICATE];
         if (seedKey.kind === "configuration_path") return [CONFIGURATION_IDENTITY_PREDICATE];
+        if (seedKey.kind === "source_path") return [SOURCE_IDENTITY_PREDICATE];
       }
       return ["calls", "contains", "defines_endpoint", "defines_route", "imports", "re_exports"];
     case "behavior":
@@ -171,6 +176,29 @@ function requirementFor(
   };
 }
 
+export function deterministicSourcePathOwnerHypothesisId(input: {
+  snapshotId: InvestigationRequest["snapshot"]["id"];
+  fileId: InvestigationRequest["snapshot"]["files"][number]["id"];
+}): DeterministicInvestigationSeed["hypotheses"][number]["id"] {
+  const claimId = deterministicApplicationId("claim", {
+    snapshotId: input.snapshotId,
+    category: "owner",
+    seedKey: { kind: "source_path", fileId: input.fileId },
+  }) as ClaimRecord["id"];
+  return deterministicSeedHypothesisId({
+    snapshotId: input.snapshotId,
+    claimId,
+  });
+}
+
+function deterministicSeedHypothesisId(input: {
+  snapshotId: InvestigationRequest["snapshot"]["id"];
+  claimId: ClaimRecord["id"];
+}): DeterministicInvestigationSeed["hypotheses"][number]["id"] {
+  return deterministicApplicationId("hypothesis", input) as
+    DeterministicInvestigationSeed["hypotheses"][number]["id"];
+}
+
 export function createDeterministicInvestigationInterpreter(): DeterministicInvestigationInterpreter {
   return {
     interpret(rawRequest) {
@@ -217,10 +245,10 @@ export function createDeterministicInvestigationInterpreter(): DeterministicInve
           category: input.category,
           seedKey: input.seedKey,
         }) as ClaimRecord["id"];
-        const hypothesisId = deterministicApplicationId("hypothesis", {
+        const hypothesisId = deterministicSeedHypothesisId({
           snapshotId: request.snapshot.id,
           claimId,
-        }) as DeterministicInvestigationSeed["hypotheses"][number]["id"];
+        });
         const gapId = deterministicApplicationId("gap", {
           snapshotId: request.snapshot.id,
           questionId,
@@ -325,7 +353,16 @@ export function createDeterministicInvestigationInterpreter(): DeterministicInve
                   ? "document_path"
                   : file.kind === "configuration"
                     ? "configuration_path"
-                    : "path",
+                    : file.kind === "source" && isExactExplicitSourceTarget({
+                      context: {
+                        normalizedTask: request.task.normalizedTask,
+                        explicitTargets: request.explicitTargets,
+                        negativeConstraints: request.negativeConstraints,
+                      },
+                      file,
+                    })
+                      ? "source_path"
+                      : "path",
                 fileId: file.id,
               },
               source: "explicit_path",

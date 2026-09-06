@@ -105,6 +105,10 @@ import {
   createExactConfigurationIdentity,
   isExactConfigurationIdentityFact,
 } from "./configurationIdentity.js";
+import {
+  createExactSourceIdentity,
+  isExactSourceIdentityFact,
+} from "./sourceIdentity.js";
 import { isOperationRetryEligible } from "./operationRetryPolicy.js";
 import { evaluateKnowledgeGapResolution } from "./truthfulGapEvaluator.js";
 
@@ -730,8 +734,21 @@ function deriveImplementationFindings(input: {
             },
           }) && fact.subject.id === proof.candidate.id)
         : undefined;
-      const identityFact = documentIdentityFact ?? configurationIdentityFact;
-      const identityBasis = proof.basis === "document_identity" || proof.basis === "configuration_identity";
+      const sourceIdentityFact = proof.basis === "source_identity"
+        ? input.facts.find((fact) => proof.factIds.includes(fact.id) &&
+          input.request !== undefined && isExactSourceIdentityFact({
+            fact,
+            snapshot: input.snapshot,
+            context: {
+              normalizedTask: input.request.task.normalizedTask,
+              explicitTargets: input.request.explicitTargets,
+              negativeConstraints: input.request.negativeConstraints,
+            },
+          }) && fact.subject.id === proof.candidate.id)
+        : undefined;
+      const identityFact = documentIdentityFact ?? configurationIdentityFact ?? sourceIdentityFact;
+      const identityBasis = proof.basis === "document_identity" ||
+        proof.basis === "configuration_identity" || proof.basis === "source_identity";
       const definitionFact = identityBasis
         ? undefined
         : input.facts.find(
@@ -778,6 +795,8 @@ function deriveImplementationFindings(input: {
           ? "A snapshot-verified explicit documentation path identifies the document that owns the requested edit."
           : proof.basis === "configuration_identity"
             ? "A snapshot-verified explicit configuration path identifies the configuration artifact that owns the requested edit."
+            : proof.basis === "source_identity"
+              ? "A snapshot-verified explicit source path identifies the source file that owns the requested edit."
             : "A deterministic grounded owner proof identifies this repository entity.",
         entityIds: [proof.candidate.id],
         evidenceIds,
@@ -1650,14 +1669,38 @@ async function executeOperation(
         }),
       };
     }
-    const entities = extraction.entities;
-    const facts = extraction.facts.map((fact) => ({
+    const source = sourceFromRead(input.snapshot.id, cached);
+    const ownerClaimIds = new Set(state.claims
+      .filter((claim) => claim.type === "implementation_owner")
+      .map((claim) => claim.id));
+    const servesOwner = state.hypotheses.some((hypothesis) =>
+      ownerClaimIds.has(hypothesis.claimId) && operation.hypothesisIds.includes(hypothesis.id));
+    const sourceIdentity = servesOwner && input.request
+      ? createExactSourceIdentity({
+        context: {
+          normalizedTask: input.request.task.normalizedTask,
+          explicitTargets: input.request.explicitTargets,
+          negativeConstraints: input.request.negativeConstraints,
+        },
+        file,
+        source,
+        operation,
+        observedAt: dependencies.clock.nowIso(),
+      })
+      : null;
+    const entities = sourceIdentity
+      ? mergeRecords(extraction.entities, [sourceIdentity.entity], "Source identity entity")
+      : extraction.entities;
+    const facts = [
+      ...extraction.facts.map((fact) => ({
       ...fact,
       provenance: {
         ...fact.provenance,
         operationId: operation.id,
       },
-    }));
+      })),
+      ...(sourceIdentity ? [sourceIdentity.fact] : []),
+    ];
     entities.forEach((entity) => {
       assertEntityEvaluationConsistency({ entity, snapshotId: input.snapshot.id });
       assertRepositoryEntitySnapshotConsistency(entity, input.snapshot);

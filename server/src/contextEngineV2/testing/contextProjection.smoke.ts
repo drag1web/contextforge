@@ -6,6 +6,9 @@ import {
   type ContextProjectionInput,
   type InvestigationRunnerResult,
 } from "../application/index.js";
+import { evaluateProjectionEvidenceForEntity } from "../application/projectionEvidenceTraceability.js";
+import { createDeterministicOperation } from "../application/operationIdentity.js";
+import { createExactSourceIdentity } from "../application/sourceIdentity.js";
 import {
   createLegacyTaskFileSelectionProjection,
   createManifestFactExtractor,
@@ -1407,6 +1410,120 @@ scenario("active repository metadata fact remains valid", () => {
   assert.equal(service.project(input).projection.primaryEntities.length, 1);
 });
 
+function sourceIdentityTraceFixture() {
+  const sourceFile = file({ id: "file-source-identity" as EntityId, path: "src/example.ts" });
+  const sourceSnapshot = snapshot([sourceFile]);
+  const operation = createDeterministicOperation(sourceSnapshot.id, {
+    type: "parse_file",
+    path: sourceFile.normalizedPath,
+    reason: "Parse verified source identity fixture.",
+    questionIds: [],
+    hypothesisIds: [],
+    priority: 10,
+    estimatedCost: {
+      operations: 1,
+      fileReads: 1,
+      fileBytes: sourceFile.sizeBytes,
+      parsedFiles: 1,
+      relationshipHops: 0,
+      plannerRounds: 0,
+      wallTimeMs: 0,
+    },
+    safetyClassification: "safe",
+  });
+  const identity = createExactSourceIdentity({
+    context: {
+      normalizedTask: "In src/example.ts change the bounded implementation.",
+      explicitTargets: [{ kind: "path", path: sourceFile.normalizedPath }],
+      negativeConstraints: [],
+    },
+    file: sourceFile,
+    source: span({ file: sourceFile }),
+    operation,
+    observedAt: "2026-01-01T00:00:00.000Z",
+  });
+  assert.ok(identity);
+  const sourceEvidence = evidence({
+    id: "evidence-source-identity",
+    file: sourceFile,
+    claimId: "claim-source-identity",
+    factIds: [identity.fact.id],
+  });
+  const sourceFinding = finding({
+    id: "finding-source-identity",
+    entityIds: [identity.entity.id],
+    evidenceIds: [sourceEvidence.id],
+  });
+  return { sourceFile, sourceSnapshot, identity, sourceEvidence, sourceFinding };
+}
+
+scenario("valid exact source identity is traceable for an implementation target", () => {
+  const fixture = sourceIdentityTraceFixture();
+  const trace = evaluateProjectionEvidenceForEntity({
+    finding: fixture.sourceFinding,
+    entity: fixture.identity.entity,
+    evidence: [fixture.sourceEvidence],
+    factsById: new Map([[fixture.identity.fact.id, fixture.identity.fact]]),
+    snapshot: fixture.sourceSnapshot,
+    explicitTargets: [{ kind: "path", path: fixture.sourceFile.normalizedPath }],
+  });
+  assert.deepEqual(trace.evidence.map((record) => record.id), [fixture.sourceEvidence.id]);
+  assert.equal(trace.explicitEntityTarget, true);
+});
+
+scenario("source identity traceability rejects a wrong entity or explicit file", () => {
+  const fixture = sourceIdentityTraceFixture();
+  const wrongEntity = entity({ id: "entity-source-wrong", fileId: fixture.sourceFile.id, kind: "file" });
+  const byWrongEntity = evaluateProjectionEvidenceForEntity({
+    finding: fixture.sourceFinding,
+    entity: wrongEntity,
+    evidence: [fixture.sourceEvidence],
+    factsById: new Map([[fixture.identity.fact.id, fixture.identity.fact]]),
+    snapshot: fixture.sourceSnapshot,
+    explicitTargets: [{ kind: "path", path: fixture.sourceFile.normalizedPath }],
+  });
+  const byWrongFile = evaluateProjectionEvidenceForEntity({
+    finding: fixture.sourceFinding,
+    entity: fixture.identity.entity,
+    evidence: [fixture.sourceEvidence],
+    factsById: new Map([[fixture.identity.fact.id, fixture.identity.fact]]),
+    snapshot: fixture.sourceSnapshot,
+    explicitTargets: [{ kind: "path", path: "src/other.ts" }],
+  });
+  assert.deepEqual(byWrongEntity.evidence, []);
+  assert.deepEqual(byWrongFile.evidence, []);
+});
+
+scenario("source identity traceability rejects stale identity evidence", () => {
+  const fixture = sourceIdentityTraceFixture();
+  const staleFact = structuredClone(fixture.identity.fact);
+  assert.equal(staleFact.source.kind, "source_span");
+  if (staleFact.source.kind === "source_span") staleFact.source.contentFingerprint = "stale-content";
+  const trace = evaluateProjectionEvidenceForEntity({
+    finding: fixture.sourceFinding,
+    entity: fixture.identity.entity,
+    evidence: [fixture.sourceEvidence],
+    factsById: new Map([[staleFact.id, staleFact]]),
+    snapshot: fixture.sourceSnapshot,
+    explicitTargets: [{ kind: "path", path: fixture.sourceFile.normalizedPath }],
+  });
+  assert.deepEqual(trace.evidence, []);
+});
+
+scenario("source identity traceability requires an exact explicit path", () => {
+  const fixture = sourceIdentityTraceFixture();
+  const trace = evaluateProjectionEvidenceForEntity({
+    finding: fixture.sourceFinding,
+    entity: fixture.identity.entity,
+    evidence: [fixture.sourceEvidence],
+    factsById: new Map([[fixture.identity.fact.id, fixture.identity.fact]]),
+    snapshot: fixture.sourceSnapshot,
+    explicitTargets: [],
+  });
+  assert.deepEqual(trace.evidence, []);
+  assert.equal(trace.explicitEntityTarget, false);
+});
+
 function outputRole(
   output: ReturnType<typeof service.project>,
   entityId: string,
@@ -1414,5 +1531,5 @@ function outputRole(
   return output.decisions.find((entry) => entry.entityId === entityId)?.role;
 }
 
-assert.equal(scenarioCount, 86);
+assert.equal(scenarioCount, 90);
 console.log(`Context Engine v2 projection smoke passed: ${scenarioCount} scenarios.`);

@@ -537,6 +537,240 @@ await scenario("same-file configuration safeguards remain in the production task
     "Do not change package scripts, plugins, aliases, or server configuration",
   ]);
 });
+
+const sourceIdentityRoot = await fs.mkdtemp(path.join(os.tmpdir(), "context-engine-source-identity-"));
+const sourceIdentityPath = "src/example.ts";
+const sourceIdentitySource = [
+  "export const alpha = 1;",
+  "export const beta = 2;",
+  "export function gamma() { return alpha + beta; }",
+  "export function targetFunction() { return gamma(); }",
+].join("\n");
+await fs.mkdir(path.join(sourceIdentityRoot, "src"), { recursive: true });
+await fs.writeFile(path.join(sourceIdentityRoot, sourceIdentityPath), sourceIdentitySource, "utf8");
+const sourceIdentityInventory: ProjectInventory = {
+  rootPath: sourceIdentityRoot,
+  files: [{
+    path: sourceIdentityPath,
+    name: "example.ts",
+    extension: ".ts",
+    kind: "source",
+    role: "service",
+    imports: [],
+    exports: ["alpha", "beta", "gamma", "targetFunction"],
+    symbols: ["alpha", "beta", "gamma", "targetFunction"],
+    textHints: ["alpha", "beta", "gamma", "targetFunction"],
+    contentPreview: sourceIdentitySource.replace(/\s+/gu, " ").trim(),
+    sizeBytes: Buffer.byteLength(sourceIdentitySource),
+    depth: 1,
+    canReadText: true,
+    isLikelyGenerated: false,
+  }],
+  totalFiles: 1,
+  scannedFiles: 1,
+  truncated: false,
+  notes: [],
+};
+const sourceIdentityTask = `In ${sourceIdentityPath} change the bounded implementation.`;
+const sourceIdentityIntent: TaskIntentAnalysis = {
+  ...structuredClone(taskIntent),
+  taskArea: "backend",
+  domainTerms: [sourceIdentityPath],
+  mentionedEntities: [sourceIdentityPath],
+  structuredIntent: {
+    ...structuredClone(taskIntent.structuredIntent),
+    primaryTargets: [{
+      kind: "explicit_file",
+      value: sourceIdentityPath,
+      path: sourceIdentityPath,
+      provenance: "user_confirmed",
+      confidence: 1,
+      evidence: "Exact path provided by the user.",
+    }],
+  },
+  taskUnderstanding: {
+    ...structuredClone(taskIntent.taskUnderstanding),
+    goal: "Update the exact source file",
+    targetHints: [sourceIdentityPath],
+    requestedChanges: ["Change the bounded implementation"],
+    changeDefinition: "exact",
+  },
+};
+const sourceIdentityBasis = createContextEngineShadowExecutionBasis({
+  policy: fixturePolicy,
+  requestedTaskType: "backend",
+  effectiveTaskArea: "backend",
+  plannerMode: "deterministic",
+});
+const sourceIdentityCanonical = prepareContextEngineShadowInput({
+  projectId: "source-identity-fixture",
+  projectRoot: sourceIdentityRoot,
+  inventory: sourceIdentityInventory,
+  normalizedTask: sourceIdentityTask,
+  structuredTargets: sourceIdentityIntent.structuredIntent.primaryTargets,
+  protectedScopes: [],
+  executionBasis: sourceIdentityBasis,
+  createdAt: "2026-09-05T00:00:00.000Z",
+});
+let sourceIdentityDownstream: ReturnType<typeof validateTaskPackPrimaryCandidate> | undefined;
+const sourceIdentityStarted = Math.floor(performance.now());
+const sourceIdentityResolution = await runLiveTaskPackPrimary({
+  canonical: sourceIdentityCanonical,
+  requestStartedMonotonicMs: sourceIdentityStarted,
+  requestDeadlineMonotonicMs: sourceIdentityStarted + sourceIdentityBasis.policy.timeoutMs,
+  validateDownstream: (candidate, proofs) => {
+    sourceIdentityDownstream = validateTaskPackPrimaryCandidate({
+      rawTask: sourceIdentityTask,
+      requestedTaskType: "backend",
+      effectiveTaskArea: "backend",
+      inventory: sourceIdentityInventory,
+      taskIntent: sourceIdentityIntent,
+      contextQualityMode: "balanced",
+      candidate,
+      proofs,
+    });
+    return {
+      validatedFiles: sourceIdentityDownstream.validatedFiles,
+      validation: sourceIdentityDownstream.validation,
+    };
+  },
+});
+await scenario("exact source identity authorizes one file instead of sibling declarations", () => {
+  assert.equal(sourceIdentityResolution.status, "v2_applied", JSON.stringify(sourceIdentityResolution.decision));
+  assert.deepEqual(sourceIdentityResolution.adoptedFiles, [{
+    path: sourceIdentityPath,
+    kind: "source",
+    role: "target",
+    usage: "inspect-and-edit",
+  }]);
+  assert.equal(sourceIdentityResolution.groundedProofs.length, 1);
+  assert.equal(sourceIdentityResolution.groundedProofs[0]?.proofKind, "direct_source_identity");
+  assert.equal(sourceIdentityDownstream?.validation.authorizationPreserved, true);
+  assert.ok((sourceIdentityResolution.decision.metrics?.parsedFiles ?? 0) > 0);
+});
+await scenario("direct source identity maps to truthful content-supported provenance", () => {
+  const selected = sourceIdentityDownstream?.productionSelection.selectedFiles[0];
+  assert.equal(selected?.selectionEvidence?.ownershipEvidence, "content_supported");
+  assert.equal(selected?.selectionEvidence?.reason,
+    "Current snapshot identity confirms the explicitly requested source file.");
+  assert.notEqual(selected?.selectionEvidence?.ownershipEvidence, "reference_graph");
+});
+await scenario("direct source identity preserves the implementation execution contract", () => {
+  const contract = sourceIdentityDownstream?.productionSelection.diagnostics?.executionContract;
+  assert.equal(contract?.mode, "implementation");
+  assert.deepEqual(contract?.confirmedTargets, [sourceIdentityPath]);
+  assert.equal(contract?.authorization?.targetAuthorization, "confirmed");
+  assert.deepEqual(contract?.authorization?.authorizedTargets, [sourceIdentityPath]);
+  assert.equal(contract?.allowImplementationGuidance, true);
+});
+await scenario("direct source identity passes the closed primary invariant", () => {
+  assert.doesNotThrow(() => validateTaskPackPrimaryDecision(sourceIdentityResolution.decision));
+});
+await scenario("unknown and incomplete source proof records remain invalid", () => {
+  const unknown = structuredClone(sourceIdentityResolution.decision) as unknown as {
+    groundedProofs: Array<Record<string, unknown>>;
+  };
+  unknown.groundedProofs[0]!.proofKind = "direct_unknown_identity";
+  assert.throws(() => validateTaskPackPrimaryDecision(unknown));
+  const incomplete = structuredClone(sourceIdentityResolution.decision) as unknown as {
+    groundedProofs: Array<Record<string, unknown>>;
+  };
+  incomplete.groundedProofs[0]!.evidenceCurrent = false;
+  assert.throws(() => validateTaskPackPrimaryDecision(incomplete));
+  const duplicate = structuredClone(sourceIdentityResolution.decision);
+  duplicate.groundedProofs.push(structuredClone(duplicate.groundedProofs[0]!));
+  assert.throws(() => validateTaskPackPrimaryDecision(duplicate));
+});
+await scenario("a cloned direct source proof cannot cross the trusted proof boundary", () => {
+  const forgedEnvelope = createTaskPackPrimaryProductionEnvelope({
+    candidate: sourceIdentityResolution.adoptedFiles ?? [],
+    proofs: [structuredClone(sourceIdentityResolution.groundedProofs[0]!)],
+    inventory: sourceIdentityInventory,
+    requestedTaskType: "backend",
+    effectiveTaskArea: "backend",
+    userConfirmedTargetPaths: [sourceIdentityPath],
+  });
+  assert.deepEqual(forgedEnvelope.selectedFiles, []);
+});
+
+const symbolIdentityRoot = await fs.mkdtemp(path.join(os.tmpdir(), "context-engine-source-symbol-"));
+const symbolIdentityPath = "src/symbol.ts";
+const symbolIdentitySource = "export function directTarget() { return true; }\n";
+await fs.mkdir(path.join(symbolIdentityRoot, "src"), { recursive: true });
+await fs.writeFile(path.join(symbolIdentityRoot, symbolIdentityPath), symbolIdentitySource, "utf8");
+const symbolIdentityInventory: ProjectInventory = {
+  rootPath: symbolIdentityRoot,
+  files: [{
+    path: symbolIdentityPath,
+    name: "symbol.ts",
+    extension: ".ts",
+    kind: "source",
+    role: "service",
+    imports: [],
+    exports: ["directTarget"],
+    symbols: ["directTarget"],
+    textHints: ["directTarget"],
+    contentPreview: symbolIdentitySource.trim(),
+    sizeBytes: Buffer.byteLength(symbolIdentitySource),
+    depth: 1,
+    canReadText: true,
+    isLikelyGenerated: false,
+  }],
+  totalFiles: 1,
+  scannedFiles: 1,
+  truncated: false,
+  notes: [],
+};
+const symbolIdentityCanonical = prepareContextEngineShadowInput({
+  projectId: "source-symbol-fixture",
+  projectRoot: symbolIdentityRoot,
+  inventory: symbolIdentityInventory,
+  normalizedTask: "Update directTarget.",
+  structuredTargets: [{
+    kind: "symbol",
+    value: "directTarget",
+    name: "directTarget",
+    provenance: "user_confirmed",
+  }],
+  protectedScopes: [],
+  executionBasis: sourceIdentityBasis,
+  createdAt: "2026-09-05T00:00:00.000Z",
+});
+const symbolIdentityStarted = Math.floor(performance.now());
+const symbolIdentityResolution = await runLiveTaskPackPrimary({
+  canonical: symbolIdentityCanonical,
+  requestStartedMonotonicMs: symbolIdentityStarted,
+  requestDeadlineMonotonicMs: symbolIdentityStarted + sourceIdentityBasis.policy.timeoutMs,
+  validateDownstream: acceptDownstream,
+});
+await scenario("explicit symbol remains a direct definition proof", () => {
+  assert.equal(symbolIdentityResolution.status, "v2_applied", JSON.stringify(symbolIdentityResolution.decision));
+  assert.equal(symbolIdentityResolution.groundedProofs[0]?.proofKind, "direct_definition");
+  const envelope = createTaskPackPrimaryProductionEnvelope({
+    candidate: symbolIdentityResolution.adoptedFiles ?? [],
+    proofs: symbolIdentityResolution.groundedProofs,
+    inventory: symbolIdentityInventory,
+    requestedTaskType: "backend",
+    effectiveTaskArea: "backend",
+  });
+  assert.equal(envelope.selectedFiles[0]?.selectionEvidence?.ownershipEvidence, "symbol_exact");
+});
+
+await scenario("existing identity and relationship proof mappings remain unchanged", () => {
+  assert.equal(documentationDownstream?.productionSelection.selectedFiles[0]?.selectionEvidence?.ownershipEvidence,
+    "content_supported");
+  assert.equal(configurationDownstream?.productionSelection.selectedFiles[0]?.selectionEvidence?.ownershipEvidence,
+    "content_supported");
+  const relationshipEnvelope = createTaskPackPrimaryProductionEnvelope({
+    candidate: realResolution.adoptedFiles ?? [],
+    proofs: realResolution.groundedProofs,
+    inventory,
+    requestedTaskType: "backend",
+    effectiveTaskArea: "backend",
+  });
+  assert.equal(relationshipEnvelope.selectedFiles.find((file) => file.path === "src/service.ts")
+    ?.selectionEvidence?.ownershipEvidence, "reference_graph");
+});
 await scenario("connected entry-to-owner evidence emits an exact relationship chain", () => assert.equal(
   realResolution.groundedProofs.find((proof) => proof.path === "src/service.ts")?.proofKind,
   "exact_relationship_chain",
@@ -1137,5 +1371,7 @@ await fs.rm(root, { recursive: true, force: true });
 await fs.rm(ambiguousRoot, { recursive: true, force: true });
 await fs.rm(documentationRoot, { recursive: true, force: true });
 await fs.rm(configurationRoot, { recursive: true, force: true });
+await fs.rm(sourceIdentityRoot, { recursive: true, force: true });
+await fs.rm(symbolIdentityRoot, { recursive: true, force: true });
 assert.ok(scenarioCount >= 140, `expected at least 140 retirement scenarios, received ${scenarioCount}`);
 console.log(`Context Engine v2 legacy retirement smoke passed: ${scenarioCount} scenarios.`);

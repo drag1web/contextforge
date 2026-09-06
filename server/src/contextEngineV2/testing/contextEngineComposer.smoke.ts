@@ -265,6 +265,21 @@ scenario("unknown status rejected", () => { const value = structuredClone(validV
 scenario("unknown stop rejected", () => { const value = structuredClone(validView()) as any; value.stopReason = "done"; assert.throws(() => validateContextComposerEngineView(value)); });
 scenario("unknown reason rejected", () => { const value = structuredClone(validView()) as any; value.files[0].reasonCode = "raw_error"; assert.throws(() => validateContextComposerEngineView(value)); });
 scenario("unknown predicate rejected", () => { const value = structuredClone(validView()); value.files[0]!.evidence[0]!.predicate = "raw_user_text"; assert.throws(() => validateContextComposerEngineView(value)); });
+scenario("source identity predicate accepted", () => {
+  const value = structuredClone(validView());
+  value.files[0]!.evidence[0]!.predicate = "source_identity";
+  assert.equal(validateContextComposerEngineView(value).files[0]!.evidence[0]!.predicate, "source_identity");
+});
+scenario("source identity predicate near miss rejected", () => {
+  const value = structuredClone(validView());
+  value.files[0]!.evidence[0]!.predicate = "source-identity";
+  assert.throws(() => validateContextComposerEngineView(value));
+});
+scenario("arbitrary injected predicate rejected", () => {
+  const value = structuredClone(validView());
+  value.files[0]!.evidence[0]!.predicate = "source_identity;drop_boundary";
+  assert.throws(() => validateContextComposerEngineView(value));
+});
 scenario("lead-only target evidence rejected", () => { const value = structuredClone(validView()); value.files[0]!.evidence[0]!.strength = "lead"; assert.throws(() => validateContextComposerEngineView(value)); });
 scenario("context-only target evidence rejected", () => { const value = structuredClone(validView()); value.files[0]!.evidence[0]!.role = "context_only"; assert.throws(() => validateContextComposerEngineView(value)); });
 scenario("decision evidence trace mismatch rejected", () => { const value = structuredClone(validView()); value.files[0]!.evidence[0]!.evidenceId = "evidence-other"; assert.throws(() => validateContextComposerEngineView(value)); });
@@ -425,7 +440,22 @@ scenario("real grounded v2 primary is ready", async () => {
     executor: async () => realExecution!,
   });
   assert.equal(resolution.view.status, "v2_ready");
+  assert.equal(resolution.view.effectiveSource, "v2");
+  assert.equal(resolution.view.fallbackReason, null);
   assert.equal(resolution.selection?.selectedFiles[0]?.path, "src/candidate.ts");
+  assert.equal(resolution.view.files.length, 1);
+  const file = resolution.view.files[0]!;
+  assert.equal(file.path, "src/candidate.ts");
+  assert.equal(file.role, "target");
+  assert.equal(file.usage, "inspect-and-edit");
+  assert.equal(file.source, "v2");
+  assert.ok(file.findingIds.length > 0);
+  assert.ok(file.evidenceIds.length > 0);
+  assert.equal(file.evidence.length, 1);
+  assert.equal(file.evidence[0]!.predicate, "source_identity");
+  assert.equal(file.evidence[0]!.role, "supports");
+  assert.notEqual(file.evidence[0]!.strength, "lead");
+  assert.equal(file.evidence[0]!.reasonCode, "confirmed_implementation_target");
   assert.equal(resolution.view.comparison?.outcome, "insufficient_evaluation_data");
 });
 scenario("malformed comparison blocks safely", async () => {

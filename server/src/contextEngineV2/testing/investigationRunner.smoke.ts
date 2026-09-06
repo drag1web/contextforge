@@ -11,10 +11,17 @@ import {
   createDeterministicInvestigationInterpreter,
   createDeterministicInvestigationPlanner,
   createInvestigationRunner,
+  createContextProjectionService,
 } from "../application/index.js";
 import { DOCUMENT_IDENTITY_PREDICATE } from "../application/documentIdentity.js";
 import { CONFIGURATION_IDENTITY_PREDICATE } from "../application/configurationIdentity.js";
+import {
+  SOURCE_IDENTITY_PREDICATE,
+  createExactSourceIdentity,
+  isSnapshotBoundSourceIdentityFact,
+} from "../application/sourceIdentity.js";
 import { evaluateInvestigationQuestions } from "../application/deterministicQuestionEvaluator.js";
+import { deterministicSourcePathOwnerHypothesisId } from "../application/deterministicInvestigationInterpreter.js";
 import {
   deriveImplementationOwnerProofs,
   evaluateFactClaimEligibility,
@@ -5470,6 +5477,502 @@ scenario("201. configuration identity replay is deterministic", async () => {
   const first = await runExactConfigurationFixture({ suffix: "configuration-replay", path: "config/tool.json" });
   const second = await runExactConfigurationFixture({ suffix: "configuration-replay", path: "config/tool.json" });
   assert.deepEqual(second.result, first.result);
+});
+
+function ownerRequirementPredicates(seed: ReturnType<ReturnType<typeof createDeterministicInvestigationInterpreter>["interpret"]>): string[] {
+  const ownerClaim = seed.claims.find((candidate) => candidate.type === "implementation_owner");
+  const ownerHypothesis = seed.hypotheses.find((candidate) => candidate.claimId === ownerClaim?.id);
+  return ownerHypothesis?.requiredEvidence[0]?.acceptedFactPredicates ?? [];
+}
+
+scenario("202. interpreter gives an exact named source path only the source identity predicate", () => {
+  const source = snapshot({ suffix: "source-seed", path: "src/example.ts" });
+  const seed = createDeterministicInvestigationInterpreter().interpret(requestFor(source, {
+    task: "In src/example.ts change the bounded implementation.",
+    explicitTargets: [{ kind: "path", path: "src/example.ts" }],
+  }));
+  assert.deepEqual(ownerRequirementPredicates(seed), [SOURCE_IDENTITY_PREDICATE]);
+});
+
+scenario("203. interpreter keeps documentation identity predicates unchanged", () => {
+  const fixture = repositoryFixture("source-seed-doc", [
+    { path: "docs/setup.md", content: "# Setup\n", kind: "documentation" },
+  ]);
+  const seed = createDeterministicInvestigationInterpreter().interpret(requestFor(fixture.snapshot, {
+    task: "Update docs/setup.md.",
+    explicitTargets: [{ kind: "path", path: "docs/setup.md" }],
+  }));
+  assert.deepEqual(ownerRequirementPredicates(seed), [DOCUMENT_IDENTITY_PREDICATE]);
+});
+
+scenario("204. interpreter keeps configuration identity predicates unchanged", () => {
+  const fixture = repositoryFixture("source-seed-config", [
+    { path: "config/tool.json", content: "{\"enabled\":true}\n", kind: "configuration" },
+  ]);
+  const seed = createDeterministicInvestigationInterpreter().interpret(requestFor(fixture.snapshot, {
+    task: "Update config/tool.json.",
+    explicitTargets: [{ kind: "path", path: "config/tool.json" }],
+  }));
+  assert.deepEqual(ownerRequirementPredicates(seed), [CONFIGURATION_IDENTITY_PREDICATE]);
+});
+
+scenario("205. interpreter keeps unknown and generic non-source paths out of source identity", () => {
+  const fixture = repositoryFixture("source-seed-generic", [
+    { path: "public/logo.svg", content: "<svg/>\n", kind: "asset" },
+  ]);
+  const interpreter = createDeterministicInvestigationInterpreter();
+  const generic = interpreter.interpret(requestFor(fixture.snapshot, {
+    task: "Update public/logo.svg.",
+    explicitTargets: [{ kind: "path", path: "public/logo.svg" }],
+  }));
+  const unknown = interpreter.interpret(requestFor(fixture.snapshot, {
+    task: "Update src/missing.ts.",
+    explicitTargets: [{ kind: "path", path: "src/missing.ts" }],
+  }));
+  assert.equal(ownerRequirementPredicates(generic).includes(SOURCE_IDENTITY_PREDICATE), false);
+  assert.equal(ownerRequirementPredicates(unknown).includes(SOURCE_IDENTITY_PREDICATE), false);
+  assert.ok(unknown.rationale.some((item) => item.source === "unknown_explicit_target"));
+});
+
+scenario("206. interpreter keeps explicit symbol seeds on symbol ownership semantics", () => {
+  const source = snapshot({ suffix: "source-seed-symbol" });
+  const seed = createDeterministicInvestigationInterpreter().interpret(requestFor(source, {
+    task: "Update targetFunction.",
+    explicitTargets: [{ kind: "symbol", symbol: "targetFunction" }],
+  }));
+  assert.equal(ownerRequirementPredicates(seed).includes(SOURCE_IDENTITY_PREDICATE), false);
+  assert.ok(seed.operationCandidates.some((operation) => operation.type === "search_symbols"));
+});
+
+scenario("207. a negatively constrained source path receives no source identity seed", () => {
+  const source = snapshot({ suffix: "source-seed-negative", path: "src/example.ts" });
+  const seed = createDeterministicInvestigationInterpreter().interpret(requestFor(source, {
+    task: "Edit src/example.ts, but do not modify src/example.ts.",
+    explicitTargets: [{ kind: "path", path: "src/example.ts" }],
+    negativeConstraints: [{ kind: "path", pattern: "src/example.ts" }],
+  }));
+  assert.equal(ownerRequirementPredicates(seed).includes(SOURCE_IDENTITY_PREDICATE), false);
+  assert.ok(seed.rationale.some((item) => item.source === "unknown_explicit_target"));
+});
+
+async function runExactSourceFixture(input: {
+  suffix: string;
+  content?: string;
+  path?: string;
+  task?: string;
+  explicitTargets?: InvestigationRequest["explicitTargets"];
+  generated?: boolean;
+  readable?: boolean;
+  secretRisk?: RepositorySnapshot["files"][number]["secretRisk"];
+  negativeConstraints?: InvestigationRequest["negativeConstraints"];
+}) {
+  const path = input.path ?? "src/example.ts";
+  const content = input.content ?? "export function targetFunction() { return true; }\n";
+  const fixture = repositoryFixture(input.suffix, [{
+    path,
+    content,
+    kind: "source",
+    generated: input.generated,
+    readable: input.readable,
+    secretRisk: input.secretRisk,
+  }]);
+  return runStructuredRepositoryFixture({
+    source: fixture.snapshot,
+    adapterFiles: fixture.adapterFiles,
+    task: input.task ?? `In ${path} change the bounded implementation.`,
+    explicitTargets: input.explicitTargets ?? [{ kind: "path", path }],
+    negativeConstraints: input.negativeConstraints,
+  });
+}
+
+function sourceOwnerProofs(input: Awaited<ReturnType<typeof runExactSourceFixture>>) {
+  const claim = input.result.claims.find((candidate) => candidate.type === "implementation_owner");
+  const hypothesis = input.result.hypotheses.find((candidate) => candidate.claimId === claim?.id);
+  const operationRecord = input.result.operationRecords.find((record) =>
+    record.status === "completed" &&
+    record.operation.type === "parse_file" &&
+    hypothesis !== undefined &&
+    record.operation.hypothesisIds.includes(hypothesis.id));
+  if (!claim || !hypothesis || !operationRecord) return [];
+  return deriveImplementationOwnerProofs({
+    claim,
+    hypothesis,
+    operation: operationRecord.operation,
+    operationRecords: input.result.operationRecords,
+    facts: input.result.facts,
+    snapshot: input.runnerInput.snapshot,
+    request: input.request,
+  });
+}
+
+function sourceOwnerProofsForHypothesis(
+  input: Awaited<ReturnType<typeof runExactSourceFixture>>,
+  hypothesis: InvestigationHypothesis,
+) {
+  const claim = input.result.claims.find((candidate) => candidate.id === hypothesis.claimId);
+  const operationRecord = input.result.operationRecords.find((record) =>
+    record.status === "completed" &&
+    record.operation.type === "parse_file" &&
+    record.operation.hypothesisIds.includes(hypothesis.id));
+  if (!claim || !operationRecord) return [];
+  return deriveImplementationOwnerProofs({
+    claim,
+    hypothesis,
+    operation: operationRecord.operation,
+    operationRecords: input.result.operationRecords,
+    facts: input.result.facts,
+    snapshot: input.runnerInput.snapshot,
+    request: input.request,
+  });
+}
+
+function sourcePathOwnerHypothesis(
+  input: Awaited<ReturnType<typeof runExactSourceFixture>>,
+  path: string,
+) {
+  const file = input.runnerInput.snapshot.files.find((candidate) =>
+    candidate.normalizedPath === path);
+  assert.ok(file);
+  const hypothesisId = deterministicSourcePathOwnerHypothesisId({
+    snapshotId: input.runnerInput.snapshot.id,
+    fileId: file.id,
+  });
+  const hypothesis = input.result.hypotheses.find((candidate) => candidate.id === hypothesisId);
+  assert.ok(hypothesis);
+  return hypothesis;
+}
+
+function symbolOwnerHypothesis(input: Awaited<ReturnType<typeof runExactSourceFixture>>) {
+  const ownerClaimIds = new Set(input.result.claims
+    .filter((candidate) => candidate.type === "implementation_owner")
+    .map((candidate) => candidate.id));
+  const hypothesis = input.result.hypotheses.find((candidate) =>
+    ownerClaimIds.has(candidate.claimId) &&
+    !candidate.requiredEvidence.some((requirement) =>
+      requirement.acceptedFactPredicates?.includes(SOURCE_IDENTITY_PREDICATE)));
+  assert.ok(hypothesis);
+  return hypothesis;
+}
+
+function editableProjectionPaths(input: Awaited<ReturnType<typeof runExactSourceFixture>>) {
+  const projection = createContextProjectionService().project({
+    result: input.result,
+    snapshot: input.runnerInput.snapshot,
+    purpose: "implementation",
+    explicitTargets: input.request.explicitTargets,
+    negativeConstraints: input.request.negativeConstraints,
+  });
+  return [...new Set(projection.decisions
+    .filter((decision) => decision.included && (decision.role === "target" || decision.role === "test"))
+    .map((decision) => decision.path))].sort();
+}
+
+scenario("208. exact source file with many declarations has one file-level owner", async () => {
+  const run = await runExactSourceFixture({
+    suffix: "source-many-declarations",
+    content: [
+      "export const alpha = 1;",
+      "export const beta = 2;",
+      "export function gamma() { return alpha + beta; }",
+      "export function targetFunction() { return gamma(); }",
+    ].join("\n"),
+  });
+  const identityFacts = run.result.facts.filter((fact) => fact.predicate === SOURCE_IDENTITY_PREDICATE);
+  const proofs = sourceOwnerProofs(run);
+  assert.equal(identityFacts.length, 1);
+  assert.equal(proofs.length, 1);
+  assert.equal(proofs[0]?.basis, "source_identity");
+  assert.equal(proofs[0]?.candidate.kind, "file");
+  assert.equal(run.result.contradictions.some((item) => item.type === "multiple_owners"), false);
+  assert.equal(run.result.findings.filter((item) => item.type === "implementation_target").length, 1);
+  assert.ok(run.result.operationRecords.some((record) =>
+    record.status === "completed" && record.operation.type === "parse_file"));
+});
+
+scenario("209. exact source file with one declaration uses the same source identity", async () => {
+  const run = await runExactSourceFixture({ suffix: "source-single-declaration" });
+  assert.equal(sourceOwnerProofs(run).length, 1);
+  assert.equal(sourceOwnerProofs(run)[0]?.basis, "source_identity");
+  assert.ok(run.result.findings.some((finding) =>
+    finding.type === "implementation_target" && finding.status === "confirmed"));
+});
+
+scenario("210. explicit symbol ownership remains definition-specific", async () => {
+  const content = [
+    "export const sibling = 1;",
+    "export function targetFunction() { return sibling; }",
+  ].join("\n");
+  const fixture = repositoryFixture("source-explicit-symbol", [
+    { path: "src/example.ts", content, kind: "source" },
+  ]);
+  const run = await runStructuredRepositoryFixture({
+    source: fixture.snapshot,
+    adapterFiles: fixture.adapterFiles,
+    task: "Update targetFunction.",
+    explicitTargets: [{ kind: "symbol", symbol: "targetFunction" }],
+  });
+  assert.equal(run.result.facts.some((fact) => fact.predicate === SOURCE_IDENTITY_PREDICATE), false);
+  const confirmed = run.result.findings.filter((finding) =>
+    finding.type === "implementation_target" && finding.status === "confirmed");
+  assert.equal(confirmed.length, 1);
+  assert.equal(run.result.entities.find((entity) => entity.id === confirmed[0]?.entityIds[0])?.displayName, "targetFunction");
+});
+
+scenario("211. genuine different-file symbol ambiguity remains fail closed", async () => {
+  const fixture = repositoryFixture("source-cross-file-ambiguity", [
+    { path: "src/first.ts", content: "export function sharedOwner() { return 1; }\n" },
+    { path: "src/second.ts", content: "export function sharedOwner() { return 2; }\n" },
+  ]);
+  const ownerClaim = claim(fixture.snapshot, "source-cross-file-ambiguity");
+  const ownerHypothesis = hypothesis(ownerClaim);
+  const parse = parsePathOperation(fixture.snapshot, "src/first.ts", {
+    hypotheses: [ownerHypothesis.id],
+  });
+  const registry = extractors(new ManualClock());
+  const facts = (await Promise.all(fixture.adapterFiles.map(async (file) => {
+    const descriptor = fixture.snapshot.files.find((candidate) => candidate.id === file.fileId)!;
+    const extraction = await registry.extract({
+      snapshotId: fixture.snapshot.id,
+      fileId: file.fileId,
+      path: file.path,
+      content: file.content,
+      contentFingerprint: file.contentFingerprint,
+      language: descriptor.language,
+    });
+    return extraction.facts.map((fact) => ({
+      ...fact,
+      provenance: { ...fact.provenance, operationId: parse.id },
+    }));
+  }))).flat();
+  const proofs = deriveImplementationOwnerProofs({
+    claim: ownerClaim,
+    hypothesis: ownerHypothesis,
+    operation: parse,
+    operationRecords: [],
+    facts,
+    snapshot: fixture.snapshot,
+    request: requestFor(fixture.snapshot, {
+      task: "Update sharedOwner.",
+      explicitTargets: [{ kind: "symbol", symbol: "sharedOwner" }],
+    }),
+  });
+  assert.equal(proofs.length, 2);
+  assert.equal(new Set(proofs.map((proof) => proof.candidate.fileId)).size, 2);
+  assert.ok(proofs.every((proof) => proof.basis === "explicit_symbol"));
+});
+
+scenario("212. unsafe exact source files cannot produce source identity", async () => {
+  const generated = await runExactSourceFixture({ suffix: "source-generated", generated: true });
+  const secret = await runExactSourceFixture({ suffix: "source-secret", secretRisk: "known" });
+  const unreadable = await runExactSourceFixture({ suffix: "source-unreadable", readable: false });
+  const negative = await runExactSourceFixture({
+    suffix: "source-negative",
+    task: "Edit src/example.ts, but do not modify src/example.ts.",
+    negativeConstraints: [{ kind: "path", pattern: "src/example.ts" }],
+  });
+  for (const run of [generated, secret, unreadable, negative]) {
+    assert.equal(run.result.facts.some((fact) => fact.predicate === SOURCE_IDENTITY_PREDICATE), false);
+  }
+  assert.equal(secret.result.findings.some((finding) => finding.authorizationHint === "eligible"), false);
+  assert.equal(unreadable.result.findings.some((finding) => finding.authorizationHint === "eligible"), false);
+  assert.equal(negative.result.findings.some((finding) => finding.authorizationHint === "eligible"), false);
+});
+
+scenario("213. source identity requires parse and rejects stale or wrong-snapshot facts", async () => {
+  const source = snapshot({ suffix: "source-boundary", path: "src/example.ts" });
+  const context = {
+    normalizedTask: "In src/example.ts change the bounded implementation.",
+    explicitTargets: [{ kind: "path" as const, path: "src/example.ts" }],
+    negativeConstraints: [],
+  };
+  const sourceSpan = {
+    kind: "source_span" as const,
+    snapshotId: source.id,
+    fileId: source.files[0]!.id,
+    path: source.files[0]!.normalizedPath,
+    startLine: 1,
+    startColumn: 1,
+    endLine: 1,
+    endColumn: sourceContent.length + 1,
+    contentFingerprint: source.files[0]!.contentFingerprint,
+  };
+  assert.equal(createExactSourceIdentity({
+    context,
+    file: source.files[0]!,
+    source: sourceSpan,
+    operation: readOperation(source),
+    observedAt: timestamp,
+  }), null);
+  const identity = createExactSourceIdentity({
+    context,
+    file: source.files[0]!,
+    source: sourceSpan,
+    operation: parseOperation(source),
+    observedAt: timestamp,
+  });
+  assert.ok(identity);
+  const staleSnapshot = structuredClone(source);
+  staleSnapshot.files[0]!.contentFingerprint = "stale-content";
+  assert.equal(isSnapshotBoundSourceIdentityFact({ fact: identity.fact, snapshot: staleSnapshot }), false);
+  assert.equal(isSnapshotBoundSourceIdentityFact({
+    fact: { ...identity.fact, snapshotId: id<SnapshotId>("snapshot-wrong") },
+    snapshot: source,
+  }), false);
+});
+
+scenario("214. source identity output is deterministic", async () => {
+  const first = await runExactSourceFixture({ suffix: "source-deterministic" });
+  const second = await runExactSourceFixture({ suffix: "source-deterministic" });
+  assert.deepEqual(second.result, first.result);
+});
+
+scenario("215. mixed exact source path and symbol preserve distinct owner scopes", async () => {
+  const content = [
+    "export const alpha = 1;",
+    "export const beta = 2;",
+    "export function gamma() { return alpha + beta; }",
+    "export function targetFunction() { return gamma(); }",
+  ].join("\n");
+  const runFixture = () => runExactSourceFixture({
+    suffix: "source-mixed-path-symbol",
+    content,
+    task: "In src/example.ts update targetFunction.",
+    explicitTargets: [
+      { kind: "path", path: "src/example.ts" },
+      { kind: "symbol", symbol: "targetFunction" },
+    ],
+  });
+  const run = await runFixture();
+  const ownerClaimIds = new Set(run.result.claims
+    .filter((candidate) => candidate.type === "implementation_owner")
+    .map((candidate) => candidate.id));
+  const ownerHypotheses = run.result.hypotheses.filter((candidate) =>
+    ownerClaimIds.has(candidate.claimId));
+  const sourcePathHypothesis = ownerHypotheses.find((candidate) =>
+    candidate.requiredEvidence.some((requirement) =>
+      requirement.acceptedFactPredicates?.includes(SOURCE_IDENTITY_PREDICATE)));
+  const symbolHypothesis = ownerHypotheses.find((candidate) => candidate.id !== sourcePathHypothesis?.id);
+  assert.ok(sourcePathHypothesis);
+  assert.ok(symbolHypothesis);
+
+  const sourcePathProofs = sourceOwnerProofsForHypothesis(run, sourcePathHypothesis);
+  assert.equal(sourcePathProofs.length, 1);
+  assert.equal(sourcePathProofs[0]?.basis, "source_identity");
+  assert.equal(sourcePathProofs[0]?.candidate.kind, "file");
+  assert.equal(sourcePathProofs.some((proof) => proof.basis === "explicit_symbol" || proof.basis === "explicit_path"), false);
+
+  const symbolProofs = sourceOwnerProofsForHypothesis(run, symbolHypothesis);
+  assert.equal(symbolProofs.length, 1);
+  assert.equal(symbolProofs[0]?.basis, "explicit_symbol");
+  assert.equal(symbolProofs[0]?.candidate.displayName, "targetFunction");
+  assert.equal(symbolProofs.some((proof) =>
+    proof.basis === "explicit_path" || ["alpha", "beta", "gamma"].includes(proof.candidate.displayName)), false);
+  assert.equal(run.result.contradictions.some((item) => item.type === "multiple_owners"), false);
+
+  const projection = createContextProjectionService().project({
+    result: run.result,
+    snapshot: run.runnerInput.snapshot,
+    purpose: "implementation",
+    explicitTargets: run.request.explicitTargets,
+    negativeConstraints: run.request.negativeConstraints,
+  });
+  const editablePaths = [...new Set(projection.decisions
+    .filter((decision) => decision.included && (decision.role === "target" || decision.role === "test"))
+    .map((decision) => decision.path))];
+  assert.deepEqual(editablePaths, ["src/example.ts"]);
+
+  const repeated = await runFixture();
+  assert.deepEqual(repeated.result, run.result);
+});
+
+scenario("216. independent exact source path and third-file symbol remain independently grounded", async () => {
+  const fixture = repositoryFixture("source-independent-path-symbol", [
+    {
+      path: "src/a.ts",
+      content: "export const alpha = 1;\n",
+    },
+    {
+      path: "src/services/shared.ts",
+      content: "export function SharedService() { return true; }\n",
+    },
+  ]);
+  const run = await runStructuredRepositoryFixture({
+    source: fixture.snapshot,
+    adapterFiles: fixture.adapterFiles,
+    task: "Update src/a.ts and update SharedService.",
+    explicitTargets: [
+      { kind: "path", path: "src/a.ts" },
+      { kind: "symbol", symbol: "SharedService" },
+    ],
+  });
+  const pathProofs = sourceOwnerProofsForHypothesis(run, sourcePathOwnerHypothesis(run, "src/a.ts"));
+  const symbolProofs = sourceOwnerProofsForHypothesis(run, symbolOwnerHypothesis(run));
+  assert.equal(pathProofs.length, 1);
+  assert.equal(pathProofs[0]?.basis, "source_identity");
+  assert.equal(pathProofs[0]?.candidate.displayName, "src/a.ts");
+  assert.equal(symbolProofs.length, 1);
+  assert.equal(symbolProofs[0]?.basis, "explicit_symbol");
+  assert.equal(symbolProofs[0]?.candidate.displayName, "SharedService");
+  assert.equal(symbolProofs[0]?.candidate.fileId, fixture.snapshot.files.find((file) =>
+    file.normalizedPath === "src/services/shared.ts")?.id);
+  assert.equal(run.result.contradictions.some((item) => item.type === "multiple_owners"), false);
+  assert.deepEqual(editableProjectionPaths(run), ["src/a.ts", "src/services/shared.ts"]);
+});
+
+scenario("217. multiple exact source paths remain bound to their own owner hypotheses", async () => {
+  const fixture = repositoryFixture("source-independent-paths", [
+    { path: "src/a.ts", content: "export const alpha = 1;\n" },
+    { path: "src/b.ts", content: "export const beta = 2;\n" },
+  ]);
+  const run = await runStructuredRepositoryFixture({
+    source: fixture.snapshot,
+    adapterFiles: fixture.adapterFiles,
+    task: "Update src/a.ts and src/b.ts in this change.",
+    explicitTargets: [
+      { kind: "path", path: "src/a.ts" },
+      { kind: "path", path: "src/b.ts" },
+    ],
+  });
+  for (const path of ["src/a.ts", "src/b.ts"]) {
+    const proofs = sourceOwnerProofsForHypothesis(run, sourcePathOwnerHypothesis(run, path));
+    assert.equal(proofs.length, 1);
+    assert.equal(proofs[0]?.basis, "source_identity");
+    assert.equal(proofs[0]?.candidate.displayName, path);
+  }
+  assert.equal(run.result.contradictions.some((item) => item.type === "multiple_owners"), false);
+  assert.deepEqual(editableProjectionPaths(run), ["src/a.ts", "src/b.ts"]);
+});
+
+scenario("218. multiple source paths and a third-file symbol retain independent owner scopes", async () => {
+  const fixture = repositoryFixture("source-independent-paths-symbol", [
+    { path: "src/a.ts", content: "export const alpha = 1;\n" },
+    { path: "src/b.ts", content: "export const beta = 2;\n" },
+    { path: "src/services/shared.ts", content: "export function SharedService() { return true; }\n" },
+  ]);
+  const run = await runStructuredRepositoryFixture({
+    source: fixture.snapshot,
+    adapterFiles: fixture.adapterFiles,
+    task: "Update src/a.ts and src/b.ts, and update SharedService.",
+    explicitTargets: [
+      { kind: "path", path: "src/a.ts" },
+      { kind: "path", path: "src/b.ts" },
+      { kind: "symbol", symbol: "SharedService" },
+    ],
+  });
+  for (const path of ["src/a.ts", "src/b.ts"]) {
+    const proofs = sourceOwnerProofsForHypothesis(run, sourcePathOwnerHypothesis(run, path));
+    assert.equal(proofs.length, 1);
+    assert.equal(proofs[0]?.basis, "source_identity");
+    assert.equal(proofs[0]?.candidate.displayName, path);
+  }
+  const symbolProofs = sourceOwnerProofsForHypothesis(run, symbolOwnerHypothesis(run));
+  assert.equal(symbolProofs.length, 1);
+  assert.equal(symbolProofs[0]?.basis, "explicit_symbol");
+  assert.equal(symbolProofs[0]?.candidate.displayName, "SharedService");
+  assert.equal(symbolProofs[0]?.candidate.fileId, fixture.snapshot.files.find((file) =>
+    file.normalizedPath === "src/services/shared.ts")?.id);
+  assert.equal(run.result.contradictions.some((item) => item.type === "multiple_owners"), false);
+  assert.deepEqual(editableProjectionPaths(run), ["src/a.ts", "src/b.ts", "src/services/shared.ts"]);
 });
 
 for (const current of scenarios) {

@@ -20,6 +20,12 @@ import {
   isExactConfigurationIdentityFact,
 } from "./configurationIdentity.js";
 import {
+  SOURCE_IDENTITY_PREDICATE,
+  isExactExplicitSourceTarget,
+  isExactSourceIdentityFact,
+} from "./sourceIdentity.js";
+import { deterministicSourcePathOwnerHypothesisId } from "./deterministicInvestigationInterpreter.js";
+import {
   buildStrictBoundedRelationshipChainsFromPrepared,
   prepareStrictRelationshipAdjacency,
   type PreparedStrictRelationshipAdjacency,
@@ -36,6 +42,7 @@ const CLAIM_PREDICATES: Readonly<Record<ClaimRecord["type"], ReadonlySet<string>
     "re_exports",
     DOCUMENT_IDENTITY_PREDICATE,
     CONFIGURATION_IDENTITY_PREDICATE,
+    SOURCE_IDENTITY_PREDICATE,
   ]),
   supporting_context: new Set([
     "calls",
@@ -79,7 +86,7 @@ const OWNER_ENTITY_KINDS = new Set([
 export interface ImplementationOwnerProof {
   candidate: RepositoryEntity;
   factIds: FactRecord["id"][];
-  basis: "explicit_path" | "explicit_symbol" | "relationship_chain" | "document_identity" | "configuration_identity";
+  basis: "explicit_path" | "explicit_symbol" | "relationship_chain" | "document_identity" | "configuration_identity" | "source_identity";
 }
 
 export interface FactClaimEligibilityDecision {
@@ -290,6 +297,50 @@ export function deriveImplementationOwnerProofs(
       basis: "configuration_identity",
     });
   }
+  const exactSourceTargetFiles = input.request
+    ? input.snapshot.files.filter((file) => isExactExplicitSourceTarget({
+        context: {
+          normalizedTask: input.request!.task.normalizedTask,
+          explicitTargets: input.request!.explicitTargets,
+          negativeConstraints: input.request!.negativeConstraints,
+        },
+        file,
+      }))
+    : [];
+  const sourceTargetFileId = exactSourceTargetFiles.find((file) =>
+    deterministicSourcePathOwnerHypothesisId({
+      snapshotId: input.snapshot.id,
+      fileId: file.id,
+    }) === input.hypothesis.id)?.id;
+  const sourceProofs = new Map<RepositoryEntity["id"], ImplementationOwnerProof>();
+  for (const fact of groundedFacts) {
+    checkpoint?.();
+    if (
+      !input.request ||
+      sourceTargetFileId === undefined ||
+      fact.subject.fileId !== sourceTargetFileId ||
+      !requirementAllowsFact(fact, input.hypothesis) ||
+      !isExactSourceIdentityFact({
+        fact,
+        snapshot: input.snapshot,
+        context: {
+          normalizedTask: input.request.task.normalizedTask,
+          explicitTargets: input.request.explicitTargets,
+          negativeConstraints: input.request.negativeConstraints,
+        },
+      })
+    ) continue;
+    const existing = sourceProofs.get(fact.subject.id);
+    sourceProofs.set(fact.subject.id, {
+      candidate: fact.subject,
+      factIds: sortedUnique([...(existing?.factIds ?? []), fact.id]),
+      basis: "source_identity",
+    });
+  }
+  const exactSourceTargetFileIds = new Set(exactSourceTargetFiles.map((file) => file.id));
+  const sourceIdentityOwnerQuestion = sourceProofs.size > 0 ||
+    input.hypothesis.requiredEvidence.some((requirement) =>
+      requirement.acceptedFactPredicates?.includes(SOURCE_IDENTITY_PREDICATE));
   const candidates = groundedFacts.filter(
     (fact): fact is Extract<FactRecord, { kind: "relation" }> =>
       isFileBackedOwnerDefinitionFact(fact, input.snapshot) &&
@@ -307,19 +358,15 @@ export function deriveImplementationOwnerProofs(
   const proofs: ImplementationOwnerProof[] = [
     ...documentProofs.values(),
     ...configurationProofs.values(),
+    ...sourceProofs.values(),
   ];
   let prepared: PreparedStrictRelationshipAdjacency | undefined;
   for (const candidateFact of candidates) {
     checkpoint?.();
-    const explicitPath = explicitPathProof({
-      candidateFact,
-      request: input.request,
-      snapshot: input.snapshot,
-    });
-    if (explicitPath) {
-      proofs.push(explicitPath);
+    if (sourceIdentityOwnerQuestion) {
       continue;
     }
+    const candidateFileId = candidateFact.object.fileId;
     const explicitSymbol = explicitSymbolProof({
       candidateFact,
       request: input.request,
@@ -327,6 +374,18 @@ export function deriveImplementationOwnerProofs(
     });
     if (explicitSymbol) {
       proofs.push(explicitSymbol);
+      continue;
+    }
+    if (candidateFileId !== undefined && exactSourceTargetFileIds.has(candidateFileId)) {
+      continue;
+    }
+    const explicitPath = explicitPathProof({
+      candidateFact,
+      request: input.request,
+      snapshot: input.snapshot,
+    });
+    if (explicitPath) {
+      proofs.push(explicitPath);
       continue;
     }
     diagnostics?.relationshipChainBuildStarted?.();
