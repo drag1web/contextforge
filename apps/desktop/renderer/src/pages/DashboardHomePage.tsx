@@ -20,10 +20,12 @@ import {
   Sparkles,
   Zap,
 } from "lucide-react";
+import type { TFunction } from "i18next";
 
 import { WorkspacePageHeader } from "../components/layout/WorkspacePageHeader";
+import { localizeReadinessIssueTitle } from "../components/projects/projectDetailsI18n";
 import { Button } from "../components/ui/Button";
-import type { Project, TaskPack } from "../types";
+import type { Project, ReadinessCheck, TaskPack } from "../types";
 
 interface DashboardHomePageProps {
   projects: Project[];
@@ -152,16 +154,28 @@ function getLatestScanLabel(
 
 function getProjectIssues(
   project: Project,
-  t: (key: string, options?: Record<string, unknown>) => string,
+  t: TFunction,
 ) {
-  const reportIssues = project.readinessReport?.issues ?? [];
-  const failedChecks =
-    project.readinessReport?.checks
-      ?.filter((check) => !check.passed)
-      .map((check) => check.message || check.label)
-      .filter(Boolean) ?? [];
+  const report = project.readinessReport;
+  const failedChecks = report?.checks?.filter((check) => !check.passed) ?? [];
+  const reportIssues = (report?.issues ?? []).map((issue) => {
+    const matchingCheck = failedChecks.find((check) =>
+      readinessIssueMatchesCheck(issue, check),
+    );
 
-  const issues = Array.from(new Set([...reportIssues, ...failedChecks]));
+    return matchingCheck && report
+      ? localizeReadinessIssueTitle(t, report, matchingCheck)
+      : issue;
+  });
+  const localizedFailedChecks = report
+    ? failedChecks.map((check) =>
+        localizeReadinessIssueTitle(t, report, check),
+      )
+    : [];
+
+  const issues = Array.from(
+    new Set([...reportIssues, ...localizedFailedChecks]),
+  );
 
   if (issues.length > 0) {
     return issues.slice(0, 3);
@@ -176,6 +190,37 @@ function getProjectIssues(
   }
 
   return [t("dashboard.readyForAiWorkflow")];
+}
+
+const KNOWN_READINESS_ISSUES_BY_CHECK: Readonly<
+  Record<string, readonly string[]>
+> = {
+  agents: [
+    "No AI agent instruction file found. Add AGENTS.md to make the project easier for AI tools.",
+  ],
+  "test-script": [
+    "Test files/config were detected, but no package script exposes them. Add a test script for AI verification.",
+    "No test script found. AI agents will not know how to verify changes.",
+  ],
+  tests: [
+    "A test script exists, but no test files or test config were detected in the scanned project paths.",
+    "Tests structure is missing.",
+  ],
+  "env-example": [
+    "No .env.example file found. Environment setup may be unclear.",
+  ],
+  "build-script": [
+    "No build script found. AI agents may not know how to validate production build.",
+  ],
+  "dev-script": ["Dev command is missing."],
+};
+
+function readinessIssueMatchesCheck(issue: string, check: ReadinessCheck) {
+  return (
+    issue === check.message ||
+    issue === `${check.label} is missing.` ||
+    (KNOWN_READINESS_ISSUES_BY_CHECK[check.key] ?? []).includes(issue)
+  );
 }
 
 function hasIssue(project: Project, keywords: string[]) {
@@ -309,10 +354,13 @@ function getCheckCategoryScore(
   return getCategoryScore(projects, fallback);
 }
 
-function getReadinessBreakdown(projects: Project[]): BreakdownItem[] {
+function getReadinessBreakdown(
+  projects: Project[],
+  t: TFunction,
+): BreakdownItem[] {
   return [
     {
-      label: "Docs",
+      label: t("dashboard.breakdownDocs"),
       value: getCheckCategoryScore(
         projects,
         ["readme", "docs", "documentation", "architecture"],
@@ -320,7 +368,7 @@ function getReadinessBreakdown(projects: Project[]): BreakdownItem[] {
       ),
     },
     {
-      label: "Scripts",
+      label: t("dashboard.breakdownScripts"),
       value: getCheckCategoryScore(
         projects,
         ["script", "build", "dev", "command"],
@@ -328,7 +376,7 @@ function getReadinessBreakdown(projects: Project[]): BreakdownItem[] {
       ),
     },
     {
-      label: "Tests",
+      label: t("dashboard.breakdownTests"),
       value: getCheckCategoryScore(
         projects,
         ["test"],
@@ -336,7 +384,7 @@ function getReadinessBreakdown(projects: Project[]): BreakdownItem[] {
       ),
     },
     {
-      label: "Env example",
+      label: t("dashboard.breakdownEnvExample"),
       value: getCheckCategoryScore(
         projects,
         ["env", "environment"],
@@ -345,7 +393,7 @@ function getReadinessBreakdown(projects: Project[]): BreakdownItem[] {
       ),
     },
     {
-      label: "AGENTS.md",
+      label: t("dashboard.breakdownAgents"),
       value: getCheckCategoryScore(
         projects,
         ["agents", "instructions"],
@@ -354,7 +402,7 @@ function getReadinessBreakdown(projects: Project[]): BreakdownItem[] {
       ),
     },
     {
-      label: "Inventory",
+      label: t("dashboard.breakdownInventory"),
       value: getCategoryScore(
         projects,
         (project) =>
@@ -394,7 +442,7 @@ function DashboardCard({
             {title}
           </h2>
           {caption ? (
-            <p className="mt-1 text-xs leading-5 text-neutral-600">
+            <p className="mt-1 text-xs leading-5 text-neutral-500">
               {caption}
             </p>
           ) : null}
@@ -447,13 +495,13 @@ function AnimatedMetric({
       transition={{ ...ENTER_TRANSITION, delay }}
       className="rounded-2xl border border-white/[0.065] bg-white/[0.015] px-4 py-3"
     >
-      <p className="cf-tech-label text-[10px] uppercase text-neutral-700">
+      <p className="cf-tech-label text-[10px] uppercase text-neutral-500">
         {label}
       </p>
       <p className="mt-1 text-[27px] font-semibold leading-none tracking-[-0.05em] text-white">
         {animatedValue}
       </p>
-      <p className="mt-1 truncate text-xs text-neutral-600">{caption}</p>
+      <p className="mt-1 truncate text-xs text-neutral-500">{caption}</p>
     </motion.div>
   );
 }
@@ -485,7 +533,7 @@ function UtilityActionButton({
         <span className="block truncate text-sm font-semibold text-white">
           {title}
         </span>
-        <span className="mt-0.5 block truncate text-xs text-neutral-600">
+        <span className="mt-0.5 block truncate text-xs text-neutral-500">
           {caption}
         </span>
       </span>
@@ -509,7 +557,7 @@ function ReadinessProgress({
     <div className="min-w-0">
       <div className="flex items-end justify-between gap-4">
         <div>
-          <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+          <p className="cf-tech-label text-[10px] uppercase text-neutral-500">
             {label}
           </p>
           <p className="mt-1 text-[36px] font-semibold leading-none tracking-[-0.065em] text-white">
@@ -519,7 +567,7 @@ function ReadinessProgress({
             </span>
           </p>
         </div>
-        <p className="pb-1 text-xs text-neutral-600">
+        <p className="pb-1 text-xs text-neutral-500">
           {status}
         </p>
       </div>
@@ -633,8 +681,8 @@ export function DashboardHomePage({
     [taskPacks],
   );
   const breakdown = useMemo(
-    () => getReadinessBreakdown(projects),
-    [projects],
+    () => getReadinessBreakdown(projects, t),
+    [projects, t],
   );
   const primaryProject = useMemo(
     () => getPrimaryProject(projects, taskPacks, attentionProjects),
@@ -771,7 +819,7 @@ export function DashboardHomePage({
                   <p className="mt-2 max-w-2xl text-sm leading-6 text-neutral-500">
                     {primaryIssue}
                   </p>
-                  <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs text-neutral-700">
+                  <div className="mt-4 flex flex-wrap gap-x-4 gap-y-2 text-xs text-neutral-500">
                     <span>
                       {t("dashboard.lastScanPrefix", {
                         time: formatRelativeTime(primaryProject.lastScanAt, t),
@@ -788,7 +836,7 @@ export function DashboardHomePage({
                 </div>
 
                 <div className="w-full max-w-[210px] shrink-0">
-                  <div className="flex items-center justify-between text-xs text-neutral-600">
+                  <div className="flex items-center justify-between text-xs text-neutral-500">
                     <span>{t("dashboard.avgReadiness")}</span>
                     <span>{primaryProject.readinessScore}%</span>
                   </div>
@@ -861,7 +909,7 @@ export function DashboardHomePage({
                       <p className="truncate text-sm font-semibold text-white">
                         {project.name}
                       </p>
-                      <p className="mt-1 line-clamp-1 text-xs text-neutral-600">
+                      <p className="mt-1 line-clamp-1 text-xs text-neutral-500">
                         {issue}
                       </p>
                     </div>
@@ -900,7 +948,7 @@ export function DashboardHomePage({
                   <Activity size={14} />
                 </span>
                 <div className="min-w-0">
-                  <p className="cf-tech-label text-[10px] uppercase tracking-[0.12em] text-neutral-600">
+                  <p className="cf-tech-label text-[10px] uppercase tracking-[0.12em] text-neutral-500">
                     {t("dashboard.workspaceStatus")}
                   </p>
                   <p className="mt-1 line-clamp-1 text-xs leading-5 text-neutral-400">
@@ -933,7 +981,7 @@ export function DashboardHomePage({
                       <FileText size={14} />
                     </span>
                     <div className="min-w-0">
-                      <p className="cf-tech-label text-[10px] uppercase tracking-[0.12em] text-neutral-700">
+                      <p className="cf-tech-label text-[10px] uppercase tracking-[0.12em] text-neutral-500">
                         {t("dashboard.taskPackCreated")}
                       </p>
                       <p className="mt-1 truncate text-sm font-semibold text-white">
@@ -941,9 +989,10 @@ export function DashboardHomePage({
                       </p>
                     </div>
                     <p className="truncate text-xs text-neutral-500">
-                      {taskPack.projectName ?? `Project #${taskPack.projectId}`}
+                      {taskPack.projectName ??
+                        t("labels.projectFallback", { id: taskPack.projectId })}
                     </p>
-                    <p className="text-xs text-neutral-700">
+                    <p className="text-xs text-neutral-500">
                       {formatRelativeTime(taskPack.createdAt, t)}
                     </p>
                     <div className="flex justify-end gap-2">
@@ -1022,7 +1071,7 @@ export function DashboardHomePage({
             <h2 className="text-sm font-semibold tracking-[-0.025em] text-white">
               {t("dashboard.utilities")}
             </h2>
-            <p className="mt-1 text-xs leading-5 text-neutral-600">
+            <p className="mt-1 text-xs leading-5 text-neutral-500">
               {t("dashboard.utilitiesCaption")}
             </p>
           </div>

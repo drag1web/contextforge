@@ -59,12 +59,27 @@ const resources = {
         statusLoadingTaskDefaults:
           'Loading task pack defaults for "{{name}}"...',
         statusTaskDraftOpened: 'Task pack draft opened for "{{name}}".',
+        statusReadingLocalChanges:
+          'Reading local changes for "{{name}}"...',
+        statusTaskDraftOpenedFromChanges:
+          'Task pack draft opened from local changes for "{{name}}".',
+        statusNoLocalChangesDraftOpened:
+          'No local changes found for "{{name}}". Opened a blank Task Pack draft.',
+        statusLocalChangesReadFailed:
+          "Could not read local changes. Opened a blank Task Pack draft.",
+        statusTaskPackCreatedFromGitHubIssue:
+          "Task Pack created from GitHub issue.",
+        statusContextNeedsManualReview:
+          "Context needs manual review. {{reason}}",
+        statusContextScore: "Context score: {{score}}/100.",
         statusSettingsUnavailable:
           "Settings unavailable. Using default task pack values.",
         statusAnalyzingContext: 'Analyzing context for "{{name}}"...',
         statusContextReady: 'Context preview ready for "{{name}}".',
-        statusLoadingContextFile: "",
-        statusContextFileLoaded: "",
+        statusLoadingContextFile:
+          "Loading {{name}} from project context history...",
+        statusContextFileLoaded:
+          "{{name}} loaded from project context history.",
         statusSelectComposerFile:
           "Select at least one Composer file before generating a Task Pack.",
         statusInitialLoadFailed: "Failed to load initial data.",
@@ -316,6 +331,12 @@ const resources = {
         projectContextNeedsAttention: "Project context needs attention",
         noTestScriptDetected: "No test script detected",
         readyForAiWorkflow: "Ready for AI workflow",
+        breakdownDocs: "Docs",
+        breakdownScripts: "Scripts",
+        breakdownTests: "Tests",
+        breakdownEnvExample: "Env example",
+        breakdownAgents: "AGENTS.md",
+        breakdownInventory: "Inventory",
         buildContext: "Build context",
         scan: "Scan",
         createPack: "Create pack",
@@ -4136,7 +4157,7 @@ const resources = {
         localFirst: "Локально",
         noCloudRequired: "Без облака",
         openSettings: "Открыть настройки",
-        configureWorkspace: "Настроить workspace",
+        configureWorkspace: "Настроить рабочее пространство",
         unknownError: "Неизвестная ошибка",
         statusReady: "Готово к сканированию первого проекта.",
         statusScanningProject: "Сканирование проекта...",
@@ -4146,7 +4167,8 @@ const resources = {
         statusGeneratingAgentsOllama:
           "Генерация AGENTS.md через Ollama ({{model}}). На CPU это может занять 1-2 минуты...",
         statusGeneratingAgents: 'Генерация AGENTS.md для "{{name}}"...',
-        statusAgentsGenerated: 'Preview AGENTS.md создан для "{{name}}".',
+        statusAgentsGenerated:
+          'Предпросмотр AGENTS.md создан для "{{name}}".',
         statusRegeneratingAgentsOllama:
           "Повторная генерация AGENTS.md через Ollama ({{model}}). Кэш будет проигнорирован...",
         statusRegeneratingAgents:
@@ -4167,12 +4189,27 @@ const resources = {
         statusLoadingTaskDefaults:
           'Загрузка настроек пакета задачи для "{{name}}"...',
         statusTaskDraftOpened: 'Черновик пакета задачи открыт для "{{name}}".',
+        statusReadingLocalChanges:
+          'Читаем локальные изменения проекта «{{name}}»...',
+        statusTaskDraftOpenedFromChanges:
+          'Черновик пакета задачи создан из локальных изменений проекта «{{name}}».',
+        statusNoLocalChangesDraftOpened:
+          'В проекте «{{name}}» нет локальных изменений. Открыт пустой черновик пакета задачи.',
+        statusLocalChangesReadFailed:
+          "Не удалось прочитать локальные изменения. Открыт пустой черновик пакета задачи.",
+        statusTaskPackCreatedFromGitHubIssue:
+          "Пакет задачи создан из задачи GitHub.",
+        statusContextNeedsManualReview:
+          "Контекст требует ручной проверки. {{reason}}",
+        statusContextScore: "Оценка контекста: {{score}}/100.",
         statusSettingsUnavailable:
           "Настройки недоступны. Используются значения пакета задачи по умолчанию.",
         statusAnalyzingContext: 'Анализ контекста для "{{name}}"...',
-        statusContextReady: 'Preview контекста готов для "{{name}}".',
-        statusLoadingContextFile: "",
-        statusContextFileLoaded: "",
+        statusContextReady: 'Предпросмотр контекста готов для "{{name}}".',
+        statusLoadingContextFile:
+          "Загружаем {{name}} из истории контекста проекта...",
+        statusContextFileLoaded:
+          "{{name}} загружен из истории контекста проекта.",
         statusSelectComposerFile:
           "Выберите хотя бы один файл в Composer перед созданием пакета задачи.",
         statusInitialLoadFailed: "Не удалось загрузить начальные данные.",
@@ -4189,7 +4226,7 @@ const resources = {
         justNow: "только что",
         minutesAgo: "{{count}} мин назад",
         hoursAgo: "{{count}} ч назад",
-        daysAgo: "{{count}} дн назад",
+        daysAgo: "{{count}} дн. назад",
       },
       nav: {
         navigation: "Навигация",
@@ -4346,23 +4383,23 @@ const resources = {
         emptyTitle: "Начните с первого локального репозитория.",
         emptyDescription:
           "Добавьте папку проекта. ContextForge просканирует её, оценит готовность и поможет создать AGENTS.md и пакеты задач для AI-агентов.",
-        workspaceOverview: "Обзор workspace",
+        workspaceOverview: "Обзор рабочего пространства",
         workspaceKicker: "Центр рабочего пространства",
         commandCenterDescription:
           "Готовность проектов, текущие приоритеты и недавние пакеты задач в одном рабочем пространстве.",
-        lastScan: "Последнее сканирование {{time}}",
+        lastScan: "Последнее сканирование: {{time}}",
         summary:
           "{{count}} проект{{plural}} требует контекста · средняя готовность {{readiness}} · пакетов задач создано: {{taskPacks}}",
         projects: "Проекты",
-        localWorkspaces: "локальные workspace",
+        localWorkspaces: "локальных проектов",
         needAttention: "Нужно внимание",
         contextOrScanIssues: "проблемы контекста или скана",
-        avgReadiness: "Средний readiness",
-        workspaceScore: "score workspace",
+        avgReadiness: "Средняя готовность",
+        workspaceScore: "оценка рабочего пространства",
         taskPacks: "Пакеты задач",
         generatedPrompts: "готовые промпты",
         readyProjects: "Готовые проекты",
-        readyProjectsCaption: "readiness 80 и выше",
+        readyProjectsCaption: "готовность 80 и выше",
         projectsNeedingAttention: "Проекты, требующие внимания",
         otherProjectsNeedingAttention: "Другие проекты, требующие внимания",
         priorityCaption: "Здесь показаны только самые приоритетные проекты.",
@@ -4371,35 +4408,35 @@ const resources = {
         viewAllProjects: "Все проекты",
         noUrgentIssues: "Срочных проблем нет",
         noUrgentIssuesDesc:
-          "У просканированных проектов нет срочных readiness-проблем.",
+          "У просканированных проектов нет срочных проблем готовности.",
         recentTaskPacks: "Недавние пакеты задач",
         recentTaskPacksCaption:
-          "Последние промпты, подготовленные для coding agents.",
+          "Последние промпты, подготовленные для AI-агентов.",
         openArchive: "Открыть архив",
         noTaskPacks: "Пакетов задач пока нет",
         noTaskPacksDesc: "Создайте пакет задачи из проекта, и он появится здесь.",
-        readinessBreakdown: "Разбор readiness",
+        readinessBreakdown: "Структура готовности",
         readinessBreakdownCaption:
-          "Почему средний readiness низкий или высокий.",
+          "Из чего складывается средняя готовность.",
         quickActions: "Быстрые действия",
-        quickActionsCaption: "Переход к следующему полезному workflow.",
+        quickActionsCaption: "Переход к следующему полезному сценарию.",
         utilities: "Утилиты",
-        utilitiesCaption: "Вторичные настройки вне основного workflow.",
+        utilitiesCaption: "Вторичные настройки вне основного сценария.",
         openContextBuilder: "Открыть Context Builder",
         generateAgentsAndContext: "Создать AGENTS.md и контекст проекта.",
         generateMissingAgents: "Создать недостающий AGENTS.md",
         forProject: "Для {{name}}",
-        noObviousMissingContext: "Явно отсутствующего context-файла нет",
+        noObviousMissingContext: "Явно отсутствующего файла контекста нет",
         scanStaleProjects: "Сканировать устаревшие проекты",
         projectsDetected: "обнаружено проектов: {{count}}",
         createTaskPack: "Создать пакет задачи",
         chooseProject: "Выберите проект",
         configureOllama: "Настроить Ollama",
-        localAiProvider: "Локальный AI-провайдер и defaults генерации.",
+        localAiProvider: "Локальный AI-провайдер и параметры генерации.",
         currentActivity: "Текущая активность",
         activityCaption: "Последнее состояние рабочего пространства и созданные пакеты задач.",
-        latestWorkspaceEvent: "Последнее событие workspace.",
-        workspaceStatus: "Статус workspace",
+        latestWorkspaceEvent: "Последнее событие рабочего пространства.",
+        workspaceStatus: "Статус рабочего пространства",
         taskPackCreated: "Пакет задачи создан",
         lastStatus: "Последний статус",
         readyStatus: "Готово к сканированию проектов и генерации контекста.",
@@ -4407,19 +4444,25 @@ const resources = {
         improveProject: "Улучшить {{name}}: {{issue}}.",
         noUrgentDetected: "Срочных проблем проекта не найдено.",
         localAi: "Локальный AI",
-        optionalAssistantMode: "Опциональный assistant-режим.",
-        aiWorkflowReady: "AI workflow готов",
+        optionalAssistantMode: "Опциональный режим помощника.",
+        aiWorkflowReady: "AI-сценарий готов",
         templateModeWorks:
-          "Template mode работает локально. Настройте Ollama, если нужно AI-улучшение промптов.",
-        lastScanPrefix: "Последний скан: {{time}}",
+          "Шаблонный режим работает локально. Настройте Ollama, если нужно AI-улучшение промптов.",
+        lastScanPrefix: "Последнее сканирование: {{time}}",
         copyPrompt: "Скопировать промпт",
         openTaskPack: "Открыть пакет задачи",
         projectContextNeedsAttention: "Контекст проекта требует внимания",
-        noTestScriptDetected: "Test script не найден",
-        readyForAiWorkflow: "Готово для AI workflow",
+        noTestScriptDetected: "Тестовый скрипт не найден",
+        readyForAiWorkflow: "Готово для AI-сценария",
+        breakdownDocs: "Документация",
+        breakdownScripts: "Скрипты",
+        breakdownTests: "Тесты",
+        breakdownEnvExample: "Пример env",
+        breakdownAgents: "AGENTS.md",
+        breakdownInventory: "Инвентарь",
         buildContext: "Собрать контекст",
         scan: "Сканировать",
-        createPack: "Создать pack",
+        createPack: "Создать пакет",
       },
       scannersPage: {
         eyebrow: "Рабочая область сканера",
@@ -4960,8 +5003,8 @@ const resources = {
             "detected": "Найдена команда тестов: {{command}}.",
             "missingWithStructure": "Найдены тестовые файлы или конфигурация, но package-скрипт их не запускает. Добавьте test-скрипт для повторяемой проверки.",
             "missing": "Добавьте test-скрипт или опишите ручную проверку в README/AGENTS.md.",
-            "issueWithStructure": "Тесты найдены, но package-скрипт для их запуска отсутствует.",
-            "issue": "Test-скрипт не найден. AI-агент не будет знать, как проверить изменения."
+            "issueWithStructure": "Тесты найдены, но скрипт для их запуска в package.json отсутствует.",
+            "issue": "Тестовый скрипт не найден. AI-агент не будет знать, как проверить изменения."
           },
           "env-example": {
             "label": "Пример окружения",
@@ -4982,7 +5025,7 @@ const resources = {
             "configOnly": "Найдена конфигурация test runner. Добавляйте тестовые файлы по мере роста покрытия.",
             "missing": "Добавьте тесты, тестовую конфигурацию или опишите стратегию ручной проверки.",
             "issue": "Структура тестов отсутствует.",
-            "issueWithScript": "Test-скрипт есть, но в просканированных путях не найдены тестовые файлы или конфигурация."
+            "issueWithScript": "Скрипт тестов есть, но в просканированных путях не найдены тестовые файлы или конфигурация."
           },
           "docs": {
             "label": "Документация",
@@ -4994,7 +5037,7 @@ const resources = {
             "label": "CI workflow",
             "passed": "Найдена конфигурация CI workflow.",
             "missing": "CI необязателен для локального MVP. Добавьте его позже или опишите ручные проверки релиза.",
-            "issue": "CI workflow отсутствует."
+            "issue": "Процесс CI отсутствует."
           }
         },
         "gitStatus": {

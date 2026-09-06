@@ -73,11 +73,13 @@ function getBlockedContextMessage(error: ApiRequestError) {
   const firstReason = reasons[0] ?? warnings[0];
   const score = Number(selectionQuality?.score);
   const scorePart = Number.isFinite(score)
-    ? ` Context score: ${score}/100.`
+    ? ` ${i18n.t("common.statusContextScore", { score })}`
     : "";
 
   return firstReason
-    ? `Context needs manual review. ${firstReason}${scorePart}`
+    ? `${i18n.t("common.statusContextNeedsManualReview", {
+        reason: firstReason,
+      })}${scorePart}`
     : error.message;
 }
 
@@ -256,7 +258,9 @@ export function useDashboardController() {
           mode: "template",
           model: null,
           usedFallback: false,
-          message: `Loaded ${fileName} from project context history.`,
+          message: i18n.t("common.statusContextFileLoaded", {
+            name: fileName,
+          }),
         },
         agentsFile: {
           path: contextFile.path,
@@ -511,7 +515,9 @@ export function useDashboardController() {
   async function handleCreateTaskPackDraftFromChanges(project: Project) {
     try {
       setIsLoading(true);
-      setStatusMessage(`Reading local changes for ${project.name}...`);
+      setStatusMessage(
+        i18n.t("common.statusReadingLocalChanges", { name: project.name }),
+      );
 
       const [settings, gitStatus] = await Promise.all([
         getAppSettings().catch(() => null),
@@ -533,8 +539,12 @@ export function useDashboardController() {
 
       setStatusMessage(
         rawTask
-          ? `Task draft opened from local changes for ${project.name}.`
-          : `No local changes found for ${project.name}. Opened a blank Task Pack draft.`,
+          ? i18n.t("common.statusTaskDraftOpenedFromChanges", {
+              name: project.name,
+            })
+          : i18n.t("common.statusNoLocalChangesDraftOpened", {
+              name: project.name,
+            }),
       );
     } catch (error) {
       setTaskPackDraft({
@@ -548,10 +558,13 @@ export function useDashboardController() {
         acceptanceCriteriaText: "",
       });
 
+      const fallbackMessage = i18n.t(
+        "common.statusLocalChangesReadFailed",
+      );
       setStatusMessage(
         error instanceof Error
-          ? `Could not read local changes. Opened a blank Task Pack draft. ${error.message}`
-          : "Could not read local changes. Opened a blank Task Pack draft.",
+          ? `${fallbackMessage} ${error.message}`
+          : fallbackMessage,
       );
     } finally {
       setIsLoading(false);
@@ -668,7 +681,7 @@ export function useDashboardController() {
     setTaskPackDraft(null);
     setContextComposerPreview(null);
     setTaskPackContextPreview(null);
-    setStatusMessage("Task Pack created from GitHub issue.");
+    setStatusMessage(i18n.t("common.statusTaskPackCreatedFromGitHubIssue"));
   }
 
   function handleExternalTaskPackUpdated(taskPack: TaskPack) {
@@ -691,7 +704,9 @@ export function useDashboardController() {
     setTaskPackContextPreview(null);
     setTaskPackDraft({
       projectId: taskPack.projectId,
-      projectName: taskPack.projectName ?? `Project #${taskPack.projectId}`,
+      projectName:
+        taskPack.projectName ??
+        i18n.t("labels.projectFallback", { id: taskPack.projectId }),
       rawTask: taskPack.rawTask,
       taskType: taskPack.taskType,
       targetTool: taskPack.targetTool,
