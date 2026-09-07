@@ -79,10 +79,10 @@ function getRiskTone(riskLevel: string) {
   return "border-emerald-400/25 bg-emerald-400/10 text-emerald-300";
 }
 
-function getSelectionStatusLabel(status: string) {
-  if (status === "blocked") return "Manual review required";
-  if (status === "warning") return "Review suggested";
-  return "Ready";
+function getSelectionStatusKey(status: string) {
+  if (status === "blocked") return "contextComposerPage.selectionStatus.manualReview";
+  if (status === "warning") return "contextComposerPage.selectionStatus.reviewSuggested";
+  return "contextComposerPage.selectionStatus.ready";
 }
 
 function normalizeFileKey(path: string) {
@@ -105,66 +105,14 @@ function isLikelyBackendPath(path: string) {
   );
 }
 
-function getComposerTargetCopy(effectiveTaskArea: string) {
+function getComposerTargetArea(effectiveTaskArea: string) {
   const normalized = String(effectiveTaskArea || "general").toLowerCase();
 
-  if (normalized === "ui") {
-    return {
-      target: "UI target",
-      targetPlural: "UI targets",
-      searchHint: "Search for the real page/component/layout file.",
-      reviewHint: "Review the selected UI files and add the exact page, component, layout, or style file if it is missing.",
-      candidateCaption: "Task-aware UI candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real page/component files first."
-    };
+  if (["ui", "backend", "tests", "docs", "build"].includes(normalized)) {
+    return normalized as "ui" | "backend" | "tests" | "docs" | "build";
   }
 
-  if (normalized === "backend") {
-    return {
-      target: "backend target",
-      targetPlural: "backend targets",
-      searchHint: "Search for the real endpoint/service/module file.",
-      reviewHint: "Review the selected backend files and add the exact endpoint, route, service, validation, database, or API module if it is missing.",
-      candidateCaption: "Task-aware backend candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real endpoint/service files first."
-    };
-  }
-
-  if (normalized === "tests") {
-    return {
-      target: "test target",
-      targetPlural: "test targets",
-      searchHint: "Search for the real spec, fixture, or source file under test.",
-      reviewHint: "Review the selected test context and add the exact spec, fixture, or source file under test if it is missing.",
-      candidateCaption: "Task-aware test candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real spec/source pair first."
-    };
-  }
-
-  if (normalized === "docs") {
-    return {
-      target: "documentation target",
-      targetPlural: "documentation targets",
-      searchHint: "Search for the real README, docs page, config, or source-of-truth file.",
-      reviewHint: "Review the selected docs context and add the exact document or source-of-truth file if it is missing.",
-      candidateCaption: "Task-aware documentation candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real doc/source files first."
-    };
-  }
-
-  if (normalized === "build") {
-    return {
-      target: "build target",
-      targetPlural: "build targets",
-      searchHint: "Search for the real script, config, workflow, or failing source file.",
-      reviewHint: "Review the selected build context and add the exact script, config, workflow, or failing source file if it is missing.",
-      candidateCaption: "Task-aware build candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real script/config files first."
-    };
-  }
-
-  return {
-    target: "task target",
-    targetPlural: "task targets",
-    searchHint: "Search for the real file this task should use.",
-    reviewHint: "Review the selected files and add the exact task target if it is missing.",
-    candidateCaption: "Task-aware candidates ranked from real inventory paths, roles, symbols, hints, and snippets. Include the real target files first."
-  };
+  return "general" as const;
 }
 
 function StatCard({
@@ -184,7 +132,7 @@ function StatCard({
         {icon}
       </div>
 
-      <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+      <p className="cf-tech-label text-[10px] uppercase text-neutral-500">
         {label}
       </p>
 
@@ -192,7 +140,7 @@ function StatCard({
         {value}
       </p>
 
-      <p className="mt-1 truncate text-xs text-neutral-600">
+      <p className="mt-1 truncate text-xs text-neutral-500">
         {caption}
       </p>
     </article>
@@ -285,7 +233,7 @@ function FileCandidateCard({
   file,
   isSelected,
   isManual,
-  manualLabel = "Manually reviewed",
+  manualLabel,
   isCopied,
   onToggle,
   onCopy,
@@ -301,6 +249,7 @@ function FileCandidateCard({
   onRemove?: () => void;
 }) {
   const { t } = useTranslation();
+  const resolvedManualLabel = manualLabel ?? t("contextComposerPage.fileCard.manuallyReviewed");
   const legacyConfidence = file.confidenceDisplay !== "unavailable" && typeof file.confidence === "number"
     ? file.confidence
     : null;
@@ -330,7 +279,9 @@ function FileCandidateCard({
               ? "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
               : "border-neutral-800 bg-neutral-950 text-neutral-600 hover:border-white hover:bg-white hover:text-black"
           ].join(" ")}
-          aria-label={isSelected ? "Exclude file" : "Include file"}
+          aria-label={isSelected
+            ? t("contextComposerPage.fileCard.excludeAria")
+            : t("contextComposerPage.fileCard.includeAria")}
         >
           {isSelected ? <CheckCircle2 size={14} /> : <FileText size={14} />}
         </button>
@@ -343,12 +294,12 @@ function FileCandidateCard({
 
             {isManual && (
               <span className="shrink-0 rounded-full border border-white/15 bg-white/10 px-2 py-0.5 text-[10px] text-white">
-                {manualLabel}
+                {resolvedManualLabel}
               </span>
             )}
           </div>
 
-          <p className="truncate text-xs text-neutral-600">
+          <p className="truncate text-xs text-neutral-500">
             {file.kind} · {file.usage} · {formatFileSize(file.sizeBytes)}
           </p>
         </div>
@@ -377,7 +328,7 @@ function FileCandidateCard({
               className="inline-flex h-7 items-center gap-1.5 rounded-full border border-red-400/20 bg-red-400/5 px-2.5 text-[11px] text-red-200 transition hover:border-white hover:bg-white hover:text-black"
             >
               <Trash2 size={12} />
-              Remove
+              {t("contextComposerPage.fileCard.remove")}
             </button>
           )}
 
@@ -392,7 +343,9 @@ function FileCandidateCard({
             ].join(" ")}
           >
             {isSelected ? <Check size={12} /> : <FileText size={12} />}
-            {isSelected ? "Included" : "Include"}
+            {isSelected
+              ? t("contextComposerPage.fileCard.included")
+              : t("contextComposerPage.fileCard.include")}
           </button>
 
           <button
@@ -401,7 +354,9 @@ function FileCandidateCard({
             className="cf-invert-action inline-flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[11px]"
           >
             {isCopied ? <Check size={12} /> : <Clipboard size={12} />}
-            {isCopied ? "Copied" : "Path"}
+            {isCopied
+              ? t("contextComposerPage.fileCard.copied")
+              : t("contextComposerPage.fileCard.path")}
           </button>
         </div>
       </div>
@@ -427,7 +382,7 @@ function FileCandidateSection({
       <div className="flex items-center justify-between gap-3 px-1">
         <div className="min-w-0">
           <p className="text-xs font-semibold text-white">{title}</p>
-          <p className="truncate text-[11px] text-neutral-600">{caption}</p>
+          <p className="truncate text-[11px] text-neutral-500">{caption}</p>
         </div>
 
         <span className="rounded-full border border-neutral-900 bg-neutral-950 px-2 py-1 text-[10px] text-neutral-500">
@@ -436,7 +391,7 @@ function FileCandidateSection({
       </div>
 
       {count === 0 ? (
-        <div className="rounded-2xl border border-neutral-900 bg-black/25 p-4 text-xs leading-5 text-neutral-600">
+        <div className="rounded-2xl border border-neutral-900 bg-black/25 p-4 text-xs leading-5 text-neutral-500">
           {emptyText}
         </div>
       ) : (
@@ -468,12 +423,19 @@ export function ContextComposerPage({
     () => (isBlockedReview ? [] : recommendedPaths),
     [isBlockedReview, recommendedPaths]
   );
-  const targetCopy = getComposerTargetCopy(preview.task.effectiveTaskArea);
+  const targetArea = getComposerTargetArea(preview.task.effectiveTaskArea);
+  const targetCopy = {
+    target: t(`contextComposerPage.targetCopy.${targetArea}.target`),
+    targetPlural: t(`contextComposerPage.targetCopy.${targetArea}.targetPlural`),
+    searchHint: t(`contextComposerPage.targetCopy.${targetArea}.searchHint`),
+    reviewHint: t(`contextComposerPage.targetCopy.${targetArea}.reviewHint`),
+    candidateCaption: t(`contextComposerPage.targetCopy.${targetArea}.candidateCaption`)
+  };
   const initialFileSearchMessage = isAbstentionReview
-    ? `No implementation target was confirmed. ${targetCopy.searchHint}`
+    ? t("contextComposerPage.search.initialAbstention", { hint: targetCopy.searchHint })
     : isBlockedReview
-      ? `Automatic file selection was blocked. ${targetCopy.searchHint}`
-      : `Search project files to add more ${targetCopy.target} context.`;
+      ? t("contextComposerPage.search.initialBlocked", { hint: targetCopy.searchHint })
+      : t("contextComposerPage.search.initialReady", { target: targetCopy.target });
 
   const [copiedPath, setCopiedPath] = useState<string | null>(null);
   const [extraFiles, setExtraFiles] = useState<ContextComposerFileReference[]>([]);
@@ -545,13 +507,16 @@ export function ContextComposerPage({
     setExtraSnippets([]);
     setFileSearchQuery(isBlockedReview ? preview.task.rawTask : "");
     setFileSearchResults([]);
-    setFileSearchMessage(initialFileSearchMessage);
     setIsFileSearchOpen(isBlockedReview);
     setIsDetailsOpen(isBlockedReview);
     setConfirmedRecommendedPaths([]);
     setSelectedPaths(initialSelectedPaths);
     setActiveSnippetPath(isBlockedReview ? null : preview.snippets[0]?.relativePath ?? null);
-  }, [initialFileSearchMessage, initialSelectedPaths, isBlockedReview, preview]);
+  }, [initialSelectedPaths, isBlockedReview, preview]);
+
+  useEffect(() => {
+    setFileSearchMessage(initialFileSearchMessage);
+  }, [initialFileSearchMessage, preview]);
 
   const selectedPathSet = useMemo(() => {
     return new Set(selectedPaths);
@@ -600,27 +565,27 @@ export function ContextComposerPage({
     const taskText = `${preview.task.rawTask} ${preview.task.effectiveTaskArea}`.toLowerCase();
 
     if (selectedPaths.length === 0) {
-      warnings.push("No files are included. Select at least one file before generation.");
+      warnings.push(t("contextComposerPage.warnings.noFiles"));
     }
 
     if (isBlockedReview && selectedPaths.length > 0 && selectedManualFiles.length === 0) {
       warnings.push(
         isAbstentionReview
-          ? "Target confirmation is required. Include at least one file you have reviewed before generating."
-          : "Blocked review mode is active. Include at least one manually added or manually reviewed file before generating.",
+          ? t("contextComposerPage.warnings.targetConfirmationRequired")
+          : t("contextComposerPage.warnings.blockedReview"),
       );
     }
 
     if (isBlockedReview && selectedWeakAutoFiles.length > 0) {
       warnings.push(
         isAbstentionReview
-          ? "Candidate hints are still included without confirmation. Clear them or click Include on files you explicitly want to use."
-          : "Weak auto-selected files are still included without manual review. Clear them or click Include on files you explicitly want to confirm.",
+          ? t("contextComposerPage.warnings.unconfirmedHints")
+          : t("contextComposerPage.warnings.unreviewedWeakFiles"),
       );
     }
 
     if (selectedPaths.length > 0 && selectedSnippets.length === 0) {
-      warnings.push("No readable snippets are included. The Task Pack will contain references only.");
+      warnings.push(t("contextComposerPage.warnings.noReadableSnippets"));
     }
 
     if (
@@ -628,7 +593,7 @@ export function ContextComposerPage({
       selectedStyleCount === selectedFiles.length &&
       taskText.match(/bug|fix|state|logic|behavior|ошиб|баг|логик|поведен/)
     ) {
-      warnings.push("Only style files are selected for a behavior-related task.");
+      warnings.push(t("contextComposerPage.warnings.onlyStyleFiles"));
     }
 
     if (
@@ -636,11 +601,11 @@ export function ContextComposerPage({
       selectedFiles.some((file) => isLikelyBackendPath(file.path)) &&
       taskText.match(/do not change backend|backend unchanged|не менять api|не трогать бэк|только ui/)
     ) {
-      warnings.push("A backend-looking file is selected while backend/API changes are constrained.");
+      warnings.push(t("contextComposerPage.warnings.backendConstrained"));
     }
 
     if (selectedSourceCount === 0 && selectedFiles.length > 0 && selectedStyleCount > 0) {
-      warnings.push("No source component/page file is selected.");
+      warnings.push(t("contextComposerPage.warnings.noSourceFile"));
     }
 
     return warnings;
@@ -655,7 +620,8 @@ export function ContextComposerPage({
     selectedManualFiles.length,
     selectedPaths.length,
     selectedSnippets.length,
-    selectedWeakAutoFiles.length
+    selectedWeakAutoFiles.length,
+    t
   ]);
 
   useEffect(() => {
@@ -690,13 +656,13 @@ export function ContextComposerPage({
       setFileSearchResults(response.results);
       setFileSearchMessage(
         response.results.length > 0
-          ? `${response.results.length} file(s) found.`
-          : "No matching files found."
+          ? t("contextComposerPage.search.resultsFound", { count: response.results.length })
+          : t("contextComposerPage.search.noResults")
       );
     } catch (error) {
       setFileSearchResults([]);
       setFileSearchMessage(
-        error instanceof Error ? error.message : "Failed to search project files."
+        error instanceof Error ? error.message : t("contextComposerPage.search.failed")
       );
     } finally {
       setIsSearchingFiles(false);
@@ -705,7 +671,8 @@ export function ContextComposerPage({
     fileCandidatePaths,
     fileSearchQuery,
     isFileSearchOpen,
-    preview.project.id
+    preview.project.id,
+    t
   ]);
 
   useEffect(() => {
@@ -770,7 +737,7 @@ export function ContextComposerPage({
 
     setFileSearchQuery(isBlockedReview ? preview.task.rawTask : "");
     setFileSearchResults([]);
-    setFileSearchMessage(`Added ${result.path}.`);
+    setFileSearchMessage(t("contextComposerPage.search.added", { path: result.path }));
   }
 
   function removeManualFile(path: string) {
@@ -788,7 +755,7 @@ export function ContextComposerPage({
     setConfirmedRecommendedPaths((current) =>
       current.filter((item) => normalizeFileKey(item) !== key)
     );
-    setFileSearchMessage(`Removed ${path}.`);
+    setFileSearchMessage(t("contextComposerPage.search.removed", { path }));
   }
 
   function togglePath(path: string) {
@@ -853,7 +820,7 @@ export function ContextComposerPage({
             <div className="mb-3 flex flex-wrap gap-2">
               <span className="cf-badge">
                 <Sparkles size={12} />
-                Context Composer
+                {t("contextComposerPage.header.badge")}
               </span>
 
               <span className="cf-badge">{preview.project.name}</span>
@@ -862,7 +829,7 @@ export function ContextComposerPage({
             </div>
 
             <h1 className="text-[32px] font-semibold leading-[1.04] tracking-[-0.055em] text-white">
-              Review files before generation
+              {t("contextComposerPage.header.title")}
             </h1>
 
             <p className="mt-2 line-clamp-2 max-w-5xl text-sm leading-6 text-neutral-500">
@@ -873,7 +840,7 @@ export function ContextComposerPage({
           <div className="flex flex-wrap gap-3">
             <Button variant="secondary" onClick={onClose} disabled={isLoading}>
               <ArrowLeft size={15} />
-              Back to task
+              {t("contextComposerPage.header.backToTask")}
             </Button>
 
             <Button
@@ -886,7 +853,11 @@ export function ContextComposerPage({
               }
             >
               <WandSparkles size={15} />
-              {isLoading ? "Generating..." : isBlockedReview ? "Generate reviewed context" : "Generate from selected"}
+              {isLoading
+                ? t("contextComposerPage.header.generating")
+                : isBlockedReview
+                  ? t("contextComposerPage.header.generateReviewed")
+                  : t("contextComposerPage.header.generateSelected")}
             </Button>
           </div>
         </div>
@@ -911,16 +882,21 @@ export function ContextComposerPage({
               <p className="text-sm font-semibold text-white">
                 {selectorAbstention
                   ? showsLegacyQuality
-                    ? `Target not confirmed · ${preview.selectionQuality.score}/100`
+                    ? t("contextComposerPage.review.targetNotConfirmed", { score: preview.selectionQuality.score })
                     : t(`settings.composerEngineQuality_${preview.qualitySource ?? "review_required"}`)
                   : showsLegacyQuality
-                    ? `Context review: ${getSelectionStatusLabel(preview.selectionQuality.status)} · ${preview.selectionQuality.score}/100`
+                    ? t("contextComposerPage.review.contextReviewStatus", {
+                        status: t(getSelectionStatusKey(preview.selectionQuality.status)),
+                        score: preview.selectionQuality.score
+                      })
                     : t(`settings.composerEngineQuality_${preview.qualitySource ?? "review_required"}`)}
               </p>
               <p className="mt-1 text-xs leading-5 text-neutral-400">
                 {selectorAbstention
                   ? selectorAbstention.message
-                  : `ContextForge is not fully confident in the automatic file selection. ${targetCopy.reviewHint} Then generate from selected.`}
+                  : t("contextComposerPage.review.lowConfidenceDescription", {
+                      reviewHint: targetCopy.reviewHint
+                    })}
               </p>
               {isBlockedReview && (
                 <p className={[
@@ -928,8 +904,8 @@ export function ContextComposerPage({
                   isAbstentionReview ? "text-amber-100/80" : "text-red-100/80"
                 ].join(" ")}>
                   {isAbstentionReview
-                    ? "Target confirmation mode: candidate hints are not included until you explicitly review and include them. Manually added files are included automatically."
-                    : "Blocked mode: weak auto-selected files are shown for reference only and are not included until you explicitly include them. Manually added files are included automatically."}
+                    ? t("contextComposerPage.review.targetConfirmationMode")
+                    : t("contextComposerPage.review.blockedMode")}
                 </p>
               )}
               <div className="mt-3 space-y-1">
@@ -943,10 +919,10 @@ export function ContextComposerPage({
               {showsLegacyQuality && preview.selectionQuality.signals && (
                 <div className="mt-3 grid gap-2 sm:grid-cols-4">
                   {[
-                    ["Target", preview.selectionQuality.signals.targetConfidence],
-                    ["Scope", preview.selectionQuality.signals.scopeSafety],
-                    ["Context", preview.selectionQuality.signals.contextCompleteness],
-                    ["Safe", 100 - preview.selectionQuality.signals.protectedScopeRisk]
+                    [t("contextComposerPage.review.signalTarget"), preview.selectionQuality.signals.targetConfidence],
+                    [t("contextComposerPage.review.signalScope"), preview.selectionQuality.signals.scopeSafety],
+                    [t("contextComposerPage.review.signalContext"), preview.selectionQuality.signals.contextCompleteness],
+                    [t("contextComposerPage.review.signalSafe"), 100 - preview.selectionQuality.signals.protectedScopeRisk]
                   ].map(([label, value]) => (
                     <div key={label} className="rounded-2xl border border-white/10 bg-black/25 p-3">
                       <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-neutral-500">
@@ -964,7 +940,7 @@ export function ContextComposerPage({
               ].filter((item, index, items) => items.indexOf(item) === index).length > 0 && (
                 <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
-                    Next actions
+                    {t("contextComposerPage.review.nextActions")}
                   </p>
                   <div className="mt-2 space-y-1">
                     {[
@@ -982,7 +958,7 @@ export function ContextComposerPage({
               {(preview.clarifyingQuestions ?? []).length > 0 && (
                 <div className="mt-3 rounded-2xl border border-white/10 bg-black/25 p-3">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-neutral-500">
-                    Clarify before generating
+                    {t("contextComposerPage.review.clarifyBeforeGenerating")}
                   </p>
                   <div className="mt-2 space-y-1">
                     {(preview.clarifyingQuestions ?? []).map((item) => (
@@ -1001,28 +977,28 @@ export function ContextComposerPage({
       <div className="grid gap-3 md:grid-cols-5">
         <StatCard
           icon={<MousePointer2 size={15} />}
-          label="Included"
+          label={t("contextComposerPage.stats.included")}
           value={`${selectedFiles.length}/${fileCandidates.length}`}
-          caption="manual review"
+          caption={t("contextComposerPage.stats.manualReview")}
         />
 
         <StatCard
           icon={<Code2 size={15} />}
-          label="Snippets"
+          label={t("contextComposerPage.stats.snippets")}
           value={selectedSnippets.length}
-          caption="readable files"
+          caption={t("contextComposerPage.stats.readableFiles")}
         />
 
         <StatCard
           icon={<Layers3 size={15} />}
-          label="Manual"
+          label={t("contextComposerPage.stats.manual")}
           value={selectedManualFiles.length}
-          caption="added files"
+          caption={t("contextComposerPage.stats.addedFiles")}
         />
 
         <StatCard
           icon={<Gauge size={15} />}
-          label={showsLegacyQuality ? "Confidence" : t("settings.composerEngineEvidenceQuality")}
+          label={showsLegacyQuality ? t("contextComposerPage.stats.confidence") : t("settings.composerEngineEvidenceQuality")}
           value={showsLegacyQuality
             ? formatPercent(preview.taskIntent.confidence)
             : t(`settings.composerEngineQuality_${preview.qualitySource ?? "v2_grounded"}`)}
@@ -1031,11 +1007,11 @@ export function ContextComposerPage({
 
         <StatCard
           icon={<ShieldCheck size={15} />}
-          label="Quality"
+          label={t("contextComposerPage.stats.quality")}
           value={showsLegacyQuality
             ? `${preview.selectionQuality.score}/100`
             : t(`settings.composerEngineQuality_${preview.qualitySource ?? "v2_grounded"}`)}
-          caption={getSelectionStatusLabel(preview.selectionQuality.status)}
+          caption={t(getSelectionStatusKey(preview.selectionQuality.status))}
         />
       </div>
 
@@ -1044,11 +1020,11 @@ export function ContextComposerPage({
           <div className="mb-4 flex shrink-0 items-start justify-between gap-4">
             <div>
               <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                File candidates
+                {t("contextComposerPage.candidates.kicker")}
               </p>
 
               <h2 className="mt-1 text-base font-semibold text-white">
-                Include / Exclude
+                {t("contextComposerPage.candidates.title")}
               </h2>
             </div>
 
@@ -1060,28 +1036,40 @@ export function ContextComposerPage({
           <div className="mb-3 flex shrink-0 flex-wrap gap-2">
             <ComposerActionButton
               icon={<RotateCcw size={13} />}
-              label={isAbstentionReview ? "Review hints" : isBlockedReview ? "Confirm auto" : "Recommended"}
+              label={isAbstentionReview
+                ? t("contextComposerPage.candidates.reviewHints")
+                : isBlockedReview
+                  ? t("contextComposerPage.candidates.confirmAuto")
+                  : t("contextComposerPage.candidates.recommended")}
               danger={isBlockedReview && !isAbstentionReview}
               onClick={selectRecommendedPaths}
             />
 
             <ComposerActionButton
               icon={<CheckCircle2 size={13} />}
-              label={isAbstentionReview ? "Review all" : isBlockedReview ? "Confirm all" : "Select all"}
+              label={isAbstentionReview
+                ? t("contextComposerPage.candidates.reviewAll")
+                : isBlockedReview
+                  ? t("contextComposerPage.candidates.confirmAll")
+                  : t("contextComposerPage.candidates.selectAll")}
               danger={isBlockedReview && !isAbstentionReview}
               onClick={selectAllPaths}
             />
 
             <ComposerActionButton
               icon={<XCircle size={13} />}
-              label={isAbstentionReview ? "Clear hints" : isBlockedReview ? "Clear weak" : "Clear"}
+              label={isAbstentionReview
+                ? t("contextComposerPage.candidates.clearHints")
+                : isBlockedReview
+                  ? t("contextComposerPage.candidates.clearWeak")
+                  : t("contextComposerPage.candidates.clear")}
               danger
               onClick={clearSelectedPaths}
             />
 
             <ComposerActionButton
               icon={<Plus size={13} />}
-              label="Add file"
+              label={t("contextComposerPage.candidates.addFile")}
               active={isFileSearchOpen}
               onClick={() => setIsFileSearchOpen((current) => !current)}
             />
@@ -1095,8 +1083,8 @@ export function ContextComposerPage({
                 : "border-red-400/15 bg-red-400/5 text-red-100/75"
             ].join(" ")}>
               {isAbstentionReview
-                ? "Shadow did not confirm a single implementation target. Add the real file through search, or explicitly include candidate hints you have reviewed."
-                : "Auto-selection is intentionally cleared. Add the real file through search, or explicitly include recommended files you have reviewed."}
+                ? t("contextComposerPage.candidates.abstentionHelp")
+                : t("contextComposerPage.candidates.blockedHelp")}
             </div>
           )}
 
@@ -1116,7 +1104,7 @@ export function ContextComposerPage({
                     <input
                       value={fileSearchQuery}
                       onChange={(event) => setFileSearchQuery(event.target.value)}
-                      placeholder="Search files, paths, components..."
+                      placeholder={t("contextComposerPage.search.placeholder")}
                       className="h-9 min-w-0 flex-1 bg-transparent text-sm text-white outline-none placeholder:text-neutral-700"
                     />
 
@@ -1128,7 +1116,7 @@ export function ContextComposerPage({
                     )}
                   </div>
 
-                  <p className="mt-2 text-[11px] text-neutral-600">
+                  <p className="mt-2 text-[11px] text-neutral-500">
                     {fileSearchMessage}
                   </p>
 
@@ -1157,7 +1145,7 @@ export function ContextComposerPage({
                           </span>
 
                           <span className="rounded-full border border-neutral-800 bg-neutral-950 px-2 py-1 text-[10px] text-neutral-500 transition group-hover:border-black/10 group-hover:bg-black/5 group-hover:text-black/60">
-                            Add
+                            {t("contextComposerPage.fileCard.add")}
                           </span>
                         </button>
                       ))}
@@ -1170,21 +1158,28 @@ export function ContextComposerPage({
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto pr-1">
             <FileCandidateSection
-              title={isAbstentionReview ? "Candidate hints" : isBlockedReview ? "Weak file suggestions" : "Suggested target files"}
+              title={isAbstentionReview
+                ? t("contextComposerPage.sections.candidateHints")
+                : isBlockedReview
+                  ? t("contextComposerPage.sections.weakSuggestions")
+                  : t("contextComposerPage.sections.suggestedTargets")}
               caption={
                 isAbstentionReview
-                  ? `Shadow understood the task area but did not confirm a target. Include a hint only after you verify it is the real ${targetCopy.target}.`
+                  ? t("contextComposerPage.sections.candidateHintsCaption", { target: targetCopy.target })
                   : isBlockedReview
-                    ? `Automatic selection was blocked. These are search hints only; include a file only after you confirm it is the real ${targetCopy.target}.`
+                    ? t("contextComposerPage.sections.weakSuggestionsCaption", { target: targetCopy.target })
                     : targetCopy.candidateCaption
               }
               count={suggestedCandidateFiles.length}
               emptyText={
                 isAbstentionReview
-                  ? `No candidate hints were produced. ${targetCopy.searchHint}`
+                  ? t("contextComposerPage.sections.noCandidateHints", { hint: targetCopy.searchHint })
                   : isBlockedReview
-                    ? `No weak suggestions were produced. ${targetCopy.searchHint}`
-                    : `No ${targetCopy.targetPlural} were produced. ${targetCopy.searchHint}`
+                    ? t("contextComposerPage.sections.noWeakSuggestions", { hint: targetCopy.searchHint })
+                    : t("contextComposerPage.sections.noSuggestedTargets", {
+                        targets: targetCopy.targetPlural,
+                        hint: targetCopy.searchHint
+                      })
               }
             >
               <AnimatePresence initial={false}>
@@ -1198,7 +1193,7 @@ export function ContextComposerPage({
                       file={file}
                       isSelected={isSelected}
                       isManual={confirmedRecommendedPathSet.has(normalizeFileKey(file.path))}
-                      manualLabel="Reviewed"
+                      manualLabel={t("contextComposerPage.fileCard.reviewed")}
                       isCopied={isCopied}
                       onToggle={() => togglePath(file.path)}
                       onCopy={() => copyPath(file.path)}
@@ -1209,16 +1204,16 @@ export function ContextComposerPage({
             </FileCandidateSection>
 
             <FileCandidateSection
-              title="Recommended context"
+              title={t("contextComposerPage.sections.recommendedContext")}
               caption={
                 isAbstentionReview
-                  ? "Candidate files are reference-only until you explicitly review and include them."
+                  ? t("contextComposerPage.sections.recommendedAbstentionCaption")
                   : isBlockedReview
-                    ? "Auto-selected files are reference-only until you explicitly include them."
-                    : "Selected by ContextForge from project inventory."
+                    ? t("contextComposerPage.sections.recommendedBlockedCaption")
+                    : t("contextComposerPage.sections.recommendedCaption")
               }
               count={recommendedFiles.length}
-              emptyText="No recommended files were selected."
+              emptyText={t("contextComposerPage.sections.noRecommendedFiles")}
             >
               <AnimatePresence initial={false}>
                 {recommendedFiles.map((file) => {
@@ -1231,7 +1226,7 @@ export function ContextComposerPage({
                       file={file}
                       isSelected={isSelected}
                       isManual={confirmedRecommendedPathSet.has(normalizeFileKey(file.path))}
-                      manualLabel="Reviewed"
+                      manualLabel={t("contextComposerPage.fileCard.reviewed")}
                       isCopied={isCopied}
                       onToggle={() => togglePath(file.path)}
                       onCopy={() => copyPath(file.path)}
@@ -1242,10 +1237,10 @@ export function ContextComposerPage({
             </FileCandidateSection>
 
             <FileCandidateSection
-              title="Added manually"
-              caption="Extra files you added through search."
+              title={t("contextComposerPage.sections.addedManually")}
+              caption={t("contextComposerPage.sections.manualCaption")}
               count={manuallyAddedFiles.length}
-              emptyText="No manual files yet. Use Add file when the initial context misses something."
+              emptyText={t("contextComposerPage.sections.noManualFiles")}
             >
               <AnimatePresence initial={false}>
                 {manuallyAddedFiles.map((file) => {
@@ -1258,7 +1253,7 @@ export function ContextComposerPage({
                       file={file}
                       isSelected={isSelected}
                       isManual
-                      manualLabel="Added manually"
+                      manualLabel={t("contextComposerPage.fileCard.addedManually")}
                       isCopied={isCopied}
                       onToggle={() => togglePath(file.path)}
                       onCopy={() => copyPath(file.path)}
@@ -1275,16 +1270,16 @@ export function ContextComposerPage({
           <div className="mb-4 flex shrink-0 items-start justify-between gap-4">
             <div>
               <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-                Snippet preview
+                {t("contextComposerPage.snippets.kicker")}
               </p>
 
               <h2 className="mt-1 text-base font-semibold text-white">
-                Included context snippets
+                {t("contextComposerPage.snippets.title")}
               </h2>
             </div>
 
             <span className="cf-badge">
-              {activeSnippet?.language ?? "no snippet"}
+              {activeSnippet?.language ?? t("contextComposerPage.snippets.noSnippet")}
             </span>
           </div>
 
@@ -1347,7 +1342,7 @@ export function ContextComposerPage({
                 >
                   {activeSnippet.content}
                   {activeSnippet.truncated
-                    ? "\n\n/* Snippet truncated. Inspect the full file before editing. */"
+                    ? `\n\n/* ${t("contextComposerPage.snippets.truncated")} */`
                     : ""}
                 </motion.pre>
               </AnimatePresence>
@@ -1356,10 +1351,10 @@ export function ContextComposerPage({
                 <div>
                   <XCircle size={22} className="mx-auto text-neutral-600" />
                   <p className="mt-3 text-sm font-medium text-white">
-                    No snippets included
+                    {t("contextComposerPage.snippets.emptyTitle")}
                   </p>
                   <p className="mt-1 text-sm text-neutral-500">
-                    Include a readable text file to preview its snippet here.
+                    {t("contextComposerPage.snippets.emptyDescription")}
                   </p>
                 </div>
               </div>
@@ -1370,10 +1365,10 @@ export function ContextComposerPage({
             <div className="mb-3 flex items-center justify-between gap-4">
               <div>
                 <p className="text-sm font-semibold text-white">
-                  Final context summary
+                  {t("contextComposerPage.summary.title")}
                 </p>
-                <p className="mt-1 text-xs text-neutral-600">
-                  Quick check before Task Pack generation.
+                <p className="mt-1 text-xs text-neutral-500">
+                  {t("contextComposerPage.summary.description")}
                 </p>
               </div>
 
@@ -1385,14 +1380,16 @@ export function ContextComposerPage({
                     : "border-emerald-400/25 bg-emerald-400/10 text-emerald-300"
                 ].join(" ")}
               >
-                {finalWarnings.length > 0 ? `${finalWarnings.length} warning(s)` : "Ready"}
+                {finalWarnings.length > 0
+                  ? t("contextComposerPage.summary.warningCount", { count: finalWarnings.length })
+                  : t("contextComposerPage.selectionStatus.ready")}
               </span>
             </div>
 
             <div className="grid gap-2 md:grid-cols-4">
               <div className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-[0.16em] text-neutral-700">
-                  Files
+                <p className="text-[10px] uppercase tracking-[0.16em] text-neutral-500">
+                  {t("contextComposerPage.summary.files")}
                 </p>
                 <p className="mt-1 text-sm font-semibold text-white">
                   {selectedFiles.length}
@@ -1400,8 +1397,8 @@ export function ContextComposerPage({
               </div>
 
               <div className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-[0.16em] text-neutral-700">
-                  Snippets
+                <p className="text-[10px] uppercase tracking-[0.16em] text-neutral-500">
+                  {t("contextComposerPage.summary.snippets")}
                 </p>
                 <p className="mt-1 text-sm font-semibold text-white">
                   {selectedSnippets.length}
@@ -1409,8 +1406,8 @@ export function ContextComposerPage({
               </div>
 
               <div className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-[0.16em] text-neutral-700">
-                  Manual
+                <p className="text-[10px] uppercase tracking-[0.16em] text-neutral-500">
+                  {t("contextComposerPage.summary.manual")}
                 </p>
                 <p className="mt-1 text-sm font-semibold text-white">
                   {selectedManualFiles.length}
@@ -1418,8 +1415,8 @@ export function ContextComposerPage({
               </div>
 
               <div className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2">
-                <p className="text-[10px] uppercase tracking-[0.16em] text-neutral-700">
-                  Area
+                <p className="text-[10px] uppercase tracking-[0.16em] text-neutral-500">
+                  {t("contextComposerPage.summary.area")}
                 </p>
                 <p className="mt-1 truncate text-sm font-semibold text-white">
                   {preview.task.effectiveTaskArea}
@@ -1468,11 +1465,11 @@ export function ContextComposerPage({
 
                 <span className="min-w-0">
                   <span className="block text-sm font-semibold text-white transition group-hover:text-black">
-                    Composer details
+                    {t("contextComposerPage.details.title")}
                   </span>
 
-                  <span className="block truncate text-xs text-neutral-600 transition group-hover:text-black/55">
-                    Intent, safety notes and rejected paths
+                  <span className="block truncate text-xs text-neutral-500 transition group-hover:text-black/55">
+                    {t("contextComposerPage.details.description")}
                   </span>
                 </span>
               </span>
@@ -1500,20 +1497,20 @@ export function ContextComposerPage({
                       <div className="mb-3 flex items-center gap-2">
                         <Bot size={15} className="text-neutral-500" />
                         <p className="text-sm font-semibold text-white">
-                          Intent
+                          {t("contextComposerPage.details.intent")}
                         </p>
                       </div>
 
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
-                          <span className="text-neutral-600">Area</span>
+                          <span className="text-neutral-500">{t("contextComposerPage.details.area")}</span>
                           <span className="font-medium text-white">
                             {preview.taskIntent.taskArea}
                           </span>
                         </div>
 
                         <div className="flex items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
-                          <span className="text-neutral-600">Risk</span>
+                          <span className="text-neutral-500">{t("contextComposerPage.details.risk")}</span>
                           <span
                             className={[
                               "rounded-full border px-2 py-0.5 text-[11px]",
@@ -1525,7 +1522,7 @@ export function ContextComposerPage({
                         </div>
 
                         <div className="flex items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
-                          <span className="text-neutral-600">Source</span>
+                          <span className="text-neutral-500">{t("contextComposerPage.details.source")}</span>
                           <span className="font-medium text-white">
                             {preview.taskIntent.source}
                           </span>
@@ -1534,7 +1531,7 @@ export function ContextComposerPage({
                         {preview.taskIntent.structuredIntent && (
                           <div className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
                             <div className="flex items-center justify-between gap-3">
-                              <span className="text-neutral-600">Structured</span>
+                              <span className="text-neutral-500">{t("contextComposerPage.details.structured")}</span>
                               <span className="font-medium text-white">
                                 {preview.taskIntent.structuredIntent.allowedEditScope}
                               </span>
@@ -1550,8 +1547,8 @@ export function ContextComposerPage({
                                 </p>
                               ))}
                               {preview.taskIntent.structuredIntent.primaryTargets.length === 0 && (
-                                <p className="text-[11px] leading-4 text-neutral-600">
-                                  no primary target
+                                <p className="text-[11px] leading-4 text-neutral-500">
+                                  {t("contextComposerPage.details.noPrimaryTarget")}
                                 </p>
                               )}
                             </div>
@@ -1564,7 +1561,7 @@ export function ContextComposerPage({
                       <div className="mb-3 flex items-center gap-2">
                         <ShieldCheck size={15} className="text-neutral-500" />
                         <p className="text-sm font-semibold text-white">
-                          Safety notes
+                          {t("contextComposerPage.details.safetyNotes")}
                         </p>
                       </div>
 
@@ -1584,44 +1581,44 @@ export function ContextComposerPage({
                       <div className="mb-3 flex items-center gap-2">
                         <Gauge size={15} className="text-neutral-500" />
                         <p className="text-sm font-semibold text-white">
-                          Selector runtime
+                          {t("contextComposerPage.details.selectorRuntime")}
                         </p>
                       </div>
 
                       <div className="space-y-2">
                         <div className="flex items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
-                          <span className="text-neutral-600">Version</span>
+                          <span className="text-neutral-500">{t("contextComposerPage.details.version")}</span>
                           <span className="max-w-[62%] truncate font-medium text-white">
-                            {preview.fileSelection.diagnostics?.selectorVersion ?? "not reported"}
+                            {preview.fileSelection.diagnostics?.selectorVersion ?? t("contextComposerPage.details.notReported")}
                           </span>
                         </div>
 
                         <div className="flex items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
-                          <span className="text-neutral-600">Profile</span>
+                          <span className="text-neutral-500">{t("contextComposerPage.details.profile")}</span>
                           <span className="max-w-[62%] truncate font-medium text-white">
-                            {preview.fileSelection.diagnostics?.safetyProfile ?? "unknown"}
+                            {preview.fileSelection.diagnostics?.safetyProfile ?? t("contextComposerPage.details.unknown")}
                           </span>
                         </div>
 
                         <div className="flex items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
-                          <span className="text-neutral-600">Mode</span>
+                          <span className="text-neutral-500">{t("contextComposerPage.details.mode")}</span>
                           <span className="font-medium text-white">
                             {preview.fileSelection.diagnostics?.generationMode ?? preview.fileSelection.source}
                           </span>
                         </div>
 
                         <div className="flex items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
-                          <span className="text-neutral-600">Model</span>
+                          <span className="text-neutral-500">{t("contextComposerPage.details.model")}</span>
                           <span className="max-w-[62%] truncate font-medium text-white">
-                            {preview.fileSelection.diagnostics?.model ?? "template fallback"}
+                            {preview.fileSelection.diagnostics?.model ?? t("contextComposerPage.details.templateFallback")}
                           </span>
                         </div>
 
                         <div className="flex items-center justify-between gap-3 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-xs">
-                          <span className="text-neutral-600">Selector</span>
+                          <span className="text-neutral-500">{t("contextComposerPage.details.selector")}</span>
                           <span className="font-medium text-white">
                             {preview.fileSelection.source}
-                            {preview.fileSelection.usedFallback ? " fallback" : ""}
+                            {preview.fileSelection.usedFallback ? ` ${t("contextComposerPage.details.fallback")}` : ""}
                           </span>
                         </div>
                       </div>
@@ -1647,13 +1644,13 @@ export function ContextComposerPage({
                           }
                         />
                         <p className="text-sm font-semibold text-white">
-                          Validation
+                          {t("contextComposerPage.details.validation")}
                         </p>
                       </div>
 
                       {selectedPaths.length === 0 ? (
                         <p className="text-xs leading-5 text-red-200/75">
-                          Include at least one file before generating the Task Pack.
+                          {t("contextComposerPage.details.validationNoFiles")}
                         </p>
                       ) : preview.fileSelection.rejectedModelPaths.length > 0 ? (
                         <div className="max-h-[150px] space-y-2 overflow-y-auto pr-1">
@@ -1679,7 +1676,7 @@ export function ContextComposerPage({
                         </div>
                       ) : (
                         <p className="text-xs leading-5 text-neutral-500">
-                          Selected files are ready for Task Pack generation.
+                          {t("contextComposerPage.details.validationReady")}
                         </p>
                       )}
                     </article>
