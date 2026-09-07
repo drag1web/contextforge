@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### v0.7.1-alpha development cycle
+
+- ContextForge has entered the `v0.7.1-alpha` UI/UX development cycle, focused on visual explainability, navigation, workspace UX, and exposing grounded Context Engine information through the desktop interface.
+- Context Engine v2 semantics remain frozen at Phase A2, and CE2 remains disabled by default.
+- New UI features must consume real deterministic data and must not invent confidence, relevance, evidence, or relationships.
+
 ### Context Engine v2 pre-validation hygiene
 
 - Recorded the CE2-11 opt-in primary-authority checkpoint as retirement

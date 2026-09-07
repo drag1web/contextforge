@@ -61,7 +61,7 @@ function resolveSqliteDatabasePath() {
 }
 
 export const config = {
-  appVersion: process.env.APP_VERSION ?? "0.7.0-alpha",
+  appVersion: process.env.APP_VERSION ?? "0.7.1-alpha",
   port: Number(process.env.SERVER_PORT ?? 4000),
   storageDriver: readStorageDriver(),
   contextForgeDataDirectory: resolveContextForgeDataDirectory(),
