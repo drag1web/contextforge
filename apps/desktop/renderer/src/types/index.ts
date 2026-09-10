@@ -46,6 +46,41 @@ export interface ReadinessReport {
   signals?: ScannerSignals;
 }
 
+export type ProjectAwarenessStatus =
+  | "first_observation"
+  | "unchanged"
+  | "changed"
+  | "comparison_limited";
+
+export interface ProjectAwarenessReadinessChange {
+  previous: number;
+  current: number;
+  direction: "improved" | "unchanged" | "decreased";
+}
+
+export interface ProjectAwarenessReadinessCheckChange {
+  key: string;
+  previousPassed: boolean | null;
+  currentPassed: boolean | null;
+  previousPoints: number | null;
+  currentPoints: number | null;
+}
+
+export interface ProjectAwareness {
+  status: ProjectAwarenessStatus;
+  lastObservedAt: string;
+  previousObservedAt: string | null;
+  knownFileCount: number;
+  inventoryTruncated: boolean;
+  fileComparison: "available" | "limited";
+  fileChanges: {
+    added: string[];
+    removed: string[];
+  } | null;
+  readinessChange: ProjectAwarenessReadinessChange | null;
+  readinessCheckChanges: ProjectAwarenessReadinessCheckChange[];
+}
+
 export type TargetTool = "codex" | "cursor" | "claude" | "gemini" | "generic";
 
 export type TemplateTaskType =
@@ -135,6 +170,7 @@ export interface Project {
   createdAt: string;
   updatedAt: string;
   lastScanAt: string | null;
+  awareness?: ProjectAwareness | null;
 }
 
 export type GitFileChangeKind =
@@ -948,6 +984,8 @@ export interface AppSettings {
   contextComposerEngineMode: "legacy" | "shadow_compare" | "v2_primary";
   taskUnderstandingInteractionMode: "automatic" | "balanced" | "confirm_all";
   sidebarShowDescriptions: boolean;
+  focusModeBehavior: "manual" | "automatic";
+  workspaceDensity: "adaptive" | "comfortable" | "compact";
   onboardingEnabled: boolean;
   onboardingShowEveryLaunch: boolean;
   onboardingCompleted: boolean;
@@ -1210,6 +1248,77 @@ export interface ContextComposerEvidenceView {
   reasonCode: string;
 }
 
+export interface ContextComposerFindingView {
+  findingId: string;
+  type:
+    | "implementation_target"
+    | "supporting_context"
+    | "behavior_summary"
+    | "constraint"
+    | "risk"
+    | "test_target"
+    | "clarification_requirement";
+  statement: string;
+  status: "confirmed" | "probable" | "unresolved";
+  authorizationHint: "eligible" | "review_required" | "not_eligible";
+  limitations: string[];
+  evidenceIds: string[];
+}
+
+export interface ContextComposerInvestigationEventView {
+  sequence: number;
+  type:
+    | "seed_interpreted"
+    | "planner_proposal_synthesized"
+    | "question_updated"
+    | "gap_evaluated"
+    | "domain_evaluated"
+    | "atomic_commit"
+    | "stop_checked"
+    | "plan_created"
+    | "operation_selected"
+    | "operation_completed"
+    | "operation_budget_rejected";
+  round: number | null;
+  operationId: string | null;
+  operationType: string | null;
+  operationSource: string | null;
+  status: string | null;
+  previousStatus: string | null;
+  stage: string | null;
+  decision: string | null;
+  stopReason: string | null;
+  reasonCode: string | null;
+  paths: string[];
+  startLine: number | null;
+  endLine: number | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  findingIds: string[];
+  evidenceIds: string[];
+}
+
+export interface ContextComposerInvestigationTimelineView {
+  events: ContextComposerInvestigationEventView[];
+  coverage: {
+    criticalQuestionsTotal: number;
+    criticalQuestionsAnswered: number;
+    questionsTotal: number;
+    questionsAnswered: number;
+    hypothesesTotal: number;
+    hypothesesSupported: number;
+    hypothesesRejected: number;
+    hypothesesUnresolved: number;
+    filesConsidered: number;
+    filesRead: number;
+    filesParsed: number;
+    relationshipHops: number;
+    evidenceIndependentGroups: number;
+    snapshotTruncated: boolean;
+  };
+}
+
 export interface ContextComposerEngineFileView {
   path: string;
   role: "target" | "test" | "supporting" | "reference";
@@ -1219,6 +1328,7 @@ export interface ContextComposerEngineFileView {
   reasonCode: string;
   reasonCodes: string[];
   findingIds: string[];
+  findings: ContextComposerFindingView[];
   evidenceIds: string[];
   evidence: ContextComposerEvidenceView[];
 }
@@ -1233,6 +1343,7 @@ export interface ContextComposerEngineView {
   files: ContextComposerEngineFileView[];
   unresolvedQuestions: Array<{ category: string; status: string }>;
   limitations: string[];
+  timeline?: ContextComposerInvestigationTimelineView;
   comparison: {
     outcome: string;
     exactEditablePaths: string[];

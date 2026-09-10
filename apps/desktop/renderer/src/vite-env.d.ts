@@ -14,7 +14,12 @@ declare global {
   interface Window {
     contextforge?: {
       selectProjectFolder: () => Promise<string | null>;
+      resolveDroppedProjectFolder?: (file: File) => Promise<string | null>;
       openExternalUrl?: (url: string) => Promise<boolean>;
+      workspaceZoom?: {
+        getFactor: () => number;
+        setFactor: (factor: number) => number;
+      };
       desktopSync?: {
         getStatus: (options?: {
           refresh?: boolean;
