@@ -42,6 +42,37 @@ async function loadComposerUiSemantics(): Promise<{
   }>;
 }
 
+async function loadWorkspaceDensitySemantics(): Promise<{
+  resolveWorkspaceDensity(input: {
+    preference: "adaptive" | "comfortable" | "compact";
+    isWorkflowSurface: boolean;
+    isFocusModeActive: boolean;
+    hasAuxiliaryWorkspace: boolean;
+  }): "comfortable" | "balanced" | "compact";
+  getWorkspaceDensityPadding(
+    density: "comfortable" | "balanced" | "compact",
+    isFocusModeActive: boolean,
+  ): number;
+}> {
+  const moduleUrl = pathToFileURL(path.join(
+    repositoryRoot,
+    "apps/desktop/renderer/src/utils/workspaceDensity.ts",
+  )).href;
+
+  return import(moduleUrl) as Promise<{
+    resolveWorkspaceDensity(input: {
+      preference: "adaptive" | "comfortable" | "compact";
+      isWorkflowSurface: boolean;
+      isFocusModeActive: boolean;
+      hasAuxiliaryWorkspace: boolean;
+    }): "comfortable" | "balanced" | "compact";
+    getWorkspaceDensityPadding(
+      density: "comfortable" | "balanced" | "compact",
+      isFocusModeActive: boolean,
+    ): number;
+  }>;
+}
+
 function scenario(name: string, run: Scenario["run"]): void {
   scenarios.push({ name, run });
 }
@@ -115,6 +146,138 @@ function validView(): ContextComposerEngineView {
       explicitTargetDisagreements: [],
     },
   };
+}
+
+async function loadContextDiffSemantics(): Promise<{
+  advanceContextDiffSession(current: any, preview: any): any;
+  createContextDiffSnapshot(preview: any): any;
+  compareContextDiffSnapshots(previous: any, current: any): any;
+  contextDiffPathIdentity(path: string): string;
+}> {
+  const moduleUrl = pathToFileURL(path.join(
+    repositoryRoot,
+    "apps/desktop/renderer/src/components/workspace/contextDiff.ts",
+  )).href;
+  return import(moduleUrl) as Promise<{
+    advanceContextDiffSession(current: any, preview: any): any;
+    createContextDiffSnapshot(preview: any): any;
+    compareContextDiffSnapshots(previous: any, current: any): any;
+    contextDiffPathIdentity(path: string): string;
+  }>;
+}
+
+function validTimeline(): NonNullable<ContextComposerEngineView["timeline"]> {
+  const emptyEventFields: Omit<
+    NonNullable<ContextComposerEngineView["timeline"]>["events"][number],
+    "sequence" | "type"
+  > = {
+    round: null,
+    operationId: null,
+    operationType: null,
+    operationSource: null,
+    status: null,
+    previousStatus: null,
+    stage: null,
+    decision: null,
+    stopReason: null,
+    reasonCode: null,
+    paths: [],
+    startLine: null,
+    endLine: null,
+    startedAt: null,
+    completedAt: null,
+    durationMs: null,
+    findingIds: [],
+    evidenceIds: [],
+  };
+  return {
+    events: [
+      { sequence: 1, type: "seed_interpreted", ...emptyEventFields },
+      {
+        sequence: 2,
+        type: "operation_completed",
+        ...emptyEventFields,
+        round: 1,
+        operationId: "operation-1",
+        operationType: "read_file",
+        status: "completed",
+        paths: ["src/service.ts"],
+        startedAt: "2026-09-08T00:00:00.000Z",
+        completedAt: "2026-09-08T00:00:00.010Z",
+        durationMs: 10,
+        evidenceIds: ["evidence-1"],
+      },
+      {
+        sequence: 3,
+        type: "stop_checked",
+        ...emptyEventFields,
+        round: 1,
+        stage: "final",
+        decision: "stop",
+        stopReason: "sufficient_evidence",
+      },
+    ],
+    coverage: {
+      criticalQuestionsTotal: 1,
+      criticalQuestionsAnswered: 1,
+      questionsTotal: 1,
+      questionsAnswered: 1,
+      hypothesesTotal: 1,
+      hypothesesSupported: 1,
+      hypothesesRejected: 0,
+      hypothesesUnresolved: 0,
+      filesConsidered: 1,
+      filesRead: 1,
+      filesParsed: 0,
+      relationshipHops: 0,
+      evidenceIndependentGroups: 1,
+      snapshotTruncated: false,
+    },
+  };
+}
+
+function contextDiffPreview(
+  view: ContextComposerEngineView | null = validView(),
+  overrides: {
+    projectId?: number;
+    rawTask?: string;
+    clarifications?: Array<{ question: string; answer: string }>;
+    taskType?: string;
+    targetTool?: string;
+  } = {},
+) {
+  return {
+    project: { id: overrides.projectId ?? 1 },
+    task: {
+      originalRawTask: overrides.rawTask ?? "Update service",
+      clarifications: overrides.clarifications ?? [],
+      requestedTaskType: overrides.taskType ?? "general",
+      targetTool: overrides.targetTool ?? "codex",
+    },
+    ...(view === null ? {} : { contextEngine: view }),
+  };
+}
+
+function renamedContextFile(
+  source: ContextComposerEngineView["files"][number],
+  pathValue: string,
+  suffix: string,
+): ContextComposerEngineView["files"][number] {
+  const file = structuredClone(source);
+  file.path = pathValue;
+  file.findingIds = file.findingIds.map((id) => `${id}-${suffix}`);
+  file.evidenceIds = file.evidenceIds.map((id) => `${id}-${suffix}`);
+  file.findings = file.findings.map((finding) => ({
+    ...finding,
+    findingId: `${finding.findingId}-${suffix}`,
+    evidenceIds: finding.evidenceIds.map((id) => `${id}-${suffix}`),
+  }));
+  file.evidence = file.evidence.map((evidence) => ({
+    ...evidence,
+    evidenceId: `${evidence.evidenceId}-${suffix}`,
+    ...(evidence.path === undefined ? {} : { path: pathValue }),
+  }));
+  return file;
 }
 
 for (const [name, value, expected] of [
@@ -242,6 +405,219 @@ scenario("effective task area cannot change after preparation", () => {
 
 scenario("valid view frozen", () => assert.equal(Object.isFrozen(validateContextComposerEngineView(validView())), true));
 scenario("valid nested view frozen", () => assert.equal(Object.isFrozen(validateContextComposerEngineView(validView()).files[0]), true));
+scenario("old view without investigation timeline remains valid", () => {
+  assert.equal(validateContextComposerEngineView(validView()).timeline, undefined);
+});
+scenario("valid investigation timeline preserves canonical event order", () => {
+  const value = validView();
+  value.timeline = validTimeline();
+  const validated = validateContextComposerEngineView(value);
+  assert.deepEqual(validated.timeline?.events.map((event) => event.sequence), [1, 2, 3]);
+  assert.deepEqual(validated.timeline?.events.map((event) => event.type), [
+    "seed_interpreted", "operation_completed", "stop_checked",
+  ]);
+});
+scenario("timeline unknown field rejected", () => {
+  const value = validView() as ContextComposerEngineView & { timeline: Record<string, unknown> };
+  value.timeline = { ...validTimeline(), privateReasoning: "hidden" };
+  assert.throws(() => validateContextComposerEngineView(value));
+});
+scenario("timeline event unknown field rejected", () => {
+  const value = validView();
+  value.timeline = validTimeline();
+  (value.timeline.events[0] as unknown as Record<string, unknown>).privateReasoning = "hidden";
+  assert.throws(() => validateContextComposerEngineView(value));
+});
+scenario("timeline sequence reordering rejected", () => {
+  const value = validView();
+  value.timeline = validTimeline();
+  value.timeline.events[1]!.sequence = 3;
+  assert.throws(() => validateContextComposerEngineView(value));
+});
+scenario("timeline absolute source path rejected", () => {
+  const value = validView();
+  value.timeline = validTimeline();
+  value.timeline.events[1]!.paths = ["C:/private/service.ts"];
+  assert.throws(() => validateContextComposerEngineView(value));
+});
+scenario("timeline unexposed evidence rejected", () => {
+  const value = validView();
+  value.timeline = validTimeline();
+  value.timeline.events[1]!.evidenceIds = ["evidence-private"];
+  assert.throws(() => validateContextComposerEngineView(value));
+});
+scenario("timeline final stop mismatch rejected", () => {
+  const value = validView();
+  value.timeline = validTimeline();
+  value.timeline.events[2]!.stopReason = "safety_blocked";
+  assert.throws(() => validateContextComposerEngineView(value));
+});
+scenario("timeline inferred duration is not accepted without stored timestamps", () => {
+  const value = validView();
+  value.timeline = validTimeline();
+  value.timeline.events[1]!.startedAt = null;
+  assert.throws(() => validateContextComposerEngineView(value));
+});
+scenario("Context Diff first analysis has no fabricated previous snapshot", async () => {
+  const semantics = await loadContextDiffSemantics();
+  const preview = contextDiffPreview();
+  const session = semantics.advanceContextDiffSession(null, preview);
+  assert.equal(session.previous, null);
+  assert.ok(session.current);
+  assert.equal(Object.isFrozen(session.current), true);
+  assert.equal(Object.isFrozen(session.current.files), true);
+});
+scenario("Context Diff advances only for a new preview in the same exact task scope", async () => {
+  const semantics = await loadContextDiffSemantics();
+  const firstPreview = contextDiffPreview();
+  const first = semantics.advanceContextDiffSession(null, firstPreview);
+  assert.equal(semantics.advanceContextDiffSession(first, firstPreview), first);
+  const secondPreview = contextDiffPreview(structuredClone(validView()));
+  const second = semantics.advanceContextDiffSession(first, secondPreview);
+  assert.equal(second.previous, first.current);
+  assert.notEqual(second.current, first.current);
+  const anotherTask = semantics.advanceContextDiffSession(
+    second,
+    contextDiffPreview(structuredClone(validView()), { rawTask: "Another task" }),
+  );
+  assert.equal(anotherTask.previous, null);
+});
+scenario("Context Diff missing legacy engine view remains unavailable", async () => {
+  const semantics = await loadContextDiffSemantics();
+  const session = semantics.advanceContextDiffSession(null, contextDiffPreview(null));
+  assert.equal(session.previous, null);
+  assert.equal(session.current, null);
+});
+scenario("Context Diff identical analyses report only unchanged stable records", async () => {
+  const semantics = await loadContextDiffSemantics();
+  const previous = semantics.createContextDiffSnapshot(contextDiffPreview());
+  const current = semantics.createContextDiffSnapshot(contextDiffPreview(structuredClone(validView())));
+  const diff = semantics.compareContextDiffSnapshots(previous, current);
+  assert.equal(diff.files.added.length, 0);
+  assert.equal(diff.files.removed.length, 0);
+  assert.equal(diff.files.changed.length, 0);
+  assert.equal(diff.files.unchanged.length, 1);
+  assert.equal(diff.findings.unchanged.length, 1);
+  assert.equal(diff.evidence.unchanged.length, 1);
+});
+scenario("Context Diff deduplicates identical stable finding and evidence IDs", async () => {
+  const semantics = await loadContextDiffSemantics();
+  const view = structuredClone(validView());
+  const secondFile = structuredClone(view.files[0]!);
+  secondFile.path = "src/second.ts";
+  view.files.push(secondFile);
+  const snapshot = semantics.createContextDiffSnapshot(contextDiffPreview(view));
+  assert.equal(snapshot.files.length, 2);
+  assert.equal(snapshot.findings.length, 1);
+  assert.equal(snapshot.evidence.length, 1);
+});
+scenario("Context Diff reports exact added and removed file paths", async () => {
+  const semantics = await loadContextDiffSemantics();
+  const previousView = validView();
+  const currentView = structuredClone(previousView);
+  currentView.files = [renamedContextFile(previousView.files[0]!, "src/added.ts", "added")];
+  const previous = semantics.createContextDiffSnapshot(contextDiffPreview(previousView));
+  const current = semantics.createContextDiffSnapshot(contextDiffPreview(currentView));
+  const diff = semantics.compareContextDiffSnapshots(previous, current);
+  assert.deepEqual(diff.files.added.map((file: { path: string }) => file.path), ["src/added.ts"]);
+  assert.deepEqual(diff.files.removed.map((file: { path: string }) => file.path), ["src/service.ts"]);
+});
+scenario("Context Diff matches files only by normalized exact path and reports real field changes", async () => {
+  const semantics = await loadContextDiffSemantics();
+  const currentView = structuredClone(validView());
+  currentView.files[0]!.path = "src\\service.ts";
+  currentView.files[0]!.role = "supporting";
+  currentView.files[0]!.usage = "inspect-only";
+  const previous = semantics.createContextDiffSnapshot(contextDiffPreview());
+  const current = semantics.createContextDiffSnapshot(contextDiffPreview(currentView));
+  const diff = semantics.compareContextDiffSnapshots(previous, current);
+  assert.equal(diff.files.added.length, 0);
+  assert.equal(diff.files.removed.length, 0);
+  assert.equal(diff.files.changed.length, 1);
+  assert.deepEqual(diff.files.changed[0].changes.map((change: { field: string }) => change.field), ["role", "usage"]);
+});
+scenario("Context Diff preserves case-distinct repository-relative path identities", async () => {
+  const semantics = await loadContextDiffSemantics();
+  assert.equal(semantics.contextDiffPathIdentity("src\\Foo.ts"), "src/Foo.ts");
+  assert.notEqual(
+    semantics.contextDiffPathIdentity("src/Foo.ts"),
+    semantics.contextDiffPathIdentity("src/foo.ts"),
+  );
+
+  const previousView = validView();
+  previousView.files = [renamedContextFile(previousView.files[0]!, "src/Foo.ts", "upper")];
+  const currentView = validView();
+  currentView.files = [renamedContextFile(currentView.files[0]!, "src/foo.ts", "lower")];
+  const previous = semantics.createContextDiffSnapshot(contextDiffPreview(previousView));
+  const current = semantics.createContextDiffSnapshot(contextDiffPreview(currentView));
+  const diff = semantics.compareContextDiffSnapshots(previous, current);
+
+  assert.deepEqual(diff.files.added.map((file: { path: string }) => file.path), ["src/foo.ts"]);
+  assert.deepEqual(diff.files.removed.map((file: { path: string }) => file.path), ["src/Foo.ts"]);
+  assert.equal(diff.files.changed.length, 0);
+  assert.equal(diff.files.unchanged.length, 0);
+});
+scenario("Context Diff never pairs different finding or evidence IDs heuristically", async () => {
+  const semantics = await loadContextDiffSemantics();
+  const currentView = structuredClone(validView());
+  currentView.files[0] = renamedContextFile(currentView.files[0]!, "src/service.ts", "new");
+  const previous = semantics.createContextDiffSnapshot(contextDiffPreview());
+  const current = semantics.createContextDiffSnapshot(contextDiffPreview(currentView));
+  const diff = semantics.compareContextDiffSnapshots(previous, current);
+  assert.equal(diff.findings.added.length, 1);
+  assert.equal(diff.findings.removed.length, 1);
+  assert.equal(diff.findings.changed.length, 0);
+  assert.equal(diff.evidence.added.length, 1);
+  assert.equal(diff.evidence.removed.length, 1);
+  assert.equal(diff.evidence.changed.length, 0);
+});
+scenario("Context Diff reports allowlisted changes for the same stable finding and evidence IDs", async () => {
+  const semantics = await loadContextDiffSemantics();
+  const currentView = structuredClone(validView());
+  currentView.files[0]!.findings[0]!.status = "probable";
+  currentView.files[0]!.evidence[0]!.strength = "conclusive";
+  const previous = semantics.createContextDiffSnapshot(contextDiffPreview());
+  const current = semantics.createContextDiffSnapshot(contextDiffPreview(currentView));
+  const diff = semantics.compareContextDiffSnapshots(previous, current);
+  assert.deepEqual(diff.findings.changed[0].changes.map((change: { field: string }) => change.field), ["status"]);
+  assert.deepEqual(diff.evidence.changed[0].changes.map((change: { field: string }) => change.field), ["strength"]);
+});
+scenario("Context Diff safety block exposes removed prior files but no forbidden current file", async () => {
+  const semantics = await loadContextDiffSemantics();
+  const blocked = structuredClone(validView());
+  blocked.status = "safety_blocked";
+  blocked.stopReason = "safety_blocked";
+  blocked.files = [];
+  blocked.limitations = ["blocking_gap"];
+  const previous = semantics.createContextDiffSnapshot(contextDiffPreview());
+  const current = semantics.createContextDiffSnapshot(contextDiffPreview(blocked));
+  const diff = semantics.compareContextDiffSnapshots(previous, current);
+  assert.deepEqual(diff.files.removed.map((file: { path: string }) => file.path), ["src/service.ts"]);
+  assert.equal(current.files.length, 0);
+  assert.equal(diff.engineChanges.some((change: { field: string; after: string }) =>
+    change.field === "status" && change.after === "safety_blocked"), true);
+});
+scenario("Context Diff presentation model invents no confidence relevance or health", async () => {
+  const semantics = await loadContextDiffSemantics();
+  const snapshot = semantics.createContextDiffSnapshot(contextDiffPreview());
+  const serialized = JSON.stringify(snapshot).toLowerCase();
+  assert.equal(serialized.includes("confidence"), false);
+  assert.equal(serialized.includes("relevance"), false);
+  assert.equal(serialized.includes("health"), false);
+});
+scenario("Context Diff supports exact legacy presentation snapshots when both exist", async () => {
+  const semantics = await loadContextDiffSemantics();
+  const legacyView = structuredClone(validView());
+  legacyView.effectiveSource = "legacy";
+  legacyView.status = "legacy";
+  legacyView.stopReason = null;
+  legacyView.files[0]!.source = "legacy";
+  const previous = semantics.createContextDiffSnapshot(contextDiffPreview(legacyView));
+  const current = semantics.createContextDiffSnapshot(contextDiffPreview(structuredClone(legacyView)));
+  const diff = semantics.compareContextDiffSnapshots(previous, current);
+  assert.equal(diff.files.unchanged.length, 1);
+  assert.equal(diff.engineChanges.length, 0);
+});
 scenario("view validation does not mutate caller input", () => {
   const input = validView();
   validateContextComposerEngineView(input);
@@ -259,6 +635,11 @@ scenario("unknown file field rejected", () => {
 scenario("unknown evidence field rejected", () => {
   const value = structuredClone(validView()) as ContextComposerEngineView & { files: Array<{ evidence: Array<Record<string, unknown>> }> };
   value.files[0]!.evidence[0]!.snippet = "private";
+  assert.throws(() => validateContextComposerEngineView(value));
+});
+scenario("unknown finding field rejected", () => {
+  const value = structuredClone(validView()) as ContextComposerEngineView & { files: Array<{ findings: Array<Record<string, unknown>> }> };
+  value.files[0]!.findings[0]!.rawTask = "private";
   assert.throws(() => validateContextComposerEngineView(value));
 });
 scenario("absolute Windows path rejected", () => { const value = structuredClone(validView()); value.files[0]!.path = "C:/private/a.ts"; assert.throws(() => validateContextComposerEngineView(value)); });
@@ -288,6 +669,8 @@ scenario("arbitrary injected predicate rejected", () => {
 scenario("lead-only target evidence rejected", () => { const value = structuredClone(validView()); value.files[0]!.evidence[0]!.strength = "lead"; assert.throws(() => validateContextComposerEngineView(value)); });
 scenario("context-only target evidence rejected", () => { const value = structuredClone(validView()); value.files[0]!.evidence[0]!.role = "context_only"; assert.throws(() => validateContextComposerEngineView(value)); });
 scenario("decision evidence trace mismatch rejected", () => { const value = structuredClone(validView()); value.files[0]!.evidence[0]!.evidenceId = "evidence-other"; assert.throws(() => validateContextComposerEngineView(value)); });
+scenario("finding detail trace mismatch rejected", () => { const value = structuredClone(validView()); value.files[0]!.findings[0]!.findingId = "finding-other"; assert.throws(() => validateContextComposerEngineView(value)); });
+scenario("finding evidence outside file trace rejected", () => { const value = structuredClone(validView()); value.files[0]!.findings[0]!.evidenceIds = ["evidence-other"]; assert.throws(() => validateContextComposerEngineView(value)); });
 scenario("duplicate file path rejected", () => { const value = structuredClone(validView()); value.files.push(structuredClone(value.files[0]!)); assert.throws(() => validateContextComposerEngineView(value)); });
 scenario("duplicate finding IDs rejected", () => { const value = structuredClone(validView()); value.files[0]!.findingIds = ["finding-1", "finding-1"]; assert.throws(() => validateContextComposerEngineView(value)); });
 scenario("unsorted IDs rejected", () => { const value = structuredClone(validView()); value.files[0]!.findingIds = ["finding-z", "finding-a"]; assert.throws(() => validateContextComposerEngineView(value)); });
@@ -412,6 +795,7 @@ scenario("live execution input accessor is not executed", async () => {
 
 let realExecution: Awaited<ReturnType<typeof executeContextComposerV2>> | null = null;
 let realExecutionInput: ContextComposerV2ExecutionInput | null = null;
+let realResolution: ContextComposerEngineResolution | null = null;
 scenario("real engine grounded path executes loop", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "contextforge-composer-"));
   fs.mkdirSync(path.join(root, "src"));
@@ -444,6 +828,7 @@ scenario("real grounded v2 primary is ready", async () => {
     executionInput: realExecutionInput,
     executor: async () => realExecution!,
   });
+  realResolution = resolution;
   assert.equal(resolution.view.status, "v2_ready");
   assert.equal(resolution.view.effectiveSource, "v2");
   assert.equal(resolution.view.fallbackReason, null);
@@ -455,13 +840,107 @@ scenario("real grounded v2 primary is ready", async () => {
   assert.equal(file.usage, "inspect-and-edit");
   assert.equal(file.source, "v2");
   assert.ok(file.findingIds.length > 0);
+  assert.equal(file.findings.length, file.findingIds.length);
   assert.ok(file.evidenceIds.length > 0);
   assert.equal(file.evidence.length, 1);
   assert.equal(file.evidence[0]!.predicate, "source_identity");
   assert.equal(file.evidence[0]!.role, "supports");
   assert.notEqual(file.evidence[0]!.strength, "lead");
   assert.equal(file.evidence[0]!.reasonCode, "confirmed_implementation_target");
+  const projectedFinding = file.findings[0]!;
+  const sourceFinding = realExecution.projection.projection.findings.find(
+    (finding) => finding.id as string === projectedFinding.findingId,
+  );
+  assert.ok(sourceFinding);
+  assert.equal(projectedFinding.type, sourceFinding.type);
+  assert.equal(projectedFinding.statement, sourceFinding.statement);
+  assert.equal(projectedFinding.status, sourceFinding.status);
+  assert.equal(projectedFinding.authorizationHint, sourceFinding.authorizationHint);
+  assert.deepEqual(
+    projectedFinding.evidenceIds,
+    sourceFinding.evidenceIds
+      .map((evidenceId) => evidenceId as string)
+      .filter((evidenceId) => file.evidenceIds.includes(evidenceId))
+      .sort(),
+  );
   assert.equal(resolution.view.comparison?.outcome, "insufficient_evaluation_data");
+});
+scenario("real investigation timeline preserves runner order and stored operation metadata", () => {
+  assert.ok(realExecution);
+  assert.ok(realResolution?.view.timeline);
+  const timeline = realResolution.view.timeline;
+  assert.deepEqual(
+    timeline.events.map((event) => event.type),
+    realExecution.result.trace.map((event) => event.type),
+  );
+  assert.deepEqual(
+    timeline.events.map((event) => event.sequence),
+    timeline.events.map((_, index) => index + 1),
+  );
+  const finalEvent = timeline.events.at(-1);
+  assert.equal(finalEvent?.type, "stop_checked");
+  assert.equal(finalEvent?.stage, "final");
+  assert.equal(finalEvent?.decision, "stop");
+  assert.equal(finalEvent?.stopReason, realResolution.view.stopReason);
+  const completed = timeline.events.find((event) => event.type === "operation_completed" && event.startedAt);
+  assert.ok(completed?.operationId);
+  const record = realExecution.result.operationRecords.find(
+    (candidate) => candidate.operation.id as string === completed.operationId,
+  );
+  assert.ok(record);
+  assert.equal(completed.startedAt, record.startedAt);
+  assert.equal(completed.completedAt, record.completedAt);
+  assert.equal(completed.durationMs, record.actualCost?.wallTimeMs ?? null);
+  assert.equal(completed.paths.every((pathValue) => pathValue === "src/candidate.ts"), true);
+  assert.equal("blockedScopes" in timeline.coverage, false);
+});
+scenario("private runtime trace fields are not serialized into the Composer timeline", async () => {
+  assert.ok(realExecution);
+  assert.ok(realExecutionInput);
+  const marker = "PRIVATE_REASONING_MARKER";
+  const execution = structuredClone(realExecution) as typeof realExecution;
+  (execution.result.trace[0] as unknown as Record<string, unknown>).privateReasoning = marker;
+  const resolution = await resolveContextComposerEngine({
+    mode: "v2_primary",
+    legacySelection: legacySelection(),
+    executionInput: realExecutionInput,
+    executor: async () => execution,
+  });
+  assert.equal(resolution.view.status, "v2_ready");
+  assert.equal(JSON.stringify(resolution.view).includes(marker), false);
+});
+scenario("unknown runtime trace event blocks the Composer view safely", async () => {
+  assert.ok(realExecution);
+  assert.ok(realExecutionInput);
+  const execution = structuredClone(realExecution) as typeof realExecution;
+  (execution.result.trace[0] as unknown as Record<string, unknown>).type = "private_reasoning";
+  const resolution = await resolveContextComposerEngine({
+    mode: "v2_primary",
+    legacySelection: legacySelection(["src/legacy.ts"]),
+    executionInput: realExecutionInput,
+    executor: async () => execution,
+  });
+  assert.equal(resolution.view.status, "safety_blocked");
+  assert.deepEqual(resolution.view.limitations, ["v2_integrity_violation"]);
+  assert.equal(resolution.selection, null);
+  assert.equal(resolution.view.timeline, undefined);
+});
+scenario("malformed operation trace linkage blocks the Composer view safely", async () => {
+  assert.ok(realExecution);
+  assert.ok(realExecutionInput);
+  const execution = structuredClone(realExecution) as typeof realExecution;
+  const completed = execution.result.trace.find((event) => event.type === "operation_completed");
+  assert.ok(completed && completed.type === "operation_completed");
+  completed.producedEvidenceIds = [...completed.producedEvidenceIds, "evidence-forged" as typeof completed.producedEvidenceIds[number]];
+  const resolution = await resolveContextComposerEngine({
+    mode: "v2_primary",
+    legacySelection: legacySelection(["src/legacy.ts"]),
+    executionInput: realExecutionInput,
+    executor: async () => execution,
+  });
+  assert.equal(resolution.view.status, "safety_blocked");
+  assert.deepEqual(resolution.view.limitations, ["v2_integrity_violation"]);
+  assert.equal(resolution.selection, null);
 });
 scenario("malformed comparison blocks safely", async () => {
   assert.ok(realExecution);
@@ -599,6 +1078,11 @@ scenario("negative explicit target never falls back to editable legacy path", as
   });
   assert.equal(resolution.view.status, "safety_blocked");
   assert.equal(resolution.selection, null);
+  assert.ok(resolution.view.timeline);
+  assert.equal(resolution.view.timeline.events.length > 0, true);
+  assert.equal(resolution.view.timeline.events.at(-1)?.stopReason, resolution.view.stopReason);
+  assert.equal(resolution.view.timeline.events.every((event) =>
+    event.paths.length === 0 && event.findingIds.length === 0 && event.evidenceIds.length === 0), true);
   fs.rmSync(root, { recursive: true, force: true });
 });
 scenario("secret target never becomes Composer editable", async () => {
@@ -694,17 +1178,18 @@ scenario("Modal hides percentage for v2 files", () => {
   assert.match(source, /legacyConfidence\s*===\s*null/u);
   assert.doesNotMatch(source, /formatPercent\(file\.confidence\)/u);
 });
-scenario("Page hides percentage for v2 files", () => {
-  const source = fs.readFileSync(path.join(repositoryRoot, "apps/desktop/renderer/src/pages/ContextComposerPage.tsx"), "utf8");
+scenario("Context Files workspace hides percentage for v2 files", () => {
+  const source = fs.readFileSync(path.join(repositoryRoot, "apps/desktop/renderer/src/components/contextComposer/contextFiles/ContextFilesWorkspace.tsx"), "utf8");
   assert.match(source, /confidenceDisplay\s*!==\s*"unavailable"/u);
-  assert.match(source, /legacyConfidence\s*===\s*null/u);
+  assert.match(source, /legacyConfidence\s*!==\s*null/u);
+  assert.match(source, /formatPercent\(legacyConfidence\)/u);
   assert.doesNotMatch(source, /formatPercent\(file\.confidence\)/u);
 });
 scenario("legacy confidence display remains available", () => {
   const modal = fs.readFileSync(path.join(repositoryRoot, "apps/desktop/renderer/src/components/modals/ContextComposerModal.tsx"), "utf8");
-  const page = fs.readFileSync(path.join(repositoryRoot, "apps/desktop/renderer/src/pages/ContextComposerPage.tsx"), "utf8");
+  const workspace = fs.readFileSync(path.join(repositoryRoot, "apps/desktop/renderer/src/components/contextComposer/contextFiles/ContextFilesWorkspace.tsx"), "utf8");
   assert.match(modal, /formatPercent\(legacyConfidence\)/u);
-  assert.match(page, /formatPercent\(legacyConfidence\)/u);
+  assert.match(workspace, /formatPercent\(legacyConfidence\)/u);
 });
 scenario("effective preview quality is evaluated from effective selection", () => {
   const source = fs.readFileSync(path.join(repositoryRoot, "server/src/contextComposer/contextComposerService.ts"), "utf8");
@@ -717,8 +1202,8 @@ scenario("renderer preview accepts absent Context Engine metadata", () => {
   const modal = fs.readFileSync(path.join(repositoryRoot, "apps/desktop/renderer/src/components/modals/ContextComposerModal.tsx"), "utf8");
   const page = fs.readFileSync(path.join(repositoryRoot, "apps/desktop/renderer/src/pages/ContextComposerPage.tsx"), "utf8");
   assert.match(types, /contextEngine\?:\s*ContextComposerEngineView/u);
-  assert.match(modal, /preview\.contextEngine\s*&&\s*<ContextComposerEnginePanel/u);
-  assert.match(page, /preview\.contextEngine\s*&&\s*<ContextComposerEnginePanel/u);
+  assert.match(modal, /preview\.contextEngine\s*&&\s*\(?\s*<ContextComposerEnginePanel/u);
+  assert.match(page, /preview\.contextEngine\s*&&\s*\(?\s*<ContextComposerEnginePanel/u);
 });
 for (const [name, preview, expected] of [
   ["v2 ready ignores legacy selector abstention", { contextEngine: { effectiveSource: "v2", status: "v2_ready" }, qualitySource: "v2_grounded" }, false],
@@ -779,6 +1264,519 @@ scenario("engine panel localizes reasons and stop states", () => {
   assert.match(panel, /<details/u);
   assert.match(panel, /evidence\.predicate/u);
   assert.match(panel, /evidence\.startLine/u);
+});
+scenario("Explainability Lens renders the allowlisted timeline without deriving time", () => {
+  const panel = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/components/workspace/ExplainabilityLensPanel.tsx"),
+    "utf8",
+  );
+  assert.match(panel, /view\.timeline/u);
+  assert.match(panel, /timeline\.events\.map/u);
+  assert.match(panel, /event\.durationMs/u);
+  assert.match(panel, /event\.startedAt/u);
+  assert.match(panel, /event\.completedAt/u);
+  assert.doesNotMatch(panel, /Date\.parse|new Date\s*\(/u);
+  assert.doesNotMatch(panel, /findingIds\s*\[\s*index|evidenceIds\s*\[\s*index/u);
+});
+scenario("EN and RU contain investigation timeline copy", () => {
+  const translations = fs.readFileSync(path.join(repositoryRoot, "apps/desktop/renderer/src/i18n/index.ts"), "utf8");
+  assert.equal((translations.match(/investigationTimeline:/gu) ?? []).length, 2);
+  assert.match(translations, /Investigation Timeline/u);
+  assert.match(translations, /Ход расследования/u);
+});
+scenario("Context Map derives only exact renderer-visible grounded relations", () => {
+  const source = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/components/workspace/contextMap.ts"),
+    "utf8",
+  );
+  assert.match(source, /finding\.evidenceIds/u);
+  assert.match(source, /file\.findingIds/u);
+  assert.match(source, /evidence\.path/u);
+  assert.match(source, /contextMapPathIdentity/u);
+  assert.doesNotMatch(source, /toLowerCase|toLocaleLowerCase/u);
+  assert.doesNotMatch(source, /similarity|relevance|confidence|score/iu);
+  assert.doesNotMatch(source, /timeline|operationRecords|trace/u);
+});
+scenario("Context Map UI reuses Inspector and Split View without inventing a Finding inspector", () => {
+  const panel = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/components/workspace/ContextMapPanel.tsx"),
+    "utf8",
+  );
+  assert.match(panel, /onInspectFile/u);
+  assert.match(panel, /onInspectEvidence/u);
+  assert.match(panel, /onOpenSource/u);
+  assert.match(panel, /buildContextMapGraph/u);
+  assert.doesNotMatch(panel, /onInspectFinding|findingInspector/u);
+  assert.doesNotMatch(panel, /Math\.random|Date\.now/u);
+});
+scenario("Context Basket derives from the existing Composer selection", () => {
+  const page = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/ContextComposerPage.tsx"),
+    "utf8",
+  );
+  const basket = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/components/contextComposer/ContextBasketPanel.tsx"),
+    "utf8",
+  );
+
+  assert.match(page, /selectedContextBasketItems/u);
+  assert.match(page, /files=\{selectedContextBasketItems\}/u);
+  assert.match(page, /snippets=\{selectedSnippets\}/u);
+  assert.match(page, /onRemoveFile=\{togglePath\}/u);
+  assert.match(page, /onClearFiles=\{clearSelectedPaths\}/u);
+  assert.match(basket, /ContextComposerFileReference/u);
+  assert.match(basket, /ContextComposerSnippet/u);
+  assert.doesNotMatch(basket, /selectedFilePaths\s*=|useState<.*selected/u);
+});
+scenario("Context Basket keeps snippets derived and does not create snippet selection semantics", () => {
+  const basket = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/components/contextComposer/ContextBasketPanel.tsx"),
+    "utf8",
+  );
+
+  assert.match(basket, /onOpenSnippet/u);
+  assert.doesNotMatch(basket, /onRemoveSnippet|onToggleSnippet|selectedSnippetPaths/u);
+  assert.doesNotMatch(basket, /confidence|relevance|health|tokenBudget|tokenCount/iu);
+});
+scenario("Task Pack Health derives only from exact workflow state and has no score", () => {
+  const source = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/utils/taskPackHealth.ts"),
+    "utf8",
+  );
+
+  assert.match(source, /contextPreviewMatchesDraft/u);
+  assert.match(source, /preview\.task\.originalRawTask === draft\.rawTask/u);
+  assert.match(source, /preview\.task\.requestedTaskType === draft\.taskType/u);
+  assert.match(source, /preview\.task\.targetTool === draft\.targetTool/u);
+  assert.match(source, /engine\.status === "safety_blocked"/u);
+  assert.match(source, /understanding\.canProceed/u);
+  assert.match(source, /canGenerate/u);
+  assert.doesNotMatch(source, /\bscore\b|confidence|Math\.round|readinessScore|budgetScore/u);
+});
+scenario("Task Pack primary status keeps grounded Health primary and labels heuristic quality separately", () => {
+  const page = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/TaskPackBuilderPage.tsx"),
+    "utf8",
+  );
+  const cardStart = page.indexOf("function PackStatusCard");
+  const cardEnd = page.indexOf("function getIntentStatusClasses", cardStart);
+  const card = page.slice(cardStart, cardEnd);
+
+  assert.ok(cardStart >= 0 && cardEnd > cardStart);
+  assert.match(page, /health=\{healthResult\}/u);
+  assert.match(page, /quality=\{qualityResult\}/u);
+  assert.match(card, /health\.requiredCount/u);
+  assert.match(card, /health\.attentionCount/u);
+  assert.match(card, /health\.pendingCount/u);
+  assert.match(card, /health\.status/u);
+  assert.match(card, /QualityScoreRing/u);
+  assert.match(card, /quality\.score/u);
+  assert.match(card, /quality\.localScore/u);
+  assert.match(card, /quality\.openDetailsCompact/u);
+  assert.match(card, /line-clamp-2 leading-tight/u);
+  assert.doesNotMatch(card, /health\.score|healthScore|readinessScore/u);
+
+  const translations = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/i18n/index.ts"),
+    "utf8",
+  );
+  assert.equal((translations.match(/eyebrow: "Task Pack health"/gu) ?? []).length, 1);
+  assert.equal((translations.match(/eyebrow: "Состояние Task Pack"/gu) ?? []).length, 1);
+  assert.match(translations, /localScore: "Local quality"/u);
+  assert.match(translations, /localScore: "Локальное качество"/u);
+  assert.match(translations, /openDetailsCompact: "Quality details"/u);
+  assert.match(translations, /openDetailsCompact: "Подробнее о качестве"/u);
+  assert.match(translations, /View local quality hints/u);
+  assert.match(translations, /Открыть локальные подсказки качества/u);
+});
+scenario("Composer reviewed draft handoff preserves analyzed preview and stays renderer-local", () => {
+  const dashboard = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/DashboardPage.tsx"),
+    "utf8",
+  );
+  const helper = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/utils/contextComposerReviewedDraft.ts"),
+    "utf8",
+  );
+  const restoreStart = dashboard.indexOf("const restoreNavigationLocation");
+  const restoreEnd = dashboard.indexOf("const handleNavigateBack", restoreStart);
+  const restoreBody = dashboard.slice(restoreStart, restoreEnd);
+  const builderBranchStart = restoreBody.indexOf('location.surface === "task-pack-builder"');
+  const composerBranchStart = restoreBody.indexOf('location.surface === "context-composer"');
+  const builderBranch = restoreBody.slice(builderBranchStart, composerBranchStart);
+
+  assert.ok(restoreStart >= 0 && restoreEnd > restoreStart);
+  assert.ok(builderBranchStart >= 0 && composerBranchStart > builderBranchStart);
+  assert.match(builderBranch, /setContextComposerPreview\(null\)/u);
+  assert.match(builderBranch, /setTaskPackDraft\(location\.draft\)/u);
+  assert.doesNotMatch(builderBranch, /setTaskPackDraft\(null\)/u);
+
+  assert.match(dashboard, /buildContextComposerReviewedSelection/u);
+  assert.match(dashboard, /reviewedContextSelection=\{reviewedContextSelection\}/u);
+  assert.match(helper, /state\.selectedPaths/u);
+  assert.match(helper, /state\.extraFiles/u);
+  assert.match(helper, /state\.extraSnippets/u);
+  assert.match(helper, /selectedPathSet\.has\(file\.path\)/u);
+  assert.match(helper, /selectedPathSet\.has\(snippet\.relativePath\)/u);
+  assert.doesNotMatch(helper, /selectionQuality\s*:|contextEngine\s*:|qualitySource\s*:/u);
+});
+
+scenario("Composer Back/Forward restores the same reviewed draft and a new analysis invalidates it", () => {
+  const dashboard = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/DashboardPage.tsx"),
+    "utf8",
+  );
+  const history = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/hooks/useWorkspaceNavigationHistory.ts"),
+    "utf8",
+  );
+  const openStart = dashboard.indexOf("const handleOpenTaskContextComposerWithNavigation");
+  const openEnd = dashboard.indexOf("const handleOpenTaskPackResult", openStart);
+  const openBody = dashboard.slice(openStart, openEnd);
+  const analyzeStart = dashboard.indexOf("const handleAnalyzeTaskContextWithPresence");
+  const analyzeEnd = dashboard.indexOf("const handleCreateTaskPackWithPresence", analyzeStart);
+  const analyzeBody = dashboard.slice(analyzeStart, analyzeEnd);
+
+  assert.ok(openStart >= 0 && openEnd > openStart);
+  assert.match(openBody, /forwardLocation\?\.surface === "context-composer"/u);
+  assert.match(openBody, /taskContextDraftsMatch/u);
+  assert.match(openBody, /setContextComposerPreview\(forwardLocation\.preview\)/u);
+  assert.match(openBody, /goForward\(\)/u);
+
+  assert.ok(analyzeStart >= 0 && analyzeEnd > analyzeStart);
+  assert.match(analyzeBody, /if \(preview\) \{\s*discardForwardHistory\(\)/u);
+  assert.match(history, /const discardForwardHistory = useCallback/u);
+  assert.match(history, /current\.entries\.slice\(0, current\.index \+ 1\)/u);
+});
+
+scenario("Context Budget measures the reviewed Composer selection without changing engine status", () => {
+  const source = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/utils/contextBudget.ts"),
+    "utf8",
+  );
+  const page = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/TaskPackBuilderPage.tsx"),
+    "utf8",
+  );
+
+  assert.match(source, /reviewedSelection\?\.selectedFiles \?\? preview\.selectedFiles/u);
+  assert.match(source, /reviewedSelection\?\.snippets \?\? preview\.snippets/u);
+  assert.match(page, /buildContextReviewSummary\(contextPreview, reviewedContextSelection\)/u);
+  assert.match(page, /evaluateContextBudget\(contextPreview, reviewedContextSelection\)/u);
+  assert.doesNotMatch(source, /selectionQuality|contextEngine|safety_blocked/u);
+});
+
+scenario("Context Budget uses exact footprint metrics and no invented pressure score", () => {
+  const source = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/utils/contextBudget.ts"),
+    "utf8",
+  );
+  const page = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/TaskPackBuilderPage.tsx"),
+    "utf8",
+  );
+
+  assert.match(source, /selectedFileBytes \+= safeFileBytes\(file\.sizeBytes\)/u);
+  assert.match(source, /snippetCharacters \+= snippet\.content\.length/u);
+  assert.match(source, /truncatedSnippets \+= 1/u);
+  assert.match(source, /tokenAccounting: "unavailable"/u);
+  assert.match(source, /tokenUsage: null/u);
+  assert.match(source, /tokenLimit: null/u);
+  assert.doesNotMatch(source, /Math\.round|budgetScore|pressure|estimatedTokens|tokenEstimate/u);
+  assert.doesNotMatch(page, /budgetScore|ContextBudgetBar|getBudgetPressureTone|CONTEXT_BUDGET_MODE_OPTIONS/u);
+  assert.match(page, /<ContextBudgetPanel budget=\{contextBudget\}/u);
+});
+
+scenario("Context Budget never converts bytes or characters into token estimates", () => {
+  const source = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/utils/contextBudget.ts"),
+    "utf8",
+  );
+  const translations = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/i18n/index.ts"),
+    "utf8",
+  );
+
+  assert.doesNotMatch(source, /\/\s*4|charsPerToken|bytesPerToken|tokenizer|encode\(/u);
+  assert.equal((translations.match(/tokenBudget:/gu) ?? []).length, 2);
+  assert.match(translations, /Bytes and characters are not converted into estimated tokens\./u);
+  assert.match(translations, /Байты и символы не пересчитываются в приблизительные токены\./u);
+});
+
+scenario("Adaptive Density persists as a UI-only preference with an adaptive default", () => {
+  const rendererTypes = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/types/index.ts"),
+    "utf8",
+  );
+  const settingsPage = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/SettingsPage.tsx"),
+    "utf8",
+  );
+  const settingsService = fs.readFileSync(
+    path.join(repositoryRoot, "server/src/settings/settingsService.ts"),
+    "utf8",
+  );
+  const translations = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/i18n/index.ts"),
+    "utf8",
+  );
+
+  assert.match(rendererTypes, /workspaceDensity: "adaptive" \| "comfortable" \| "compact"/u);
+  assert.match(settingsPage, /workspaceDensity: settings\.workspaceDensity \?\? "adaptive"/u);
+  assert.match(settingsPage, /settingsDraft\?\.workspaceDensity \?\? "adaptive"/u);
+  assert.match(settingsService, /workspaceDensity: "adaptive" \| "comfortable" \| "compact"/u);
+  assert.match(settingsService, /workspaceDensity: "adaptive"/u);
+  assert.match(settingsService, /workspaceDensity: "workspace_density"/u);
+  assert.equal((translations.match(/workspaceDensityTitle:/gu) ?? []).length, 2);
+  assert.equal((translations.match(/workspaceDensitySafetyNote:/gu) ?? []).length, 2);
+});
+
+scenario("Adaptive Density resolves deterministically from workspace pressure only", async () => {
+  const density = await loadWorkspaceDensitySemantics();
+
+  assert.equal(
+    density.resolveWorkspaceDensity({
+      preference: "adaptive",
+      isWorkflowSurface: false,
+      isFocusModeActive: false,
+      hasAuxiliaryWorkspace: false,
+    }),
+    "comfortable",
+  );
+  assert.equal(
+    density.resolveWorkspaceDensity({
+      preference: "adaptive",
+      isWorkflowSurface: true,
+      isFocusModeActive: false,
+      hasAuxiliaryWorkspace: false,
+    }),
+    "balanced",
+  );
+  assert.equal(
+    density.resolveWorkspaceDensity({
+      preference: "adaptive",
+      isWorkflowSurface: true,
+      isFocusModeActive: false,
+      hasAuxiliaryWorkspace: true,
+    }),
+    "compact",
+  );
+  assert.equal(
+    density.resolveWorkspaceDensity({
+      preference: "adaptive",
+      isWorkflowSurface: true,
+      isFocusModeActive: true,
+      hasAuxiliaryWorkspace: false,
+    }),
+    "compact",
+  );
+  assert.equal(
+    density.resolveWorkspaceDensity({
+      preference: "comfortable",
+      isWorkflowSurface: true,
+      isFocusModeActive: true,
+      hasAuxiliaryWorkspace: true,
+    }),
+    "comfortable",
+  );
+  assert.equal(
+    density.resolveWorkspaceDensity({
+      preference: "compact",
+      isWorkflowSurface: false,
+      isFocusModeActive: false,
+      hasAuxiliaryWorkspace: false,
+    }),
+    "compact",
+  );
+
+  assert.equal(density.getWorkspaceDensityPadding("comfortable", false), 28);
+  assert.equal(density.getWorkspaceDensityPadding("balanced", false), 22);
+  assert.equal(density.getWorkspaceDensityPadding("compact", false), 16);
+  assert.equal(density.getWorkspaceDensityPadding("comfortable", true), 20);
+  assert.equal(density.getWorkspaceDensityPadding("balanced", true), 16);
+  assert.equal(density.getWorkspaceDensityPadding("compact", true), 12);
+});
+
+scenario("Adaptive Density changes shell spacing without hiding grounded workflow state", () => {
+  const dashboard = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/DashboardPage.tsx"),
+    "utf8",
+  );
+  const translations = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/i18n/index.ts"),
+    "utf8",
+  );
+
+  assert.match(dashboard, /data-workspace-density=\{resolvedWorkspaceDensity\}/u);
+  assert.match(dashboard, /data-workspace-density-preference=\{workspaceDensityPreference\}/u);
+  assert.match(dashboard, /animate=\{\{ padding: workspaceContentPadding \}\}/u);
+  assert.match(dashboard, /splitViewTarget \|\|\s*inspectorTarget \|\|\s*isExplainabilityOpen \|\|\s*isContextMapOpen/u);
+  assert.match(
+    translations,
+    /Warnings, evidence, selected files, review state and generation gates are never hidden/u,
+  );
+  assert.match(
+    translations,
+    /Предупреждения, доказательства, выбранные файлы, состояние проверки и ограничения генерации не скрываются/u,
+  );
+});
+
+scenario("Focus Mode stays session-local while behavior can be persisted independently", () => {
+  const dashboard = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/DashboardPage.tsx"),
+    "utf8",
+  );
+
+  assert.match(dashboard, /const \[isFocusModeEnabled, setIsFocusModeEnabled\] = useState\(false\)/u);
+  assert.match(dashboard, /const \[isAutomaticFocusSuppressed, setIsAutomaticFocusSuppressed\]/u);
+  assert.match(dashboard, /activeLocation\.surface === "task-pack-builder"/u);
+  assert.match(dashboard, /activeLocation\.surface === "context-composer"/u);
+  assert.match(dashboard, /activeLocation\.surface === "task-pack-result"/u);
+  assert.match(dashboard, /const focusModeBehavior = appSettings\?\.focusModeBehavior \?\? "manual"/u);
+  assert.match(dashboard, /isAutomaticFocusMode \? !isAutomaticFocusSuppressed : isFocusModeEnabled/u);
+  assert.match(dashboard, /toggleFocusMode,/u);
+  assert.doesNotMatch(dashboard, /localStorage.*focus/isu);
+});
+
+scenario("Focus Mode automatic behavior can be temporarily suppressed without changing the saved preference", () => {
+  const dashboard = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/DashboardPage.tsx"),
+    "utf8",
+  );
+
+  assert.match(dashboard, /if \(isAutomaticFocusMode\) \{\s*setIsAutomaticFocusSuppressed/u);
+  assert.match(dashboard, /wasFocusSurface && !isFocusModeSurface && isAutomaticFocusMode/u);
+  assert.match(dashboard, /setIsAutomaticFocusSuppressed\(false\)/u);
+  assert.match(dashboard, /previousFocusModeBehaviorRef/u);
+});
+
+scenario("Focus Mode behavior is a persisted UI setting with manual fallback", () => {
+  const rendererTypes = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/types/index.ts"),
+    "utf8",
+  );
+  const settingsPage = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/SettingsPage.tsx"),
+    "utf8",
+  );
+  const settingsService = fs.readFileSync(
+    path.join(repositoryRoot, "server/src/settings/settingsService.ts"),
+    "utf8",
+  );
+  const translations = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/i18n/index.ts"),
+    "utf8",
+  );
+
+  assert.match(rendererTypes, /focusModeBehavior: "manual" \| "automatic"/u);
+  assert.match(settingsPage, /focusModeBehavior: settings\.focusModeBehavior \?\? "manual"/u);
+  assert.match(settingsPage, /settingsDraft\?\.focusModeBehavior \?\? "manual"/u);
+  assert.match(settingsService, /focusModeBehavior: "manual" \| "automatic"/u);
+  assert.match(settingsService, /focusModeBehavior: "manual"/u);
+  assert.match(settingsService, /focusModeBehavior: "focus_mode_behavior"/u);
+  assert.equal((translations.match(/focusModeBehaviorTitle:/gu) ?? []).length, 2);
+});
+
+scenario("Focus Mode includes Task Pack Result without turning the archive into a focus surface", () => {
+  const dashboard = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/DashboardPage.tsx"),
+    "utf8",
+  );
+
+  assert.match(
+    dashboard,
+    /const isFocusModeSurface =\s*activeLocation\.surface === "task-pack-builder" \|\|\s*activeLocation\.surface === "context-composer" \|\|\s*activeLocation\.surface === "task-pack-result";/u,
+  );
+  assert.doesNotMatch(
+    dashboard,
+    /isFocusModeSurface[\s\S]{0,220}activePage === "taskPacks"/u,
+  );
+});
+
+scenario("Focus Mode collapses only shell presentation and preserves auxiliary workspace panels", () => {
+  const dashboard = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/DashboardPage.tsx"),
+    "utf8",
+  );
+  const sidebar = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/components/layout/Sidebar.tsx"),
+    "utf8",
+  );
+
+  assert.match(dashboard, /focusMode=\{isFocusModeActive\}/u);
+  assert.match(dashboard, /animate=\{\{ padding: workspaceContentPadding \}\}/u);
+  assert.match(sidebar, /width: focusMode \? 0 : isCollapsed \? 76 : 256/u);
+  assert.match(sidebar, /pointerEvents: focusMode \? "none" : "auto"/u);
+  assert.match(sidebar, /window\.localStorage\.setItem\(\s*"contextforge\.sidebarCollapsed"/u);
+  assert.match(dashboard, /<PersistentInspectorPanel/u);
+  assert.match(dashboard, /<ContextMapPanel/u);
+  assert.match(dashboard, /mode="split-view"/u);
+});
+
+scenario("Focus Mode has a remappable shortcut and synchronized EN/RU titlebar copy", () => {
+  const shortcuts = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/config/keyboardShortcuts.ts"),
+    "utf8",
+  );
+  const titlebar = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/components/layout/AppTitleBar.tsx"),
+    "utf8",
+  );
+  const translations = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/i18n/index.ts"),
+    "utf8",
+  );
+
+  assert.match(shortcuts, /id: "toggleFocusMode"/u);
+  assert.match(shortcuts, /displayKeys: "Ctrl Shift F"/u);
+  assert.match(titlebar, /aria-pressed=\{isFocusModeActive\}/u);
+  assert.match(titlebar, /h-7 items-center gap-1\.5 rounded-full px-2\.5/u);
+  assert.match(titlebar, /bg-white\/\[0\.09\] text-white/u);
+  assert.match(titlebar, /titlebar\.focusModeEnter/u);
+  assert.match(titlebar, /titlebar\.focusModeExit/u);
+  assert.equal((translations.match(/focusModeEnter:/gu) ?? []).length, 2);
+  assert.equal((translations.match(/focusModeExit:/gu) ?? []).length, 2);
+});
+
+scenario("EN and RU contain grounded Context Map copy", () => {
+  const translations = fs.readFileSync(path.join(repositoryRoot, "apps/desktop/renderer/src/i18n/index.ts"), "utf8");
+  assert.equal((translations.match(/contextMapOpen:/gu) ?? []).length, 2);
+  assert.match(translations, /Context Map/u);
+  assert.match(translations, /Карта контекста/u);
+});
+scenario("Context Diff lifecycle is independent from navigation restore and language", () => {
+  const dashboard = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/pages/DashboardPage.tsx"),
+    "utf8",
+  );
+  const restoreStart = dashboard.indexOf("const restoreNavigationLocation");
+  const restoreEnd = dashboard.indexOf("const handleNavigateBack", restoreStart);
+  const restoreBody = dashboard.slice(restoreStart, restoreEnd);
+  assert.ok(restoreStart >= 0 && restoreEnd > restoreStart);
+  assert.doesNotMatch(restoreBody, /advanceContextDiffSession/u);
+  assert.match(dashboard, /handleOpenTaskContextComposerWithNavigation[\s\S]*advanceContextDiffSession/u);
+  const semantics = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/components/workspace/contextDiff.ts"),
+    "utf8",
+  );
+  assert.doesNotMatch(semantics, /useTranslation|i18n|languageChanged/u);
+});
+scenario("Context Diff UI preserves removed-file safety and reuses current Inspector actions", () => {
+  const panel = fs.readFileSync(
+    path.join(repositoryRoot, "apps/desktop/renderer/src/components/workspace/ExplainabilityLensPanel.tsx"),
+    "utf8",
+  );
+  assert.match(panel, /currentFile=\{group\.current\s*\?\s*currentFiles\.get/u);
+  assert.match(panel, /currentFile\s*\?/u);
+  assert.match(panel, /onInspectFile\(currentFile\)/u);
+  assert.match(panel, /contextDiffNoPrevious/u);
+  assert.doesNotMatch(panel, /confidence|relevance|health score/iu);
+});
+scenario("EN and RU contain Context Diff empty-state copy", () => {
+  const translations = fs.readFileSync(path.join(repositoryRoot, "apps/desktop/renderer/src/i18n/index.ts"), "utf8");
+  assert.equal((translations.match(/contextDiffNoPrevious:/gu) ?? []).length, 2);
+  assert.match(translations, /There is no previous analysis to compare yet\./u);
+  assert.match(translations, /Предыдущего анализа для сравнения пока нет\./u);
 });
 scenario("settings expose independent mode", () => {
   const source = fs.readFileSync(path.join(repositoryRoot, "server/src/settings/settingsService.ts"), "utf8");
