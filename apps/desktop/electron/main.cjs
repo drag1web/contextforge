@@ -650,6 +650,25 @@ ipcMain.handle("dialog:select-project-folder", async () => {
   return result.filePaths[0];
 });
 
+ipcMain.handle("drop:resolve-project-folder", async (_event, rawPath) => {
+  if (
+    typeof rawPath !== "string" ||
+    rawPath.length === 0 ||
+    rawPath.length > 4096 ||
+    rawPath.includes("\0")
+  ) {
+    return null;
+  }
+
+  try {
+    const resolvedPath = path.resolve(rawPath);
+    const stats = await fs.promises.stat(resolvedPath);
+    return stats.isDirectory() ? resolvedPath : null;
+  } catch {
+    return null;
+  }
+});
+
 ipcMain.on("window:minimize", (event) => {
   const win = getWindowFromEvent(event);
   win?.minimize();

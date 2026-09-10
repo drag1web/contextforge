@@ -104,6 +104,14 @@ function shortcutSignature(
   ].join("|");
 }
 
+function shortcutSignatures(shortcut: KeyboardShortcut) {
+  const signatures = [shortcutSignature(shortcut)];
+  if (shortcut.shiftOptional) {
+    signatures.push(shortcutSignature({ ...shortcut, shift: !shortcut.shift }));
+  }
+  return signatures;
+}
+
 function getCodeLabel(code: string, key: string) {
   if (/^Key[A-Z]$/.test(code)) {
     return code.slice(3);
@@ -151,7 +159,9 @@ export function getEffectiveKeyboardShortcuts(): KeyboardShortcut[] {
 
   return keyboardShortcuts.map((shortcut) => {
     const override = overrides[shortcut.id];
-    return override ? { ...shortcut, ...override } : shortcut;
+    return override
+      ? { ...shortcut, ...override, shiftOptional: false }
+      : shortcut;
   });
 }
 
@@ -280,7 +290,7 @@ export function setKeyboardShortcutBinding(
     (shortcut) =>
       shortcut.enabled &&
       shortcut.id !== id &&
-      shortcutSignature(shortcut) === signature,
+      shortcutSignatures(shortcut).includes(signature),
   );
 
   if (conflict) {

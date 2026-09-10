@@ -1,4 +1,10 @@
 export type ShortcutActionId =
+  | "navigationBack"
+  | "navigationForward"
+  | "toggleFocusMode"
+  | "zoomIn"
+  | "zoomOut"
+  | "zoomReset"
   | "globalSearch"
   | "navigationAssistant"
   | "addProject"
@@ -31,9 +37,44 @@ export interface KeyboardShortcut {
   placeholder?: boolean;
   preventDefault?: boolean;
   allowInEditable?: boolean;
+  shiftOptional?: boolean;
 }
 
 export const keyboardShortcuts: KeyboardShortcut[] = [
+  {
+    id: "navigationBack",
+    label: "Back",
+    description: "Go to the previous workspace page.",
+    displayKeys: "Alt ←",
+    key: "arrowleft",
+    code: "ArrowLeft",
+    alt: true,
+    enabled: true,
+    preventDefault: true
+  },
+  {
+    id: "navigationForward",
+    label: "Forward",
+    description: "Go to the next workspace page.",
+    displayKeys: "Alt →",
+    key: "arrowright",
+    code: "ArrowRight",
+    alt: true,
+    enabled: true,
+    preventDefault: true
+  },
+  {
+    id: "toggleFocusMode",
+    label: "Focus Mode",
+    description: "Toggle focused Task Pack and Context Composer workspace.",
+    displayKeys: "Ctrl Shift F",
+    key: "f",
+    code: "KeyF",
+    ctrl: true,
+    shift: true,
+    enabled: true,
+    preventDefault: true
+  },
   {
     id: "globalSearch",
     label: "Global Search",
@@ -48,14 +89,15 @@ export const keyboardShortcuts: KeyboardShortcut[] = [
   },
   {
     id: "navigationAssistant",
-    label: "Navigation Assistant",
-    description: "Open the page navigation helper.",
+    label: "Command Palette",
+    description: "Open commands, projects, navigation, and workspace actions.",
     displayKeys: "Ctrl K",
     key: "k",
     code: "KeyK",
     ctrl: true,
     enabled: true,
-    preventDefault: true
+    preventDefault: true,
+    allowInEditable: true
   },
   {
     id: "addProject",
@@ -104,6 +146,43 @@ export const keyboardShortcuts: KeyboardShortcut[] = [
     ctrl: true,
     enabled: true,
     preventDefault: true
+  },
+  {
+    id: "zoomIn",
+    label: "Zoom In",
+    description: "Increase the workspace page zoom.",
+    displayKeys: "Ctrl +",
+    key: "=",
+    code: "Equal",
+    ctrl: true,
+    shiftOptional: true,
+    enabled: true,
+    preventDefault: true,
+    allowInEditable: true
+  },
+  {
+    id: "zoomOut",
+    label: "Zoom Out",
+    description: "Decrease the workspace page zoom.",
+    displayKeys: "Ctrl -",
+    key: "-",
+    code: "Minus",
+    ctrl: true,
+    enabled: true,
+    preventDefault: true,
+    allowInEditable: true
+  },
+  {
+    id: "zoomReset",
+    label: "Reset Zoom",
+    description: "Reset the workspace page zoom to 100%.",
+    displayKeys: "Ctrl 0",
+    key: "0",
+    code: "Digit0",
+    ctrl: true,
+    enabled: true,
+    preventDefault: true,
+    allowInEditable: true
   }
 ];
 
@@ -145,7 +224,9 @@ export function matchesKeyboardShortcut(
     ? event.ctrlKey || event.metaKey
     : !event.ctrlKey && !event.metaKey;
 
-  const shiftMatches = Boolean(shortcut.shift) === event.shiftKey;
+  const shiftMatches = shortcut.shiftOptional
+    ? true
+    : Boolean(shortcut.shift) === event.shiftKey;
   const altMatches = Boolean(shortcut.alt) === event.altKey;
 
   return keyMatches && ctrlMatches && shiftMatches && altMatches;

@@ -1,8 +1,30 @@
-const { contextBridge, ipcRenderer } = require("electron");
+const { contextBridge, ipcRenderer, webFrame, webUtils } = require("electron");
+
+const MIN_WORKSPACE_ZOOM = 0.75;
+const MAX_WORKSPACE_ZOOM = 1.5;
+
+function clampWorkspaceZoom(value) {
+  const factor = Number(value);
+  if (!Number.isFinite(factor)) return webFrame.getZoomFactor();
+  return Math.min(MAX_WORKSPACE_ZOOM, Math.max(MIN_WORKSPACE_ZOOM, factor));
+}
 
 contextBridge.exposeInMainWorld("contextforge", {
   selectProjectFolder: () => ipcRenderer.invoke("dialog:select-project-folder"),
+  resolveDroppedProjectFolder: (file) => {
+    const filePath = webUtils.getPathForFile(file);
+    return filePath
+      ? ipcRenderer.invoke("drop:resolve-project-folder", filePath)
+      : Promise.resolve(null);
+  },
   openExternalUrl: (url) => ipcRenderer.invoke("shell:open-external", url),
+  workspaceZoom: {
+    getFactor: () => webFrame.getZoomFactor(),
+    setFactor: (factor) => {
+      webFrame.setZoomFactor(clampWorkspaceZoom(factor));
+      return webFrame.getZoomFactor();
+    }
+  },
   desktopSync: {
     getStatus: (options) =>
       ipcRenderer.invoke("desktop-sync:get-status", options),
