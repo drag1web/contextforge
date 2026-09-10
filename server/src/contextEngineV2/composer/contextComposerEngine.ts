@@ -11,6 +11,7 @@ import {
 } from "../application/index.js";
 import type {
   InvestigationId,
+  InvestigationOperationRecord,
   InvestigationRequestId,
 } from "../contracts/index.js";
 import { createLiveContextEngineExecution } from "../facade/liveContextEngineRuntime.js";
@@ -32,6 +33,9 @@ import type {
   ContextComposerEngineResolution,
   ContextComposerEngineView,
   ContextComposerEvidenceView,
+  ContextComposerFindingView,
+  ContextComposerInvestigationEventView,
+  ContextComposerInvestigationTimelineView,
   ContextComposerCanonicalExecutionInput,
   ContextComposerV2ExecutionResult,
 } from "./composerTypes.js";
@@ -215,6 +219,193 @@ function evidenceViews(
     .sort((left, right) => left.evidenceId.localeCompare(right.evidenceId));
 }
 
+function findingViews(
+  execution: ContextComposerV2ExecutionResult,
+  file: Pick<ContextComposerEngineFileView, "findingIds" | "evidenceIds">,
+): ContextComposerFindingView[] {
+  const findings = new Map(
+    execution.projection.projection.findings.map((finding) => [finding.id as string, finding]),
+  );
+  const exposedEvidenceIds = new Set(file.evidenceIds);
+
+  return file.findingIds.map((findingId) => {
+    const finding = findings.get(findingId);
+    if (!finding) {
+      throw new Error("invalid_context_composer_finding_reference");
+    }
+
+    return {
+      findingId,
+      type: finding.type,
+      statement: finding.statement,
+      status: finding.status,
+      authorizationHint: finding.authorizationHint,
+      limitations: uniqueSorted([...finding.limitations], (value) => value),
+      evidenceIds: uniqueSorted(
+        finding.evidenceIds
+          .map((evidenceId) => evidenceId as string)
+          .filter((evidenceId) => exposedEvidenceIds.has(evidenceId)),
+        (value) => value,
+      ),
+    };
+  });
+}
+
+function operationPaths(record: InvestigationOperationRecord | undefined): string[] {
+  if (!record) return [];
+  const operation = record.operation;
+  if (operation.type === "inspect_git_context") return operation.paths;
+  if (
+    operation.type === "read_file" ||
+    operation.type === "read_range" ||
+    operation.type === "parse_file" ||
+    operation.type === "inspect_manifest"
+  ) {
+    return [operation.path];
+  }
+  return [];
+}
+
+function investigationTimelineView(
+  execution: ContextComposerV2ExecutionResult,
+  files: readonly ContextComposerEngineFileView[],
+): ContextComposerInvestigationTimelineView {
+  const exposedPaths = new Set(
+    files.map((file) => file.path.toLocaleLowerCase("en-US")),
+  );
+  const exposedFindingIds = new Set(files.flatMap((file) => file.findingIds));
+  const exposedEvidenceIds = new Set(files.flatMap((file) => file.evidenceIds));
+  const recordsByOperationId = new Map<string, InvestigationOperationRecord[]>();
+  for (const record of execution.result.operationRecords) {
+    const operationId = record.operation.id as string;
+    const records = recordsByOperationId.get(operationId) ?? [];
+    records.push(record);
+    recordsByOperationId.set(operationId, records);
+  }
+  const recordOffsets = new Map<string, number>();
+
+  const recordFor = (
+    operationId: string | undefined,
+    consume: boolean,
+  ): InvestigationOperationRecord | undefined => {
+    if (!operationId) return undefined;
+    const records = recordsByOperationId.get(operationId) ?? [];
+    const offset = recordOffsets.get(operationId) ?? 0;
+    const record = records[offset];
+    if (consume && record) recordOffsets.set(operationId, offset + 1);
+    return record;
+  };
+
+  const events = execution.result.trace.map((event, index): ContextComposerInvestigationEventView => {
+    const operationId = "operationId" in event ? event.operationId as string : undefined;
+    const terminalOperationEvent =
+      event.type === "operation_completed" || event.type === "operation_budget_rejected";
+    const record = recordFor(operationId, terminalOperationEvent);
+    if (event.type === "operation_completed") {
+      if (
+        !record ||
+        record.status !== event.status ||
+        contextComposerStableSerialize(record.producedEvidenceIds) !==
+          contextComposerStableSerialize(event.producedEvidenceIds)
+      ) {
+        throw new Error("v2_integrity_violation");
+      }
+    }
+    if (event.type === "operation_budget_rejected" && record?.status !== "skipped") {
+      throw new Error("v2_integrity_violation");
+    }
+
+    const paths = uniqueSorted(
+      operationPaths(record)
+        .map((path) => path.replaceAll("\\", "/"))
+        .filter((path) => exposedPaths.has(path.toLocaleLowerCase("en-US"))),
+      (path) => path,
+    );
+    const rangeOperation = record?.operation.type === "read_range" && paths.length > 0
+      ? record.operation
+      : null;
+    const findingIds = event.type === "question_updated"
+      ? event.answerFindingIds
+      : event.type === "domain_evaluated"
+        ? event.confirmedFindingIds
+        : [];
+    const evidenceIds = event.type === "gap_evaluated"
+      ? event.evidenceIds
+      : event.type === "operation_completed"
+        ? event.producedEvidenceIds
+        : [];
+    const operationType = "operationType" in event
+      ? event.operationType
+      : record?.operation.type ?? null;
+    const status = event.type === "question_updated"
+      ? event.status
+      : event.type === "gap_evaluated"
+        ? event.outcome
+        : event.type === "atomic_commit" || event.type === "operation_completed"
+          ? event.status
+          : event.type === "operation_budget_rejected"
+            ? record?.status ?? null
+          : null;
+
+    return {
+      sequence: index + 1,
+      type: event.type,
+      round: "round" in event ? event.round : null,
+      operationId: operationId ?? null,
+      operationType,
+      operationSource: event.type === "planner_proposal_synthesized" ? event.source : null,
+      status,
+      previousStatus: event.type === "question_updated" ? event.previousStatus : null,
+      stage: event.type === "stop_checked" ? event.stage : null,
+      decision: event.type === "stop_checked" ? event.decision : null,
+      stopReason: event.type === "stop_checked" ? event.stopReason ?? null : null,
+      reasonCode: event.type === "gap_evaluated"
+        ? event.reasonCode
+        : event.type === "operation_completed" || event.type === "operation_budget_rejected"
+          ? record?.error?.code ?? null
+          : null,
+      paths,
+      startLine: rangeOperation?.startLine ?? null,
+      endLine: rangeOperation?.endLine ?? null,
+      startedAt: event.type === "operation_completed" ? record?.startedAt ?? null : null,
+      completedAt: event.type === "operation_completed" ? record?.completedAt ?? null : null,
+      durationMs: event.type === "operation_completed" ? record?.actualCost?.wallTimeMs ?? null : null,
+      findingIds: uniqueSorted(
+        findingIds
+          .map((findingId) => findingId as string)
+          .filter((findingId) => exposedFindingIds.has(findingId)),
+        (findingId) => findingId,
+      ),
+      evidenceIds: uniqueSorted(
+        evidenceIds
+          .map((evidenceId) => evidenceId as string)
+          .filter((evidenceId) => exposedEvidenceIds.has(evidenceId)),
+        (evidenceId) => evidenceId,
+      ),
+    };
+  });
+  const coverage = execution.result.coverage;
+  return {
+    events,
+    coverage: {
+      criticalQuestionsTotal: coverage.criticalQuestionsTotal,
+      criticalQuestionsAnswered: coverage.criticalQuestionsAnswered,
+      questionsTotal: coverage.questionsTotal,
+      questionsAnswered: coverage.questionsAnswered,
+      hypothesesTotal: coverage.hypothesesTotal,
+      hypothesesSupported: coverage.hypothesesSupported,
+      hypothesesRejected: coverage.hypothesesRejected,
+      hypothesesUnresolved: coverage.hypothesesUnresolved,
+      filesConsidered: coverage.filesConsidered,
+      filesRead: coverage.filesRead,
+      filesParsed: coverage.filesParsed,
+      relationshipHops: coverage.relationshipHops,
+      evidenceIndependentGroups: coverage.evidenceIndependentGroups,
+      snapshotTruncated: coverage.snapshotTruncated,
+    },
+  };
+}
+
 function v2Files(execution: ContextComposerV2ExecutionResult): ContextComposerEngineFileView[] {
   const precedence = { reference: 0, supporting: 1, test: 2, target: 3 } as const;
   const files = new Map<string, ContextComposerEngineFileView>();
@@ -231,6 +422,7 @@ function v2Files(execution: ContextComposerV2ExecutionResult): ContextComposerEn
         reasonCode,
         reasonCodes,
         findingIds: uniqueSorted(decision.findingIds as string[], (value) => value),
+        findings: [],
         evidenceIds: uniqueSorted(decision.evidenceIds as string[], (value) => value),
         evidence: evidenceViews(execution, decision.evidenceIds as string[], reasonCode),
       };
@@ -253,11 +445,17 @@ function v2Files(execution: ContextComposerV2ExecutionResult): ContextComposerEn
         reasonCode: mergedReason,
         reasonCodes: mergedReasonCodes,
         findingIds: uniqueSorted([...existing.findingIds, ...next.findingIds], (value) => value),
+        findings: [],
         evidenceIds: uniqueSorted([...existing.evidenceIds, ...next.evidenceIds], (value) => value),
         evidence: mergedEvidence,
       });
   }
-  return [...files.values()].sort((left, right) => left.path.localeCompare(right.path));
+  return [...files.values()]
+    .map((file) => ({
+      ...file,
+      findings: findingViews(execution, file),
+    }))
+    .sort((left, right) => left.path.localeCompare(right.path));
 }
 
 function legacyFiles(selection: ContextComposerEngineResolution["selection"]): ContextComposerEngineFileView[] {
@@ -269,7 +467,7 @@ function legacyFiles(selection: ContextComposerEngineResolution["selection"]): C
     reviewRequired: file.usage !== "inspect-and-edit" && file.usage !== "create-and-edit",
     reasonCode: "legacy_candidate" as const,
     reasonCodes: ["legacy_candidate" as const],
-    findingIds: [], evidenceIds: [], evidence: [],
+    findingIds: [], findings: [], evidenceIds: [], evidence: [],
   })).sort((left, right) => left.path.localeCompare(right.path));
 }
 
@@ -460,7 +658,8 @@ export async function resolveContextComposerEngine(input: {
     const status = safetyBlocked || legacyUnsafe ? "safety_blocked" : ready ? "v2_ready" : "v2_review_required";
     return Object.freeze({
       view: makeView({ requestedMode: input.mode, effectiveSource: "legacy", status, stopReason: execution.result.stop.reason,
-        fallbackReason: null, files, unresolvedQuestions, limitations: [], comparison }),
+        fallbackReason: null, files, unresolvedQuestions, limitations: [], comparison,
+        timeline: investigationTimelineView(execution, files) }),
       selection: input.legacySelection,
       useLegacySelection: true,
     });
@@ -471,7 +670,8 @@ export async function resolveContextComposerEngine(input: {
       : execution.result.stop.reason === "contradictory_evidence" ? "blocking_contradiction" : "blocking_gap";
     return Object.freeze({
       view: makeView({ requestedMode: input.mode, effectiveSource: "v2", status: "safety_blocked", stopReason: execution.result.stop.reason,
-        fallbackReason: null, files: [], unresolvedQuestions, limitations: [limitation], comparison }),
+        fallbackReason: null, files: [], unresolvedQuestions, limitations: [limitation], comparison,
+        timeline: investigationTimelineView(execution, []) }),
       selection: null,
       useLegacySelection: false,
     });
@@ -479,7 +679,8 @@ export async function resolveContextComposerEngine(input: {
     if (ready) {
     return Object.freeze({
       view: makeView({ requestedMode: input.mode, effectiveSource: "v2", status: "v2_ready", stopReason: execution.result.stop.reason,
-        fallbackReason: null, files, unresolvedQuestions, limitations: [], comparison }),
+        fallbackReason: null, files, unresolvedQuestions, limitations: [], comparison,
+        timeline: investigationTimelineView(execution, files) }),
       selection: execution.legacyProjection.selection,
       useLegacySelection: false,
     });
@@ -487,7 +688,8 @@ export async function resolveContextComposerEngine(input: {
     if (files.length > 0) {
     return Object.freeze({
       view: makeView({ requestedMode: input.mode, effectiveSource: "v2", status: "v2_review_required", stopReason: execution.result.stop.reason,
-        fallbackReason: null, files, unresolvedQuestions, limitations: ["v2_not_grounded"], comparison }),
+        fallbackReason: null, files, unresolvedQuestions, limitations: ["v2_not_grounded"], comparison,
+        timeline: investigationTimelineView(execution, files) }),
       selection: execution.legacyProjection.selection,
       useLegacySelection: false,
     });
@@ -495,7 +697,8 @@ export async function resolveContextComposerEngine(input: {
     return Object.freeze({
       view: makeView({ requestedMode: input.mode, effectiveSource: "v2", status: "v2_review_required", stopReason: execution.result.stop.reason,
         fallbackReason: null, files: [], unresolvedQuestions,
-        limitations: ["v2_not_grounded"], comparison }),
+        limitations: ["v2_not_grounded"], comparison,
+        timeline: investigationTimelineView(execution, []) }),
       selection: null,
       useLegacySelection: false,
     });

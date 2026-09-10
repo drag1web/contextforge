@@ -97,6 +97,11 @@ function validView(): ContextComposerEngineView {
       path: "src/service.ts", role: "target", usage: "inspect-and-edit", source: "v2",
       reviewRequired: false, reasonCode: "confirmed_implementation_target",
       reasonCodes: ["confirmed_implementation_target"], findingIds: ["finding-1"], evidenceIds: ["evidence-1"],
+      findings: [{
+        findingId: "finding-1", type: "implementation_target",
+        statement: "Current evidence identifies the implementation target.", status: "confirmed",
+        authorizationHint: "eligible", limitations: [], evidenceIds: ["evidence-1"],
+      }],
       evidence: [{
         evidenceId: "evidence-1", role: "supports", strength: "substantial",
         predicate: "contains", relationKind: "relation", path: "src/service.ts",

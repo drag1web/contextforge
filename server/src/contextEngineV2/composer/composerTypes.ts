@@ -94,6 +94,70 @@ export interface ContextComposerEvidenceView {
   reasonCode: ContextComposerEngineReasonCode;
 }
 
+export interface ContextComposerFindingView {
+  findingId: string;
+  type: InvestigationRunnerResult["findings"][number]["type"];
+  statement: string;
+  status: InvestigationRunnerResult["findings"][number]["status"];
+  authorizationHint: InvestigationRunnerResult["findings"][number]["authorizationHint"];
+  limitations: string[];
+  evidenceIds: string[];
+}
+
+export interface ContextComposerInvestigationEventView {
+  sequence: number;
+  type: InvestigationRunnerResult["trace"][number]["type"];
+  round: number | null;
+  operationId: string | null;
+  operationType: InvestigationRunnerResult["operationRecords"][number]["operation"]["type"] | null;
+  operationSource: Extract<
+    InvestigationRunnerResult["trace"][number],
+    { type: "planner_proposal_synthesized" }
+  >["source"] | null;
+  status: string | null;
+  previousStatus: string | null;
+  stage: Extract<
+    InvestigationRunnerResult["trace"][number],
+    { type: "stop_checked" }
+  >["stage"] | null;
+  decision: Extract<
+    InvestigationRunnerResult["trace"][number],
+    { type: "stop_checked" }
+  >["decision"] | null;
+  stopReason: InvestigationRunnerResult["stop"]["reason"] | null;
+  reasonCode: string | null;
+  paths: string[];
+  startLine: number | null;
+  endLine: number | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  durationMs: number | null;
+  findingIds: string[];
+  evidenceIds: string[];
+}
+
+export interface ContextComposerInvestigationCoverageView {
+  criticalQuestionsTotal: number;
+  criticalQuestionsAnswered: number;
+  questionsTotal: number;
+  questionsAnswered: number;
+  hypothesesTotal: number;
+  hypothesesSupported: number;
+  hypothesesRejected: number;
+  hypothesesUnresolved: number;
+  filesConsidered: number;
+  filesRead: number;
+  filesParsed: number;
+  relationshipHops: number;
+  evidenceIndependentGroups: number;
+  snapshotTruncated: boolean;
+}
+
+export interface ContextComposerInvestigationTimelineView {
+  events: ContextComposerInvestigationEventView[];
+  coverage: ContextComposerInvestigationCoverageView;
+}
+
 export interface ContextComposerEngineFileView {
   path: string;
   role: "target" | "test" | "supporting" | "reference";
@@ -103,6 +167,7 @@ export interface ContextComposerEngineFileView {
   reasonCode: ContextComposerEngineReasonCode;
   reasonCodes: ContextComposerEngineReasonCode[];
   findingIds: string[];
+  findings: ContextComposerFindingView[];
   evidenceIds: string[];
   evidence: ContextComposerEvidenceView[];
 }
@@ -138,6 +203,7 @@ export interface ContextComposerEngineView {
   }>;
   limitations: ContextComposerEngineReasonCode[];
   comparison: ContextComposerComparisonView | null;
+  timeline?: ContextComposerInvestigationTimelineView;
 }
 
 export interface ContextComposerV2ExecutionResult {
