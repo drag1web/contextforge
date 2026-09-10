@@ -263,6 +263,8 @@ const settings = {
   selectorPipelineMode: "shadow_primary" as const,
   taskUnderstandingInteractionMode: "balanced" as const,
   sidebarShowDescriptions: false,
+  focusModeBehavior: "manual" as const,
+  workspaceDensity: "adaptive" as const,
   onboardingEnabled: true,
   onboardingShowEveryLaunch: true,
   onboardingCompleted: false,

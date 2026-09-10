@@ -104,6 +104,8 @@ function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     selectorPipelineMode: "shadow_primary",
     taskUnderstandingInteractionMode: "balanced",
     sidebarShowDescriptions: false,
+    focusModeBehavior: "manual",
+    workspaceDensity: "adaptive",
     onboardingEnabled: true,
     onboardingShowEveryLaunch: false,
     onboardingCompleted: true,

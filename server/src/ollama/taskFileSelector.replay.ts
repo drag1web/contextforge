@@ -47,6 +47,8 @@ const replaySettings: AppSettings = {
   selectorPipelineMode: "legacy",
   taskUnderstandingInteractionMode: "balanced",
   sidebarShowDescriptions: false,
+  focusModeBehavior: "manual",
+  workspaceDensity: "adaptive",
   onboardingEnabled: true,
   onboardingShowEveryLaunch: true,
   onboardingCompleted: false,

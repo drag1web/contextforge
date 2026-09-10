@@ -145,6 +145,8 @@ export interface AppSettings {
   contextComposerEngineMode?: ContextComposerEngineMode;
   taskUnderstandingInteractionMode: TaskUnderstandingInteractionMode;
   sidebarShowDescriptions: boolean;
+  focusModeBehavior: "manual" | "automatic";
+  workspaceDensity: "adaptive" | "comfortable" | "compact";
   onboardingEnabled: boolean;
   onboardingShowEveryLaunch: boolean;
   onboardingCompleted: boolean;
@@ -211,6 +213,8 @@ const defaultSettings: AppSettings = {
   contextComposerEngineMode: "legacy",
   taskUnderstandingInteractionMode: "balanced",
   sidebarShowDescriptions: false,
+  focusModeBehavior: "manual",
+  workspaceDensity: "adaptive",
   onboardingEnabled: true,
   onboardingShowEveryLaunch: true,
   onboardingCompleted: false,
@@ -244,6 +248,8 @@ const settingKeyMap = {
   contextComposerEngineMode: "context_composer_engine_mode",
   taskUnderstandingInteractionMode: "task_understanding_interaction_mode",
   sidebarShowDescriptions: "sidebar_show_descriptions",
+  focusModeBehavior: "focus_mode_behavior",
+  workspaceDensity: "workspace_density",
   onboardingEnabled: "onboarding_enabled",
   onboardingShowEveryLaunch: "onboarding_show_every_launch",
   onboardingCompleted: "onboarding_completed",
@@ -350,6 +356,14 @@ export async function getAppSettings(): Promise<AppSettings> {
     sidebarShowDescriptions: await getSettingValue(
       settingKeyMap.sidebarShowDescriptions,
       defaultSettings.sidebarShowDescriptions,
+    ),
+    focusModeBehavior: await getSettingValue(
+      settingKeyMap.focusModeBehavior,
+      defaultSettings.focusModeBehavior,
+    ),
+    workspaceDensity: await getSettingValue(
+      settingKeyMap.workspaceDensity,
+      defaultSettings.workspaceDensity,
     ),
     onboardingEnabled: await getSettingValue(
       settingKeyMap.onboardingEnabled,

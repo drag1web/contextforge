@@ -42,6 +42,8 @@ const settings: AppSettings = {
   selectorPipelineMode: "shadow_primary",
   taskUnderstandingInteractionMode: "balanced",
   sidebarShowDescriptions: false,
+  focusModeBehavior: "manual",
+  workspaceDensity: "adaptive",
   onboardingEnabled: true,
   onboardingShowEveryLaunch: true,
   onboardingCompleted: false,

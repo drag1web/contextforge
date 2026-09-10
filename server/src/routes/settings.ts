@@ -27,7 +27,7 @@ const composerFileLimitsSchema = z.object({
   tests: z.number().int().min(3).max(24),
 });
 
-const updateSettingsSchema = z.object({
+export const updateSettingsSchema = z.object({
   ollamaUrl: z.string().url().optional(),
   generationMode: z.enum(["template", "ollama"]).optional(),
   aiProvider: z
@@ -79,6 +79,10 @@ const updateSettingsSchema = z.object({
     .enum(["automatic", "balanced", "confirm_all"])
     .optional(),
   sidebarShowDescriptions: z.boolean().optional(),
+  focusModeBehavior: z.enum(["manual", "automatic"]).optional(),
+  workspaceDensity: z
+    .enum(["adaptive", "comfortable", "compact"])
+    .optional(),
   onboardingEnabled: z.boolean().optional(),
   onboardingShowEveryLaunch: z.boolean().optional(),
   onboardingCompleted: z.boolean().optional(),
