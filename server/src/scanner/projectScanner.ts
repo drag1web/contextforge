@@ -60,6 +60,16 @@ export interface ScannedProject {
   readinessReport: ReadinessReport;
 }
 
+export interface ProjectScanObservation {
+  filePaths: string[];
+  inventoryTruncated: boolean;
+}
+
+export interface ProjectScanResult {
+  project: ScannedProject;
+  observation: ProjectScanObservation;
+}
+
 type PackageJson = {
   name?: string;
   scripts?: Record<string, string>;
@@ -661,7 +671,9 @@ function buildReadinessReport(signals: ScannerSignals, files: string[], scripts:
   };
 }
 
-export async function scanProject(projectPath: string): Promise<ScannedProject> {
+export async function scanProjectWithObservation(
+  projectPath: string
+): Promise<ProjectScanResult> {
   const projectRoot = await resolveProjectRoot(projectPath);
   const inventory = await collectInventory(projectRoot);
   const packageJsonPaths = uniqueSorted(inventory.files.filter((file) => baseName(file) === "package.json"));
@@ -677,12 +689,23 @@ export async function scanProject(projectPath: string): Promise<ScannedProject> 
   const readinessReport = buildReadinessReport(signals, inventory.files, scripts);
 
   return {
-    name: primaryPackage?.packageJson.name || fallbackName,
-    localPath: projectRoot,
-    packageManager: detectPackageManager(inventory.files),
-    detectedStack: detectStack(packageInfos, inventory.files, inventory.directories),
-    scripts,
-    readinessScore: readinessReport.score,
-    readinessReport
+    project: {
+      name: primaryPackage?.packageJson.name || fallbackName,
+      localPath: projectRoot,
+      packageManager: detectPackageManager(inventory.files),
+      detectedStack: detectStack(packageInfos, inventory.files, inventory.directories),
+      scripts,
+      readinessScore: readinessReport.score,
+      readinessReport
+    },
+    observation: {
+      filePaths: [...inventory.files],
+      inventoryTruncated: inventory.truncated
+    }
   };
+}
+
+export async function scanProject(projectPath: string): Promise<ScannedProject> {
+  const result = await scanProjectWithObservation(projectPath);
+  return result.project;
 }

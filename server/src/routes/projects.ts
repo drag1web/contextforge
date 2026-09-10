@@ -3,7 +3,11 @@ import path from "node:path";
 import { Router } from "express";
 import { z } from "zod";
 import { storage } from "../storage/index.js";
-import { scanProject } from "../scanner/projectScanner.js";
+import { scanProjectWithObservation } from "../scanner/projectScanner.js";
+import {
+  readProjectAwareness,
+  recordProjectAwareness,
+} from "../projects/projectAwareness.js";
 import {
   buildAgentsMarkdown,
   ensureAgentsProjectMemorySection,
@@ -134,16 +138,36 @@ async function getProjectById(projectId: number) {
 }
 
 async function upsertScannedProject(localPath: string) {
-  const scannedProject = await scanProject(localPath);
-  return storage.upsertScannedProject(scannedProject);
+  const scanResult = await scanProjectWithObservation(localPath);
+  const project = await storage.upsertScannedProject(scanResult.project);
+  const awareness = await recordProjectAwareness(
+    storage,
+    project,
+    scanResult.observation,
+  );
+
+  return {
+    ...project,
+    awareness,
+  };
+}
+
+async function withProjectAwareness<T extends { id: number }>(project: T) {
+  return {
+    ...project,
+    awareness: await readProjectAwareness(storage, project.id),
+  };
 }
 
 projectsRouter.get("/", async (_req, res) => {
   const projects = await storage.listProjects();
+  const projectsWithAwareness = await Promise.all(
+    projects.map(withProjectAwareness),
+  );
 
   res.json({
     ok: true,
-    projects,
+    projects: projectsWithAwareness,
   });
 });
 
