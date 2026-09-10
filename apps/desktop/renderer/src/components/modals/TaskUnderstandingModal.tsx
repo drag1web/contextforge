@@ -9,6 +9,7 @@ import {
   Target,
 } from "lucide-react";
 import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 
 import type {
   TaskClarification,
@@ -102,7 +103,7 @@ function getGroundedTargetPreviews(
     seen.add(key);
     previews.push({
       key,
-      kind: "target hint",
+      kind: "target_hint",
       label,
       path: null,
       provenance: "model_proposed",
@@ -114,22 +115,33 @@ function getGroundedTargetPreviews(
 
 function getTargetProvenanceLabel(
   provenance: GroundedTargetPreview["provenance"],
-  t: (key: string) => string,
+  t: TFunction,
 ) {
   return t(`taskUnderstanding.targetProvenance.${provenance}`);
 }
 
-function getUnderstandingSourceLabel(response: TaskUnderstandingResponse) {
+function getTechnicalValueLabel(
+  group: "readiness" | "action" | "interpretationRisk" | "changeDefinition" | "targetKind" | "valueKind",
+  value: string,
+  t: TFunction,
+) {
+  return t(`taskUnderstanding.${group}.${value}`, { defaultValue: value });
+}
+
+function getUnderstandingSourceLabel(
+  response: TaskUnderstandingResponse,
+  t: TFunction,
+) {
   const analyzerSource = response.taskIntent.source || "unknown";
   const interpretationSource = response.taskUnderstanding.source;
 
   if (analyzerSource === "fallback") {
-    return "deterministic fallback";
+    return t("taskUnderstanding.source.fallback");
   }
 
   return interpretationSource === "merged"
-    ? `${analyzerSource} + grounded merge`
-    : `${analyzerSource} + deterministic grounding`;
+    ? t("taskUnderstanding.source.merged", { source: analyzerSource })
+    : t("taskUnderstanding.source.grounded", { source: analyzerSource });
 }
 
 function ClarificationHistory({ items }: { items: TaskClarification[] }) {
@@ -196,7 +208,7 @@ export function TaskUnderstandingModal({
       ...(response.taskIntent.structuredIntent?.ambiguities ?? []),
     ].map((item) => item.trim()).filter(Boolean)),
   );
-  const sourceLabel = getUnderstandingSourceLabel(response);
+  const sourceLabel = getUnderstandingSourceLabel(response, t);
 
   return (
     <Modal
@@ -260,10 +272,10 @@ export function TaskUnderstandingModal({
 
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <DetailPill>{understanding.readiness}</DetailPill>
-                <DetailPill>{understanding.action}</DetailPill>
-                <DetailPill>{understanding.interpretationRisk}</DetailPill>
-                <DetailPill>{understanding.changeDefinition}</DetailPill>
+                <DetailPill>{getTechnicalValueLabel("readiness", understanding.readiness, t)}</DetailPill>
+                <DetailPill>{getTechnicalValueLabel("action", understanding.action, t)}</DetailPill>
+                <DetailPill>{getTechnicalValueLabel("interpretationRisk", understanding.interpretationRisk, t)}</DetailPill>
+                <DetailPill>{getTechnicalValueLabel("changeDefinition", understanding.changeDefinition, t)}</DetailPill>
                 <DetailPill>{`${confidence}%`}</DetailPill>
               </div>
 
@@ -300,7 +312,7 @@ export function TaskUnderstandingModal({
                   >
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <p className="text-[10px] uppercase tracking-wide text-neutral-600">
-                        {target.kind}
+                        {getTechnicalValueLabel("targetKind", target.kind, t)}
                       </p>
                       <span className="rounded-full border border-neutral-800 px-2 py-0.5 text-[9px] uppercase tracking-wide text-neutral-500">
                         {getTargetProvenanceLabel(target.provenance, t)}
@@ -338,7 +350,7 @@ export function TaskUnderstandingModal({
                     className="rounded-xl border border-neutral-900 bg-black/40 px-3 py-2"
                   >
                     <p className="text-[10px] uppercase tracking-wide text-neutral-600">
-                      {item.kind}
+                      {getTechnicalValueLabel("valueKind", item.kind, t)}
                     </p>
                     <p className="mt-1 break-words text-xs leading-5 text-neutral-200">
                       {item.value}

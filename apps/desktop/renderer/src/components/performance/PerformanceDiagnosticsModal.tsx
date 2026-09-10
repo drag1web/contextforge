@@ -23,16 +23,28 @@ import type {
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 
-function formatDuration(value: number) {
+type Translate = (key: string, options?: Record<string, unknown>) => string;
+
+function formatDuration(value: number, t: Translate) {
   if (value < 1000) {
-    return `${Math.round(value)} ms`;
+    return t("performanceDiagnostics.milliseconds", {
+      value: Math.round(value),
+    });
   }
 
-  return `${(value / 1000).toFixed(1)} sec`;
+  return t("performanceDiagnostics.seconds", {
+    value: (value / 1000).toFixed(1),
+  });
 }
 
 function formatCount(value: number) {
   return value.toLocaleString();
+}
+
+function formatCharacters(value: number, t: Translate) {
+  return t("performanceDiagnostics.characters", {
+    value: formatCount(value),
+  });
 }
 
 function operationLabel(
@@ -90,8 +102,7 @@ function AiCallCard({
   call: PerformanceAiCallDiagnostics;
   index: number;
 }) {
-  const { t, i18n } = useTranslation();
-  const isRu = i18n.language.startsWith("ru");
+  const { t } = useTranslation();
 
   return (
     <div className="rounded-2xl border border-neutral-900 bg-black/30 p-3.5">
@@ -108,7 +119,7 @@ function AiCallCard({
 
         <div className="flex flex-wrap gap-2">
           <span className="rounded-full border border-neutral-800 bg-neutral-950 px-2.5 py-1 text-[10px] font-semibold text-neutral-300">
-            {formatDuration(call.durationMs)}
+            {formatDuration(call.durationMs, t)}
           </span>
           <span className="rounded-full border border-neutral-800 bg-neutral-950 px-2.5 py-1 text-[10px] font-semibold text-neutral-300">
             {modelStateLabel(call.modelState, t)}
@@ -122,16 +133,16 @@ function AiCallCard({
       <div className="mt-4 grid grid-cols-2 gap-2 lg:grid-cols-4">
         <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
           <p className="text-[9px] uppercase text-neutral-600">{t("performanceDiagnostics.prompt")}</p>
-          <p className="mt-1 text-xs font-semibold text-white">{formatCount(call.promptChars)} chars</p>
+          <p className="mt-1 text-xs font-semibold text-white">{formatCharacters(call.promptChars, t)}</p>
         </div>
         <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
           <p className="text-[9px] uppercase text-neutral-600">{t("performanceDiagnostics.response")}</p>
-          <p className="mt-1 text-xs font-semibold text-white">{formatCount(call.responseChars)} chars</p>
+          <p className="mt-1 text-xs font-semibold text-white">{formatCharacters(call.responseChars, t)}</p>
         </div>
         <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
           <p className="text-[9px] uppercase text-neutral-600">{t("performanceDiagnostics.modelLoad")}</p>
           <p className="mt-1 text-xs font-semibold text-white">
-            {call.modelLoadMs == null ? "—" : formatDuration(call.modelLoadMs)}
+            {call.modelLoadMs == null ? "—" : formatDuration(call.modelLoadMs, t)}
           </p>
         </div>
         <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
@@ -142,7 +153,7 @@ function AiCallCard({
 
       {(call.promptEvalMs != null || call.generationMs != null) && (
         <p className="mt-3 text-[10px] leading-4 text-neutral-600">
-          {isRu ? "Обработка промпта" : "Prompt evaluation"}: {call.promptEvalMs == null ? "—" : formatDuration(call.promptEvalMs)} · {isRu ? "генерация" : "generation"}: {call.generationMs == null ? "—" : formatDuration(call.generationMs)}
+          {t("performanceDiagnostics.promptEval")}: {call.promptEvalMs == null ? "—" : formatDuration(call.promptEvalMs, t)} · {t("performanceDiagnostics.generation")}: {call.generationMs == null ? "—" : formatDuration(call.generationMs, t)}
         </p>
       )}
     </div>
@@ -156,10 +167,9 @@ export function PerformanceDiagnosticsModal({
   diagnostics: PerformanceSessionDiagnostics;
   onClose: () => void;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
-  const isRu = i18n.language.startsWith("ru");
   const aiCalls = useMemo(
     () => diagnostics.requests.flatMap((request) => request.aiCalls),
     [diagnostics.requests],
@@ -187,41 +197,26 @@ export function PerformanceDiagnosticsModal({
   const cacheTotal = diagnostics.summary.cacheHits + diagnostics.summary.cacheMisses;
   const cacheRate = cacheTotal > 0 ? Math.round((diagnostics.summary.cacheHits / cacheTotal) * 100) : 0;
 
-  const copy = isRu
-    ? {
-        overview: "Сводка производительности",
-        overviewDescription:
-          "Показывает, где ушло время при подготовке и создании пакета задачи.",
-        totalCaption: `${diagnostics.requestCount} запроса`,
-        aiCaption: `${aiShare}% общего времени`,
-        inventoryCaption: `${diagnostics.summary.inventoryScans} запуска`,
-        cacheCaption: `${cacheRate}% попаданий`,
-        slowest: "Самые долгие этапы",
-        slowestDescription: "Быстрый обзор основных задержек без технического шума.",
-        requests: "Ход выполнения",
-        requestsDescription: "Запросы и этапы в порядке выполнения.",
-        aiCalls: "Реальные обращения к AI",
-        aiCallsDescription: "Отдельно показаны только фактические вызовы провайдера.",
-        technical: "Технические детали",
-        technicalDescription: "События кеша, состояния модели и приватность.",
-      }
-    : {
-        overview: "Performance overview",
-        overviewDescription:
-          "Shows where time was spent while preparing and generating this Task Pack.",
-        totalCaption: `${diagnostics.requestCount} requests`,
-        aiCaption: `${aiShare}% of total time`,
-        inventoryCaption: `${diagnostics.summary.inventoryScans} runs`,
-        cacheCaption: `${cacheRate}% hit rate`,
-        slowest: "Slowest stages",
-        slowestDescription: "A quick view of the main delays without technical noise.",
-        requests: "Execution flow",
-        requestsDescription: "Requests and stages in execution order.",
-        aiCalls: "Real AI calls",
-        aiCallsDescription: "Only actual provider calls are shown here.",
-        technical: "Technical details",
-        technicalDescription: "Cache events, model state and privacy metadata.",
-      };
+  const copy = {
+    overview: t("performanceDiagnostics.ui.overview"),
+    overviewDescription: t("performanceDiagnostics.ui.overviewDescription"),
+    totalCaption: t("performanceDiagnostics.ui.totalCaption", {
+      count: diagnostics.requestCount,
+    }),
+    aiCaption: t("performanceDiagnostics.ui.totalTimePercent", { percent: aiShare }),
+    inventoryCaption: t("performanceDiagnostics.ui.inventoryCaption", {
+      count: diagnostics.summary.inventoryScans,
+    }),
+    cacheCaption: t("performanceDiagnostics.ui.cacheCaption", { percent: cacheRate }),
+    slowest: t("performanceDiagnostics.ui.slowest"),
+    slowestDescription: t("performanceDiagnostics.ui.slowestDescription"),
+    requests: t("performanceDiagnostics.ui.requests"),
+    requestsDescription: t("performanceDiagnostics.ui.requestsDescription"),
+    aiCalls: t("performanceDiagnostics.ui.aiCalls"),
+    aiCallsDescription: t("performanceDiagnostics.ui.aiCallsDescription"),
+    technical: t("performanceDiagnostics.ui.technical"),
+    technicalDescription: t("performanceDiagnostics.ui.technicalDescription"),
+  };
 
   async function copyDiagnostics() {
     await navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2));
@@ -269,12 +264,12 @@ export function PerformanceDiagnosticsModal({
             <div className="flex flex-wrap gap-2">
               {diagnostics.summary.coldAiCalls > 0 && (
                 <span className="rounded-full border border-sky-400/20 bg-sky-400/[0.06] px-3 py-1.5 text-[10px] font-semibold text-sky-200">
-                  {diagnostics.summary.coldAiCalls} {isRu ? "холодный" : "cold"}
+                  {t("performanceDiagnostics.ui.coldCalls", { count: diagnostics.summary.coldAiCalls })}
                 </span>
               )}
               {diagnostics.summary.warmAiCalls > 0 && (
                 <span className="rounded-full border border-emerald-400/20 bg-emerald-400/[0.06] px-3 py-1.5 text-[10px] font-semibold text-emerald-200">
-                  {diagnostics.summary.warmAiCalls} {isRu ? "тёплый" : "warm"}
+                  {t("performanceDiagnostics.ui.warmCalls", { count: diagnostics.summary.warmAiCalls })}
                 </span>
               )}
             </div>
@@ -282,10 +277,10 @@ export function PerformanceDiagnosticsModal({
         </section>
 
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-5">
-          <Metric icon={<Clock3 size={13} />} label={t("performanceDiagnostics.metrics.total")} value={formatDuration(diagnostics.totalObservedDurationMs)} caption={copy.totalCaption} />
+          <Metric icon={<Clock3 size={13} />} label={t("performanceDiagnostics.metrics.total")} value={formatDuration(diagnostics.totalObservedDurationMs, t)} caption={copy.totalCaption} />
           <Metric icon={<Bot size={13} />} label={t("performanceDiagnostics.metrics.aiCalls")} value={String(diagnostics.summary.aiCallCount)} caption={`${diagnostics.summary.coldAiCalls}/${diagnostics.summary.warmAiCalls}`} />
-          <Metric icon={<Timer size={13} />} label={t("performanceDiagnostics.metrics.aiTime")} value={formatDuration(diagnostics.summary.aiDurationMs)} caption={copy.aiCaption} />
-          <Metric icon={<Database size={13} />} label={t("performanceDiagnostics.metrics.inventory")} value={formatDuration(diagnostics.summary.inventoryDurationMs)} caption={copy.inventoryCaption} />
+          <Metric icon={<Timer size={13} />} label={t("performanceDiagnostics.metrics.aiTime")} value={formatDuration(diagnostics.summary.aiDurationMs, t)} caption={copy.aiCaption} />
+          <Metric icon={<Database size={13} />} label={t("performanceDiagnostics.metrics.inventory")} value={formatDuration(diagnostics.summary.inventoryDurationMs, t)} caption={copy.inventoryCaption} />
           <Metric icon={<Zap size={13} />} label={t("performanceDiagnostics.metrics.cache")} value={`${diagnostics.summary.cacheHits}/${diagnostics.summary.cacheMisses}`} caption={copy.cacheCaption} />
         </div>
 
@@ -308,10 +303,10 @@ export function PerformanceDiagnosticsModal({
                 <div key={stage.id} className="rounded-xl border border-neutral-900 bg-black/35 p-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="truncate text-xs font-medium text-neutral-200">{stage.label}</p>
-                    <span className="shrink-0 text-xs font-semibold text-white">{formatDuration(stage.durationMs)}</span>
+                    <span className="shrink-0 text-xs font-semibold text-white">{formatDuration(stage.durationMs, t)}</span>
                   </div>
                   <div className="mt-3"><TimelineBar value={share} /></div>
-                  <p className="mt-2 text-[10px] text-neutral-600">{share}% {isRu ? "общего времени" : "of total time"}</p>
+                  <p className="mt-2 text-[10px] text-neutral-600">{t("performanceDiagnostics.ui.totalTimePercent", { percent: share })}</p>
                 </div>
               );
             })}
@@ -337,7 +332,7 @@ export function PerformanceDiagnosticsModal({
                     </p>
                     <p className="mt-1 text-sm font-semibold text-white">{operationLabel(request.operation, t)}</p>
                   </div>
-                  <span className="rounded-full border border-neutral-800 bg-neutral-950 px-3 py-1 text-[10px] font-semibold text-neutral-300">{formatDuration(request.totalDurationMs)}</span>
+                  <span className="rounded-full border border-neutral-800 bg-neutral-950 px-3 py-1 text-[10px] font-semibold text-neutral-300">{formatDuration(request.totalDurationMs, t)}</span>
                 </div>
 
                 <div className="mt-4 space-y-2">
@@ -347,12 +342,12 @@ export function PerformanceDiagnosticsModal({
                       <div key={stage.id} className="grid gap-3 rounded-xl border border-neutral-900 bg-black/30 px-3 py-2.5 md:grid-cols-[minmax(0,1fr)_180px_72px] md:items-center">
                         <div className="min-w-0">
                           <p className="truncate text-xs font-medium text-neutral-200">{stage.label}</p>
-                          <p className="mt-0.5 text-[10px] text-neutral-600">+{formatDuration(stage.startOffsetMs)}</p>
+                          <p className="mt-0.5 text-[10px] text-neutral-600">+{formatDuration(stage.startOffsetMs, t)}</p>
                         </div>
                         <TimelineBar value={share} />
                         <div className="flex items-center justify-between gap-2 md:justify-end">
                           {stage.status === "error" && <span className="text-[9px] font-semibold text-red-300">{t("performanceDiagnostics.failed")}</span>}
-                          <span className="text-xs font-semibold text-white">{formatDuration(stage.durationMs)}</span>
+                          <span className="text-xs font-semibold text-white">{formatDuration(stage.durationMs, t)}</span>
                         </div>
                       </div>
                     );
@@ -385,17 +380,19 @@ export function PerformanceDiagnosticsModal({
           <button
             type="button"
             onClick={() => setShowTechnicalDetails((value) => !value)}
-            className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left transition hover:bg-white/[0.025]"
+            aria-expanded={showTechnicalDetails}
+            aria-controls="performance-diagnostics-technical"
+            className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left outline-none transition hover:bg-white/[0.025] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/25"
           >
             <div>
               <p className="text-xs font-semibold text-white">{copy.technical}</p>
               <p className="mt-1 text-[10px] leading-4 text-neutral-600">{copy.technicalDescription}</p>
             </div>
-            <ChevronDown size={15} className={`shrink-0 text-neutral-500 transition-transform ${showTechnicalDetails ? "rotate-180" : ""}`} />
+            <ChevronDown size={15} className={`shrink-0 text-neutral-500 transition-transform motion-reduce:transition-none ${showTechnicalDetails ? "rotate-180" : ""}`} />
           </button>
 
           {showTechnicalDetails && (
-            <div className="space-y-3 border-t border-neutral-900 p-4">
+            <div id="performance-diagnostics-technical" className="space-y-3 border-t border-neutral-900 p-4">
               {cacheEvents.length > 0 && (
                 <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
                   <div className="flex items-center gap-2">

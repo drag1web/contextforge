@@ -5,6 +5,7 @@ import {
   siGooglegemini,
   siCursor,
 } from "simple-icons/icons";
+import { useTranslation } from "react-i18next";
 
 export type AiToolId =
   | "codex"
@@ -158,6 +159,7 @@ function GenericAiLogo({
   contrast = "default",
   tone = "brand",
 }: Pick<AiToolLogoProps, "className" | "size" | "contrast" | "tone">) {
+  const { t } = useTranslation();
   const sizeClasses = getSizeClasses(size);
 
   return (
@@ -172,7 +174,7 @@ function GenericAiLogo({
         sizeClasses.box,
         className,
       ].join(" ")}
-      title="Generic AI agent"
+      title={t("settings.targetTool.generic")}
     >
       <svg viewBox="0 0 24 24" className={sizeClasses.icon} aria-hidden="true">
         <path

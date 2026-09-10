@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bot, CheckCircle2, FileSearch, Loader2, ShieldCheck, Sparkles } from "lucide-react";
+import { useTranslation } from "react-i18next";
 
 interface LoadingOverlayProps {
   isVisible: boolean;
@@ -9,23 +10,19 @@ interface LoadingOverlayProps {
 
 const GENERATION_STAGES = [
   {
-    label: "Analyze task",
-    detail: "Reading intent, constraints, and target agent.",
+    id: "analyze",
     icon: Sparkles
   },
   {
-    label: "Select context",
-    detail: "Ranking real files and filtering unsafe candidates.",
+    id: "select",
     icon: FileSearch
   },
   {
-    label: "Validate contract",
-    detail: "Applying rules, checks, and review safeguards.",
+    id: "validate",
     icon: ShieldCheck
   },
   {
-    label: "Compose prompt",
-    detail: "Building the final Task Pack body.",
+    id: "compose",
     icon: Bot
   }
 ] as const;
@@ -47,6 +44,7 @@ function getStageIndex(progress: number) {
 }
 
 export function LoadingOverlay({ isVisible, message }: LoadingOverlayProps) {
+  const { t } = useTranslation();
   const [progress, setProgress] = useState(10);
   const isOllamaGeneration = message.toLowerCase().includes("ollama");
   const isPromptGeneration = isGenerationMessage(message);
@@ -105,10 +103,14 @@ export function LoadingOverlay({ isVisible, message }: LoadingOverlayProps) {
                   <div className="flex items-center justify-between gap-4">
                     <div>
                       <p className="text-sm font-semibold text-white">
-                        {isPromptGeneration ? "Generating Task Pack" : isOllamaGeneration ? "Ollama is generating" : "Working"}
+                        {isPromptGeneration
+                          ? t("loadingOverlay.generatingTaskPack")
+                          : isOllamaGeneration
+                            ? t("loadingOverlay.ollamaGenerating")
+                            : t("loadingOverlay.working")}
                       </p>
                       <p className="mt-1 text-xs text-neutral-500">
-                        {activeStage.label} - {Math.round(safeProgress)}%
+                        {t(`loadingOverlay.stages.${activeStage.id}.label`)} · {Math.round(safeProgress)}%
                       </p>
                     </div>
 
@@ -138,7 +140,7 @@ export function LoadingOverlay({ isVisible, message }: LoadingOverlayProps) {
 
                   return (
                     <div
-                      key={stage.label}
+                      key={stage.id}
                       className={[
                         "rounded-2xl border p-3 transition",
                         isActive
@@ -150,9 +152,13 @@ export function LoadingOverlay({ isVisible, message }: LoadingOverlayProps) {
                     >
                       <div className="mb-2 flex items-center gap-2">
                         {isDone ? <CheckCircle2 size={14} /> : <StageIcon size={14} />}
-                        <span className="text-[11px] font-medium">{stage.label}</span>
+                        <span className="text-[11px] font-medium">
+                          {t(`loadingOverlay.stages.${stage.id}.label`)}
+                        </span>
                       </div>
-                      <p className="text-[10px] leading-4 text-neutral-500">{stage.detail}</p>
+                      <p className="text-[10px] leading-4 text-neutral-500">
+                        {t(`loadingOverlay.stages.${stage.id}.detail`)}
+                      </p>
                     </div>
                   );
                 })}
@@ -160,7 +166,7 @@ export function LoadingOverlay({ isVisible, message }: LoadingOverlayProps) {
 
               {isOllamaGeneration && (
                 <div className="mt-5 rounded-2xl border border-white/10 bg-black/45 px-4 py-3 text-xs leading-5 text-neutral-500">
-                  Local models can take 30-120 seconds on CPU. ContextForge keeps the UI responsive while the prompt is being prepared.
+                  {t("loadingOverlay.localModelNote")}
                 </div>
               )}
             </div>

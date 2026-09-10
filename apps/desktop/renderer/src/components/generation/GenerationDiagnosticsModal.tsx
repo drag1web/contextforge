@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import {
   AlertTriangle,
@@ -20,12 +20,22 @@ import type {
 import { Button } from "../ui/Button";
 import { Modal } from "../ui/Modal";
 
-function formatDuration(value: number) {
+type Translate = (key: string, options?: Record<string, unknown>) => string;
+
+function formatDuration(value: number, t: Translate) {
   if (value < 1000) {
-    return `${value} ms`;
+    return t("generationDiagnostics.milliseconds", { value });
   }
 
-  return `${(value / 1000).toFixed(1)} sec`;
+  return t("generationDiagnostics.seconds", {
+    value: (value / 1000).toFixed(1),
+  });
+}
+
+function formatCharacters(value: number, t: Translate) {
+  return t("generationDiagnostics.characters", {
+    value: value.toLocaleString(),
+  });
 }
 
 function Metric({
@@ -79,10 +89,9 @@ export function GenerationDiagnosticsModal({
   diagnostics: TaskPackGenerationDiagnostics;
   onClose: () => void;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
-  const isRu = i18n.language.startsWith("ru");
   const policy = diagnostics.output.policy;
   const totalPolicyActions = policy
     ? policy.rejectedItems +
@@ -114,77 +123,36 @@ export function GenerationDiagnosticsModal({
     ),
   );
 
-  const copy = useMemo(
-    () =>
-      isRu
-        ? {
-            overview: "Обзор результата",
-            overviewDescription:
-              "Проверьте, как был сформирован пакет задачи и какие защитные проверки применились.",
-            validated: "Результат проверен",
-            validatedDescription:
-              "Итоговый пакет прошёл локальную схему и готов к использованию.",
-            source: "Источник",
-            aiRequest: "AI-запрос",
-            template: "Шаблон",
-            cached: "Кеш",
-            live: "Новый запуск",
-            attemptsCaption: `${successfulAttempts} успешных`,
-            promptCaption: `${budgetUsage}% лимита`,
-            outputCaption: "готовый документ",
-            refinementsCaption: "принято в результат",
-            policySummary: "Безопасность AI-улучшений",
-            policyClean: "Дополнительные вмешательства не потребовались.",
-            policyChanged: `Локально применено действий: ${totalPolicyActions}.`,
-            budgetTitle: "Размер и лимит промпта",
-            budgetDescription:
-              "ContextForge контролирует размер запроса до отправки модели.",
-            attemptTitle: "Попытки генерации",
-            attemptDescription:
-              "Показаны только безопасные метаданные без текста промпта и ответа.",
-            noAttempts: "Реальный AI-запрос не выполнялся.",
-            technical: "Технические детали",
-            technicalDescription:
-              "Коды валидации, политики и приватности для диагностики.",
-            validationCodes: "Коды финальной проверки",
-            policyCodes: "Коды смысловой политики",
-            close: "Готово",
-          }
-        : {
-            overview: "Result overview",
-            overviewDescription:
-              "Review how the Task Pack was produced and which safety checks were applied.",
-            validated: "Result validated",
-            validatedDescription:
-              "The final Task Pack passed the local schema and is ready to use.",
-            source: "Source",
-            aiRequest: "AI request",
-            template: "Template",
-            cached: "Cache",
-            live: "New run",
-            attemptsCaption: `${successfulAttempts} successful`,
-            promptCaption: `${budgetUsage}% of budget`,
-            outputCaption: "final document",
-            refinementsCaption: "accepted into result",
-            policySummary: "AI refinement safety",
-            policyClean: "No additional policy actions were required.",
-            policyChanged: `${totalPolicyActions} local policy action(s) applied.`,
-            budgetTitle: "Prompt size and budget",
-            budgetDescription:
-              "ContextForge controls request size before sending it to the model.",
-            attemptTitle: "Generation attempts",
-            attemptDescription:
-              "Only safe metadata is shown; prompt and response text are not stored.",
-            noAttempts: "No live AI request was made.",
-            technical: "Technical details",
-            technicalDescription:
-              "Validation, policy and privacy codes for troubleshooting.",
-            validationCodes: "Final validation codes",
-            policyCodes: "Semantic policy codes",
-            close: "Done",
-          },
-    [budgetUsage, isRu, successfulAttempts, totalPolicyActions],
-  );
+  const copy = {
+    overview: t("generationDiagnostics.ui.overview"),
+    overviewDescription: t("generationDiagnostics.ui.overviewDescription"),
+    validated: t("generationDiagnostics.ui.validated"),
+    validatedDescription: t("generationDiagnostics.ui.validatedDescription"),
+    cached: t("generationDiagnostics.cached"),
+    live: t("generationDiagnostics.live"),
+    attemptsCaption: t("generationDiagnostics.ui.attemptsCaption", {
+      count: successfulAttempts,
+    }),
+    promptCaption: t("generationDiagnostics.ui.promptCaption", {
+      percent: budgetUsage,
+    }),
+    outputCaption: t("generationDiagnostics.ui.outputCaption"),
+    refinementsCaption: t("generationDiagnostics.ui.refinementsCaption"),
+    policySummary: t("generationDiagnostics.ui.policySummary"),
+    policyClean: t("generationDiagnostics.ui.policyClean"),
+    policyChanged: t("generationDiagnostics.ui.policyChanged", {
+      count: totalPolicyActions,
+    }),
+    budgetTitle: t("generationDiagnostics.ui.budgetTitle"),
+    budgetDescription: t("generationDiagnostics.ui.budgetDescription"),
+    attemptTitle: t("generationDiagnostics.ui.attemptTitle"),
+    attemptDescription: t("generationDiagnostics.ui.attemptDescription"),
+    noAttempts: t("generationDiagnostics.ui.noAttempts"),
+    technical: t("generationDiagnostics.ui.technical"),
+    technicalDescription: t("generationDiagnostics.ui.technicalDescription"),
+    validationCodes: t("generationDiagnostics.ui.validationCodes"),
+    policyCodes: t("generationDiagnostics.ui.policyCodes"),
+  };
 
   async function copyDiagnostics() {
     await navigator.clipboard.writeText(JSON.stringify(diagnostics, null, 2));
@@ -290,13 +258,13 @@ export function GenerationDiagnosticsModal({
           <Metric
             icon={<Gauge size={13} />}
             label={t("generationDiagnostics.metrics.prompt")}
-            value={`${diagnostics.prompt.finalChars.toLocaleString()} chars`}
+            value={formatCharacters(diagnostics.prompt.finalChars, t)}
             caption={copy.promptCaption}
           />
           <Metric
             icon={<FileCheck2 size={13} />}
             label={t("generationDiagnostics.metrics.output")}
-            value={`${diagnostics.output.finalChars.toLocaleString()} chars`}
+            value={formatCharacters(diagnostics.output.finalChars, t)}
             caption={copy.outputCaption}
           />
           <Metric
@@ -363,11 +331,11 @@ export function GenerationDiagnosticsModal({
             <div className="mt-4 grid grid-cols-2 gap-2 text-[11px]">
               <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
                 <p className="text-neutral-600">{t("generationDiagnostics.originalPrompt")}</p>
-                <p className="mt-1 font-semibold text-white">{diagnostics.prompt.originalChars.toLocaleString()} chars</p>
+                <p className="mt-1 font-semibold text-white">{formatCharacters(diagnostics.prompt.originalChars, t)}</p>
               </div>
               <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
                 <p className="text-neutral-600">{t("generationDiagnostics.budget")}</p>
-                <p className="mt-1 font-semibold text-white">{diagnostics.prompt.budgetChars.toLocaleString()} chars</p>
+                <p className="mt-1 font-semibold text-white">{formatCharacters(diagnostics.prompt.budgetChars, t)}</p>
               </div>
             </div>
           </section>
@@ -383,7 +351,7 @@ export function GenerationDiagnosticsModal({
               </div>
               {diagnostics.attempts.length > 0 && (
                 <span className="rounded-full border border-neutral-800 bg-neutral-950 px-2.5 py-1 text-[10px] font-semibold text-neutral-300">
-                  {formatDuration(totalAttemptMs)}
+                  {formatDuration(totalAttemptMs, t)}
                 </span>
               )}
             </div>
@@ -411,7 +379,7 @@ export function GenerationDiagnosticsModal({
                         </div>
                       </div>
                       <span className="shrink-0 text-xs font-semibold text-neutral-300">
-                        {formatDuration(attempt.durationMs)}
+                        {formatDuration(attempt.durationMs, t)}
                       </span>
                     </div>
                   </div>
@@ -425,7 +393,9 @@ export function GenerationDiagnosticsModal({
           <button
             type="button"
             onClick={() => setShowTechnicalDetails((value) => !value)}
-            className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left transition hover:bg-white/[0.025]"
+            aria-expanded={showTechnicalDetails}
+            aria-controls="generation-diagnostics-technical"
+            className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left outline-none transition hover:bg-white/[0.025] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/25"
           >
             <div>
               <p className="text-xs font-semibold text-white">{copy.technical}</p>
@@ -433,12 +403,12 @@ export function GenerationDiagnosticsModal({
             </div>
             <ChevronDown
               size={15}
-              className={`shrink-0 text-neutral-500 transition-transform ${showTechnicalDetails ? "rotate-180" : ""}`}
+              className={`shrink-0 text-neutral-500 transition-transform motion-reduce:transition-none ${showTechnicalDetails ? "rotate-180" : ""}`}
             />
           </button>
 
           {showTechnicalDetails && (
-            <div className="grid gap-3 border-t border-neutral-900 p-4 lg:grid-cols-2">
+            <div id="generation-diagnostics-technical" className="grid gap-3 border-t border-neutral-900 p-4 lg:grid-cols-2">
               <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
                 <p className="cf-tech-label text-[9px] uppercase text-neutral-600">{copy.validationCodes}</p>
                 <p className="mt-2 break-words text-[11px] leading-5 text-neutral-400">

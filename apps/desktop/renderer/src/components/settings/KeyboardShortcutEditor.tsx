@@ -73,8 +73,7 @@ function KeyCaps({
 }
 
 export function KeyboardShortcutEditor() {
-  const { t, i18n } = useTranslation();
-  const isRussian = i18n.language.toLowerCase().startsWith("ru");
+  const { t } = useTranslation();
 
   const [revision, setRevision] = useState(0);
   const [recordingId, setRecordingId] =
@@ -83,48 +82,6 @@ export function KeyboardShortcutEditor() {
   const [savedId, setSavedId] =
     useState<ShortcutActionId | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  const copy = useMemo(
-    () =>
-      isRussian
-        ? {
-            record: "Изменить",
-            recording: "Запись сочетания",
-            pressKeys: "Нажмите новую комбинацию клавиш",
-            waiting: "Ожидание ввода…",
-            escape: "Esc — отменить",
-            reset: "Сбросить",
-            resetAll: "Сбросить все",
-            changed: "Изменено",
-            default: "По умолчанию",
-            saved: "Сохранено",
-            unavailable: "Скоро",
-            conflict: "Это сочетание уже используется:",
-            invalid:
-              "Используйте Ctrl, Alt или Shift вместе с клавишей. F1–F12 можно назначать без модификатора.",
-            local:
-              "Пользовательские сочетания сохраняются только на этом устройстве.",
-          }
-        : {
-            record: "Change",
-            recording: "Recording shortcut",
-            pressKeys: "Press a new key combination",
-            waiting: "Waiting for input…",
-            escape: "Esc to cancel",
-            reset: "Reset",
-            resetAll: "Reset all",
-            changed: "Changed",
-            default: "Default",
-            saved: "Saved",
-            unavailable: "Soon",
-            conflict: "This shortcut is already used by:",
-            invalid:
-              "Use Ctrl, Alt or Shift with a key. F1–F12 can be assigned without a modifier.",
-            local:
-              "Custom shortcuts are stored only on this device.",
-          },
-    [isRussian],
-  );
 
   const shortcuts = useMemo(
     () => getEffectiveKeyboardShortcuts(),
@@ -173,7 +130,7 @@ export function KeyboardShortcutEditor() {
         ].includes(event.key);
 
         if (!modifierOnly) {
-          setError(copy.invalid);
+          setError(t("keyboardShortcutEditor.invalid"));
         }
         return;
       }
@@ -189,13 +146,11 @@ export function KeyboardShortcutEditor() {
           (shortcut) => shortcut.id === conflictId,
         );
 
-        setError(
-          `${copy.conflict} ${
-            conflict
-              ? t(`settings.shortcut.${conflict.id}.label`)
-              : conflictId
-          }`,
-        );
+        setError(t("keyboardShortcutEditor.conflict", {
+          name: conflict
+            ? t(`settings.shortcut.${conflict.id}.label`)
+            : conflictId,
+        }));
         return;
       }
 
@@ -224,7 +179,7 @@ export function KeyboardShortcutEditor() {
       window.removeEventListener("keyup", handleKeyUp, true);
       setKeyboardShortcutCaptureActive(false);
     };
-  }, [copy.conflict, copy.invalid, recordingId, shortcuts, t]);
+  }, [recordingId, shortcuts, t]);
 
   const startRecording = (id: ShortcutActionId) => {
     setError(null);
@@ -262,7 +217,7 @@ export function KeyboardShortcutEditor() {
       <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-neutral-900 bg-black/35 px-4 py-3">
         <div className="flex items-center gap-2 text-xs text-neutral-600">
           <Keyboard size={14} />
-          <span>{copy.local}</span>
+          <span>{t("keyboardShortcutEditor.local")}</span>
         </div>
 
         <button
@@ -271,7 +226,7 @@ export function KeyboardShortcutEditor() {
           className="inline-flex items-center gap-2 rounded-xl border border-neutral-800 bg-neutral-950 px-3 py-2 text-xs font-medium text-neutral-400 transition duration-150 hover:border-neutral-700 hover:text-white active:scale-[0.98]"
         >
           <RotateCcw size={13} />
-          {copy.resetAll}
+          {t("keyboardShortcutEditor.resetAll")}
         </button>
       </div>
 
@@ -342,7 +297,7 @@ export function KeyboardShortcutEditor() {
                             className="inline-flex items-center gap-1 rounded-full border border-emerald-400/20 bg-emerald-400/[0.05] px-2 py-0.5 text-[9px] uppercase tracking-[0.1em] text-emerald-300"
                           >
                             <Check size={9} />
-                            {copy.saved}
+                            {t("keyboardShortcutEditor.saved")}
                           </motion.span>
                         ) : (
                           <motion.span
@@ -353,8 +308,8 @@ export function KeyboardShortcutEditor() {
                             className="rounded-full border border-neutral-800 bg-neutral-950 px-2 py-0.5 text-[9px] uppercase tracking-[0.1em] text-neutral-600"
                           >
                             {overridden
-                              ? copy.changed
-                              : copy.default}
+                              ? t("keyboardShortcutEditor.changed")
+                              : t("keyboardShortcutEditor.default")}
                           </motion.span>
                         )}
                       </AnimatePresence>
@@ -397,7 +352,7 @@ export function KeyboardShortcutEditor() {
                                 ease: "easeInOut",
                               }}
                             />
-                            {copy.recording}
+                            {t("keyboardShortcutEditor.recording")}
                           </span>
                         ) : (
                           <div className="flex justify-center">
@@ -409,8 +364,8 @@ export function KeyboardShortcutEditor() {
                       {overridden && (
                         <button
                           type="button"
-                          title={copy.reset}
-                          aria-label={copy.reset}
+                          title={t("keyboardShortcutEditor.reset")}
+                          aria-label={t("keyboardShortcutEditor.reset")}
                           onClick={() =>
                             resetOne(shortcut.id)
                           }
@@ -422,7 +377,7 @@ export function KeyboardShortcutEditor() {
                     </>
                   ) : (
                     <span className="rounded-full border border-neutral-900 bg-black/25 px-3 py-1.5 text-[10px] uppercase tracking-[0.12em] text-neutral-700">
-                      {copy.unavailable}
+                      {t("keyboardShortcutEditor.unavailable")}
                     </span>
                   )}
                 </div>
@@ -457,11 +412,11 @@ export function KeyboardShortcutEditor() {
                               }}
                             />
                             <p className="text-[10px] font-semibold uppercase tracking-[0.14em] text-neutral-400">
-                              {copy.recording}
+                              {t("keyboardShortcutEditor.recording")}
                             </p>
                           </div>
                           <p className="mt-1 text-xs text-neutral-600">
-                            {copy.pressKeys}
+                            {t("keyboardShortcutEditor.pressKeys")}
                           </p>
                         </div>
 
@@ -469,8 +424,8 @@ export function KeyboardShortcutEditor() {
                           type="button"
                           onClick={cancelRecording}
                           className="grid size-8 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-600 transition hover:border-neutral-700 hover:text-white"
-                          title={copy.escape}
-                          aria-label={copy.escape}
+                          title={t("keyboardShortcutEditor.escape")}
+                          aria-label={t("keyboardShortcutEditor.escape")}
                         >
                           <X size={13} />
                         </button>
@@ -499,14 +454,14 @@ export function KeyboardShortcutEditor() {
                               exit={{ opacity: 0 }}
                               className="text-xs text-neutral-700"
                             >
-                              {copy.waiting}
+                              {t("keyboardShortcutEditor.waiting")}
                             </motion.span>
                           )}
                         </AnimatePresence>
                       </div>
 
                       <p className="mt-3 text-[10px] text-neutral-700">
-                        {copy.escape}
+                        {t("keyboardShortcutEditor.escape")}
                       </p>
                     </div>
                   </motion.div>

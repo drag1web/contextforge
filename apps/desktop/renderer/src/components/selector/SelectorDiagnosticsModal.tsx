@@ -101,10 +101,9 @@ export function SelectorDiagnosticsModal({
   diagnostics: SelectorPipelineDiagnostics;
   onClose: () => void;
 }) {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const [copied, setCopied] = useState(false);
   const [showTechnicalDetails, setShowTechnicalDetails] = useState(false);
-  const isRu = i18n.language.startsWith("ru");
   const comparison = diagnostics.comparison;
   const requestedMode = getSelectorModeCopy(diagnostics.requestedMode, t).label;
   const effectivePipeline =
@@ -125,81 +124,39 @@ export function SelectorDiagnosticsModal({
     [diagnostics.actual.selectedFiles],
   );
 
-  const copy = isRu
-    ? {
-        overview: "Результат выбора контекста",
-        overviewDescription:
-          "Показывает фактически выбранные файлы, роль каждого файла и состояние безопасности.",
-        primary: "Основная цель",
-        files: "Выбрано файлов",
-        edit: "Цели изменений",
-        inspect: "Только для чтения",
-        confidenceCaption: "уверенность выбора",
-        elapsedCaption: "полный выбор",
-        selectionState: "Состояние выбора",
-        safe: "Без блокировки",
-        blocked: "Заблокировано",
-        review: "Нужна проверка",
-        automatic: "Автоматически",
-        filesTitle: "Выбранный контекст",
-        filesDescription:
-          "Сначала показаны цели изменений, затем вспомогательные ссылки для понимания проекта.",
-        editGroup: "Цели изменений",
-        editGroupDescription: "Файлы, в которых агенту разрешено искать место реализации.",
-        inspectGroup: "Вспомогательный контекст",
-        inspectGroupDescription: "Файлы для чтения и проверки соседнего поведения.",
-        editLabel: "цель изменения",
-        inspectLabel: "только чтение",
-        evidence: {
-          strong: "сильное основание",
-          supporting: "поддержка",
-          reference: "справка",
-        },
-        technical: "Технические детали",
-        technicalDescription:
-          "Режим pipeline, тайминги, сравнение Legacy/Shadow и диагностические коды.",
-        requested: "Запрошенный режим",
-        actual: "Фактический pipeline",
-        candidates: "Кандидаты",
-        comparison: "Сравнение Legacy / Shadow",
-      }
-    : {
-        overview: "Context selection result",
-        overviewDescription:
-          "Shows the actual selected files, each file role and the safety state.",
-        primary: "Primary target",
-        files: "Selected files",
-        edit: "Edit targets",
-        inspect: "Read only",
-        confidenceCaption: "selection confidence",
-        elapsedCaption: "full selection",
-        selectionState: "Selection state",
-        safe: "Not blocked",
-        blocked: "Blocked",
-        review: "Review required",
-        automatic: "Automatic",
-        filesTitle: "Selected context",
-        filesDescription:
-          "Edit targets are shown first, followed by supporting references for project understanding.",
-        editGroup: "Edit targets",
-        editGroupDescription: "Files where the agent may locate the implementation change.",
-        inspectGroup: "Supporting context",
-        inspectGroupDescription: "Read-only files used to understand nearby behavior.",
-        editLabel: "edit target",
-        inspectLabel: "read only",
-        evidence: {
-          strong: "strong evidence",
-          supporting: "supporting",
-          reference: "reference",
-        },
-        technical: "Technical details",
-        technicalDescription:
-          "Pipeline mode, timings, Legacy/Shadow comparison and diagnostic codes.",
-        requested: "Requested mode",
-        actual: "Actual pipeline",
-        candidates: "Candidates",
-        comparison: "Legacy / Shadow comparison",
-      };
+  const copy = {
+    overview: t("selectorDiagnostics.ui.overview"),
+    overviewDescription: t("selectorDiagnostics.ui.overviewDescription"),
+    primary: t("selectorDiagnostics.ui.primary"),
+    files: t("selectorDiagnostics.ui.files"),
+    edit: t("selectorDiagnostics.ui.edit"),
+    inspect: t("selectorDiagnostics.ui.inspect"),
+    confidenceCaption: t("selectorDiagnostics.ui.confidenceCaption"),
+    elapsedCaption: t("selectorDiagnostics.ui.elapsedCaption"),
+    selectionState: t("selectorDiagnostics.ui.selectionState"),
+    safe: t("selectorDiagnostics.ui.safe"),
+    blocked: t("selectorDiagnostics.ui.blocked"),
+    review: t("selectorDiagnostics.ui.review"),
+    filesTitle: t("selectorDiagnostics.ui.filesTitle"),
+    filesDescription: t("selectorDiagnostics.ui.filesDescription"),
+    editGroup: t("selectorDiagnostics.ui.editGroup"),
+    editGroupDescription: t("selectorDiagnostics.ui.editGroupDescription"),
+    inspectGroup: t("selectorDiagnostics.ui.inspectGroup"),
+    inspectGroupDescription: t("selectorDiagnostics.ui.inspectGroupDescription"),
+    editLabel: t("selectorDiagnostics.ui.editLabel"),
+    inspectLabel: t("selectorDiagnostics.ui.inspectLabel"),
+    evidence: {
+      strong: t("selectorDiagnostics.ui.evidence.strong"),
+      supporting: t("selectorDiagnostics.ui.evidence.supporting"),
+      reference: t("selectorDiagnostics.ui.evidence.reference"),
+    },
+    technical: t("selectorDiagnostics.ui.technical"),
+    technicalDescription: t("selectorDiagnostics.ui.technicalDescription"),
+    requested: t("selectorDiagnostics.ui.requested"),
+    actual: t("selectorDiagnostics.ui.actual"),
+    candidates: t("selectorDiagnostics.ui.candidates"),
+    comparison: t("selectorDiagnostics.ui.comparison"),
+  };
 
   function abstentionMessage(
     abstention: NonNullable<SelectorPipelineDiagnostics["actual"]["abstention"]>,
@@ -387,17 +344,19 @@ export function SelectorDiagnosticsModal({
           <button
             type="button"
             onClick={() => setShowTechnicalDetails((value) => !value)}
-            className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left transition hover:bg-white/[0.025]"
+            aria-expanded={showTechnicalDetails}
+            aria-controls="selector-diagnostics-technical"
+            className="flex w-full items-center justify-between gap-4 px-4 py-3.5 text-left outline-none transition hover:bg-white/[0.025] focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-white/25"
           >
             <div>
               <p className="text-xs font-semibold text-white">{copy.technical}</p>
               <p className="mt-1 text-[10px] leading-4 text-neutral-600">{copy.technicalDescription}</p>
             </div>
-            <ChevronDown size={15} className={`shrink-0 text-neutral-500 transition-transform ${showTechnicalDetails ? "rotate-180" : ""}`} />
+            <ChevronDown size={15} className={`shrink-0 text-neutral-500 transition-transform motion-reduce:transition-none ${showTechnicalDetails ? "rotate-180" : ""}`} />
           </button>
 
           {showTechnicalDetails && (
-            <div className="space-y-3 border-t border-neutral-900 p-4">
+            <div id="selector-diagnostics-technical" className="space-y-3 border-t border-neutral-900 p-4">
               <div className="grid gap-3 md:grid-cols-3">
                 <Metric icon={<Workflow size={13} />} label={copy.requested} value={requestedMode} />
                 <Metric icon={<ShieldCheck size={13} />} label={copy.actual} value={effectivePipeline} />

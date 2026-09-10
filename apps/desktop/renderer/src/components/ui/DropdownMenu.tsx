@@ -2,6 +2,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { MoreHorizontal } from "lucide-react";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
+import { useTranslation } from "react-i18next";
 
 interface DropdownAction {
   label: string;
@@ -25,7 +26,9 @@ const MENU_WIDTH = 220;
 const MENU_ITEM_HEIGHT = 38;
 const MENU_VERTICAL_OFFSET = 8;
 
-export function DropdownMenu({ actions, ariaLabel = "More actions" }: DropdownMenuProps) {
+export function DropdownMenu({ actions, ariaLabel }: DropdownMenuProps) {
+  const { t } = useTranslation();
+  const resolvedAriaLabel = ariaLabel ?? t("common.moreActions");
   const buttonRef = useRef<HTMLButtonElement | null>(null);
 
   const [isOpen, setIsOpen] = useState(false);
@@ -113,8 +116,8 @@ export function DropdownMenu({ actions, ariaLabel = "More actions" }: DropdownMe
         ref={buttonRef}
         type="button"
         onClick={toggleMenu}
-        aria-label={ariaLabel}
-        title={ariaLabel}
+        aria-label={resolvedAriaLabel}
+        title={resolvedAriaLabel}
         className={[
           "inline-flex size-8 items-center justify-center rounded-lg",
           "border border-neutral-900 bg-neutral-950/80 text-neutral-500",
@@ -132,7 +135,7 @@ export function DropdownMenu({ actions, ariaLabel = "More actions" }: DropdownMe
             <>
               <motion.button
                 type="button"
-                aria-label="Close menu"
+                aria-label={t("common.closeMenu")}
                 className="fixed inset-0 z-[9998] cursor-default bg-transparent"
                 onClick={closeMenu}
                 initial={{ opacity: 0 }}

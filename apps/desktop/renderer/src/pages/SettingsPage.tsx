@@ -286,6 +286,8 @@ function withSettingsDefaults(settings: AppSettings): AppSettings {
     ...settings,
     language: settings.language ?? "system",
     sidebarShowDescriptions: settings.sidebarShowDescriptions ?? false,
+    focusModeBehavior: settings.focusModeBehavior ?? "manual",
+    workspaceDensity: settings.workspaceDensity ?? "adaptive",
     onboardingEnabled: settings.onboardingEnabled ?? true,
     onboardingShowEveryLaunch: settings.onboardingShowEveryLaunch ?? true,
     contextQualityMode: settings.contextQualityMode ?? "balanced",
@@ -1185,9 +1187,8 @@ function StorageSettingsPanel({
   loading: boolean;
   onRefresh: () => void | Promise<void>;
 }) {
-  const { i18n } = useTranslation();
+  const { t, i18n } = useTranslation();
   const isRussian = i18n.resolvedLanguage?.startsWith("ru") ?? false;
-  const copy = (english: string, russian: string) => isRussian ? russian : english;
   const dateTimeFormatter = useMemo(
     () => new Intl.DateTimeFormat(isRussian ? "ru-RU" : "en-US", {
       dateStyle: "medium",
@@ -1214,198 +1215,61 @@ function StorageSettingsPanel({
   const views = [
     {
       id: "overview" as const,
-      label: copy("Overview", "Обзор"),
-      description: copy("Database and local data", "База и локальные данные"),
+      label: t("storageSettings.views.overview.label"),
+      description: t("storageSettings.views.overview.description"),
       icon: Server
     },
     {
       id: "backups" as const,
-      label: copy("Backups", "Резервные копии"),
-      description: copy("Export and release checks", "Экспорт и проверка готовности"),
+      label: t("storageSettings.views.backups.label"),
+      description: t("storageSettings.views.backups.description"),
       icon: Download
     },
     {
       id: "diagnostics" as const,
-      label: copy("Diagnostics", "Диагностика"),
-      description: copy("Schema, files and migrations", "Схема, файлы и миграции"),
+      label: t("storageSettings.views.diagnostics.label"),
+      description: t("storageSettings.views.diagnostics.description"),
       icon: ShieldCheck
     }
   ];
 
   function statusLabel(status: string) {
-    const labels: Record<string, [string, string]> = {
-      ready: ["Ready", "Готово"],
-      primary: ["Primary", "Основное"],
-      done: ["Done", "Выполнено"],
-      pass: ["Passed", "Пройдено"],
-      planned: ["Planned", "В планах"],
-      external: ["External", "Внешнее"],
-      legacy: ["Legacy", "Переходное"],
-      warning: ["Warning", "Внимание"],
-      review: ["Review", "Проверить"],
-      current: ["Current", "Текущий этап"],
-      next: ["Next", "Следующий этап"],
-      later: ["Later", "Позже"],
-      fail: ["Failed", "Ошибка"],
-      blocked: ["Blocked", "Заблокировано"],
-      needs_migration: ["Migration needed", "Нужна миграция"],
-      unknown: ["Unknown", "Неизвестно"]
-    };
-    const value = labels[status];
-    return value ? copy(value[0], value[1]) : status;
+    return t(`storageSettings.status.${status}`, { defaultValue: status });
   }
 
   function countCopy(item: StorageAuditResult["counts"][number]) {
-    const values: Record<string, { label: [string, string]; note: [string, string] }> = {
-      projects: {
-        label: ["Projects", "Проекты"],
-        note: ["Local project records are stored in the active database.", "Локальные проекты хранятся в активной базе данных."]
-      },
-      task_packs: {
-        label: ["Task Packs", "Пакеты задач"],
-        note: ["Generated history is stored through the active adapter.", "История созданных пакетов задач хранится через активный адаптер."]
-      },
-      project_memories: {
-        label: ["Project Memory", "Память проектов"],
-        note: ["Long-term project decisions are stored locally.", "Долгосрочные решения проектов хранятся локально."]
-      },
-      schema_migrations: {
-        label: ["Schema migrations", "Миграции схемы"],
-        note: ["SQLite changes are versioned and applied incrementally.", "Изменения SQLite версионируются и применяются поэтапно."]
-      },
-      rules_templates: {
-        label: ["Rules and templates", "Правила и шаблоны"],
-        note: ["Custom presets are stored in the local catalog.", "Пользовательские пресеты хранятся в локальном каталоге."]
-      },
-      exports: {
-        label: ["Export history", "История экспорта"],
-        note: ["History and cleanup controls are planned.", "История и очистка экспортов запланированы."]
-      },
-      backups: {
-        label: ["Workspace backups", "Резервные копии"],
-        note: ["Local secret-safe workspace archives.", "Локальные архивы рабочего пространства без секретов."]
-      }
+    return {
+      label: t(`storageSettings.counts.${item.key}.label`, { defaultValue: item.label }),
+      note: t(`storageSettings.counts.${item.key}.note`, { defaultValue: item.note })
     };
-    const value = values[item.key];
-    return value
-      ? { label: copy(...value.label), note: copy(...value.note) }
-      : { label: item.label, note: item.note };
   }
 
   function artifactCopy(item: StorageAuditResult["artifacts"][number]) {
-    const values: Record<string, { label: [string, string]; role: [string, string] }> = {
-      sqlite_database: {
-        label: ["SQLite workspace database", "База рабочего пространства SQLite"],
-        role: ["Primary local storage for desktop mode.", "Основное локальное хранилище Desktop."]
-      },
-      schema_migrations: {
-        label: ["SQLite migration ledger", "Журнал миграций SQLite"],
-        role: ["Tracks applied migrations and current schema metadata.", "Хранит применённые миграции и текущую версию схемы."]
-      },
-      rules_templates_sqlite: {
-        label: ["Rules and templates catalog", "Каталог правил и шаблонов"],
-        role: ["Local adapter-backed catalog for custom presets.", "Локальный каталог пользовательских пресетов через адаптер."]
-      },
-      rules_templates_json: {
-        label: ["Transition JSON catalog", "Переходный JSON-каталог"],
-        role: ["Compatibility backup while SQLite remains the primary catalog.", "Резерв совместимости, пока SQLite остаётся основным каталогом."]
-      },
-      workspace_backups: {
-        label: ["Workspace backup folder", "Папка резервных копий"],
-        role: ["Stores local JSON backups created from Settings.", "Хранит локальные JSON-копии, созданные из настроек."]
-      },
-      postgres_driver: {
-        label: ["PostgreSQL adapter", "Адаптер PostgreSQL"],
-        role: ["Optional developer adapter; desktop does not require it.", "Необязательный адаптер для разработки; Desktop от него не зависит."]
-      }
+    return {
+      label: t(`storageSettings.artifacts.${item.key}.label`, { defaultValue: item.label }),
+      role: t(`storageSettings.artifacts.${item.key}.role`, { defaultValue: item.role })
     };
-    const value = values[item.key];
-    return value
-      ? { label: copy(...value.label), role: copy(...value.role) }
-      : { label: item.label, role: item.role };
   }
 
   function gapCopy(item: StorageAuditResult["gaps"][number]) {
-    const values: Record<string, { title: [string, string]; description: [string, string] }> = {
-      rules_templates_sqlite: {
-        title: ["Rules and templates still use JSON", "Правила и шаблоны ещё используют JSON"],
-        description: ["Move custom presets into SQLite before beta.", "Перенесите пользовательские пресеты в SQLite до beta-этапа."]
-      },
-      workspace_restore: {
-        title: ["Restore remains guarded", "Восстановление остаётся защищённым"],
-        description: ["Import and restore require a separate confirmation-heavy flow.", "Импорт и восстановление требуют отдельного сценария с явными подтверждениями."]
-      }
+    return {
+      title: t(`storageSettings.gaps.${item.key}.title`, { defaultValue: item.title }),
+      description: t(`storageSettings.gaps.${item.key}.description`, { defaultValue: item.description })
     };
-    const value = values[item.key];
-    return value
-      ? { title: copy(...value.title), description: copy(...value.description) }
-      : { title: item.title, description: item.description };
   }
 
   function releaseCheckCopy(item: NonNullable<StorageAuditResult["releaseReadiness"]>["checks"][number]) {
-    const values: Record<string, { label: [string, string]; note: [string, string] }> = {
-      sqlite_first: {
-        label: ["SQLite-first storage", "Основное хранилище — SQLite"],
-        note: ["Normal Desktop mode uses the local SQLite adapter.", "Обычный режим Desktop использует локальный адаптер SQLite."]
-      },
-      database_ready: {
-        label: ["Workspace database exists", "База рабочего пространства создана"],
-        note: ["The local workspace database is available.", "Локальная база рабочего пространства доступна."]
-      },
-      schema_ready: {
-        label: ["Schema is up to date", "Схема базы актуальна"],
-        note: ["All known migrations are applied.", "Все известные миграции применены."]
-      },
-      rules_catalog_ready: {
-        label: ["Rules and templates use the adapter", "Правила и шаблоны используют адаптер"],
-        note: ["Custom presets are stored in the SQLite catalog.", "Пользовательские пресеты хранятся в каталоге SQLite."]
-      },
-      backup_export_ready: {
-        label: ["Backup export is available", "Экспорт резервной копии доступен"],
-        note: ["A local backup can be created from Settings.", "Локальную копию можно создать из настроек."]
-      },
-      backup_created: {
-        label: ["At least one backup exists", "Создана хотя бы одна копия"],
-        note: ["A recent workspace backup is available.", "Доступна недавняя резервная копия рабочего пространства."]
-      },
-      restore_guarded: {
-        label: ["Restore is guarded", "Восстановление защищено"],
-        note: ["Automatic import is intentionally disabled until a safe flow is ready.", "Автоматический импорт намеренно отключён до появления безопасного сценария."]
-      }
+    return {
+      label: t(`storageSettings.releaseChecks.${item.key}.label`, { defaultValue: item.label }),
+      note: t(`storageSettings.releaseChecks.${item.key}.note`, { defaultValue: item.note })
     };
-    const value = values[item.key];
-    return value
-      ? { label: copy(...value.label), note: copy(...value.note) }
-      : { label: item.label, note: item.note };
   }
 
   function planCopy(item: StorageAuditResult["plan"][number]) {
-    const values: Record<string, { title: [string, string]; description: [string, string] }> = {
-      "12.1.1": {
-        title: ["Storage audit", "Аудит хранилища"],
-        description: ["Map local data and migration targets.", "Проверка локальных данных и целей миграции."]
-      },
-      "12.1.2": {
-        title: ["Schema versioning", "Версионирование схемы"],
-        description: ["Apply small and safe SQLite migrations.", "Небольшие и безопасные миграции SQLite."]
-      },
-      "12.2.1": {
-        title: ["Rules and templates catalog", "Каталог правил и шаблонов"],
-        description: ["Keep custom presets in adapter-backed SQLite storage.", "Хранение пользовательских пресетов в SQLite через адаптер."]
-      },
-      "12.3.1": {
-        title: ["Workspace backup export", "Экспорт резервной копии"],
-        description: ["Create a local secret-safe workspace archive.", "Создание локального архива рабочего пространства без секретов."]
-      },
-      "12.4": {
-        title: ["Release checks", "Проверки перед релизом"],
-        description: ["Keep a compact readiness checklist for Desktop storage.", "Компактная проверка готовности локального хранилища Desktop."]
-      }
+    return {
+      title: t(`storageSettings.plan.${item.id}.title`, { defaultValue: item.title }),
+      description: t(`storageSettings.plan.${item.id}.description`, { defaultValue: item.description })
     };
-    const value = values[item.id];
-    return value
-      ? { title: copy(...value.title), description: copy(...value.description) }
-      : { title: item.title, description: item.description };
   }
 
   async function handleExportBackup() {
@@ -1429,9 +1293,9 @@ function StorageSettingsPanel({
     <>
       <SectionHeader
         icon={<Server size={13} />}
-        label={copy("Workspace", "Рабочее пространство")}
-        title={copy("Storage and local data", "Хранилище и локальные данные")}
-        description={copy("Review the local database, backups and diagnostics without mixing all storage details on one screen.", "Проверяйте локальную базу, резервные копии и диагностику без перегруженного единого отчёта.")}
+        label={t("storageSettings.header.label")}
+        title={t("storageSettings.header.title")}
+        description={t("storageSettings.header.description")}
       />
 
       <HorizontalSlidingSelector
@@ -1439,7 +1303,7 @@ function StorageSettingsPanel({
         activeIndex={views.findIndex((view) => view.id === activeView)}
         getItemKey={(view) => view.id}
         onSelect={(view) => setActiveView(view.id)}
-        ariaLabel={copy("Storage view", "Раздел хранилища")}
+        ariaLabel={t("storageSettings.viewAriaLabel")}
         itemClassName="rounded-[0.95rem] text-left"
         renderItem={(view, isActive) => {
           const Icon = view.icon;
@@ -1473,15 +1337,15 @@ function StorageSettingsPanel({
       {!audit ? (
         <SettingCard
           icon={<Server size={18} />}
-          label={copy("Storage audit", "Аудит хранилища")}
-          title={loading ? copy("Loading local data", "Загружаем локальные данные") : copy("Storage audit is not loaded", "Аудит хранилища не загружен")}
-          description={copy("Refresh the audit to inspect the local database and backups.", "Обновите аудит, чтобы проверить локальную базу и резервные копии.")}
+          label={t("storageSettings.audit.label")}
+          title={loading ? t("storageSettings.audit.loading") : t("storageSettings.audit.notLoaded")}
+          description={t("storageSettings.audit.description")}
           storageId="storage-loading-v2"
         >
           <SettingsActionButton
             icon={RefreshCw}
-            label={copy("Refresh audit", "Обновить аудит")}
-            loadingLabel={copy("Refreshing", "Обновляем")}
+            label={t("storageSettings.audit.refresh")}
+            loadingLabel={t("storageSettings.audit.refreshing")}
             loading={loading}
             disabled={loading}
             variant="secondary"
@@ -1502,21 +1366,21 @@ function StorageSettingsPanel({
               <>
                 <SettingCard
                   icon={<Server size={18} />}
-                  label={copy("Local database", "Локальная база")}
-                  title={copy("Workspace storage is ready", "Хранилище рабочего пространства готово")}
-                  description={copy("A compact overview of the active adapter, database, schema and stored workspace data.", "Компактный обзор активного адаптера, базы, схемы и сохранённых данных рабочего пространства.")}
+                  label={t("storageSettings.overview.label")}
+                  title={t("storageSettings.overview.title")}
+                  description={t("storageSettings.overview.description")}
                   storageId="storage-overview-v2"
                 >
                   <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
                     <div className="flex flex-wrap gap-2">
                       <span className="cf-badge">{audit.driver}</span>
-                      <span className="cf-badge">{audit.sqliteFirst ? copy("SQLite-first", "SQLite — основное") : copy("Custom driver", "Другой драйвер")}</span>
-                      <span className="cf-badge">{copy("Updated", "Обновлено")}: {formatDateTime(audit.generatedAt)}</span>
+                      <span className="cf-badge">{audit.sqliteFirst ? t("storageSettings.overview.sqliteFirst") : t("storageSettings.overview.customDriver")}</span>
+                      <span className="cf-badge">{t("storageSettings.overview.updated")}: {formatDateTime(audit.generatedAt)}</span>
                     </div>
                     <SettingsActionButton
                       icon={RefreshCw}
-                      label={copy("Refresh", "Обновить")}
-                      loadingLabel={copy("Refreshing", "Обновляем")}
+                      label={t("common.refresh")}
+                      loadingLabel={t("common.refreshing")}
                       loading={loading}
                       disabled={loading}
                       variant="secondary"
@@ -1526,10 +1390,10 @@ function StorageSettingsPanel({
 
                   <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
                     {[
-                      { label: copy("Adapter", "Адаптер"), value: audit.driver, note: copy("active storage", "активное хранилище") },
-                      { label: copy("Database", "База данных"), value: audit.databaseExists ? copy("Ready", "Готова") : copy("Missing", "Не найдена"), note: formatStorageBytes(audit.databaseSizeBytes) },
-                      { label: copy("Schema", "Схема"), value: schema ? `v${schema.currentVersion}` : "—", note: schema?.pendingCount ? copy(`${schema.pendingCount} pending`, `Ожидает: ${schema.pendingCount}`) : copy("up to date", "актуальна") },
-                      { label: copy("Attention", "Требует внимания"), value: String(gaps.length), note: copy("storage items", "пунктов хранилища") }
+                      { label: t("storageSettings.overview.adapter"), value: audit.driver, note: t("storageSettings.overview.activeStorage") },
+                      { label: t("storageSettings.overview.database"), value: audit.databaseExists ? t("storageSettings.overview.ready") : t("storageSettings.overview.missing"), note: formatStorageBytes(audit.databaseSizeBytes) },
+                      { label: t("storageSettings.overview.schema"), value: schema ? `v${schema.currentVersion}` : "—", note: schema?.pendingCount ? t("storageSettings.overview.pending", { count: schema.pendingCount }) : t("storageSettings.overview.upToDate") },
+                      { label: t("storageSettings.overview.attention"), value: String(gaps.length), note: t("storageSettings.overview.storageItems", { count: gaps.length }) }
                     ].map((item) => (
                       <div key={item.label} className="rounded-2xl border border-neutral-900 bg-black/40 p-4">
                         <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{item.label}</p>
@@ -1563,9 +1427,9 @@ function StorageSettingsPanel({
                 {gaps.length > 0 && (
                   <SettingCard
                     icon={<ShieldCheck size={18} />}
-                    label={copy("Attention", "Требует внимания")}
-                    title={copy("Small storage tasks remain", "Остались небольшие задачи хранилища")}
-                    description={copy("These items do not block normal local work.", "Эти пункты не блокируют обычную локальную работу.")}
+                    label={t("storageSettings.overview.attention")}
+                    title={t("storageSettings.attention.title")}
+                    description={t("storageSettings.attention.description")}
                     defaultOpen={false}
                     storageId="storage-attention-v2"
                   >
@@ -1594,39 +1458,39 @@ function StorageSettingsPanel({
               <>
                 <SettingCard
                   icon={<Download size={18} />}
-                  label={copy("Workspace backup", "Резервная копия")}
-                  title={copy("Export local workspace data", "Экспортируйте локальные данные")}
-                  description={copy("Create a secret-safe JSON archive of projects, Task Packs, Project Memory, rules and settings.", "Создайте безопасный JSON-архив проектов, пакетов задач, памяти проектов, правил и настроек без секретов.")}
+                  label={t("storageSettings.backup.label")}
+                  title={t("storageSettings.backup.title")}
+                  description={t("storageSettings.backup.description")}
                   storageId="storage-backup-v2"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-neutral-900 bg-black/35 p-4">
                     <div>
-                      <p className="text-sm font-semibold text-white">{copy("Available backups", "Доступно резервных копий")}</p>
+                      <p className="text-sm font-semibold text-white">{t("storageSettings.backup.available")}</p>
                       <p className="mt-1 text-2xl font-semibold text-white">{backupCount}</p>
                     </div>
                     <Button onClick={handleExportBackup} disabled={isBackupExporting}>
                       {isBackupExporting ? <Loader2 size={15} className="animate-spin" /> : <Download size={15} />}
-                      {isBackupExporting ? copy("Creating backup", "Создаём копию") : copy("Create backup", "Создать резервную копию")}
+                      {isBackupExporting ? t("storageSettings.backup.creating") : t("storageSettings.backup.create")}
                     </Button>
                   </div>
 
                   {backupResult && (
                     <div className="mt-4 rounded-2xl border border-emerald-400/20 bg-emerald-400/10 p-4">
-                      <p className="text-sm font-semibold text-emerald-100">{copy("Backup created", "Резервная копия создана")}</p>
+                      <p className="text-sm font-semibold text-emerald-100">{t("storageSettings.backup.created")}</p>
                       <p className="mt-1 break-all text-xs leading-5 text-emerald-200/70">{backupResult.filePath}</p>
                       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-emerald-100/70">
-                        <span>{copy("Projects", "Проекты")}: {backupResult.counts.projects}</span>
-                        <span>{copy("Task Packs", "Пакеты задач")}: {backupResult.counts.taskPacks}</span>
-                        <span>{copy("Memory", "Память")}: {backupResult.counts.projectMemories}</span>
-                        <span>{copy("Rules", "Правила")}: {backupResult.counts.ruleTemplates}</span>
-                        <span>{copy("Settings", "Настройки")}: {backupResult.counts.settings}</span>
+                        <span>{t("storageSettings.backup.projects")}: {backupResult.counts.projects}</span>
+                        <span>{t("storageSettings.backup.taskPacks")}: {backupResult.counts.taskPacks}</span>
+                        <span>{t("storageSettings.backup.memory")}: {backupResult.counts.projectMemories}</span>
+                        <span>{t("storageSettings.backup.rules")}: {backupResult.counts.ruleTemplates}</span>
+                        <span>{t("storageSettings.backup.settings")}: {backupResult.counts.settings}</span>
                       </div>
                     </div>
                   )}
 
                   {backupError && (
                     <div className="mt-4 rounded-2xl border border-rose-400/20 bg-rose-400/10 p-4">
-                      <p className="text-sm font-semibold text-rose-100">{copy("Backup export failed", "Не удалось создать резервную копию")}</p>
+                      <p className="text-sm font-semibold text-rose-100">{t("storageSettings.backup.failed")}</p>
                       <p className="mt-1 text-xs leading-5 text-rose-200/70">{backupError}</p>
                     </div>
                   )}
@@ -1635,9 +1499,9 @@ function StorageSettingsPanel({
                 {releaseReadiness && (
                   <SettingCard
                     icon={<ShieldCheck size={18} />}
-                    label={copy("Desktop readiness", "Готовность Desktop")}
-                    title={copy("Local storage release checks", "Проверки локального хранилища перед релизом")}
-                    description={copy(`${releaseReadiness.passed} passed · ${releaseReadiness.warnings} warnings · ${releaseReadiness.failed} blocked`, `Пройдено: ${releaseReadiness.passed} · предупреждений: ${releaseReadiness.warnings} · заблокировано: ${releaseReadiness.failed}`)}
+                    label={t("storageSettings.release.label")}
+                    title={t("storageSettings.release.title")}
+                    description={t("storageSettings.release.summary", { passed: releaseReadiness.passed, warnings: releaseReadiness.warnings, failed: releaseReadiness.failed })}
                     defaultOpen={false}
                     storageId="storage-release-checks-v2"
                   >
@@ -1666,38 +1530,38 @@ function StorageSettingsPanel({
               <>
                 <SettingCard
                   icon={<Server size={18} />}
-                  label={copy("Database schema", "Схема базы")}
-                  title={copy("SQLite versioning and migrations", "Версионирование и миграции SQLite")}
+                  label={t("storageSettings.schema.label")}
+                  title={t("storageSettings.schema.title")}
                   description={schema
-                    ? copy(`Schema v${schema.currentVersion} of v${schema.latestVersion}; ${schema.appliedCount} migrations applied.`, `Схема v${schema.currentVersion} из v${schema.latestVersion}; применено миграций: ${schema.appliedCount}.`)
-                    : copy("Schema metadata is unavailable for this adapter.", "Данные схемы недоступны для этого адаптера.")}
+                    ? t("storageSettings.schema.summary", { current: schema.currentVersion, latest: schema.latestVersion, applied: schema.appliedCount })
+                    : t("storageSettings.schema.unavailable")}
                   storageId="storage-schema-v2"
                 >
                   {schema ? (
                     <div className="grid gap-3 sm:grid-cols-3">
                       <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
-                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{copy("Current version", "Текущая версия")}</p>
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{t("storageSettings.schema.currentVersion")}</p>
                         <p className="mt-2 text-xl font-semibold text-white">v{schema.currentVersion}</p>
                       </div>
                       <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
-                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{copy("Applied", "Применено")}</p>
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{t("storageSettings.schema.applied")}</p>
                         <p className="mt-2 text-xl font-semibold text-white">{schema.appliedCount}</p>
                       </div>
                       <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
-                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{copy("Pending", "Ожидает")}</p>
+                        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">{t("storageSettings.schema.pending")}</p>
                         <p className="mt-2 text-xl font-semibold text-white">{schema.pendingCount}</p>
                       </div>
                     </div>
                   ) : (
-                    <p className="text-sm text-neutral-500">{copy("No schema data.", "Нет данных схемы.")}</p>
+                    <p className="text-sm text-neutral-500">{t("storageSettings.schema.noData")}</p>
                   )}
                 </SettingCard>
 
                 <SettingCard
                   icon={<Layers3 size={18} />}
-                  label={copy("Local data sources", "Локальные источники")}
-                  title={copy("Files and adapters", "Файлы и адаптеры")}
-                  description={copy(`${artifacts.length} storage artifacts detected.`, `Обнаружено источников: ${artifacts.length}.`)}
+                  label={t("storageSettings.sources.label")}
+                  title={t("storageSettings.sources.title")}
+                  description={t("storageSettings.sources.description", { count: artifacts.length })}
                   defaultOpen={false}
                   storageId="storage-artifacts-v2"
                 >
@@ -1716,7 +1580,7 @@ function StorageSettingsPanel({
                             </span>
                           </div>
                           <p className="mt-3 text-xs leading-5 text-neutral-600">{localized.role}</p>
-                          <p className="mt-2 text-xs text-neutral-700">{artifact.exists ? copy("Found", "Найдено") : copy("Not found", "Не найдено")} · {formatStorageBytes(artifact.sizeBytes)}</p>
+                          <p className="mt-2 text-xs text-neutral-700">{artifact.exists ? t("storageSettings.sources.found") : t("storageSettings.sources.notFound")} · {formatStorageBytes(artifact.sizeBytes)}</p>
                         </div>
                       );
                     })}
@@ -1725,9 +1589,9 @@ function StorageSettingsPanel({
 
                 <SettingCard
                   icon={<Sparkles size={18} />}
-                  label={copy("Development plan", "План развития")}
-                  title={copy("Storage migration order", "Порядок развития хранилища")}
-                  description={copy("Small, reversible storage steps with visible status.", "Небольшие обратимые этапы развития хранилища с понятным статусом.")}
+                  label={t("storageSettings.planSection.label")}
+                  title={t("storageSettings.planSection.title")}
+                  description={t("storageSettings.planSection.description")}
                   defaultOpen={false}
                   storageId="storage-plan-v2"
                 >
@@ -1955,6 +1819,53 @@ export function SettingsPage() {
         caption: t("settings.navigationGuidedDescription"),
         meta: t("settings.guided"),
         icon: MessageSquareText
+      }
+    ],
+    [t]
+  );
+
+  const workspaceDensityOptions = useMemo(
+    () => [
+      {
+        value: "adaptive" as const,
+        label: t("settings.workspaceDensityAdaptive"),
+        caption: t("settings.workspaceDensityAdaptiveDescription"),
+        meta: t("settings.recommendedChoice"),
+        icon: Sparkles
+      },
+      {
+        value: "comfortable" as const,
+        label: t("settings.workspaceDensityComfortable"),
+        caption: t("settings.workspaceDensityComfortableDescription"),
+        meta: t("settings.workspaceDensityComfortableMeta"),
+        icon: Layers3
+      },
+      {
+        value: "compact" as const,
+        label: t("settings.workspaceDensityCompact"),
+        caption: t("settings.workspaceDensityCompactDescription"),
+        meta: t("settings.workspaceDensityCompactMeta"),
+        icon: Gauge
+      }
+    ],
+    [t]
+  );
+
+  const focusModeBehaviorOptions = useMemo(
+    () => [
+      {
+        value: "manual" as const,
+        label: t("settings.focusModeManual"),
+        caption: t("settings.focusModeManualDescription"),
+        meta: t("settings.recommendedChoice"),
+        icon: PanelLeft
+      },
+      {
+        value: "automatic" as const,
+        label: t("settings.focusModeAutomatic"),
+        caption: t("settings.focusModeAutomaticDescription"),
+        meta: t("settings.focusModeAutomaticMeta"),
+        icon: Sparkles
       }
     ],
     [t]
@@ -3021,6 +2932,94 @@ export function SettingsPage() {
                       </div>
                     </SettingCard>
                   </div>
+
+                  <SettingCard
+                    icon={<Layers3 size={18} />}
+                    label={t("settings.workspaceDensity")}
+                    title={t("settings.workspaceDensityTitle")}
+                    description={t("settings.workspaceDensityDescription")}
+                  >
+                    <HorizontalSlidingSelector
+                      items={workspaceDensityOptions}
+                      activeIndex={workspaceDensityOptions.findIndex(
+                        (option) =>
+                          option.value ===
+                          (settingsDraft?.workspaceDensity ?? "adaptive")
+                      )}
+                      getItemKey={(option) => option.value}
+                      onSelect={(option) =>
+                        updateSettingsDraft({
+                          workspaceDensity: option.value
+                        })
+                      }
+                      ariaLabel={t("settings.workspaceDensityTitle")}
+                      itemClassName="rounded-[0.95rem] text-left"
+                      renderItem={(option, isActive) => (
+                        <InterfaceChoiceContent
+                          icon={option.icon}
+                          label={option.label}
+                          caption={option.caption}
+                          meta={option.meta}
+                          isActive={isActive}
+                        />
+                      )}
+                    />
+
+                    <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                      <div className="flex items-start gap-3">
+                        <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500">
+                          <Layers3 size={14} />
+                        </span>
+                        <p className="text-xs leading-5 text-neutral-600">
+                          {t("settings.workspaceDensitySafetyNote")}
+                        </p>
+                      </div>
+                    </div>
+                  </SettingCard>
+
+                  <SettingCard
+                    icon={<Sparkles size={18} />}
+                    label={t("settings.focusMode")}
+                    title={t("settings.focusModeBehaviorTitle")}
+                    description={t("settings.focusModeBehaviorDescription")}
+                  >
+                    <HorizontalSlidingSelector
+                      items={focusModeBehaviorOptions}
+                      activeIndex={focusModeBehaviorOptions.findIndex(
+                        (option) =>
+                          option.value ===
+                          (settingsDraft?.focusModeBehavior ?? "manual")
+                      )}
+                      getItemKey={(option) => option.value}
+                      onSelect={(option) =>
+                        updateSettingsDraft({
+                          focusModeBehavior: option.value
+                        })
+                      }
+                      ariaLabel={t("settings.focusModeBehaviorTitle")}
+                      itemClassName="rounded-[0.95rem] text-left"
+                      renderItem={(option, isActive) => (
+                        <InterfaceChoiceContent
+                          icon={option.icon}
+                          label={option.label}
+                          caption={option.caption}
+                          meta={option.meta}
+                          isActive={isActive}
+                        />
+                      )}
+                    />
+
+                    <div className="mt-4 rounded-2xl border border-neutral-900 bg-black/40 p-4">
+                      <div className="flex items-start gap-3">
+                        <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500">
+                          <Sparkles size={14} />
+                        </span>
+                        <p className="text-xs leading-5 text-neutral-600">
+                          {t("settings.focusModeSessionNote")}
+                        </p>
+                      </div>
+                    </div>
+                  </SettingCard>
 
                   <SettingCard
                     icon={<SlidersHorizontal size={18} />}

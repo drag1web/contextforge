@@ -1,5 +1,7 @@
-import { useMemo, useState } from "react";
-import { AnimatePresence, motion } from "framer-motion";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { AnimatePresence, MotionConfig, motion } from "framer-motion";
+import { useTranslation } from "react-i18next";
+import type { TFunction } from "i18next";
 import {
   Archive,
   ArrowLeft,
@@ -68,135 +70,41 @@ interface TourStep {
 
 const PHASE_ORDER: OnboardingStepId[] = ["intro", "auth", "tour", "final"];
 
-const TOUR_STEPS: TourStep[] = [
-  {
-    id: "dashboard",
-    kicker: "Workspace overview",
-    title: "Start from the Dashboard.",
-    description:
-      "Dashboard shows the whole workspace: projects that need attention, recent Task Packs, quick actions and next priorities.",
-    action: "Use it as your command center after opening ContextForge.",
-    bullets: ["Check project health", "Jump into common actions", "Find recent generated Task Packs"],
-    preview: "dashboard",
-    activeNav: "Dashboard"
-  },
-  {
-    id: "projects",
-    kicker: "Local projects",
-    title: "Add and manage local projects.",
-    description:
-      "Projects are folders on your computer. ContextForge scans them locally and keeps every workspace separate.",
-    action: "Add a folder, rescan it when files change, or open project details.",
-    bullets: ["Add local project folders", "Rescan project inventory", "Open Project Details"],
-    preview: "projects",
-    activeNav: "Projects"
-  },
-  {
-    id: "details",
-    kicker: "Project readiness",
-    title: "Understand if a project is AI-ready.",
-    description:
-      "Project Details explains readiness, scripts, docs, tests, AGENTS.md and scanner signals before you ask an agent to work.",
-    action: "Review missing pieces and fix the biggest readiness gaps first.",
-    bullets: ["Readiness score", "Scanner snapshot", "Recommended improvements"],
-    preview: "details",
-    activeNav: "Projects"
-  },
-  {
-    id: "agents",
-    kicker: "Agents and templates",
-    title: "Choose the workflow before writing the prompt.",
-    description:
-      "Agents describe the target coding tool. Templates describe the task type. Together they shape the Task Pack.",
-    action: "Pick Codex, Cursor, Claude Code, Gemini or a generic agent, then choose a matching template.",
-    bullets: ["Agent target", "Task template", "Rule profile"],
-    preview: "agents",
-    activeNav: "Agents"
-  },
-  {
-    id: "builder",
-    kicker: "Context Builder",
-    title: "Write the real task and build the brief.",
-    description:
-      "Context Builder is where the user writes the task, reviews recipe/rules/acceptance checks and prepares context.",
-    action: "Write the task first, then use presets only when they help the agent understand the work.",
-    bullets: ["Task textarea", "Recipe and rules", "Quality score"],
-    preview: "builder",
-    activeNav: "Context Builder"
-  },
-  {
-    id: "review",
-    kicker: "Context review",
-    title: "Review which files were selected and why.",
-    description:
-      "ContextForge does not blindly dump the project. It shows selected files, reasons, snippets and review warnings.",
-    action: "Open Context review when the task is complex or selection looks suspicious.",
-    bullets: ["Selected files", "Reasons and confidence", "Budget pressure"],
-    preview: "review",
-    activeNav: "Context Builder"
-  },
-  {
-    id: "archive",
-    kicker: "Task Pack archive",
-    title: "Keep generated briefs reusable.",
-    description:
-      "Every generated Task Pack can be stored, opened later, copied, compared and reused for follow-up work.",
-    action: "Use the archive when you continue work later or need to reuse a previous brief.",
-    bullets: ["Recent Task Packs", "Generated prompt history", "Open or copy past packs"],
-    preview: "archive",
-    activeNav: "Task Packs"
-  },
-  {
-    id: "localChanges",
-    kicker: "Local changes",
-    title: "See what is already changed locally.",
-    description:
-      "Local changes reads the Git working tree on your computer. It is not GitHub and it does not push or commit anything.",
-    action: "Use Create from changes when you want an agent to review or continue current work.",
-    bullets: ["Branch and changed files", "Staged/unstaged/untracked", "Awareness note for Task Packs"],
-    preview: "localChanges",
-    activeNav: "Projects"
-  },
-  {
-    id: "diff",
-    kicker: "Diff Review Lite",
-    title: "Check the size and risk of local changes.",
-    description:
-      "Diff Review Lite shows metadata only: changed files, added/deleted line counts, risk signals and Task Pack alignment.",
-    action: "Use it before asking AI to continue or before exporting context for review.",
-    bullets: ["Diff summary", "Review signals", "Task Pack alignment"],
-    preview: "diff",
-    activeNav: "Projects"
-  },
-  {
-    id: "settings",
-    kicker: "Settings and storage",
-    title: "Control local AI, safety and storage.",
-    description:
-      "Settings keeps provider configuration, generation behavior, context safety, language, storage audit and backups in one place.",
-    action: "Configure Ollama/providers, safety mode and workspace backups before serious work.",
-    bullets: ["AI engine", "Context safety", "SQLite storage and backups"],
-    preview: "settings",
-    activeNav: "Settings"
-  }
+const TOUR_STEP_DEFINITIONS: Array<Pick<TourStep, "id" | "preview" | "activeNav">> = [
+  { id: "dashboard", preview: "dashboard", activeNav: "Dashboard" },
+  { id: "projects", preview: "projects", activeNav: "Projects" },
+  { id: "details", preview: "details", activeNav: "Projects" },
+  { id: "agents", preview: "agents", activeNav: "Agents" },
+  { id: "builder", preview: "builder", activeNav: "Context Builder" },
+  { id: "review", preview: "review", activeNav: "Context Builder" },
+  { id: "archive", preview: "archive", activeNav: "Task Packs" },
+  { id: "localChanges", preview: "localChanges", activeNav: "Projects" },
+  { id: "diff", preview: "diff", activeNav: "Projects" },
+  { id: "settings", preview: "settings", activeNav: "Settings" },
 ];
 
 const SOCIAL_PLACEHOLDERS: Array<{
   icon: "G" | LucideIcon;
-  title: string;
-  description: string;
+  id: "google" | "github";
 }> = [
-  {
-    icon: "G",
-    title: "Continue with Google",
-    description: "Planned account option. Not required for local projects."
-  },
-  {
-    icon: Github,
-    title: "Continue with GitHub",
-    description: "Coming with GitHub issues, PRs and CI workflow integrations."
-  }
+  { icon: "G", id: "google" },
+  { icon: Github, id: "github" },
 ];
+
+const NAV_TRANSLATION_KEYS: Record<NavKey, string> = {
+  Dashboard: "dashboard",
+  Projects: "projects",
+  Scanners: "scanners",
+  "Context Builder": "context",
+  "Task Packs": "taskPacks",
+  Agents: "agents",
+  Templates: "templates",
+  Settings: "settings",
+};
+
+function getNavLabel(label: NavKey, t: TFunction) {
+  return t(`nav.${NAV_TRANSLATION_KEYS[label]}`);
+}
 
 const NAV_ITEMS: Array<{ label: NavKey; icon: LucideIcon }> = [
   { label: "Dashboard", icon: LayoutDashboard },
@@ -273,6 +181,8 @@ function GoogleMark() {
 }
 
 function MiniNavItem({ label, active, icon: Icon }: { label: NavKey; active: boolean; icon: LucideIcon }) {
+  const { t } = useTranslation();
+
   return (
     <motion.div
       layout
@@ -288,7 +198,7 @@ function MiniNavItem({ label, active, icon: Icon }: { label: NavKey; active: boo
         />
       )}
       <Icon size={12} className="relative z-10" />
-      <span className="relative z-10 truncate">{label}</span>
+      <span className="relative z-10 truncate">{getNavLabel(label, t)}</span>
     </motion.div>
   );
 }
@@ -337,20 +247,22 @@ function MiniFileRow({ path, tag, active }: { path: string; tag: string; active?
 }
 
 function MiniPreviewContent({ step }: { step: TourStep }) {
+  const { t } = useTranslation();
+
   switch (step.preview) {
     case "dashboard":
       return (
         <div className="space-y-3">
-          <MiniHeader title="Workspace overview" action="Add project" />
+          <MiniHeader title={t("onboarding.preview.workspaceOverview")} action={t("common.addProject")} />
           <div className="grid grid-cols-3 gap-2">
-            <MiniMetric label="Projects" value="5" />
-            <MiniMetric label="Readiness" value="61/100" />
-            <MiniMetric label="Task Packs" value="30" tone="good" />
+            <MiniMetric label={t("onboarding.preview.projects")} value="5" />
+            <MiniMetric label={t("onboarding.preview.readiness")} value="61/100" />
+            <MiniMetric label={t("onboarding.preview.taskPacks")} value="30" tone="good" />
           </div>
           <div className="rounded-2xl border border-white/[0.075] bg-black/35 p-3">
             <div className="mb-2 flex items-center justify-between">
-              <span className="text-[10px] font-semibold text-white">Projects needing attention</span>
-              <span className="text-[9px] text-neutral-500">View all</span>
+              <span className="text-[10px] font-semibold text-white">{t("onboarding.preview.projectsNeedingAttention")}</span>
+              <span className="text-[9px] text-neutral-500">{t("onboarding.preview.viewAll")}</span>
             </div>
             {[
               ["practice-electron-ui", "46/100"],
@@ -375,7 +287,7 @@ function MiniPreviewContent({ step }: { step: TourStep }) {
     case "projects":
       return (
         <div className="space-y-3">
-          <MiniHeader title="Projects" action="Project details" />
+          <MiniHeader title={t("onboarding.preview.projects")} action={t("onboarding.preview.projectDetails")} />
           {[
             ["license-monitor", "React · Electron · SQLite", "66/100"],
             ["roi-calculator", "React · Vite", "55/100"],
@@ -401,19 +313,19 @@ function MiniPreviewContent({ step }: { step: TourStep }) {
     case "details":
       return (
         <div className="space-y-3">
-          <MiniHeader title="Project details" action="Create Task Pack" />
+          <MiniHeader title={t("onboarding.preview.projectDetails")} action={t("onboarding.preview.createTaskPack")} />
           <div className="grid grid-cols-3 gap-2">
-            <MiniMetric label="Readiness" value="66" />
-            <MiniMetric label="Checks" value="6/10" />
-            <MiniMetric label="Issues" value="3" tone="warn" />
+            <MiniMetric label={t("onboarding.preview.readiness")} value="66" />
+            <MiniMetric label={t("onboarding.preview.checks")} value="6/10" />
+            <MiniMetric label={t("onboarding.preview.issues")} value="3" tone="warn" />
           </div>
           <div className="grid grid-cols-2 gap-2">
-            {["README", "AI instructions", "Build command", "Dev command", "Tests", "Environment"].map((item, index) => (
+            {["readme", "aiInstructions", "buildCommand", "devCommand", "tests", "environment"].map((item, index) => (
               <div
                 key={item}
                 className="rounded-xl border border-white/[0.075] bg-black/30 px-3 py-2 text-[10px] text-neutral-300"
               >
-                <span className={index < 4 ? "text-emerald-200" : "text-neutral-600"}>●</span> {item}
+                <span className={index < 4 ? "text-emerald-200" : "text-neutral-600"}>●</span> {t(`onboarding.preview.${item}`)}
               </div>
             ))}
           </div>
@@ -423,7 +335,7 @@ function MiniPreviewContent({ step }: { step: TourStep }) {
     case "agents":
       return (
         <div className="space-y-3">
-          <MiniHeader title="Agents & Templates" action="Use preset" />
+          <MiniHeader title={t("onboarding.preview.agentsAndTemplates")} action={t("onboarding.preview.usePreset")} />
           <div className="grid grid-cols-2 gap-2">
             {["Codex", "Cursor", "Claude Code", "Gemini"].map((agent, index) => (
               <div
@@ -431,12 +343,12 @@ function MiniPreviewContent({ step }: { step: TourStep }) {
                 className={`rounded-2xl border p-3 ${index === 0 ? "border-white/70 bg-white text-neutral-950" : "border-white/[0.075] bg-black/35 text-white"}`}
               >
                 <p className="text-[11px] font-semibold">{agent}</p>
-                <p className={`mt-1 text-[9px] ${index === 0 ? "text-neutral-500" : "text-neutral-600"}`}>target agent</p>
+                <p className={`mt-1 text-[9px] ${index === 0 ? "text-neutral-500" : "text-neutral-600"}`}>{t("onboarding.preview.targetAgent")}</p>
               </div>
             ))}
           </div>
           <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-3 text-[10px] text-emerald-100">
-            UI/UX redesign template · safe frontend rules · visual verification
+            {t("onboarding.preview.agentTemplateSummary")}
           </div>
         </div>
       );
@@ -444,32 +356,27 @@ function MiniPreviewContent({ step }: { step: TourStep }) {
     case "builder":
       return (
         <div className="space-y-3">
-          <MiniHeader title="Context Builder" action="Generate Task Pack" />
+          <MiniHeader title="Context Builder" action={t("onboarding.preview.generateTaskPack")} />
           <div className="grid grid-cols-[1fr_120px] gap-3">
             <div className="rounded-2xl border border-white/[0.075] bg-black/35 p-3">
               <div className="mb-2 flex gap-1.5">
-                {[
-                  "Task",
-                  "Recipe",
-                  "Rules",
-                  "Context"
-                ].map((tab, index) => (
+                {["task", "recipe", "rules", "context"].map((tab, index) => (
                   <span
                     key={tab}
                     className={`rounded-full px-2 py-1 text-[8px] font-semibold ${index === 0 ? "bg-white text-neutral-950" : "bg-white/[0.04] text-neutral-500"}`}
                   >
-                    {tab}
+                    {t(`onboarding.preview.${tab}`)}
                   </span>
                 ))}
               </div>
               <div className="h-24 rounded-xl border border-white/[0.075] bg-black/55 p-3 text-[10px] leading-5 text-neutral-300">
-                Improve the selected page UI without changing backend behavior...
+                {t("onboarding.preview.sampleTask")}
               </div>
             </div>
             <div className="rounded-2xl border border-emerald-300/20 bg-emerald-300/10 p-3 text-center">
-              <p className="text-[8px] font-semibold uppercase tracking-[0.18em] text-emerald-200/70">Quality</p>
+              <p className="text-[8px] font-semibold uppercase tracking-[0.18em] text-emerald-200/70">{t("onboarding.preview.quality")}</p>
               <p className="mt-3 text-3xl font-semibold text-emerald-100">88</p>
-              <p className="mt-1 text-[9px] text-emerald-200/70">Strong</p>
+              <p className="mt-1 text-[9px] text-emerald-200/70">{t("onboarding.preview.strong")}</p>
             </div>
           </div>
         </div>
@@ -478,36 +385,36 @@ function MiniPreviewContent({ step }: { step: TourStep }) {
     case "review":
       return (
         <div className="space-y-3">
-          <MiniHeader title="Context review" action="Review files" />
+          <MiniHeader title={t("onboarding.preview.contextReview")} action={t("onboarding.preview.reviewFiles")} />
           <div className="grid grid-cols-4 gap-2">
-            <MiniMetric label="Files" value="3" />
-            <MiniMetric label="Edit" value="2" />
-            <MiniMetric label="Inspect" value="1" />
-            <MiniMetric label="Budget" value="48%" tone="good" />
+            <MiniMetric label={t("onboarding.preview.files")} value="3" />
+            <MiniMetric label={t("onboarding.preview.edit")} value="2" />
+            <MiniMetric label={t("onboarding.preview.inspect")} value="1" />
+            <MiniMetric label={t("onboarding.preview.budget")} value="48%" tone="good" />
           </div>
-          <MiniFileRow path="client/src/pages/Imports.tsx" tag="edit" active />
-          <MiniFileRow path="client/src/components/Dropdown.tsx" tag="edit" />
-          <MiniFileRow path="client/src/components/ViewerNotice.tsx" tag="inspect" />
+          <MiniFileRow path="client/src/pages/Imports.tsx" tag={t("onboarding.preview.edit")} active />
+          <MiniFileRow path="client/src/components/Dropdown.tsx" tag={t("onboarding.preview.edit")} />
+          <MiniFileRow path="client/src/components/ViewerNotice.tsx" tag={t("onboarding.preview.inspect")} />
         </div>
       );
 
     case "archive":
       return (
         <div className="space-y-3">
-          <MiniHeader title="Task Packs" action="Open archive" />
-          {["UI polish for imports page", "Backend validation update", "Review current local changes"].map((title, index) => (
+          <MiniHeader title={t("onboarding.preview.taskPacks")} action={t("onboarding.preview.openArchive")} />
+          {["taskPackExampleUi", "taskPackExampleBackend", "taskPackExampleChanges"].map((titleKey, index) => (
             <motion.div
-              key={title}
+              key={titleKey}
               initial={{ opacity: 0, x: 10 }}
               animate={{ opacity: 1, x: 0 }}
               transition={{ delay: index * 0.04 }}
               className="rounded-2xl border border-white/[0.075] bg-black/35 p-3"
             >
               <div className="flex items-center justify-between">
-                <span className="truncate text-[11px] font-semibold text-white">{title}</span>
+                <span className="truncate text-[11px] font-semibold text-white">{t(`onboarding.preview.${titleKey}`)}</span>
                 <History size={13} className="text-neutral-500" />
               </div>
-              <p className="mt-1 text-[9px] text-neutral-600">generated Task Pack · local history</p>
+              <p className="mt-1 text-[9px] text-neutral-600">{t("onboarding.preview.generatedHistory")}</p>
             </motion.div>
           ))}
         </div>
@@ -516,32 +423,32 @@ function MiniPreviewContent({ step }: { step: TourStep }) {
     case "localChanges":
       return (
         <div className="space-y-3">
-          <MiniHeader title="Local changes" action="Create from changes" />
+          <MiniHeader title={t("onboarding.preview.localChanges")} action={t("onboarding.preview.createFromChanges")} />
           <div className="grid grid-cols-3 gap-2">
-            <MiniMetric label="Staged" value="0" />
-            <MiniMetric label="Unstaged" value="10" tone="warn" />
-            <MiniMetric label="Untracked" value="1" tone="warn" />
+            <MiniMetric label={t("onboarding.preview.staged")} value="0" />
+            <MiniMetric label={t("onboarding.preview.unstaged")} value="10" tone="warn" />
+            <MiniMetric label={t("onboarding.preview.untracked")} value="1" tone="warn" />
           </div>
-          <MiniFileRow path="client/src/api.ts" tag="modified" active />
-          <MiniFileRow path="client/src/pages/Dictionaries.tsx" tag="modified" />
-          <MiniFileRow path="AGENTS.md" tag="new" />
+          <MiniFileRow path="client/src/api.ts" tag={t("onboarding.preview.modified")} active />
+          <MiniFileRow path="client/src/pages/Dictionaries.tsx" tag={t("onboarding.preview.modified")} />
+          <MiniFileRow path="AGENTS.md" tag={t("onboarding.preview.newFile")} />
         </div>
       );
 
     case "diff":
       return (
         <div className="space-y-3">
-          <MiniHeader title="Diff Review Lite" action="Review changes" />
+          <MiniHeader title="Diff Review Lite" action={t("onboarding.preview.reviewChanges")} />
           <div className="grid grid-cols-4 gap-2">
-            <MiniMetric label="Files" value="11" />
-            <MiniMetric label="Added" value="+2973" tone="good" />
-            <MiniMetric label="Deleted" value="-1744" tone="warn" />
-            <MiniMetric label="Binary" value="0" />
+            <MiniMetric label={t("onboarding.preview.files")} value="11" />
+            <MiniMetric label={t("onboarding.preview.added")} value="+2973" tone="good" />
+            <MiniMetric label={t("onboarding.preview.deleted")} value="-1744" tone="warn" />
+            <MiniMetric label={t("onboarding.preview.binary")} value="0" />
           </div>
           <div className="flex flex-wrap gap-2 rounded-2xl border border-white/[0.075] bg-black/35 p-3">
-            {['Large diff', 'Core/API touched', 'No tests changed'].map((signal) => (
+            {["largeDiff", "coreApiTouched", "noTestsChanged"].map((signal) => (
               <span key={signal} className="rounded-full border border-amber-300/20 bg-amber-300/10 px-2 py-1 text-[9px] font-semibold text-amber-100">
-                {signal}
+                {t(`onboarding.preview.${signal}`)}
               </span>
             ))}
           </div>
@@ -551,27 +458,27 @@ function MiniPreviewContent({ step }: { step: TourStep }) {
     case "settings":
       return (
         <div className="space-y-3">
-          <MiniHeader title="Settings" action="Saved" />
+          <MiniHeader title={t("nav.settings")} action={t("common.saved")} />
           <div className="grid grid-cols-2 gap-2">
             {[
-              ["AI Engine", "Ollama / providers"],
-              ["Composer", "safety and limits"],
-              ["Interface", "language and density"],
-              ["Storage", "SQLite and backup"]
-            ].map(([title, text], index) => (
+              ["aiEngine", "aiEngineDescription"],
+              ["composer", "composerDescription"],
+              ["interface", "interfaceDescription"],
+              ["storage", "storageDescription"]
+            ].map(([titleKey, textKey], index) => (
               <div
-                key={title}
+                key={titleKey}
                 className={`rounded-2xl border p-3 ${index === 3 ? "border-emerald-300/25 bg-emerald-300/10" : "border-white/[0.075] bg-black/35"}`}
               >
-                <p className="text-[11px] font-semibold text-white">{title}</p>
-                <p className="mt-1 text-[9px] text-neutral-600">{text}</p>
+                <p className="text-[11px] font-semibold text-white">{t(`onboarding.preview.${titleKey}`)}</p>
+                <p className="mt-1 text-[9px] text-neutral-600">{t(`onboarding.preview.${textKey}`)}</p>
               </div>
             ))}
           </div>
           <div className="rounded-2xl border border-white/[0.075] bg-black/35 p-3">
             <div className="flex items-center justify-between text-[10px]">
-              <span className="text-neutral-500">Schema</span>
-              <span className="text-emerald-200">v2 / ready</span>
+              <span className="text-neutral-500">{t("onboarding.preview.schema")}</span>
+              <span className="text-emerald-200">v2 / {t("onboarding.preview.ready")}</span>
             </div>
             <div className="mt-2 h-1.5 rounded-full bg-white/[0.06]"><div className="h-full w-4/5 rounded-full bg-emerald-300/80" /></div>
           </div>
@@ -584,6 +491,8 @@ function MiniPreviewContent({ step }: { step: TourStep }) {
 }
 
 function OnboardingMiniPreview({ step }: { step: TourStep }) {
+  const { t } = useTranslation();
+
   return (
     <motion.div
       layout
@@ -611,14 +520,14 @@ function OnboardingMiniPreview({ step }: { step: TourStep }) {
             ))}
           </div>
           <div className="absolute bottom-3 left-3 right-3 rounded-xl border border-white/[0.06] bg-white/[0.025] p-2 text-[8px] leading-4 text-neutral-600">
-            <span className="block font-semibold text-neutral-500">MVP status</span>
+            <span className="block font-semibold text-neutral-500">{t("nav.mvpStatus")}</span>
             v{appMeta.version}
           </div>
         </aside>
 
         <main className="relative min-w-0 flex-1 p-4">
           <div className="mb-3 flex items-center justify-between gap-3 rounded-2xl border border-white/[0.06] bg-white/[0.025] px-3 py-2">
-            <span className="truncate text-[10px] font-semibold text-neutral-300">ContextForge › {step.activeNav}</span>
+            <span className="truncate text-[10px] font-semibold text-neutral-300">ContextForge › {getNavLabel(step.activeNav, t)}</span>
             <div className="flex items-center gap-1.5">
               <span className="h-2 w-8 rounded-full bg-white" />
               <span className="h-2 w-2 rounded-full bg-white/15" />
@@ -668,6 +577,8 @@ function IntroPipelineStep({ icon: Icon, title, text, index }: { icon: LucideIco
 }
 
 function IntroHeroPreview() {
+  const { t } = useTranslation();
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 18, scale: 0.985 }}
@@ -701,18 +612,12 @@ function IntroHeroPreview() {
 
         <div className="mt-4 grid grid-cols-[112px_1fr] gap-4">
           <div className="rounded-2xl border border-white/[0.055] bg-black/40 p-3">
-            {[
-              ["Dashboard", true],
-              ["Projects", false],
-              ["Context Builder", false],
-              ["Task Packs", false],
-              ["Settings", false]
-            ].map(([label, active]) => (
+            {(["Dashboard", "Projects", "Context Builder", "Task Packs", "Settings"] as NavKey[]).map((label, index) => (
               <div
-                key={String(label)}
-                className={`mb-1.5 rounded-xl px-2.5 py-2 text-[9px] font-semibold ${active ? "bg-white text-neutral-950" : "bg-white/[0.025] text-neutral-600"}`}
+                key={label}
+                className={`mb-1.5 rounded-xl px-2.5 py-2 text-[9px] font-semibold ${index === 0 ? "bg-white text-neutral-950" : "bg-white/[0.025] text-neutral-600"}`}
               >
-                {label}
+                {getNavLabel(label, t)}
               </div>
             ))}
           </div>
@@ -721,9 +626,9 @@ function IntroHeroPreview() {
             <div className="rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4">
               <div className="flex items-start justify-between gap-4">
                 <div>
-                  <p className="text-[9px] font-semibold uppercase tracking-[0.24em] text-neutral-600">AI-ready workspace</p>
+                  <p className="text-[9px] font-semibold uppercase tracking-[0.24em] text-neutral-600">{t("onboarding.hero.aiReadyWorkspace")}</p>
                   <h3 className="mt-2 max-w-[180px] text-2xl font-semibold leading-[0.98] tracking-[-0.065em] text-white">
-                    Prepare context before the agent touches code.
+                    {t("onboarding.hero.prepareContext")}
                   </h3>
                 </div>
                 <motion.div
@@ -737,7 +642,7 @@ function IntroHeroPreview() {
             </div>
 
             <div className="grid grid-cols-3 gap-2">
-              {["Scan", "Review", "Task Pack"].map((item, index) => (
+              {["scan", "review", "taskPack"].map((item, index) => (
                 <motion.div
                   key={item}
                   initial={{ opacity: 0, y: 8 }}
@@ -745,7 +650,7 @@ function IntroHeroPreview() {
                   transition={{ delay: 0.2 + index * 0.06, duration: 0.26 }}
                   className="rounded-2xl border border-white/[0.06] bg-black/35 p-3"
                 >
-                  <p className="text-[10px] font-semibold text-white">{item}</p>
+                  <p className="text-[10px] font-semibold text-white">{t(`onboarding.hero.${item}`)}</p>
                   <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-white/[0.055]">
                     <motion.div
                       className="h-full rounded-full bg-white"
@@ -759,9 +664,9 @@ function IntroHeroPreview() {
             </div>
 
             <div className="rounded-2xl border border-white/[0.06] bg-black/45 p-3 font-mono text-[9px] leading-5 text-neutral-500">
-              <p><span className="text-emerald-300">ok</span> project inventory collected</p>
-              <p><span className="text-emerald-300">ok</span> real files selected</p>
-              <p><span className="text-white">task-pack.md</span> ready for agent</p>
+              <p><span className="text-emerald-300">ok</span> {t("onboarding.hero.inventoryCollected")}</p>
+              <p><span className="text-emerald-300">ok</span> {t("onboarding.hero.filesSelected")}</p>
+              <p><span className="text-white">task-pack.md</span> {t("onboarding.hero.readyForAgent")}</p>
             </div>
           </div>
         </div>
@@ -783,6 +688,8 @@ function TourStepScreen({
   onNext: () => void;
   onSkip: () => void;
 }) {
+  const { t } = useTranslation();
+
   return (
     <motion.div
       key={`tour-${step.id}`}
@@ -795,7 +702,7 @@ function TourStepScreen({
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
           <span className="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 text-[11px] font-semibold text-emerald-100">
-            Step {index + 1} / {TOUR_STEPS.length}
+            {t("onboarding.tour.step", { current: index + 1, total: TOUR_STEP_DEFINITIONS.length })}
           </span>
           <span className="cf-badge">{step.kicker}</span>
         </div>
@@ -806,7 +713,7 @@ function TourStepScreen({
         <p className="mt-4 max-w-xl text-[15px] leading-7 text-neutral-400">{step.description}</p>
 
         <div className="mt-7 rounded-3xl border border-white/[0.075] bg-black/35 p-5">
-          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-neutral-600">What you do here</p>
+          <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-neutral-600">{t("onboarding.tour.whatYouDo")}</p>
           <p className="mt-2 text-sm leading-6 text-neutral-300">{step.action}</p>
           <div className="mt-4 grid gap-2">
             {step.bullets.map((bullet, bulletIndex) => (
@@ -827,12 +734,14 @@ function TourStepScreen({
         <div className="mt-7 flex flex-wrap justify-between gap-3">
           <Button variant="secondary" onClick={onBack}>
             <ArrowLeft size={16} />
-            Back
+            {t("onboarding.actions.back")}
           </Button>
           <div className="flex flex-wrap gap-3">
-            <Button variant="secondary" onClick={onSkip}>Skip learning</Button>
+            <Button variant="secondary" onClick={onSkip}>{t("onboarding.actions.skipLearning")}</Button>
             <Button variant="primary" onClick={onNext}>
-              {index === TOUR_STEPS.length - 1 ? "Final welcome" : "Next module"}
+              {index === TOUR_STEP_DEFINITIONS.length - 1
+                ? t("onboarding.actions.finalWelcome")
+                : t("onboarding.actions.nextModule")}
               <ArrowRight size={16} />
             </Button>
           </div>
@@ -849,19 +758,73 @@ export function FirstRunOnboardingOverlay({
   onStartSetup,
   onSkip
 }: FirstRunOnboardingOverlayProps) {
+  const { t } = useTranslation();
+  const overlayRef = useRef<HTMLDivElement | null>(null);
   const [stepId, setStepId] = useState<OnboardingStepId>("intro");
   const [tourStepIndex, setTourStepIndex] = useState(0);
   const [isLaunchingDashboard, setIsLaunchingDashboard] = useState(false);
-  const activeTourStep = TOUR_STEPS[tourStepIndex];
+  const tourSteps = useMemo<TourStep[]>(
+    () => TOUR_STEP_DEFINITIONS.map((definition) => ({
+      ...definition,
+      kicker: t(`onboarding.tour.steps.${definition.id}.kicker`),
+      title: t(`onboarding.tour.steps.${definition.id}.title`),
+      description: t(`onboarding.tour.steps.${definition.id}.description`),
+      action: t(`onboarding.tour.steps.${definition.id}.action`),
+      bullets: [1, 2, 3].map((index) =>
+        t(`onboarding.tour.steps.${definition.id}.bullet${index}`),
+      ),
+    })),
+    [t],
+  );
+  const activeTourStep = tourSteps[tourStepIndex];
   const safeProjectsCount = Number.isFinite(projectsCount) ? projectsCount : 0;
+
+  useEffect(() => {
+    const frame = window.requestAnimationFrame(() => {
+      overlayRef.current
+        ?.querySelector<HTMLElement>("button:not([disabled])")
+        ?.focus();
+    });
+
+    function keepFocusInside(event: KeyboardEvent) {
+      if (event.key !== "Tab" || !overlayRef.current) return;
+
+      const focusable = Array.from(
+        overlayRef.current.querySelectorAll<HTMLElement>(
+          'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((element) => element.getClientRects().length > 0);
+      if (focusable.length === 0) {
+        event.preventDefault();
+        overlayRef.current.focus();
+        return;
+      }
+
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+
+    window.addEventListener("keydown", keepFocusInside, true);
+    return () => {
+      window.cancelAnimationFrame(frame);
+      window.removeEventListener("keydown", keepFocusInside, true);
+    };
+  }, []);
 
   const workspaceCaption = useMemo(() => {
     if (safeProjectsCount <= 0) {
-      return "No projects yet. You can add your first local project from Dashboard.";
+      return t("onboarding.final.noProjects");
     }
 
-    return `${safeProjectsCount} local project${safeProjectsCount === 1 ? "" : "s"} already detected. You can continue from Dashboard.`;
-  }, [safeProjectsCount]);
+    return t("onboarding.final.projectsDetected", { count: safeProjectsCount });
+  }, [safeProjectsCount, t]);
 
   const goNextPhase = () => {
     const phaseIndex = PHASE_ORDER.indexOf(stepId);
@@ -876,7 +839,7 @@ export function FirstRunOnboardingOverlay({
   };
 
   const goNextTourStep = () => {
-    if (tourStepIndex >= TOUR_STEPS.length - 1) {
+    if (tourStepIndex >= tourSteps.length - 1) {
       setStepId("final");
       return;
     }
@@ -903,8 +866,14 @@ export function FirstRunOnboardingOverlay({
   };
 
   return (
+    <MotionConfig reducedMotion="user">
     <motion.div
+      ref={overlayRef}
       key="contextforge-first-run-onboarding"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("onboarding.dialogLabel")}
+      tabIndex={-1}
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
@@ -961,7 +930,7 @@ export function FirstRunOnboardingOverlay({
               </motion.div>
               <div className="min-w-0">
                 <p className="text-sm font-semibold tracking-[-0.045em] text-white">ContextForge</p>
-                <p className="mt-0.5 hidden text-[11px] font-medium text-neutral-600 sm:block">First-run guide · local AI workflow</p>
+                <p className="mt-0.5 hidden text-[11px] font-medium text-neutral-600 sm:block">{t("onboarding.header.caption")}</p>
               </div>
             </div>
 
@@ -973,7 +942,11 @@ export function FirstRunOnboardingOverlay({
                 disabled={isLaunchingDashboard}
                 className="rounded-full border border-white/10 bg-white/[0.035] px-3 py-1.5 text-xs font-semibold text-neutral-400 transition hover:border-white/20 hover:bg-white/[0.06] hover:text-white disabled:cursor-wait disabled:opacity-70"
               >
-                {stepId === "final" ? (isLaunchingDashboard ? "Opening..." : "Enter Dashboard") : "Skip to welcome"}
+                {stepId === "final"
+                  ? isLaunchingDashboard
+                    ? t("onboarding.actions.opening")
+                    : t("onboarding.actions.enterDashboard")
+                  : t("onboarding.actions.skipToWelcome")}
               </button>
             </div>
           </header>
@@ -997,26 +970,26 @@ export function FirstRunOnboardingOverlay({
                     </motion.div>
 
                     <p className="mt-7 text-xs font-semibold uppercase tracking-[0.32em] text-neutral-600">
-                      Workspace ready
+                      {t("onboarding.final.eyebrow")}
                     </p>
                     <h2 className="mt-3 text-5xl font-semibold leading-[0.98] tracking-[-0.075em] text-white">
-                      Welcome to ContextForge.
+                      {t("onboarding.final.title")}
                     </h2>
                     <p className="mx-auto mt-4 max-w-xl text-[15px] leading-7 text-neutral-400">
-                      {workspaceCaption} Open Dashboard to start scanning projects, building Task Packs and reviewing local changes.
+                      {workspaceCaption} {t("onboarding.final.description")}
                     </p>
 
                     <div className="mx-auto mt-7 grid max-w-lg gap-3 sm:grid-cols-3">
                       {[
-                        ["Projects", safeProjectsCount.toString()],
-                        ["Mode", "Local-first"],
-                        ["Auth", "Optional"]
+                        [t("onboarding.final.projects"), safeProjectsCount.toString()],
+                        [t("onboarding.final.mode"), t("common.localFirst")],
+                        [t("onboarding.final.auth"), t("onboarding.final.optional")]
                       ].map(([label, value]) => (
                         <motion.div
                           key={label}
                           initial={{ opacity: 0, y: 10 }}
                           animate={{ opacity: 1, y: 0 }}
-                          transition={{ delay: label === "Projects" ? 0.06 : label === "Mode" ? 0.12 : 0.18, duration: 0.24 }}
+                          transition={{ delay: value === safeProjectsCount.toString() ? 0.06 : value === t("common.localFirst") ? 0.12 : 0.18, duration: 0.24 }}
                           className="rounded-2xl border border-white/[0.075] bg-black/35 p-4"
                         >
                           <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-neutral-600">{label}</p>
@@ -1028,11 +1001,13 @@ export function FirstRunOnboardingOverlay({
                     <div className="mt-8 flex flex-wrap justify-center gap-3">
                       <Button variant="secondary" onClick={() => setStepId("tour")}>
                         <ArrowLeft size={16} />
-                        Back
+                        {t("onboarding.actions.back")}
                       </Button>
                       <Button variant="primary" onClick={launchDashboard} disabled={isLaunchingDashboard}>
                         {isLaunchingDashboard ? <Rocket size={16} /> : <Code2 size={16} />}
-                        {isLaunchingDashboard ? "Opening Dashboard..." : "Enter Dashboard"}
+                        {isLaunchingDashboard
+                          ? t("onboarding.actions.openingDashboard")
+                          : t("onboarding.actions.enterDashboard")}
                       </Button>
                     </div>
 
@@ -1059,7 +1034,7 @@ export function FirstRunOnboardingOverlay({
                       onClick={onSkip}
                       className="mt-4 text-xs font-semibold text-neutral-600 transition hover:text-neutral-300"
                     >
-                      Close for this session
+                      {t("onboarding.actions.closeSession")}
                     </button>
                   </div>
               </div>
@@ -1084,43 +1059,43 @@ export function FirstRunOnboardingOverlay({
                     <div className="relative flex flex-wrap gap-2">
                       <span className="cf-badge">
                         <Sparkles size={12} />
-                        Local-first AI workflow
+                        {t("onboarding.intro.localWorkflow")}
                       </span>
-                      <span className="cf-badge">Desktop control center</span>
+                      <span className="cf-badge">{t("onboarding.intro.desktopControl")}</span>
                     </div>
 
                     <h1 className="relative mt-5 max-w-[640px] text-6xl font-semibold leading-[0.9] tracking-[-0.085em] text-white md:text-7xl">
-                      Give every coding agent the right context.
+                      {t("onboarding.intro.title")}
                     </h1>
                     <p className="relative mt-6 max-w-xl text-base leading-8 text-neutral-400">
-                      ContextForge scans your local project, explains readiness, prepares safe Task Packs and keeps your files on this device.
+                      {t("onboarding.intro.description")}
                     </p>
 
                     <div className="relative mt-8 grid gap-3 sm:grid-cols-2">
                       <IntroPipelineStep
                         icon={Search}
-                        title="Scan locally"
-                        text="Read scripts, docs and project signals without uploading source files."
+                        title={t("onboarding.intro.scanTitle")}
+                        text={t("onboarding.intro.scanDescription")}
                         index={0}
                       />
                       <IntroPipelineStep
                         icon={WandSparkles}
-                        title="Build the brief"
-                        text="Turn a real task into a focused prompt for Codex, Cursor or Claude Code."
+                        title={t("onboarding.intro.buildTitle")}
+                        text={t("onboarding.intro.buildDescription")}
                         index={1}
                       />
                     </div>
 
                     <div className="relative mt-8 flex flex-wrap items-center gap-3">
                       <Button variant="primary" onClick={goNextPhase}>
-                        Continue
+                        {t("onboarding.actions.continue")}
                         <ArrowRight size={16} />
                       </Button>
                       <Button variant="secondary" onClick={skipToFinal}>
-                        Skip tour
+                        {t("onboarding.actions.skipTour")}
                       </Button>
                       <span className="text-xs font-medium text-neutral-600">
-                        Sign-in stays optional during the alpha flow.
+                        {t("onboarding.intro.signInOptional")}
                       </span>
                     </div>
                   </div>
@@ -1149,14 +1124,14 @@ export function FirstRunOnboardingOverlay({
                         />
                         <span className="text-lg font-semibold tracking-[-0.045em] text-white">ContextForge</span>
                       </div>
-                      <span className="cf-badge">Account placeholder</span>
+                      <span className="cf-badge">{t("onboarding.auth.placeholderBadge")}</span>
                     </div>
 
                     <h2 className="mt-7 text-4xl font-semibold tracking-[-0.07em] text-white">
-                      Sign in to ContextForge.
+                      {t("onboarding.auth.title")}
                     </h2>
                     <p className="mt-3 text-sm leading-6 text-neutral-500">
-                      Accounts are planned for licenses, team profiles and future GitHub sync. Local projects work without sign-in today.
+                      {t("onboarding.auth.description")}
                     </p>
 
                     <div className="mt-6 grid gap-3 sm:grid-cols-2">
@@ -1165,7 +1140,7 @@ export function FirstRunOnboardingOverlay({
 
                         return (
                           <button
-                            key={item.title}
+                            key={item.id}
                             type="button"
                             className="group rounded-2xl border border-white/[0.075] bg-black/45 px-4 py-3 text-left transition duration-200 hover:-translate-y-0.5 hover:border-white/20 hover:bg-white/[0.055] hover:shadow-[0_14px_42px_rgba(255,255,255,0.05)]"
                           >
@@ -1174,8 +1149,8 @@ export function FirstRunOnboardingOverlay({
                                 {typeof Icon === "string" ? <GoogleMark /> : <Icon size={17} />}
                               </span>
                               <span className="min-w-0">
-                                <span className="block text-sm font-semibold text-white">{item.title}</span>
-                                <span className="mt-0.5 block text-[11px] text-neutral-600">Soon · placeholder</span>
+                                <span className="block text-sm font-semibold text-white">{t(`onboarding.auth.${item.id}.title`)}</span>
+                                <span className="mt-0.5 block text-[11px] text-neutral-600">{t("onboarding.auth.soonPlaceholder")}</span>
                               </span>
                             </div>
                           </button>
@@ -1185,11 +1160,11 @@ export function FirstRunOnboardingOverlay({
 
                     <div className="my-6 flex items-center gap-3 text-[11px] font-semibold uppercase tracking-[0.24em] text-neutral-700">
                       <span className="h-px flex-1 bg-white/[0.075]" />
-                      Or use email later
+                      {t("onboarding.auth.emailLater")}
                       <span className="h-px flex-1 bg-white/[0.075]" />
                     </div>
 
-                    <label className="block text-xs font-semibold text-neutral-500">Work email</label>
+                    <label className="block text-xs font-semibold text-neutral-500">{t("onboarding.auth.workEmail")}</label>
                     <div className="mt-2 flex items-center gap-3 rounded-2xl border border-white/[0.075] bg-black/45 px-4 py-3 text-neutral-600">
                       <Mail size={16} />
                       <span>you@company.dev</span>
@@ -1199,7 +1174,7 @@ export function FirstRunOnboardingOverlay({
                       <div className="flex items-start gap-3">
                         <LockKeyhole size={17} className="mt-0.5 shrink-0 text-neutral-400" />
                         <p className="text-sm leading-6 text-neutral-500">
-                          No data is submitted yet. These controls are visual placeholders for future auth.
+                          {t("onboarding.auth.privacyNote")}
                         </p>
                       </div>
                     </div>
@@ -1207,10 +1182,10 @@ export function FirstRunOnboardingOverlay({
                     <div className="mt-6 flex flex-wrap justify-between gap-3">
                       <Button variant="secondary" onClick={goBackPhase}>
                         <ArrowLeft size={16} />
-                        Back
+                        {t("onboarding.actions.back")}
                       </Button>
                       <Button variant="primary" onClick={goNextPhase}>
-                        Continue without sign-in
+                        {t("onboarding.actions.continueWithoutSignIn")}
                         <ArrowRight size={16} />
                       </Button>
                     </div>
@@ -1234,5 +1209,6 @@ export function FirstRunOnboardingOverlay({
         </div>
       </motion.section>
     </motion.div>
+    </MotionConfig>
   );
 }

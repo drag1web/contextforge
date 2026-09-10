@@ -26,45 +26,7 @@ import type {
   ContextForgeMcpTestResult,
 } from "../../types";
 import { Button } from "../ui/Button";
-
-function Toggle({
-  checked,
-  disabled,
-  label,
-  onChange,
-}: {
-  checked: boolean;
-  disabled?: boolean;
-  label: string;
-  onChange: (checked: boolean) => void;
-}) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={checked}
-      aria-label={label}
-      disabled={disabled}
-      onClick={() => onChange(!checked)}
-      className={[
-        "relative h-7 w-12 rounded-full border p-1 transition",
-        checked
-          ? "border-emerald-300/30 bg-emerald-300/20"
-          : "border-neutral-800 bg-neutral-950",
-        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer",
-      ].join(" ")}
-    >
-      <span
-        className={[
-          "block size-4 rounded-full transition-transform",
-          checked
-            ? "translate-x-5 bg-emerald-300"
-            : "translate-x-0 bg-neutral-600",
-        ].join(" ")}
-      />
-    </button>
-  );
-}
+import { Switch } from "../ui/Switch";
 
 function PanelCard({
   icon,
@@ -114,8 +76,8 @@ function PermissionRow({
   onChange?: (enabled: boolean) => void;
 }) {
   return (
-    <div className="flex items-center justify-between gap-4 rounded-2xl border border-neutral-900 bg-black/30 px-4 py-3">
-      <div className="min-w-0">
+    <div className="flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-neutral-900 bg-black/30 px-4 py-3 sm:flex-nowrap">
+      <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-neutral-200">{title}</p>
         <p className="mt-1 text-xs leading-5 text-neutral-600">{description}</p>
       </div>
@@ -124,11 +86,11 @@ function PermissionRow({
           <Check size={13} />
         </span>
       ) : (
-        <Toggle
+        <Switch
           checked={enabled}
           disabled={!onChange}
           label={title}
-          onChange={(next) => onChange?.(next)}
+          onCheckedChange={(next) => onChange?.(next)}
         />
       )}
     </div>
@@ -298,8 +260,8 @@ export function McpIntegrationPanel() {
             </div>
           ))}
         </div>
-        <div className="mt-4 flex items-center justify-between gap-4 rounded-2xl border border-neutral-900 bg-black/30 px-4 py-3">
-          <div>
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-neutral-900 bg-black/30 px-4 py-3 sm:flex-nowrap">
+          <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-neutral-200">
               {t("integrationsHub.mcp.enableTitle")}
             </p>
@@ -307,11 +269,11 @@ export function McpIntegrationPanel() {
               {t("integrationsHub.mcp.enableDescription")}
             </p>
           </div>
-          <Toggle
+          <Switch
             checked={status.enabled}
             disabled={busy !== null}
             label={t("integrationsHub.mcp.enableTitle")}
-            onChange={(enabled) => void updateSettings({ enabled })}
+            onCheckedChange={(enabled) => void updateSettings({ enabled })}
           />
         </div>
       </PanelCard>
