@@ -16,11 +16,13 @@ import {
   CloudUpload,
   Download,
   ExternalLink,
+  Eye,
   FileText,
   Filter,
   HelpCircle,
   Inbox,
   RefreshCw,
+  ScanSearch,
   Search,
   ShieldAlert,
   SlidersHorizontal,
@@ -37,11 +39,20 @@ import { CustomSelect, type SelectOption } from "../components/ui/CustomSelect";
 import { DropdownMenu } from "../components/ui/DropdownMenu";
 import { HorizontalSlidingSelector } from "../components/ui/SlidingSelectors";
 import { exportTaskPack } from "../utils/taskPackExport";
+import type { TaskPackFreshness } from "../utils/taskPackFreshness";
+import {
+  TaskPackFreshnessBadge,
+  TaskPackFreshnessNotice,
+} from "../components/taskPacks/TaskPackFreshness";
 
 interface TaskPacksPageProps {
   taskPacks: TaskPack[];
   onOpenTaskPack: (taskPack: TaskPack) => void;
+  onQuickPeekTaskPack: (taskPack: TaskPack) => void;
+  onInspectTaskPack: (taskPack: TaskPack) => void;
   onImportedTaskPack: (taskPack: TaskPack) => void;
+  freshnessByTaskPackId: ReadonlyMap<number, TaskPackFreshness>;
+  onReviewProject: (projectId: number) => void;
 }
 
 type TaskTypeFilter =
@@ -249,8 +260,12 @@ function TaskPackCard({
   bodyLabel,
   onCopy,
   onOpen,
+  onQuickPeek,
+  onInspect,
   onPublish,
   publishState,
+  freshness,
+  onReviewProject,
 }: {
   taskPack: TaskPack;
   isCopied: boolean;
@@ -258,8 +273,12 @@ function TaskPackCard({
   bodyLabel: string;
   onCopy: () => void;
   onOpen: () => void;
+  onQuickPeek: () => void;
+  onInspect: () => void;
   onPublish: () => void;
   publishState: PublishState;
+  freshness: TaskPackFreshness;
+  onReviewProject: () => void;
 }) {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -320,16 +339,19 @@ function TaskPackCard({
       transition={TASK_PACK_TRANSITION}
       className="rounded-[1.4rem] border border-neutral-900 bg-black/35 p-4 transition-colors duration-200 hover:border-white/15 hover:bg-white/[0.025]"
     >
-      <div className="flex items-start justify-between gap-4">
-        <div className="flex min-w-0 items-start gap-3">
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="flex min-w-0 flex-1 items-start gap-3">
           <span className="mt-0.5 grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-400">
             <FileText size={15} />
           </span>
 
           <div className="min-w-0">
-            <h4 className="line-clamp-2 text-[15px] font-semibold leading-6 text-white">
-              {getTaskPackDisplayTitle(taskPack)}
-            </h4>
+            <div className="flex min-w-0 flex-wrap items-start gap-2">
+              <h4 className="min-w-0 flex-1 line-clamp-2 text-[15px] font-semibold leading-6 text-white">
+                {getTaskPackDisplayTitle(taskPack)}
+              </h4>
+              <TaskPackFreshnessBadge freshness={freshness} />
+            </div>
 
             <p className="mt-1 truncate text-xs text-neutral-600">
               {projectName} <span className="px-1.5 text-neutral-800">·</span>
@@ -342,7 +364,27 @@ function TaskPackCard({
           </div>
         </div>
 
-        <div className="flex shrink-0 items-center gap-2">
+        <div className="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={onQuickPeek}
+            aria-label={t("quickPeek.title")}
+            title={t("quickPeek.title")}
+            className="grid size-9 place-items-center rounded-xl border border-neutral-900 bg-black/35 text-neutral-600 transition hover:border-neutral-700 hover:bg-neutral-950 hover:text-white"
+          >
+            <Eye size={14} />
+          </button>
+
+          <button
+            type="button"
+            onClick={onInspect}
+            aria-label={t("inspector.inspect")}
+            title={t("inspector.inspect")}
+            className="grid size-9 place-items-center rounded-xl border border-neutral-900 bg-black/35 text-neutral-600 transition hover:border-neutral-700 hover:bg-neutral-950 hover:text-white"
+          >
+            <ScanSearch size={14} />
+          </button>
+
           <Button variant="primary" onClick={onOpen} className="h-9 px-4 text-xs">
             {t("taskPacksPage.open")}
           </Button>
@@ -352,6 +394,16 @@ function TaskPackCard({
           />
         </div>
       </div>
+
+      {freshness.status !== "current" ? (
+        <div className="mt-3">
+          <TaskPackFreshnessNotice
+            freshness={freshness}
+            onReviewProject={onReviewProject}
+            compact
+          />
+        </div>
+      ) : null}
 
       <div className="mt-3 border-t border-neutral-900 pt-2.5">
         <button
@@ -818,7 +870,11 @@ function CloudTaskPackBridge({
 export function TaskPacksPage({
   taskPacks,
   onOpenTaskPack,
+  onQuickPeekTaskPack,
+  onInspectTaskPack,
   onImportedTaskPack,
+  freshnessByTaskPackId,
+  onReviewProject,
 }: TaskPacksPageProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -838,15 +894,15 @@ export function TaskPacksPage({
         label: t("labels.taskTypeAll"),
         description: t("taskPacksPage.allTypes"),
       },
-      { value: "general", label: t("labels.taskTypeGeneral"), description: "General" },
-      { value: "ui", label: t("labels.taskTypeUi"), description: "Interface" },
-      { value: "backend", label: t("labels.taskTypeBackend"), description: "Server" },
-      { value: "fullstack", label: t("labels.taskTypeFullstack"), description: "Both sides" },
-      { value: "build", label: t("labels.taskTypeBuild"), description: "Build" },
-      { value: "bugfix", label: t("labels.taskTypeBugfix"), description: "Fixes" },
-      { value: "refactor", label: t("labels.taskTypeRefactor"), description: "Cleanup" },
-      { value: "docs", label: t("labels.taskTypeDocs"), description: "Writing" },
-      { value: "tests", label: t("labels.taskTypeTests"), description: "Coverage" },
+      { value: "general", label: t("labels.taskTypeGeneral"), description: t("taskPacksPage.taskTypeDescription.general") },
+      { value: "ui", label: t("labels.taskTypeUi"), description: t("taskPacksPage.taskTypeDescription.ui") },
+      { value: "backend", label: t("labels.taskTypeBackend"), description: t("taskPacksPage.taskTypeDescription.backend") },
+      { value: "fullstack", label: t("labels.taskTypeFullstack"), description: t("taskPacksPage.taskTypeDescription.fullstack") },
+      { value: "build", label: t("labels.taskTypeBuild"), description: t("taskPacksPage.taskTypeDescription.build") },
+      { value: "bugfix", label: t("labels.taskTypeBugfix"), description: t("taskPacksPage.taskTypeDescription.bugfix") },
+      { value: "refactor", label: t("labels.taskTypeRefactor"), description: t("taskPacksPage.taskTypeDescription.refactor") },
+      { value: "docs", label: t("labels.taskTypeDocs"), description: t("taskPacksPage.taskTypeDescription.docs") },
+      { value: "tests", label: t("labels.taskTypeTests"), description: t("taskPacksPage.taskTypeDescription.tests") },
     ],
     [t],
   );
@@ -1173,17 +1229,23 @@ export function TaskPacksPage({
             >
               <div className="grid gap-3 2xl:grid-cols-2">
                 {filteredTaskPacks.map((taskPack) => (
-                  <TaskPackCard
-                    key={taskPack.id}
-                    taskPack={taskPack}
-                    isCopied={copiedTaskPackId === taskPack.id}
-                    projectName={getTaskPackProjectName(taskPack, t)}
-                    bodyLabel={getTaskPackBodyBadge(taskPack, t)}
-                    onCopy={() => void handleCopy(taskPack)}
-                    onOpen={() => onOpenTaskPack(taskPack)}
-                    onPublish={() => void handlePublish(taskPack)}
-                    publishState={publishStateById[taskPack.id] ?? "idle"}
-                  />
+                  freshnessByTaskPackId.get(taskPack.id) ? (
+                    <TaskPackCard
+                      key={taskPack.id}
+                      taskPack={taskPack}
+                      isCopied={copiedTaskPackId === taskPack.id}
+                      projectName={getTaskPackProjectName(taskPack, t)}
+                      bodyLabel={getTaskPackBodyBadge(taskPack, t)}
+                      onCopy={() => void handleCopy(taskPack)}
+                      onOpen={() => onOpenTaskPack(taskPack)}
+                      onQuickPeek={() => onQuickPeekTaskPack(taskPack)}
+                      onInspect={() => onInspectTaskPack(taskPack)}
+                      onPublish={() => void handlePublish(taskPack)}
+                      publishState={publishStateById[taskPack.id] ?? "idle"}
+                      freshness={freshnessByTaskPackId.get(taskPack.id)!}
+                      onReviewProject={() => onReviewProject(taskPack.projectId)}
+                    />
+                  ) : null
                 ))}
               </div>
             </motion.div>

@@ -5,6 +5,7 @@ import {
   Check,
   Code2,
   Copy,
+  Eye,
   FileText,
   FolderKanban,
   Loader2,
@@ -15,6 +16,7 @@ import {
 } from "lucide-react";
 
 import type { Project, TaskPack, WorkspaceSearchResult } from "../../types";
+import type { QuickPeekTarget } from "../../types/quickPeek";
 import { searchWorkspace } from "../../api/client";
 import type { ShortcutActionId } from "../../config/keyboardShortcuts";
 import {
@@ -33,6 +35,7 @@ interface GlobalSearchModalProps {
   taskPacks: TaskPack[];
   onNavigate: (page: AppPageId) => void;
   onOpenTaskPack: (taskPack: TaskPack) => void;
+  onQuickPeek: (target: QuickPeekTarget) => void;
   onAddProject: () => void;
   onClose: () => void;
 }
@@ -47,6 +50,7 @@ interface SearchItem {
   status?: string;
   actionType?: "open" | "copy";
   action: () => void;
+  quickPeek?: () => void;
 }
 
 function normalize(value: unknown) {
@@ -63,11 +67,13 @@ export function GlobalSearchModal({
   taskPacks,
   onNavigate,
   onOpenTaskPack,
+  onQuickPeek,
   onAddProject,
   onClose
 }: GlobalSearchModalProps) {
   const { t } = useTranslation();
   const inputRef = useRef<HTMLInputElement | null>(null);
+  const copyResetTimerRef = useRef<number | null>(null);
 
   const [query, setQuery] = useState("");
   const [workspaceResults, setWorkspaceResults] = useState<WorkspaceSearchResult[]>([]);
@@ -81,6 +87,15 @@ export function GlobalSearchModal({
 
     return () => window.clearTimeout(timeoutId);
   }, []);
+
+  useEffect(
+    () => () => {
+      if (copyResetTimerRef.current !== null) {
+        window.clearTimeout(copyResetTimerRef.current);
+      }
+    },
+    [],
+  );
 
   useEffect(() => {
     const normalizedQuery = query.trim();
@@ -124,7 +139,13 @@ export function GlobalSearchModal({
     try {
       await navigator.clipboard.writeText(value);
       setCopiedResultId(result.id);
-      window.setTimeout(() => setCopiedResultId(null), 1400);
+      if (copyResetTimerRef.current !== null) {
+        window.clearTimeout(copyResetTimerRef.current);
+      }
+      copyResetTimerRef.current = window.setTimeout(() => {
+        setCopiedResultId(null);
+        copyResetTimerRef.current = null;
+      }, 1400);
     } catch {
       setCopiedResultId(null);
     }
@@ -177,6 +198,13 @@ export function GlobalSearchModal({
       action: () => {
         onNavigate("projects");
         onClose();
+      },
+      quickPeek: () => {
+        onClose();
+        onQuickPeek({
+          kind: "project",
+          project,
+        });
       }
     }));
 
@@ -205,6 +233,13 @@ export function GlobalSearchModal({
       action: () => {
         onClose();
         onOpenTaskPack(taskPack);
+      },
+      quickPeek: () => {
+        onClose();
+        onQuickPeek({
+          kind: "task-pack",
+          taskPack,
+        });
       }
     }));
 
@@ -250,6 +285,7 @@ export function GlobalSearchModal({
     onClose,
     onNavigate,
     onOpenTaskPack,
+    onQuickPeek,
     projects,
     t,
     taskPacks
@@ -286,6 +322,24 @@ export function GlobalSearchModal({
           actionType: "copy" as const,
           action: () => {
             void handleCopyWorkspaceResult(result);
+          },
+          quickPeek: () => {
+            onClose();
+            onQuickPeek({
+              kind: "file",
+              title: result.title,
+              displayPath:
+                result.relativePath ??
+                result.absolutePath ??
+                result.subtitle ??
+                result.title,
+              filePath: result.relativePath ?? undefined,
+              absolutePath: result.absolutePath,
+              projectId: result.projectId,
+              projectName: result.projectName,
+              line: result.line,
+              snippet: result.snippet,
+            });
           }
         };
       }
@@ -312,9 +366,22 @@ export function GlobalSearchModal({
             } else {
               onNavigate("taskPacks");
             }
-          }
+          },
+          quickPeek: matchingTaskPack
+            ? () => {
+                onClose();
+                onQuickPeek({
+                  kind: "task-pack",
+                  taskPack: matchingTaskPack,
+                });
+              }
+            : undefined
         };
       }
+
+      const matchingProject = result.projectId
+        ? projects.find((project) => project.id === result.projectId)
+        : undefined;
 
       return {
         id: result.projectId
@@ -329,10 +396,29 @@ export function GlobalSearchModal({
         action: () => {
           onNavigate("projects");
           onClose();
-        }
+        },
+        quickPeek: matchingProject
+          ? () => {
+              onClose();
+              onQuickPeek({
+                kind: "project",
+                project: matchingProject,
+              });
+            }
+          : undefined
       };
     });
-  }, [copiedResultId, onClose, onNavigate, onOpenTaskPack, t, taskPacks, workspaceResults]);
+  }, [
+    copiedResultId,
+    onClose,
+    onNavigate,
+    onOpenTaskPack,
+    onQuickPeek,
+    projects,
+    t,
+    taskPacks,
+    workspaceResults
+  ]);
 
   const displayItems = useMemo(() => {
     const hasQuery = query.trim().length > 0;
@@ -362,6 +448,7 @@ export function GlobalSearchModal({
     <Modal
       title={t("globalSearch.title")}
       eyebrow={t("globalSearch.eyebrow")}
+      closeLabel={t("globalSearch.close")}
       maxWidth="max-w-[960px]"
       scrollable={false}
       onClose={onClose}
@@ -418,49 +505,65 @@ export function GlobalSearchModal({
               const isCopied = isCopyAction && item.status === t("globalSearch.copied");
 
               return (
-                <button
+                <div
                   key={item.id}
-                  type="button"
-                  onClick={item.action}
-                  className="group flex h-[58px] min-w-0 items-center gap-3 rounded-2xl border border-neutral-900 bg-black/30 px-3 text-left transition duration-150 hover:border-neutral-700 hover:bg-neutral-950"
+                  className="group flex h-[58px] min-w-0 items-center rounded-2xl border border-neutral-900 bg-black/30 pl-3 pr-2 transition duration-150 hover:border-neutral-700 hover:bg-neutral-950"
                 >
-                  <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-900 bg-black text-neutral-600 transition group-hover:border-neutral-800 group-hover:text-neutral-300">
-                    <Icon size={15} />
-                  </span>
+                  <button
+                    type="button"
+                    onClick={item.action}
+                    className="flex min-w-0 flex-1 items-center gap-3 text-left"
+                  >
+                    <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-900 bg-black text-neutral-600 transition group-hover:border-neutral-800 group-hover:text-neutral-300">
+                      <Icon size={15} />
+                    </span>
 
-                  <span className="min-w-0 flex-1">
-                    <span className="flex min-w-0 items-center gap-2">
-                      <span className="truncate text-[13px] font-semibold text-neutral-200 transition group-hover:text-white">
-                        {item.title}
+                    <span className="min-w-0 flex-1">
+                      <span className="flex min-w-0 items-center gap-2">
+                        <span className="truncate text-[13px] font-semibold text-neutral-200 transition group-hover:text-white">
+                          {item.title}
+                        </span>
+                        <span className="shrink-0 text-[9px] uppercase tracking-[0.08em] text-neutral-700">
+                          {item.kind}
+                        </span>
                       </span>
-                      <span className="shrink-0 text-[9px] uppercase tracking-[0.08em] text-neutral-700">
-                        {item.kind}
+                      <span className="mt-0.5 block truncate text-[10px] text-neutral-700 transition group-hover:text-neutral-500">
+                        {item.subtitle}
                       </span>
                     </span>
-                    <span className="mt-0.5 block truncate text-[10px] text-neutral-700 transition group-hover:text-neutral-500">
-                      {item.subtitle}
-                    </span>
-                  </span>
 
-                  {item.status ? (
-                    <span
-                      className={[
-                        "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[9px]",
-                        isCopied
-                          ? "border-emerald-400/20 bg-emerald-400/[0.07] text-emerald-300"
-                          : "border-neutral-900 bg-black text-neutral-600"
-                      ].join(" ")}
+                    {item.status ? (
+                      <span
+                        className={[
+                          "inline-flex shrink-0 items-center gap-1.5 rounded-full border px-2 py-1 text-[9px]",
+                          isCopied
+                            ? "border-emerald-400/20 bg-emerald-400/[0.07] text-emerald-300"
+                            : "border-neutral-900 bg-black text-neutral-600"
+                        ].join(" ")}
+                      >
+                        {isCopied ? <Check size={10} /> : isCopyAction ? <Copy size={10} /> : null}
+                        {item.status}
+                      </span>
+                    ) : (
+                      <ArrowRight
+                        size={12}
+                        className="shrink-0 text-neutral-800 transition group-hover:translate-x-0.5 group-hover:text-neutral-500"
+                      />
+                    )}
+                  </button>
+
+                  {item.quickPeek ? (
+                    <button
+                      type="button"
+                      onClick={item.quickPeek}
+                      aria-label={t("globalSearch.quickPeek")}
+                      title={t("globalSearch.quickPeek")}
+                      className="ml-2 grid size-8 shrink-0 place-items-center rounded-xl border border-transparent text-neutral-700 transition hover:border-neutral-800 hover:bg-black hover:text-neutral-300"
                     >
-                      {isCopied ? <Check size={10} /> : isCopyAction ? <Copy size={10} /> : null}
-                      {item.status}
-                    </span>
-                  ) : (
-                    <ArrowRight
-                      size={12}
-                      className="shrink-0 text-neutral-800 transition group-hover:translate-x-0.5 group-hover:text-neutral-500"
-                    />
-                  )}
-                </button>
+                      <Eye size={13} />
+                    </button>
+                  ) : null}
+                </div>
               );
             })}
           </div>

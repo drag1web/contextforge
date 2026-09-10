@@ -9,10 +9,12 @@ import { motion, useReducedMotion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import {
   Activity,
+  AlertTriangle,
   Archive,
   ArrowRight,
   CheckCircle2,
   Clipboard,
+  Eye,
   FileText,
   FolderOpen,
   Gauge,
@@ -23,13 +25,27 @@ import {
 import type { TFunction } from "i18next";
 
 import { WorkspacePageHeader } from "../components/layout/WorkspacePageHeader";
+import { ProjectAwarenessSummary } from "../components/projects/ProjectAwarenessPanel";
 import { localizeReadinessIssueTitle } from "../components/projects/projectDetailsI18n";
 import { Button } from "../components/ui/Button";
+import { WorkspaceDisclosure } from "../components/workspace/WorkspaceDisclosure";
+import { TaskPackFreshnessBadge } from "../components/taskPacks/TaskPackFreshness";
 import type { Project, ReadinessCheck, TaskPack } from "../types";
+import type { TaskPackFreshness } from "../utils/taskPackFreshness";
+import {
+  getDashboardAttentionProjects,
+  getDashboardAwarenessCounts,
+  getDashboardAwarenessProjects,
+  getDashboardPrimaryProject,
+  getDashboardProjectAction,
+  getDashboardRecentTaskPacks,
+  type DashboardProjectAction,
+} from "../utils/dashboardWorkspace";
 
 interface DashboardHomePageProps {
   projects: Project[];
   taskPacks: TaskPack[];
+  freshnessByTaskPackId: ReadonlyMap<number, TaskPackFreshness>;
   readinessScore: number | null;
   statusMessage: string;
   isLoading: boolean;
@@ -42,14 +58,14 @@ interface DashboardHomePageProps {
   onGenerateAgents: (project: Project) => void | Promise<void>;
   onCreateTaskPack: (project: Project) => void | Promise<void>;
   onOpenTaskPack: (taskPack: TaskPack) => void;
+  onOpenProjectDetails: (project: Project) => void;
+  onQuickPeekProject: (project: Project) => void;
 }
 
 type BreakdownItem = {
   label: string;
   value: number;
 };
-
-type ProjectAction = "buildContext" | "scan" | "createPack";
 
 const ENTER_TRANSITION = {
   duration: 0.42,
@@ -234,85 +250,6 @@ function hasIssue(project: Project, keywords: string[]) {
     .toLowerCase();
 
   return keywords.some((keyword) => text.includes(keyword.toLowerCase()));
-}
-
-function isStaleProject(project: Project) {
-  if (!project.lastScanAt) {
-    return true;
-  }
-
-  const scanDate = new Date(project.lastScanAt).getTime();
-  const sevenDays = 7 * 24 * 60 * 60 * 1000;
-
-  return Date.now() - scanDate > sevenDays;
-}
-
-function getAttentionProjects(projects: Project[]) {
-  return [...projects]
-    .filter(
-      (project) =>
-        project.readinessScore < 60 ||
-        isStaleProject(project) ||
-        (project.readinessReport?.issues?.length ?? 0) > 0,
-    )
-    .sort((a, b) => {
-      const scoreDiff = a.readinessScore - b.readinessScore;
-
-      if (scoreDiff !== 0) {
-        return scoreDiff;
-      }
-
-      return (
-        new Date(a.lastScanAt ?? 0).getTime() -
-        new Date(b.lastScanAt ?? 0).getTime()
-      );
-    });
-}
-
-function getProjectAction(project: Project): ProjectAction {
-  if (hasIssue(project, ["agents", "agents.md", "instructions"])) {
-    return "buildContext";
-  }
-
-  if (isStaleProject(project)) {
-    return "scan";
-  }
-
-  if (project.readinessScore < 60) {
-    return "buildContext";
-  }
-
-  return "createPack";
-}
-
-function getRecentTaskPacks(taskPacks: TaskPack[]) {
-  return [...taskPacks]
-    .sort(
-      (a, b) =>
-        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-    )
-    .slice(0, 3);
-}
-
-function getPrimaryProject(
-  projects: Project[],
-  taskPacks: TaskPack[],
-  attentionProjects: Project[],
-) {
-  const latestTaskPack = getRecentTaskPacks(taskPacks)[0];
-  const latestTaskPackProject = latestTaskPack
-    ? projects.find((project) => project.id === latestTaskPack.projectId)
-    : null;
-
-  return (
-    attentionProjects[0] ??
-    latestTaskPackProject ??
-    [...projects].sort(
-      (a, b) =>
-        new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime(),
-    )[0] ??
-    null
-  );
 }
 
 function getCategoryScore(
@@ -542,55 +479,8 @@ function UtilityActionButton({
   );
 }
 
-function ReadinessProgress({
-  score,
-  label,
-  status,
-}: {
-  score: number;
-  label: string;
-  status: string;
-}) {
-  const animatedScore = useAnimatedNumber(score, 900);
-
-  return (
-    <div className="min-w-0">
-      <div className="flex items-end justify-between gap-4">
-        <div>
-          <p className="cf-tech-label text-[10px] uppercase text-neutral-500">
-            {label}
-          </p>
-          <p className="mt-1 text-[36px] font-semibold leading-none tracking-[-0.065em] text-white">
-            {animatedScore}
-            <span className="ml-1 text-base tracking-normal text-neutral-600">
-              /100
-            </span>
-          </p>
-        </div>
-        <p className="pb-1 text-xs text-neutral-500">
-          {status}
-        </p>
-      </div>
-
-      <div className="mt-4 h-2 overflow-hidden rounded-full border border-white/[0.065] bg-black">
-        <motion.div
-          initial={{ width: 0 }}
-          animate={{ width: `${Math.max(2, score)}%` }}
-          transition={{
-            type: "spring",
-            stiffness: 110,
-            damping: 24,
-            mass: 0.85,
-          }}
-          className="h-full rounded-full bg-neutral-300 shadow-[0_0_14px_rgba(255,255,255,0.16)]"
-        />
-      </div>
-    </div>
-  );
-}
-
 function getActionLabel(
-  action: ProjectAction,
+  action: DashboardProjectAction,
   t: (key: string) => string,
 ) {
   if (action === "scan") {
@@ -657,6 +547,7 @@ function EmptyDashboard({
 export function DashboardHomePage({
   projects,
   taskPacks,
+  freshnessByTaskPackId,
   readinessScore,
   statusMessage,
   isLoading,
@@ -669,31 +560,51 @@ export function DashboardHomePage({
   onGenerateAgents,
   onCreateTaskPack,
   onOpenTaskPack,
+  onOpenProjectDetails,
+  onQuickPeekProject,
 }: DashboardHomePageProps) {
   const { t } = useTranslation();
   const reduceMotion = useReducedMotion();
   const attentionProjects = useMemo(
-    () => getAttentionProjects(projects),
+    () => getDashboardAttentionProjects(projects),
     [projects],
   );
   const recentTaskPacks = useMemo(
-    () => getRecentTaskPacks(taskPacks),
+    () => getDashboardRecentTaskPacks(taskPacks),
     [taskPacks],
+  );
+  const taskPackReviewCount = useMemo(
+    () =>
+      [...freshnessByTaskPackId.values()].filter(
+        (freshness) =>
+          freshness.status === "affected" ||
+          freshness.status === "review_recommended",
+      ).length,
+    [freshnessByTaskPackId],
   );
   const breakdown = useMemo(
     () => getReadinessBreakdown(projects, t),
     [projects, t],
   );
   const primaryProject = useMemo(
-    () => getPrimaryProject(projects, taskPacks, attentionProjects),
+    () =>
+      getDashboardPrimaryProject(projects, taskPacks, attentionProjects),
     [attentionProjects, projects, taskPacks],
   );
-  const otherAttentionProjects = useMemo(
+  const awarenessProjects = useMemo(
+    () => getDashboardAwarenessProjects(projects),
+    [projects],
+  );
+  const awarenessCounts = useMemo(
+    () => getDashboardAwarenessCounts(projects),
+    [projects],
+  );
+  const awarenessHighlights = useMemo(
     () =>
-      attentionProjects
-        .filter((project) => project.id !== primaryProject?.id)
-        .slice(0, 3),
-    [attentionProjects, primaryProject?.id],
+      awarenessProjects
+        .filter((project) => project.awareness?.status !== "unchanged")
+        .slice(0, 4),
+    [awarenessProjects],
   );
   const readyProjectsCount = useMemo(
     () => projects.filter((project) => project.readinessScore >= 80).length,
@@ -708,7 +619,7 @@ export function DashboardHomePage({
     null;
 
   function runProjectAction(project: Project) {
-    const action = getProjectAction(project);
+    const action = getDashboardProjectAction(project);
 
     if (action === "scan") {
       void onRescanProject(project);
@@ -734,7 +645,7 @@ export function DashboardHomePage({
   }
 
   const primaryAction = primaryProject
-    ? getProjectAction(primaryProject)
+    ? getDashboardProjectAction(primaryProject)
     : "buildContext";
   const primaryIssue = primaryProject
     ? getProjectIssues(primaryProject, t)[0]
@@ -747,47 +658,45 @@ export function DashboardHomePage({
         icon={<Gauge size={18} />}
         eyebrow={t("dashboard.workspaceKicker")}
         title={t("dashboard.workspaceOverview")}
-        description={t("dashboard.commandCenterDescription")}
+        description={t("dashboard.intelligenceWorkspaceDescription")}
         headingLevel={1}
         aside={
-          <div className="w-full xl:w-[360px]">
-            <div className="mb-2 flex justify-end">
-              <span className="cf-badge">
-                {t("dashboard.lastScan", { time: latestScanLabel })}
-              </span>
-            </div>
-            <ReadinessProgress
-              score={readinessValue}
-              label={t("dashboard.avgReadiness")}
-              status={
-                readinessValue >= 80
-                  ? t("contextBuilder.readyForAgents")
-                  : readinessValue >= 60
-                    ? t("contextBuilder.needsContextPolish")
-                    : t("contextBuilder.needsAttention")
-              }
-            />
+          <div className="flex w-full min-w-0 flex-wrap items-center justify-start gap-2 xl:max-w-[420px] xl:justify-end">
+            <span className="cf-badge">
+              {t("dashboard.projectCount", { count: projects.length })}
+            </span>
+            <span className="cf-badge">
+              {t("dashboard.lastScan", { time: latestScanLabel })}
+            </span>
           </div>
         }
       />
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <AnimatedMetric
-          label={t("dashboard.projects")}
-          value={projects.length}
-          caption={t("dashboard.localWorkspaces")}
+          label={t("dashboard.needAttention")}
+          value={attentionProjects.length}
+          caption={
+            attentionProjects.length > 0
+              ? t("dashboard.attentionActionableCaption")
+              : t("dashboard.attentionClearCaption")
+          }
           delay={motionDelay(0.06)}
         />
         <AnimatedMetric
-          label={t("dashboard.needAttention")}
-          value={attentionProjects.length}
-          caption={t("dashboard.contextOrScanIssues")}
+          label={t("dashboard.changedProjects")}
+          value={awarenessCounts.changed}
+          caption={
+            awarenessCounts.changed > 0
+              ? t("dashboard.changedProjectsCaption")
+              : t("dashboard.noObservedChangesCaption")
+          }
           delay={motionDelay(0.09)}
         />
         <AnimatedMetric
-          label={t("dashboard.taskPacks")}
-          value={taskPacks.length}
-          caption={t("dashboard.generatedPrompts")}
+          label={t("dashboard.avgReadiness")}
+          value={readinessValue}
+          caption={t("dashboard.workspaceScore")}
           delay={motionDelay(0.12)}
         />
         <AnimatedMetric
@@ -801,7 +710,7 @@ export function DashboardHomePage({
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
         <DashboardCard
           title={t("dashboard.nextPriority")}
-          caption={t("dashboard.quickActionsCaption")}
+          caption={t("dashboard.nextPriorityCaption")}
           delay={motionDelay(0.18)}
         >
           {primaryProject ? (
@@ -833,11 +742,15 @@ export function DashboardHomePage({
                         t("labels.noValue")}
                     </span>
                   </div>
+                  <ProjectAwarenessSummary
+                    project={primaryProject}
+                    className="mt-3 max-w-2xl"
+                  />
                 </div>
 
                 <div className="w-full max-w-[210px] shrink-0">
                   <div className="flex items-center justify-between text-xs text-neutral-500">
-                    <span>{t("dashboard.avgReadiness")}</span>
+                    <span>{t("dashboard.projectReadiness")}</span>
                     <span>{primaryProject.readinessScore}%</span>
                   </div>
                   <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-neutral-900">
@@ -867,14 +780,27 @@ export function DashboardHomePage({
                   {getActionLabel(primaryAction, t)}
                   <ArrowRight size={15} />
                 </Button>
+                <CompactButton
+                  onClick={() => onOpenProjectDetails(primaryProject)}
+                >
+                  {t("dashboard.openProject")}
+                </CompactButton>
+                <button
+                  type="button"
+                  onClick={() => onQuickPeekProject(primaryProject)}
+                  className="inline-flex h-8 items-center gap-2 rounded-full px-3 text-xs font-medium text-neutral-500 transition-colors hover:bg-white/[0.045] hover:text-white"
+                >
+                  <Eye size={13} />
+                  {t("dashboard.quickPeek")}
+                </button>
               </div>
             </div>
           ) : null}
         </DashboardCard>
 
         <DashboardCard
-          title={t("dashboard.otherProjectsNeedingAttention")}
-          caption={t("dashboard.otherPriorityCaption")}
+          title={t("dashboard.attentionQueue")}
+          caption={t("dashboard.attentionQueueCaption")}
           delay={motionDelay(0.21)}
           action={
             <CompactButton onClick={onOpenProjects}>
@@ -882,7 +808,7 @@ export function DashboardHomePage({
             </CompactButton>
           }
         >
-          {otherAttentionProjects.length === 0 ? (
+          {attentionProjects.length === 0 ? (
             <div className="rounded-[1.1rem] border border-white/[0.065] bg-black/35 p-5">
               <div className="mb-3 flex size-10 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-400/10 text-emerald-300">
                 <CheckCircle2 size={17} />
@@ -896,14 +822,14 @@ export function DashboardHomePage({
             </div>
           ) : (
             <div className="divide-y divide-white/[0.055] overflow-hidden rounded-[1.1rem] border border-white/[0.065] bg-black/35">
-              {otherAttentionProjects.map((project) => {
-                const action = getProjectAction(project);
+              {attentionProjects.slice(0, 4).map((project) => {
+                const action = getDashboardProjectAction(project);
                 const issue = getProjectIssues(project, t)[0];
 
                 return (
                   <div
                     key={project.id}
-                    className="grid gap-3 px-4 py-3.5 md:grid-cols-[minmax(0,1fr)_70px_auto] md:items-center"
+                    className="grid min-w-0 gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
                   >
                     <div className="min-w-0">
                       <p className="truncate text-sm font-semibold text-white">
@@ -913,15 +839,17 @@ export function DashboardHomePage({
                         {issue}
                       </p>
                     </div>
-                    <p className="text-xs font-medium text-neutral-400">
-                      {project.readinessScore}/100
-                    </p>
-                    <CompactButton
-                      onClick={() => runProjectAction(project)}
-                      disabled={isLoading}
-                    >
-                      {getActionLabel(action, t)}
-                    </CompactButton>
+                    <div className="flex min-w-0 flex-wrap items-center gap-2 sm:justify-end">
+                      <span className="shrink-0 text-xs font-medium text-neutral-400">
+                        {project.readinessScore}/100
+                      </span>
+                      <CompactButton
+                        onClick={() => runProjectAction(project)}
+                        disabled={isLoading}
+                      >
+                        {getActionLabel(action, t)}
+                      </CompactButton>
+                    </div>
                   </div>
                 );
               })}
@@ -932,9 +860,99 @@ export function DashboardHomePage({
 
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
         <DashboardCard
-          title={t("dashboard.currentActivity")}
-          caption={t("dashboard.activityCaption")}
+          title={t("dashboard.whatChanged")}
+          caption={t("dashboard.whatChangedCaption")}
           delay={motionDelay(0.24)}
+          action={
+            <CompactButton onClick={onOpenProjects}>
+              {t("dashboard.viewProjects")}
+            </CompactButton>
+          }
+        >
+          {awarenessHighlights.length === 0 ? (
+            <div className="rounded-[1.1rem] border border-white/[0.065] bg-black/35 p-5">
+              <div className="mb-3 grid size-10 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-400">
+                <CheckCircle2 size={17} />
+              </div>
+              <p className="text-sm font-semibold text-white">
+                {t("dashboard.noAwarenessChanges")}
+              </p>
+              <p className="mt-1 text-sm leading-6 text-neutral-500">
+                {t("dashboard.noAwarenessChangesDescription")}
+              </p>
+            </div>
+          ) : (
+            <div className="divide-y divide-white/[0.055] overflow-hidden rounded-[1.1rem] border border-white/[0.065] bg-black/35">
+              {awarenessHighlights.map((project) => {
+                const readiness = project.awareness?.readinessChange;
+
+                return (
+                  <div
+                    key={project.id}
+                    className="grid min-w-0 gap-3 px-4 py-3.5 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center"
+                  >
+                    <div className="min-w-0">
+                      <div className="flex min-w-0 flex-wrap items-center gap-2">
+                        <p className="min-w-0 truncate text-sm font-semibold text-white">
+                          {project.name}
+                        </p>
+                        {readiness ? (
+                          <span className="shrink-0 rounded-full border border-white/[0.07] bg-white/[0.025] px-2 py-0.5 text-[10px] text-neutral-500">
+                            {readiness.previous} → {readiness.current}
+                          </span>
+                        ) : null}
+                      </div>
+                      <ProjectAwarenessSummary
+                        project={project}
+                        className="mt-1.5"
+                      />
+                    </div>
+                    <div className="flex flex-wrap items-center gap-2 sm:justify-end">
+                      <button
+                        type="button"
+                        onClick={() => onQuickPeekProject(project)}
+                        className="grid size-8 place-items-center rounded-full border border-neutral-800 bg-neutral-950 text-neutral-400 transition-colors hover:border-white hover:bg-white hover:text-black"
+                        title={t("dashboard.quickPeek")}
+                        aria-label={t("dashboard.quickPeekProject", {
+                          name: project.name,
+                        })}
+                      >
+                        <Eye size={14} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => onOpenProjectDetails(project)}
+                        className="grid size-8 place-items-center rounded-full border border-neutral-800 bg-neutral-950 text-neutral-400 transition-colors hover:border-white hover:bg-white hover:text-black"
+                        title={t("dashboard.openProject")}
+                        aria-label={t("dashboard.openProjectNamed", {
+                          name: project.name,
+                        })}
+                      >
+                        <ArrowRight size={14} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {awarenessCounts.limited > 0 ? (
+            <div className="mt-3 flex min-w-0 items-start gap-2 rounded-xl border border-amber-300/15 bg-amber-300/[0.035] px-3 py-2.5 text-xs leading-5 text-amber-100/70">
+              <AlertTriangle size={13} className="mt-0.5 shrink-0" />
+              <span>
+                {t("dashboard.limitedAwarenessCount", {
+                  count: awarenessCounts.limited,
+                })}
+              </span>
+            </div>
+          ) : null}
+        </DashboardCard>
+
+        <DashboardCard
+          title={t("dashboard.recentWork")}
+          caption={t("dashboard.recentWorkCaption")}
+          delay={motionDelay(0.27)}
           action={
             <CompactButton onClick={onOpenTaskPacks}>
               {t("dashboard.openArchive")}
@@ -956,6 +974,29 @@ export function DashboardHomePage({
                   </p>
                 </div>
               </div>
+            ) : null}
+
+            {taskPackReviewCount > 0 ? (
+              <button
+                type="button"
+                onClick={onOpenTaskPacks}
+                className="flex w-full min-w-0 items-center gap-3 border-b border-amber-300/10 bg-amber-300/[0.025] px-4 py-3 text-left transition-colors hover:bg-amber-300/[0.045]"
+              >
+                <span className="grid size-8 shrink-0 place-items-center rounded-full border border-amber-300/15 text-amber-100/70">
+                  <AlertTriangle size={14} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="block text-xs font-semibold text-amber-100/80">
+                    {t("dashboard.taskPackFreshnessAttention", {
+                      count: taskPackReviewCount,
+                    })}
+                  </span>
+                  <span className="mt-0.5 block text-[11px] leading-4 text-neutral-500">
+                    {t("dashboard.taskPackFreshnessAttentionCaption")}
+                  </span>
+                </span>
+                <ArrowRight size={14} className="shrink-0 text-neutral-600" />
+              </button>
             ) : null}
 
             {recentTaskPacks.length === 0 ? (
@@ -987,6 +1028,12 @@ export function DashboardHomePage({
                       <p className="mt-1 truncate text-sm font-semibold text-white">
                         {taskPack.title}
                       </p>
+                      {freshnessByTaskPackId.get(taskPack.id) ? (
+                        <TaskPackFreshnessBadge
+                          freshness={freshnessByTaskPackId.get(taskPack.id)!}
+                          className="mt-2 max-w-full"
+                        />
+                      ) : null}
                     </div>
                     <p className="truncate text-xs text-neutral-500">
                       {taskPack.projectName ??
@@ -1024,16 +1071,29 @@ export function DashboardHomePage({
           </div>
         </DashboardCard>
 
-        <DashboardCard
+      </div>
+
+      <motion.div
+        initial={{ opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ ...ENTER_TRANSITION, delay: motionDelay(0.3) }}
+      >
+        <WorkspaceDisclosure
           title={t("dashboard.readinessBreakdown")}
-          caption={t("dashboard.readinessBreakdownCaption")}
-          delay={motionDelay(0.27)}
+          summary={t("dashboard.readinessBreakdownSummary", {
+            readiness: readinessValue,
+            ready: readyProjectsCount,
+            count: projects.length,
+          })}
+          badge={<span className="cf-badge">{readinessValue}/100</span>}
+          icon={<Gauge size={14} />}
+          defaultOpen={false}
         >
-          <div className="space-y-3 rounded-[1.1rem] border border-white/[0.065] bg-black/35 p-4">
+          <div className="grid gap-x-5 gap-y-3 md:grid-cols-2 xl:grid-cols-3">
             {breakdown.map((item) => (
               <div
                 key={item.label}
-                className="grid grid-cols-[92px_minmax(0,1fr)_44px] items-center gap-3"
+                className="grid min-w-0 grid-cols-[92px_minmax(0,1fr)_44px] items-center gap-3"
               >
                 <p className="truncate text-xs text-neutral-500">
                   {item.label}
@@ -1057,13 +1117,13 @@ export function DashboardHomePage({
               </div>
             ))}
           </div>
-        </DashboardCard>
-      </div>
+        </WorkspaceDisclosure>
+      </motion.div>
 
       <motion.section
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        transition={{ ...ENTER_TRANSITION, delay: motionDelay(0.3) }}
+        transition={{ ...ENTER_TRANSITION, delay: motionDelay(0.33) }}
         className="rounded-[1.25rem] border border-white/[0.075] bg-white/[0.018] p-3"
       >
         <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)] lg:items-center">

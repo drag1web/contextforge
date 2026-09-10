@@ -1,4 +1,11 @@
-import { useMemo, useState, type ReactNode } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent as ReactDragEvent,
+  type ReactNode,
+} from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import {
@@ -19,15 +26,18 @@ import {
   type SelectOption
 } from "../ui/CustomSelect";
 import { ProjectCard } from "./ProjectCard";
+import { hasExternalFileDrag } from "../../utils/dragAndDrop";
 
 interface ProjectsSectionProps {
   projects: Project[];
   isLoading: boolean;
   onAddProject: () => void;
+  onDropProjectFolder: (file: File) => Promise<boolean>;
   onRescanProject: (project: Project) => void;
   onGenerateAgents: (project: Project) => void;
   onCreateTaskPack: (project: Project) => void | Promise<void>;
   onOpenProjectDetails: (project: Project) => void;
+  onQuickPeekProject: (project: Project) => void;
 }
 
 type ReadinessFilter = "all" | "low" | "medium" | "high";
@@ -43,6 +53,140 @@ const PROJECT_CARD_TRANSITION = {
   duration: 0.22,
   ease: [0.16, 1, 0.3, 1]
 } as const;
+
+function getSingleDroppedDirectory(dataTransfer: DataTransfer) {
+  const fileItems = Array.from(dataTransfer.items).filter(
+    (item) => item.kind === "file",
+  );
+  if (fileItems.length !== 1) return null;
+
+  const entry = fileItems[0].webkitGetAsEntry?.();
+  if (!entry?.isDirectory) return null;
+
+  return fileItems[0].getAsFile();
+}
+
+function ProjectFolderDropSurface({
+  disabled,
+  onDropProjectFolder,
+  children,
+}: {
+  disabled: boolean;
+  onDropProjectFolder: (file: File) => Promise<boolean>;
+  children: ReactNode;
+}) {
+  const { t } = useTranslation();
+  const [isActive, setIsActive] = useState(false);
+  const [feedbackKey, setFeedbackKey] = useState<string | null>(null);
+  const dragDepthRef = useRef(0);
+
+  useEffect(() => {
+    if (!feedbackKey) return;
+    const timeout = window.setTimeout(() => setFeedbackKey(null), 2600);
+    return () => window.clearTimeout(timeout);
+  }, [feedbackKey]);
+
+  function resetDragState() {
+    dragDepthRef.current = 0;
+    setIsActive(false);
+  }
+
+  function handleDragEnter(event: ReactDragEvent<HTMLDivElement>) {
+    if (!hasExternalFileDrag(event.dataTransfer)) return;
+
+    event.preventDefault();
+    if (!disabled && getSingleDroppedDirectory(event.dataTransfer)) {
+      dragDepthRef.current += 1;
+      setIsActive(true);
+    }
+  }
+
+  function handleDragLeave(event: ReactDragEvent<HTMLDivElement>) {
+    if (!hasExternalFileDrag(event.dataTransfer) || !isActive) return;
+
+    dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+    if (dragDepthRef.current === 0) setIsActive(false);
+  }
+
+  function handleDragOver(event: ReactDragEvent<HTMLDivElement>) {
+    if (!hasExternalFileDrag(event.dataTransfer)) return;
+
+    event.preventDefault();
+    event.dataTransfer.dropEffect =
+      !disabled && getSingleDroppedDirectory(event.dataTransfer)
+        ? "copy"
+        : "none";
+  }
+
+  async function handleDrop(event: ReactDragEvent<HTMLDivElement>) {
+    if (!hasExternalFileDrag(event.dataTransfer)) return;
+
+    event.preventDefault();
+    resetDragState();
+
+    const directory = getSingleDroppedDirectory(event.dataTransfer);
+    if (!directory) {
+      setFeedbackKey("dragAndDrop.invalidProjectFolder");
+      return;
+    }
+
+    if (disabled) {
+      setFeedbackKey("dragAndDrop.workspaceBusy");
+      return;
+    }
+
+    const added = await onDropProjectFolder(directory);
+    if (!added) setFeedbackKey("dragAndDrop.invalidProjectFolder");
+  }
+
+  return (
+    <div
+      className="relative min-w-0"
+      data-contextforge-drop-target="project-folder"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={(event) => void handleDrop(event)}
+    >
+      {children}
+
+      <AnimatePresence>
+        {isActive ? (
+          <motion.div
+            aria-hidden="true"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.14 }}
+            className="pointer-events-none absolute inset-0 z-40 grid place-items-center rounded-[1.4rem] border border-white/35 bg-black/90 p-6 shadow-[inset_0_0_0_4px_rgba(255,255,255,0.035)]"
+          >
+            <div className="max-w-md text-center">
+              <span className="mx-auto grid size-11 place-items-center rounded-2xl border border-white/20 bg-white/[0.06] text-white">
+                <FolderOpen size={19} />
+              </span>
+              <p className="mt-3 text-sm font-semibold text-white">
+                {t("dragAndDrop.releaseProjectFolder")}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-neutral-500">
+                {t("dragAndDrop.projectFolderUsesExistingFlow")}
+              </p>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
+
+      {feedbackKey ? (
+        <p
+          role="status"
+          aria-live="polite"
+          className="absolute right-3 top-3 z-40 max-w-[min(360px,calc(100%-24px))] rounded-xl border border-red-300/20 bg-neutral-950 px-3 py-2 text-xs leading-5 text-red-200 shadow-xl"
+        >
+          {t(feedbackKey)}
+        </p>
+      ) : null}
+    </div>
+  );
+}
 
 function normalize(value: unknown) {
   return String(value ?? "").toLowerCase();
@@ -96,10 +240,12 @@ export function ProjectsSection({
   projects,
   isLoading,
   onAddProject,
+  onDropProjectFolder,
   onRescanProject,
   onGenerateAgents,
   onCreateTaskPack,
-  onOpenProjectDetails
+  onOpenProjectDetails,
+  onQuickPeekProject
 }: ProjectsSectionProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
@@ -278,6 +424,10 @@ export function ProjectsSection({
 
   if (projects.length === 0) {
     return (
+      <ProjectFolderDropSurface
+        disabled={isLoading}
+        onDropProjectFolder={onDropProjectFolder}
+      >
       <section className="cf-card flex min-h-72 flex-col items-center justify-center p-8 text-center">
         <div className="mb-5 flex size-12 items-center justify-center rounded-2xl border border-neutral-800 bg-neutral-950 text-neutral-300">
           <FolderOpen size={22} />
@@ -299,10 +449,15 @@ export function ProjectsSection({
           {t("projectsPage.selectFolder")}
         </Button>
       </section>
+      </ProjectFolderDropSurface>
     );
   }
 
   return (
+    <ProjectFolderDropSurface
+      disabled={isLoading}
+      onDropProjectFolder={onDropProjectFolder}
+    >
     <section className="space-y-4">
       <WorkspacePageHeader
         icon={<FolderOpen size={18} />}
@@ -480,6 +635,7 @@ export function ProjectsSection({
                   project={project}
                   isLoading={isLoading}
                   onOpenDetails={() => onOpenProjectDetails(project)}
+                  onQuickPeek={() => onQuickPeekProject(project)}
                   onRescan={() => onRescanProject(project)}
                   onGenerateAgents={() => onGenerateAgents(project)}
                   onCreateTaskPack={() => onCreateTaskPack(project)}
@@ -490,5 +646,6 @@ export function ProjectsSection({
         )}
       </AnimatePresence>
     </section>
+    </ProjectFolderDropSurface>
   );
 }

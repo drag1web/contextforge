@@ -17,6 +17,7 @@ import {
   Bug,
   Check,
   CheckCircle2,
+  ChevronRight,
   Code2,
   Eye,
   FileText,
@@ -73,10 +74,22 @@ import {
   type TaskPackQualityStatus
 } from "../utils/taskPackQuality";
 import {
+  evaluateTaskPackHealth,
+  type TaskPackHealthResult,
+  type TaskPackHealthSignalState,
+  type TaskPackHealthStatus,
+} from "../utils/taskPackHealth";
+import {
+  evaluateContextBudget,
+  type ContextBudgetSnapshot,
+} from "../utils/contextBudget";
+import type { ContextComposerReviewedSelection } from "../utils/contextComposerReviewedDraft";
+import {
   LOCAL_CHANGES_NOTE_HEADING,
   buildLocalChangesNote,
   mergeLocalChangesNote
 } from "../utils/localChangesNote";
+import { formatContextFileKind } from "../utils/contextFileLabels";
 
 function workspaceText(key: string, values?: Record<string, unknown>) {
   return String(i18n.t(`taskPackBuilder.workspace.${key}`, values));
@@ -128,6 +141,7 @@ interface TaskPackBuilderPageProps {
   onChange: (draft: TaskPackDraft) => void;
   onClose: () => void;
   contextPreview?: ContextComposerPreview | null;
+  reviewedContextSelection?: ContextComposerReviewedSelection | null;
   onAnalyzeContext: (
     draftOverride?: TaskPackDraft
   ) => void | Promise<ContextComposerPreview | void>;
@@ -195,27 +209,6 @@ interface PackStatusItem {
   icon: ReactNode;
 }
 
-const CONTEXT_BUDGET_MODE_OPTIONS: SegmentedFilterOption<ContextBudgetMode>[] = [
-  {
-    value: "compact",
-    label: "Compact",
-    description: "tight",
-    icon: <SlidersHorizontal size={13} />
-  },
-  {
-    value: "standard",
-    label: "Standard",
-    description: "balanced",
-    icon: <CheckCircle2 size={13} />
-  },
-  {
-    value: "detailed",
-    label: "Detailed",
-    description: "broader",
-    icon: <BookOpen size={13} />
-  }
-];
-
 
 const CONTEXT_REVIEW_ITEMS: Array<{
   value: ContextReviewMode;
@@ -232,7 +225,7 @@ const CONTEXT_REVIEW_ITEMS: Array<{
   {
     value: "budget",
     label: "Budget",
-    description: "Context pressure",
+    description: "Measured footprint",
     icon: <SlidersHorizontal size={14} />
   },
   {
@@ -765,7 +758,6 @@ function ContextLocalStateBar({
 
 type ContextFileMode = "edit" | "inspect" | "create" | "reference";
 type ContextFileFilter = "all" | "edit" | "inspect" | "warnings";
-type ContextBudgetMode = "compact" | "standard" | "detailed";
 type ContextReviewMode = "files" | "budget" | "signals";
 
 type ContextReviewSummary = {
@@ -778,8 +770,6 @@ type ContextReviewSummary = {
   inspectCount: number;
   referenceCount: number;
   snippetsCount: number;
-  budgetScore: number;
-  budgetLabel: string;
   source: string;
   riskLabel: string;
 };
@@ -852,7 +842,10 @@ function formatConfidence(value: number) {
   return `${Math.round(Math.max(0, Math.min(1, value)) * 100)}%`;
 }
 
-function buildContextReviewSummary(preview?: ContextComposerPreview | null): ContextReviewSummary {
+function buildContextReviewSummary(
+  preview?: ContextComposerPreview | null,
+  reviewedSelection?: ContextComposerReviewedSelection | null,
+): ContextReviewSummary {
   if (!preview) {
     return {
       isAnalyzed: false,
@@ -864,30 +857,24 @@ function buildContextReviewSummary(preview?: ContextComposerPreview | null): Con
       inspectCount: 0,
       referenceCount: 0,
       snippetsCount: 0,
-      budgetScore: 0,
-      budgetLabel: workspaceText("common.pending"),
       source: workspaceText("context.notStarted"),
       riskLabel: workspaceText("taskTypes.unknown.label")
     };
   }
 
-  const files = preview.selectedFiles;
+  const files = reviewedSelection?.selectedFiles ?? preview.selectedFiles;
   const editCount = files.filter((file) => {
     const mode = getContextFileMode(file);
     return mode === "edit" || mode === "create";
   }).length;
   const inspectCount = files.filter((file) => getContextFileMode(file) === "inspect").length;
   const referenceCount = files.filter((file) => getContextFileMode(file) === "reference").length;
-  const snippetsCount = preview.snippets.length;
-  const selectedCount = files.length;
-  const rawScore = Math.round(Math.min(100, selectedCount * 9 + snippetsCount * 7 + referenceCount * 3));
+  const snippetsCount = reviewedSelection?.snippets.length ?? preview.snippets.length;
   const status = preview.selectionQuality.status === "blocked"
     ? "blocked"
     : preview.selectionQuality.status === "warning"
       ? "warning"
       : "ready";
-  const budgetScore = Math.max(10, rawScore);
-
   return {
     isAnalyzed: true,
     label: status === "ready"
@@ -904,12 +891,6 @@ function buildContextReviewSummary(preview?: ContextComposerPreview | null): Con
     inspectCount,
     referenceCount,
     snippetsCount,
-    budgetScore,
-    budgetLabel: budgetScore >= 75
-      ? workspaceText("budget.detailed")
-      : budgetScore >= 40
-        ? workspaceText("budget.standard")
-        : workspaceText("budget.compact"),
     source: preview.fileSelection.usedFallback
       ? workspaceText("context.fallbackSelector")
       : preview.fileSelection.source,
@@ -942,7 +923,7 @@ function getFileReason(file: ContextComposerFileReference, preview?: ContextComp
 
 function getContextFileMetaLine(file: ContextComposerFileReference) {
   const parts = [
-    file.kind || "file",
+    formatContextFileKind(file.kind || "unknown", i18n.t),
     formatConfidence(file.confidence),
     file.canReadText
       ? workspaceText("context.snippetReadable")
@@ -977,237 +958,137 @@ function getCompactContextWarning(message: string) {
   return message;
 }
 
-function getBudgetModeFromLabel(label: string): ContextBudgetMode {
-  const normalized = label.toLowerCase();
-
-  if (normalized.includes("compact")) {
-    return "compact";
+function formatContextBytes(value: number) {
+  if (value < 1024) {
+    return `${value.toLocaleString()} B`;
   }
 
-  if (normalized.includes("detailed")) {
-    return "detailed";
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(value < 10 * 1024 ? 1 : 0)} KB`;
   }
 
-  return "standard";
-}
-
-function getContextBudgetGuidance(mode: ContextBudgetMode) {
-  if (mode === "compact") {
-    return {
-      title: workspaceText("budget.compact"),
-      description: workspaceText("budget.compactDescription"),
-      target: workspaceText("budget.compactTarget"),
-      risk: workspaceText("budget.lowestNoise")
-    };
-  }
-
-  if (mode === "detailed") {
-    return {
-      title: workspaceText("budget.detailed"),
-      description: workspaceText("budget.detailedDescription"),
-      target: workspaceText("budget.detailedTarget"),
-      risk: workspaceText("budget.higherLoad")
-    };
-  }
-
-  return {
-    title: workspaceText("budget.standard"),
-    description: workspaceText("budget.standardDescription"),
-    target: workspaceText("budget.standardTarget"),
-    risk: workspaceText("budget.balanced")
-  };
-}
-
-function getBudgetPressureTone(score: number) {
-  if (score >= 90) {
-    return {
-      label: workspaceText("budget.highPressure"),
-      text: "text-red-200",
-      bar: "bg-red-300",
-      border: "border-red-400/20",
-      bg: "bg-red-400/10"
-    };
-  }
-
-  if (score >= 65) {
-    return {
-      label: workspaceText("budget.reviewLoad"),
-      text: "text-white",
-      bar: "bg-white",
-      border: "border-white/15",
-      bg: "bg-white/10"
-    };
-  }
-
-  return {
-    label: workspaceText("budget.lightContext"),
-    text: "text-emerald-200",
-    bar: "bg-emerald-300",
-    border: "border-emerald-400/20",
-    bg: "bg-emerald-400/10"
-  };
-}
-
-function ContextBudgetBar({
-  label,
-  value,
-  caption
-}: {
-  label: string;
-  value: number;
-  caption: string;
-}) {
-  const safeValue = Math.max(0, Math.min(100, value));
-  const tone = getBudgetPressureTone(safeValue);
-
-  return (
-    <div className="rounded-xl border border-neutral-900 bg-black/30 p-3">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold text-white">
-            {label}
-          </p>
-          <p className="mt-0.5 text-[10px] text-neutral-600">
-            {caption}
-          </p>
-        </div>
-
-        <span className={["text-xs font-semibold", tone.text].join(" ")}>
-          {safeValue}%
-        </span>
-      </div>
-
-      <div className="mt-3 h-1.5 overflow-hidden rounded-full bg-neutral-900">
-        <motion.div
-          className={["h-full rounded-full", tone.bar].join(" ")}
-          initial={false}
-          animate={{ width: `${safeValue}%` }}
-          transition={{ type: "spring", stiffness: 420, damping: 38, mass: 0.6 }}
-        />
-      </div>
-    </div>
-  );
+  return `${(value / 1024 / 1024).toFixed(1)} MB`;
 }
 
 function ContextBudgetPanel({
-  summary,
-  selectedMode,
-  onModeChange,
-  enabledRulesCount,
-  criteriaCount
+  budget,
 }: {
-  summary: ContextReviewSummary;
-  selectedMode: ContextBudgetMode;
-  onModeChange: (mode: ContextBudgetMode) => void;
-  enabledRulesCount: number;
-  criteriaCount: number;
+  budget: ContextBudgetSnapshot;
 }) {
-  const recommendedMode = getBudgetModeFromLabel(summary.budgetLabel);
-  const guidance = getContextBudgetGuidance(selectedMode);
-  const pressureTone = getBudgetPressureTone(summary.budgetScore);
-  const filePressure = Math.min(100, Math.round((summary.files.length / 12) * 100));
-  const snippetPressure = Math.min(100, Math.round((summary.snippetsCount / 10) * 100));
-  const rulePressure = Math.min(100, Math.round(((enabledRulesCount + criteriaCount) / 14) * 100));
-  const inspectPressure = Math.min(100, Math.round(((summary.inspectCount + summary.referenceCount) / Math.max(1, summary.files.length)) * 100));
+  if (budget.status === "unavailable") {
+    return (
+      <section className="rounded-2xl border border-neutral-900 bg-black/30 p-4">
+        <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
+          {workspaceText("budget.title")}
+        </p>
+        <h3 className="mt-1 text-base font-semibold text-white">
+          {workspaceText("budget.footprint")}
+        </h3>
+        <p className="mt-2 text-xs leading-5 text-neutral-500">
+          {workspaceText("budget.notAnalyzed")}
+        </p>
+      </section>
+    );
+  }
 
   return (
     <section className="rounded-2xl border border-neutral-900 bg-black/30 p-4">
-      <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+      <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2">
             <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-              Context budget
+              {workspaceText("budget.title")}
             </p>
-
-            <span className={["rounded-full border px-2 py-1 text-[10px] font-semibold", pressureTone.border, pressureTone.bg, pressureTone.text].join(" ")}>
-              {pressureTone.label}
+            <span className="rounded-full border border-emerald-400/15 bg-emerald-400/[0.07] px-2 py-1 text-[10px] font-medium text-emerald-300">
+              {workspaceText("budget.exactMeasurements")}
             </span>
           </div>
-
           <h3 className="mt-1 text-base font-semibold text-white">
-            {workspaceText("budget.pressure", { label: summary.budgetLabel, score: summary.budgetScore })}
+            {workspaceText("budget.footprint")}
           </h3>
-
           <p className="mt-2 max-w-2xl text-xs leading-5 text-neutral-500">
             {workspaceText("budget.description")}
           </p>
         </div>
 
-        <div className="w-full shrink-0 xl:w-[360px]">
-          <SegmentedFilter
-            value={selectedMode}
-            onChange={(value) => onModeChange(value as ContextBudgetMode)}
-            options={CONTEXT_BUDGET_MODE_OPTIONS.map((option) => ({
-              ...option,
-              label:
-                option.value === "compact"
-                  ? workspaceText("budget.compact")
-                  : option.value === "detailed"
-                    ? workspaceText("budget.detailed")
-                    : workspaceText("budget.standard"),
-              description:
-                option.value === "compact"
-                  ? workspaceText("budget.compactShort")
-                  : option.value === "detailed"
-                    ? workspaceText("budget.detailedShort")
-                    : workspaceText("budget.standardShort")
-            }))}
-            className="h-11"
-          />
+        <div className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-right">
+          <p className="text-[9px] uppercase tracking-[0.16em] text-neutral-700">
+            {workspaceText("budget.fileBytes")}
+          </p>
+          <p className="mt-1 text-sm font-semibold text-white">
+            {formatContextBytes(budget.selectedFileBytes)}
+          </p>
         </div>
       </div>
 
-      <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_260px]">
-        <div className="grid gap-3 sm:grid-cols-2">
-          <ContextBudgetBar
-            label={workspaceText("budget.files")}
-            value={filePressure}
-            caption={workspaceText("budget.filesCaption", { count: summary.files.length, edit: summary.editCount })}
-          />
-          <ContextBudgetBar
-            label={workspaceText("budget.snippets")}
-            value={snippetPressure}
-            caption={workspaceText("budget.snippetsCaption", { count: summary.snippetsCount })}
-          />
-          <ContextBudgetBar
-            label={workspaceText("budget.rulesChecks")}
-            value={rulePressure}
-            caption={workspaceText("budget.rulesChecksCaption", { rules: enabledRulesCount, checks: criteriaCount })}
-          />
-          <ContextBudgetBar
-            label={workspaceText("budget.inspectLoad")}
-            value={inspectPressure}
-            caption={workspaceText("budget.inspectLoadCaption", { count: summary.inspectCount + summary.referenceCount })}
-          />
-        </div>
+      <div className="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <CompactMetric
+          label={workspaceText("budget.files")}
+          value={budget.selectedFiles}
+          caption={workspaceText("budget.filesCaption", {
+            readable: budget.readableFiles,
+            editable: budget.editableFiles,
+          })}
+        />
+        <CompactMetric
+          label={workspaceText("budget.snippets")}
+          value={budget.snippets}
+          caption={workspaceText("budget.snippetsCaption", {
+            count: budget.snippetCharacters,
+          })}
+        />
+        <CompactMetric
+          label={workspaceText("budget.inspectReference")}
+          value={budget.inspectOnlyFiles + budget.referenceFiles}
+          caption={workspaceText("budget.inspectReferenceCaption", {
+            inspect: budget.inspectOnlyFiles,
+            reference: budget.referenceFiles,
+          })}
+        />
+        <CompactMetric
+          label={workspaceText("budget.truncated")}
+          value={budget.truncatedSnippets}
+          caption={workspaceText("budget.truncatedCaption")}
+        />
+      </div>
 
+      <div className="mt-3 grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(280px,0.7fr)]">
         <div className="rounded-xl border border-neutral-900 bg-black/35 p-3">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                {workspaceText("budget.planningMode")}
-              </p>
-              <h4 className="mt-1 text-sm font-semibold text-white">
-                {guidance.title}
-              </h4>
-            </div>
-
-            <span className="rounded-full border border-neutral-800 bg-neutral-950 px-2 py-1 text-[10px] text-neutral-400">
-              {recommendedMode === selectedMode ? workspaceText("budget.recommended") : workspaceText("budget.preview")}
+          <p className="text-xs font-semibold text-white">
+            {workspaceText("budget.exactMeasurements")}
+          </p>
+          <p className="mt-1 text-[11px] leading-5 text-neutral-600">
+            {workspaceText("budget.exactMeasurementsDescription")}
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2 text-[10px] text-neutral-500">
+            <span className="rounded-full border border-neutral-900 bg-neutral-950 px-2 py-1">
+              {workspaceText("budget.fileBytesExact", {
+                count: budget.selectedFileBytes.toLocaleString(),
+              })}
+            </span>
+            <span className="rounded-full border border-neutral-900 bg-neutral-950 px-2 py-1">
+              {workspaceText("budget.snippetCharsExact", {
+                count: budget.snippetCharacters.toLocaleString(),
+              })}
             </span>
           </div>
+        </div>
 
-          <p className="mt-3 text-xs leading-5 text-neutral-500">
-            {guidance.description}
-          </p>
-
-          <div className="mt-3 grid grid-cols-2 gap-2">
-            <CompactMetric label={workspaceText("budget.target")} value={guidance.target} caption={workspaceText("budget.futureBudget")} />
-            <CompactMetric label={workspaceText("budget.noise")} value={guidance.risk} caption={workspaceText("budget.expected")} />
+        <div className="rounded-xl border border-amber-400/15 bg-amber-400/[0.045] p-3">
+          <div className="flex items-center gap-2">
+            <AlertTriangle size={14} className="text-amber-300" />
+            <p className="text-xs font-semibold text-white">
+              {workspaceText("budget.tokenBudget")}
+            </p>
+            <span className="ml-auto rounded-full border border-amber-400/15 bg-amber-400/[0.06] px-2 py-1 text-[9px] font-medium text-amber-200">
+              {workspaceText("budget.unavailable")}
+            </span>
           </div>
-
-          <p className="mt-3 text-[10px] leading-4 text-neutral-600">
-            {workspaceText("budget.note")}
+          <p className="mt-2 text-[11px] leading-5 text-neutral-500">
+            {workspaceText("budget.tokenUnavailableDescription")}
+          </p>
+          <p className="mt-2 text-[10px] leading-4 text-neutral-700">
+            {workspaceText("budget.generationBudgetNote")}
           </p>
         </div>
       </div>
@@ -1411,6 +1292,44 @@ function QualityScoreRing({ score, status }: { score: number; status: TaskPackQu
   );
 }
 
+function getTaskPackHealthStatusClasses(status: TaskPackHealthStatus) {
+  if (status === "clear") {
+    return {
+      icon: "border-emerald-400/20 bg-emerald-400/10 text-emerald-300",
+      pill: "border-emerald-400/20 bg-emerald-400/[0.08] text-emerald-300",
+      text: "text-emerald-300",
+    };
+  }
+
+  if (status === "action_required") {
+    return {
+      icon: "border-red-400/20 bg-red-400/10 text-red-300",
+      pill: "border-red-400/20 bg-red-400/[0.08] text-red-300",
+      text: "text-red-300",
+    };
+  }
+
+  if (status === "checking") {
+    return {
+      icon: "border-white/15 bg-white/10 text-white",
+      pill: "border-white/15 bg-white/[0.06] text-white",
+      text: "text-white",
+    };
+  }
+
+  return {
+    icon: "border-amber-300/20 bg-amber-300/[0.08] text-amber-200",
+    pill: "border-amber-300/20 bg-amber-300/[0.06] text-amber-200",
+    text: "text-amber-200",
+  };
+}
+
+function getHealthSignalTone(state: TaskPackHealthSignalState): PackStatusTone {
+  if (state === "ok") return "ready";
+  if (state === "required" || state === "attention") return "warning";
+  return "pending";
+}
+
 function getPackStatusToneClasses(tone: PackStatusTone) {
   if (tone === "ready") {
     return {
@@ -1433,38 +1352,92 @@ function getPackStatusToneClasses(tone: PackStatusTone) {
 }
 
 function PackStatusCard({
+  health,
   quality,
   items,
   activeSection,
   onSelect,
   onOpenDetails
 }: {
+  health: TaskPackHealthResult;
   quality: TaskPackQualityResult;
   items: readonly PackStatusItem[];
   activeSection: BuilderSection;
   onSelect: (section: BuilderSection) => void;
   onOpenDetails: () => void;
 }) {
-  const classes = getQualityStatusClasses(quality.status);
+  const classes = getTaskPackHealthStatusClasses(health.status);
+  const StatusIcon =
+    health.status === "clear"
+      ? CheckCircle2
+      : health.status === "action_required"
+        ? ShieldAlert
+        : health.status === "checking"
+          ? Loader2
+          : AlertTriangle;
 
   return (
     <section className="rounded-[1.5rem] border border-neutral-900 bg-black/45 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0 pt-1">
           <p className="cf-tech-label text-[10px] uppercase text-neutral-600">
-            {workspaceText("quality.packStatus")}
+            {workspaceText("health.eyebrow")}
           </p>
 
-          <h2 className="mt-1 text-base font-semibold text-white">
-            {workspaceText(`quality.status.${quality.status}.label`)}
+          <h2 className="mt-1 flex items-center gap-2 text-base font-semibold text-white">
+            <span className={["grid size-6 shrink-0 place-items-center rounded-lg border", classes.icon].join(" ")}>
+              <StatusIcon
+                size={12}
+                className={health.status === "checking" ? "animate-spin" : undefined}
+              />
+            </span>
+            <span className="min-w-0 line-clamp-2 leading-tight">
+              {workspaceText(`health.status.${health.status}.label`)}
+            </span>
           </h2>
 
           <p className="mt-1 line-clamp-2 text-xs leading-5 text-neutral-600">
-            {workspaceText(`quality.status.${quality.status}.summary`)}
+            {workspaceText(`health.status.${health.status}.summary`)}
           </p>
         </div>
 
-        <QualityScoreRing score={quality.score} status={quality.status} />
+        <button
+          type="button"
+          onClick={onOpenDetails}
+          className="group flex shrink-0 flex-col items-center rounded-2xl px-1 py-1 transition hover:bg-white/[0.025]"
+          title={workspaceText("quality.viewDetails")}
+        >
+          <QualityScoreRing score={quality.score} status={quality.status} />
+          <span className="mt-1 text-[9px] font-medium text-neutral-600 transition group-hover:text-neutral-400">
+            {workspaceText("quality.localScore")}
+          </span>
+        </button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        {health.requiredCount > 0 && (
+          <span className="rounded-full border border-red-400/20 bg-red-400/[0.06] px-2.5 py-1 text-[10px] text-red-300">
+            {workspaceText("health.requiredCount", { count: health.requiredCount })}
+          </span>
+        )}
+
+        {health.attentionCount > 0 && (
+          <span className="rounded-full border border-amber-300/20 bg-amber-300/[0.05] px-2.5 py-1 text-[10px] text-amber-200">
+            {workspaceText("health.attentionCount", { count: health.attentionCount })}
+          </span>
+        )}
+
+        {health.pendingCount > 0 && (
+          <span className="rounded-full border border-neutral-800 bg-neutral-950 px-2.5 py-1 text-[10px] text-neutral-500">
+            {workspaceText("health.pendingCount", { count: health.pendingCount })}
+          </span>
+        )}
+
+        {health.requiredCount === 0 && health.attentionCount === 0 && health.pendingCount === 0 && (
+          <span className={["rounded-full border px-2.5 py-1 text-[10px]", classes.pill].join(" ")}>
+            {workspaceText("health.noActiveIssues")}
+          </span>
+        )}
       </div>
 
       <div className="mt-4 overflow-hidden rounded-2xl border border-neutral-900 bg-black/30">
@@ -1518,14 +1491,23 @@ function PackStatusCard({
       <button
         type="button"
         onClick={onOpenDetails}
-        className="cf-invert-action mt-4 inline-flex h-9 w-full items-center justify-center gap-2 rounded-full px-3 text-xs"
+        className="group mt-4 flex min-h-10 w-full items-center gap-2.5 rounded-xl border border-white/[0.07] bg-white/[0.025] px-3 py-2 text-left transition hover:border-white/[0.12] hover:bg-white/[0.05]"
+        title={workspaceText("quality.viewDetails")}
       >
-        <Lightbulb size={13} />
-        {workspaceText("quality.viewDetails")}
+        <span className="grid size-7 shrink-0 place-items-center rounded-lg border border-white/[0.07] bg-black/30 text-neutral-500 transition group-hover:text-neutral-300">
+          <Lightbulb size={13} />
+        </span>
+        <span className="min-w-0 flex-1 text-[11px] font-medium leading-4 text-neutral-400 transition group-hover:text-neutral-200">
+          {workspaceText("quality.openDetailsCompact")}
+        </span>
+        <ChevronRight
+          size={14}
+          className="shrink-0 text-neutral-700 transition group-hover:translate-x-0.5 group-hover:text-neutral-400"
+        />
       </button>
 
-      <p className={["mt-3 text-[10px] leading-4", classes.muted].join(" ")}>
-        {workspaceText("quality.readinessNote")}
+      <p className="mt-3 text-[10px] leading-4 text-neutral-600">
+        {workspaceText("health.note")}
       </p>
     </section>
   );
@@ -2681,7 +2663,7 @@ function RulesManagerModal({
   return (
     <Modal
       title={workspaceText("rulesModal.title")}
-      eyebrow="Rules & Templates"
+      eyebrow={workspaceText("rulesModal.eyebrow")}
       maxWidth="max-w-7xl"
       scrollable={false}
       onClose={onClose}
@@ -2908,6 +2890,7 @@ export function TaskPackBuilderPage({
   draft,
   isLoading,
   contextPreview = null,
+  reviewedContextSelection = null,
   onChange,
   onClose,
   onAnalyzeContext,
@@ -2939,7 +2922,6 @@ export function TaskPackBuilderPage({
   const [activeBuilderSection, setActiveBuilderSection] = useState<BuilderSection>("task");
   const [contextFileFilter, setContextFileFilter] = useState<ContextFileFilter>("all");
   const [contextReviewMode, setContextReviewMode] = useState<ContextReviewMode>("files");
-  const [contextBudgetMode, setContextBudgetMode] = useState<ContextBudgetMode>("standard");
   const [showContextTechnicalDetails, setShowContextTechnicalDetails] = useState(false);
   const [gitStatus, setGitStatus] = useState<GitStatusResult | null>(null);
   const [isGitStatusLoading, setIsGitStatusLoading] = useState(false);
@@ -3016,9 +2998,44 @@ export function TaskPackBuilderPage({
     ]
   );
 
+  const healthResult = useMemo(
+    () =>
+      evaluateTaskPackHealth({
+        draft,
+        taskLength,
+        canGenerate,
+        isLoading,
+        isUnderstanding,
+        hasTemplate: Boolean(selectedTemplate),
+        hasProfile: Boolean(selectedProfile),
+        enabledRulesCount: enabledRuleIds.length,
+        totalCriteriaCount,
+        understandingResponse,
+        contextPreview,
+      }),
+    [
+      canGenerate,
+      contextPreview,
+      draft,
+      enabledRuleIds.length,
+      isLoading,
+      isUnderstanding,
+      selectedProfile,
+      selectedTemplate,
+      taskLength,
+      totalCriteriaCount,
+      understandingResponse,
+    ],
+  );
+
   const contextSummary = useMemo(
-    () => buildContextReviewSummary(contextPreview),
-    [contextPreview, t]
+    () => buildContextReviewSummary(contextPreview, reviewedContextSelection),
+    [contextPreview, reviewedContextSelection, t]
+  );
+
+  const contextBudget = useMemo(
+    () => evaluateContextBudget(contextPreview, reviewedContextSelection),
+    [contextPreview, reviewedContextSelection]
   );
 
   const builderSectionItems = useMemo<BuilderSectionNavigationItem[]>(
@@ -3078,27 +3095,26 @@ export function TaskPackBuilderPage({
     builderSectionItems.findIndex((item) => item.value === activeBuilderSection)
   );
 
-  const packStatusItems = useMemo<PackStatusItem[]>(
-    () => [
+  const packStatusItems = useMemo<PackStatusItem[]>(() => {
+    const contextSignal = healthResult.signals.find((signal) => signal.id === "context");
+
+    return [
       {
         section: "task",
         label: workspaceText("sections.task"),
-        value:
-          taskLength >= 120
-            ? workspaceText("common.ready")
-            : taskLength >= 3
-              ? workspaceText("sections.needsDetail")
-              : workspaceText("common.empty"),
+        value: taskLength >= 3
+          ? workspaceText("health.signalDetails.provided")
+          : workspaceText("health.signalDetails.missing"),
         caption: workspaceText("sections.taskCaption", { count: taskLength }),
-        tone: taskLength >= 120 ? "ready" : taskLength >= 3 ? "warning" : "pending",
+        tone: taskLength >= 3 ? "ready" : "warning",
         icon: <Sparkles size={14} />
       },
       {
         section: "recipe",
         label: workspaceText("sections.setup"),
         value: selectedTemplate && selectedProfile
-          ? workspaceText("common.configured")
-          : workspaceText("common.review"),
+          ? workspaceText("health.signalDetails.configured")
+          : workspaceText("health.signalDetails.partial"),
         caption: `${getTargetToolLabel(draft.targetTool)} · ${getTaskTypeLabel(draft.taskType)}`,
         tone: selectedTemplate && selectedProfile ? "ready" : "warning",
         icon: <Settings2 size={14} />
@@ -3124,35 +3140,34 @@ export function TaskPackBuilderPage({
       {
         section: "context",
         label: workspaceText("sections.context"),
-        value: contextSummary.label,
-        caption: contextSummary.isAnalyzed
+        value: workspaceText(
+          `health.signalDetails.${contextSignal?.detail ?? "not_analyzed"}`
+        ),
+        caption: healthResult.contextCurrent
           ? `${workspaceText("sections.filesCount", { count: contextSummary.files.length })} · ${contextSummary.editCount} ${workspaceText("common.edit")}`
-          : workspaceText("sections.contextCaptionMissing"),
-        tone: !contextSummary.isAnalyzed
-          ? "pending"
-          : contextSummary.status === "ready"
-            ? "ready"
-            : "warning",
+          : contextPreview
+            ? workspaceText("health.contextStale")
+            : workspaceText("sections.contextCaptionMissing"),
+        tone: getHealthSignalTone(contextSignal?.state ?? "pending"),
         icon: <Search size={14} />
       }
-    ],
-    [
-      contextSummary.editCount,
-      contextSummary.files.length,
-      contextSummary.isAnalyzed,
-      contextSummary.label,
-      contextSummary.status,
-      customRulesCount,
-      draft.targetTool,
-      draft.taskType,
-      enabledRuleIds.length,
-      selectedProfile,
-      selectedTemplate,
-      taskLength,
-      totalCriteriaCount,
-      t
-    ]
-  );
+    ];
+  }, [
+    contextPreview,
+    contextSummary.editCount,
+    contextSummary.files.length,
+    customRulesCount,
+    draft.targetTool,
+    draft.taskType,
+    enabledRuleIds.length,
+    healthResult.contextCurrent,
+    healthResult.signals,
+    selectedProfile,
+    selectedTemplate,
+    taskLength,
+    totalCriteriaCount,
+    t
+  ]);
 
   const intentResult = useMemo(
     () =>
@@ -3223,12 +3238,6 @@ export function TaskPackBuilderPage({
   useEffect(() => {
     void loadGitStatus();
   }, [loadGitStatus]);
-
-  useEffect(() => {
-    if (contextSummary.isAnalyzed) {
-      setContextBudgetMode(getBudgetModeFromLabel(contextSummary.budgetLabel));
-    }
-  }, [contextSummary.budgetLabel, contextSummary.isAnalyzed]);
 
   const contextFilterOptions = useMemo<SegmentedFilterOption<ContextFileFilter>[]>(
     () => [
@@ -3578,6 +3587,10 @@ export function TaskPackBuilderPage({
     onChange({
       ...draft,
       ...patch,
+      understandingSnapshotId: understandingInputChanged
+        ? undefined
+        : patch.understandingSnapshotId ??
+          draft.understandingSnapshotId,
       reviewedUnderstandingSnapshotId: understandingInputChanged
         ? undefined
         : patch.reviewedUnderstandingSnapshotId ??
@@ -3618,6 +3631,8 @@ export function TaskPackBuilderPage({
 
     onChange({
       ...nextDraft,
+      understandingSnapshotId: undefined,
+      reviewedUnderstandingSnapshotId: undefined,
       templateId: template?.id,
       ruleProfileId: profile?.id,
       enabledRuleIds: profile?.enabledRuleIds ?? [],
@@ -3645,6 +3660,8 @@ export function TaskPackBuilderPage({
       targetTool: preset.targetTool,
       rawTask: shouldSeedTask ? preset.starterTask : draft.rawTask,
       clarifications: shouldSeedTask ? [] : draft.clarifications,
+      understandingSnapshotId: undefined,
+      reviewedUnderstandingSnapshotId: undefined,
       templateId: template?.id,
       ruleProfileId: profile?.id,
       enabledRuleIds: profile?.enabledRuleIds ?? [],
@@ -3673,6 +3690,8 @@ export function TaskPackBuilderPage({
       ...draft,
       taskType: defaultTaskType,
       targetTool: defaultTargetTool,
+      understandingSnapshotId: undefined,
+      reviewedUnderstandingSnapshotId: undefined,
       templateId: template?.id,
       ruleProfileId: profile?.id,
       enabledRuleIds: profile?.enabledRuleIds ?? [],
@@ -4468,9 +4487,20 @@ export function TaskPackBuilderPage({
 
                     <div className="mt-5 grid gap-2 md:grid-cols-4">
                       <CompactMetric label={workspaceText("context.status")} value={contextSummary.label} caption={contextSummary.source} />
-                      <CompactMetric label={workspaceText("context.files")} value={contextSummary.files.length} caption={`${contextSummary.editCount} edit · ${contextSummary.inspectCount} inspect`} />
+                      <CompactMetric label={workspaceText("context.files")} value={contextSummary.files.length} caption={`${contextSummary.editCount} ${workspaceText("common.edit")} · ${contextSummary.inspectCount} ${workspaceText("common.inspect")}`} />
                       <CompactMetric label={workspaceText("context.snippets")} value={contextSummary.snippetsCount} caption={workspaceText("common.readable")} />
-                      <CompactMetric label={workspaceText("context.budget")} value={`${contextSummary.budgetScore}%`} caption={contextSummary.budgetLabel} />
+                      <CompactMetric
+                        label={workspaceText("context.budget")}
+                        value={contextBudget.status === "measured" ? formatContextBytes(contextBudget.selectedFileBytes) : "—"}
+                        caption={
+                          contextBudget.status === "measured"
+                            ? workspaceText("budget.tabMeasured", {
+                                files: contextBudget.selectedFiles,
+                                snippets: contextBudget.snippets,
+                              })
+                            : workspaceText("context.pendingAnalysis")
+                        }
+                      />
                     </div>
 
                     <div className="mt-3">
@@ -4498,8 +4528,11 @@ export function TaskPackBuilderPage({
                             ? workspaceText("context.selectedCount", { count: contextSummary.files.length })
                             : workspaceText("context.notAnalyzed")
                           : item.value === "budget"
-                            ? contextSummary.isAnalyzed
-                              ? `${contextSummary.budgetScore}% · ${contextSummary.budgetLabel}`
+                            ? contextBudget.status === "measured"
+                              ? workspaceText("budget.tabMeasured", {
+                                  files: contextBudget.selectedFiles,
+                                  snippets: contextBudget.snippets,
+                                })
                               : workspaceText("context.pendingAnalysis")
                             : contextSummary.isAnalyzed
                               ? contextWarnings.length > 0
@@ -4552,7 +4585,9 @@ export function TaskPackBuilderPage({
 
                           {contextSummary.isAnalyzed && (
                             <Pill tone={contextSummary.status === "ready" ? "success" : "warning"}>
-                              {contextSummary.status === "ready" ? "ready" : "review"}
+                              {contextSummary.status === "ready"
+                                ? workspaceText("context.ready")
+                                : workspaceText("context.review")}
                             </Pill>
                           )}
                         </div>
@@ -4619,13 +4654,7 @@ export function TaskPackBuilderPage({
 
                         {contextSummary.isAnalyzed ? (
                           <div className="mt-4">
-                            <ContextBudgetPanel
-                              summary={contextSummary}
-                              selectedMode={contextBudgetMode}
-                              onModeChange={setContextBudgetMode}
-                              enabledRulesCount={enabledRuleIds.length}
-                              criteriaCount={totalCriteriaCount}
-                            />
+                            <ContextBudgetPanel budget={contextBudget} />
                           </div>
                         ) : (
                           <div className="mt-4 rounded-2xl border border-dashed border-neutral-800 bg-black/25 p-6 text-sm leading-6 text-neutral-500">
@@ -4649,7 +4678,7 @@ export function TaskPackBuilderPage({
 
                           {contextSummary.isAnalyzed && (
                             <Pill tone={contextSummary.status === "ready" ? "success" : "warning"}>
-                              {contextSummary.status === "ready" ? "clear" : "check"}
+                              {contextSummary.status === "ready" ? workspaceText("common.clear") : workspaceText("common.check")}
                             </Pill>
                           )}
                         </div>
@@ -4657,9 +4686,9 @@ export function TaskPackBuilderPage({
                         {contextSummary.isAnalyzed ? (
                           <div className="mt-4 space-y-3">
                             <div className="grid gap-2 md:grid-cols-3">
-                              <CompactMetric label={workspaceText("context.source")} value={contextSummary.source} caption={contextPreview?.fileSelection.usedFallback ? "fallback" : "selector"} />
-                              <CompactMetric label={workspaceText("context.readOnly")} value={contextSummary.inspectCount + contextSummary.referenceCount} caption="inspect + reference" />
-                              <CompactMetric label={workspaceText("context.risk")} value={contextSummary.riskLabel} caption="task intent" />
+                              <CompactMetric label={workspaceText("context.source")} value={contextSummary.source} caption={contextPreview?.fileSelection.usedFallback ? workspaceText("context.fallback") : workspaceText("context.selector")} />
+                              <CompactMetric label={workspaceText("context.readOnly")} value={contextSummary.inspectCount + contextSummary.referenceCount} caption={workspaceText("context.inspectReference")} />
+                              <CompactMetric label={workspaceText("context.risk")} value={contextSummary.riskLabel} caption={workspaceText("context.taskIntent")} />
                             </div>
 
                             {contextWarnings.length > 0 ? (
@@ -4681,7 +4710,9 @@ export function TaskPackBuilderPage({
                                 <button
                                   type="button"
                                   onClick={() => setShowContextTechnicalDetails((value) => !value)}
-                                  className="flex w-full items-center justify-between gap-3 text-left text-xs font-semibold text-neutral-300 hover:text-white"
+                                  aria-expanded={showContextTechnicalDetails}
+                                  aria-controls="task-pack-context-technical-details"
+                                  className="flex w-full items-center justify-between gap-3 rounded-lg text-left text-xs font-semibold text-neutral-300 outline-none hover:text-white focus-visible:ring-1 focus-visible:ring-white/40"
                                 >
                                   {workspaceText("context.technicalDetails")}
                                   <span className="text-[10px] text-neutral-600">
@@ -4692,7 +4723,7 @@ export function TaskPackBuilderPage({
                                 </button>
 
                                 {showContextTechnicalDetails && (
-                                  <div className="mt-3 space-y-2">
+                                  <div id="task-pack-context-technical-details" className="mt-3 space-y-2">
                                     {contextTechnicalSignals.map((signal) => (
                                       <div key={signal} className="rounded-lg border border-neutral-900 bg-black/35 p-2 text-[11px] leading-5 text-neutral-500">
                                         {signal}
@@ -4729,6 +4760,7 @@ export function TaskPackBuilderPage({
           <aside className="min-h-0 overflow-y-auto pr-1">
             <div className="sticky top-0">
               <PackStatusCard
+                health={healthResult}
                 quality={qualityResult}
                 items={packStatusItems}
                 activeSection={activeBuilderSection}

@@ -149,13 +149,7 @@ export function useDashboardController() {
     await Promise.all([loadProjects(), loadTaskPacks()]);
   }
 
-  async function handleSelectProject() {
-    const selectedPath = await window.contextforge?.selectProjectFolder?.();
-
-    if (!selectedPath) {
-      return;
-    }
-
+  async function addProjectFromPath(selectedPath: string) {
     try {
       setIsLoading(true);
       setStatusMessage(i18n.t("common.statusScanningProject"));
@@ -167,12 +161,41 @@ export function useDashboardController() {
       setStatusMessage(
         i18n.t("common.statusProjectAdded", { name: project.name }),
       );
+      return true;
     } catch (error) {
       setStatusMessage(
         error instanceof Error ? error.message : i18n.t("common.unknownError"),
       );
+      return false;
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function handleSelectProject() {
+    const selectedPath = await window.contextforge?.selectProjectFolder?.();
+
+    if (!selectedPath) {
+      return false;
+    }
+
+    return addProjectFromPath(selectedPath);
+  }
+
+  async function handleDropProjectFolder(file: File) {
+    try {
+      const selectedPath =
+        await window.contextforge?.resolveDroppedProjectFolder?.(file);
+
+      if (!selectedPath) {
+        setStatusMessage(i18n.t("dragAndDrop.invalidProjectFolder"));
+        return false;
+      }
+
+      return addProjectFromPath(selectedPath);
+    } catch {
+      setStatusMessage(i18n.t("dragAndDrop.invalidProjectFolder"));
+      return false;
     }
   }
 
@@ -371,7 +394,7 @@ export function useDashboardController() {
     const activeDraft = draftOverride ?? taskPackDraft;
 
     if (!activeDraft) {
-      return;
+      return null;
     }
 
     try {
@@ -428,6 +451,7 @@ export function useDashboardController() {
       setTaskPackDraft(null);
       setContextComposerPreview(null);
       setStatusMessage(i18n.t("common.statusTaskPackGenerated"));
+      return { kind: "generated" as const, taskPack };
     } catch (error) {
       if (
         error instanceof ApiRequestError &&
@@ -448,6 +472,7 @@ export function useDashboardController() {
 
           setContextComposerPreview(preview);
           setStatusMessage(getBlockedContextMessage(error));
+          return { kind: "context-review" as const, preview };
         } catch (previewError) {
           setStatusMessage(
             previewError instanceof Error
@@ -475,8 +500,7 @@ export function useDashboardController() {
       );
 
       const settings = await getAppSettings();
-
-      setTaskPackDraft({
+      const nextDraft: TaskPackDraft = {
         projectId: project.id,
         projectName: project.name,
         rawTask: "",
@@ -485,13 +509,15 @@ export function useDashboardController() {
         enabledRuleIds: [],
         customRulesText: "",
         acceptanceCriteriaText: "",
-      });
+      };
 
+      setTaskPackDraft(nextDraft);
       setStatusMessage(
         i18n.t("common.statusTaskDraftOpened", { name: project.name }),
       );
+      return nextDraft;
     } catch (error) {
-      setTaskPackDraft({
+      const nextDraft: TaskPackDraft = {
         projectId: project.id,
         projectName: project.name,
         rawTask: "",
@@ -500,13 +526,15 @@ export function useDashboardController() {
         enabledRuleIds: [],
         customRulesText: "",
         acceptanceCriteriaText: "",
-      });
+      };
 
+      setTaskPackDraft(nextDraft);
       setStatusMessage(
         error instanceof Error
           ? `${i18n.t("common.statusSettingsUnavailable")} ${error.message}`
           : i18n.t("common.statusSettingsUnavailable"),
       );
+      return nextDraft;
     } finally {
       setIsLoading(false);
     }
@@ -525,8 +553,7 @@ export function useDashboardController() {
       ]);
 
       const rawTask = buildChangesDraftTask(gitStatus);
-
-      setTaskPackDraft({
+      const nextDraft: TaskPackDraft = {
         projectId: project.id,
         projectName: project.name,
         rawTask,
@@ -535,8 +562,9 @@ export function useDashboardController() {
         enabledRuleIds: [],
         customRulesText: "",
         acceptanceCriteriaText: "",
-      });
+      };
 
+      setTaskPackDraft(nextDraft);
       setStatusMessage(
         rawTask
           ? i18n.t("common.statusTaskDraftOpenedFromChanges", {
@@ -546,8 +574,9 @@ export function useDashboardController() {
               name: project.name,
             }),
       );
+      return nextDraft;
     } catch (error) {
-      setTaskPackDraft({
+      const nextDraft: TaskPackDraft = {
         projectId: project.id,
         projectName: project.name,
         rawTask: "",
@@ -556,7 +585,9 @@ export function useDashboardController() {
         enabledRuleIds: [],
         customRulesText: "",
         acceptanceCriteriaText: "",
-      });
+      };
+
+      setTaskPackDraft(nextDraft);
 
       const fallbackMessage = i18n.t(
         "common.statusLocalChangesReadFailed",
@@ -566,6 +597,7 @@ export function useDashboardController() {
           ? `${fallbackMessage} ${error.message}`
           : fallbackMessage,
       );
+      return nextDraft;
     } finally {
       setIsLoading(false);
     }
@@ -649,6 +681,7 @@ export function useDashboardController() {
             name: taskPackDraft.projectName,
           }),
         );
+        return preview;
       }
     } catch (error) {
       setStatusMessage(
@@ -660,16 +693,16 @@ export function useDashboardController() {
   }
 
   async function handleCreateTaskPack(draftOverride?: TaskPackDraft) {
-    await generateTaskPackFromDraft(undefined, draftOverride);
+    return generateTaskPackFromDraft(undefined, draftOverride);
   }
 
   async function handleCreateTaskPackFromComposer(selectedFilePaths: string[]) {
     if (selectedFilePaths.length === 0) {
       setStatusMessage(i18n.t("common.statusSelectComposerFile"));
-      return;
+      return null;
     }
 
-    await generateTaskPackFromDraft(selectedFilePaths);
+    return generateTaskPackFromDraft(selectedFilePaths);
   }
 
   function handleExternalTaskPackCreated(taskPack: TaskPack) {
@@ -698,11 +731,7 @@ export function useDashboardController() {
 
   function handleOpenTaskPackInBuilder(taskPack: TaskPack) {
     const recipe = taskPack.generationRecipe;
-
-    setGeneratedTaskPack(null);
-    setContextComposerPreview(null);
-    setTaskPackContextPreview(null);
-    setTaskPackDraft({
+    const nextDraft: TaskPackDraft = {
       projectId: taskPack.projectId,
       projectName:
         taskPack.projectName ??
@@ -717,8 +746,14 @@ export function useDashboardController() {
       acceptanceCriteriaPresetId: recipe?.acceptanceCriteriaPreset?.id,
       acceptanceCriteriaText: recipe?.acceptanceCriteria?.join("\n") ?? "",
       clarifications: recipe?.taskClarifications,
-    });
+    };
+
+    setGeneratedTaskPack(null);
+    setContextComposerPreview(null);
+    setTaskPackContextPreview(null);
+    setTaskPackDraft(nextDraft);
     setStatusMessage(i18n.t("common.statusTaskPackReopened"));
+    return nextDraft;
   }
 
   function handleToggleProject(projectId: number) {
@@ -752,6 +787,7 @@ export function useDashboardController() {
     setContextComposerPreview,
 
     handleSelectProject,
+    handleDropProjectFolder,
     handleRescanProject,
     handleGenerateAgentsPreview,
     handleOpenProjectContextFile,

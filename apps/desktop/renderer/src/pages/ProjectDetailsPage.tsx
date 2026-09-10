@@ -16,16 +16,22 @@ import {
 import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 
-import type { Project } from "../types";
+import type { Project, TaskPack } from "../types";
 import { GitContextCard } from "../components/projects/GitContextCard";
 import { GitDiffSummaryCard } from "../components/projects/GitDiffSummaryCard";
 import {
   ProjectReadinessReport,
   ProjectScannerSignalsPanel
 } from "../components/projects/ProjectReadinessReport";
+import { ProjectAwarenessPanel } from "../components/projects/ProjectAwarenessPanel";
 import { buildLocalizedReadinessPriorities } from "../components/projects/projectDetailsI18n";
 import { Button } from "../components/ui/Button";
 import { HorizontalSlidingSelector } from "../components/ui/SlidingSelectors";
+import { ProjectTaskPackFreshnessPanel } from "../components/taskPacks/TaskPackFreshness";
+import {
+  getProjectTaskPackFreshness,
+  type TaskPackFreshness,
+} from "../utils/taskPackFreshness";
 
 interface ProjectDetailsPageProps {
   project: Project;
@@ -35,6 +41,9 @@ interface ProjectDetailsPageProps {
   onGenerateAgents: (project: Project) => void;
   onCreateTaskPack: (project: Project) => void | Promise<void>;
   onCreateTaskPackFromChanges: (project: Project) => void | Promise<void>;
+  taskPacks: TaskPack[];
+  freshnessByTaskPackId: ReadonlyMap<number, TaskPackFreshness>;
+  onOpenTaskPack: (taskPack: TaskPack) => void;
 }
 
 type ProjectDetailsView = "overview" | "readiness" | "changes";
@@ -176,7 +185,10 @@ export function ProjectDetailsPage({
   onRescan,
   onGenerateAgents,
   onCreateTaskPack,
-  onCreateTaskPackFromChanges
+  onCreateTaskPackFromChanges,
+  taskPacks,
+  freshnessByTaskPackId,
+  onOpenTaskPack,
 }: ProjectDetailsPageProps) {
   const { t } = useTranslation();
   const [activeView, setActiveView] = useState<ProjectDetailsView>("overview");
@@ -240,6 +252,15 @@ export function ProjectDetailsPage({
     (check) => check.passed
   ).length;
   const scriptsCount = Object.keys(project.scripts ?? {}).length;
+  const projectTaskPackFreshness = useMemo(
+    () =>
+      getProjectTaskPackFreshness(
+        taskPacks,
+        project.id,
+        freshnessByTaskPackId,
+      ),
+    [freshnessByTaskPackId, project.id, taskPacks],
+  );
   const allAttentionItems = useMemo(
     () => buildLocalizedReadinessPriorities(t, project.readinessReport),
     [project.readinessReport, t]
@@ -470,6 +491,13 @@ export function ProjectDetailsPage({
 
             <ProjectProfile project={project} />
           </div>
+
+          <ProjectAwarenessPanel project={project} />
+
+          <ProjectTaskPackFreshnessPanel
+            items={projectTaskPackFreshness}
+            onOpenTaskPack={onOpenTaskPack}
+          />
 
           <ProjectScannerSignalsPanel
             signals={project.readinessReport.signals}

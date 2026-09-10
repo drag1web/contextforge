@@ -7,6 +7,8 @@ import {
 } from "react";
 import { useTranslation } from "react-i18next";
 import {
+    ArrowLeft,
+    ArrowRight,
     Check,
     ChevronDown,
     ChevronRight,
@@ -17,6 +19,7 @@ import {
     Info,
     Loader2,
     Maximize2,
+    Minimize2,
     Minus,
     RefreshCw,
     Settings2,
@@ -43,9 +46,16 @@ import {
 interface AppTitleBarProps {
     activePage?: AppPageId;
     isLoading?: boolean;
+    canGoBack?: boolean;
+    canGoForward?: boolean;
     onAddProject?: () => void;
     onNavigate?: (page: AppPageId) => void;
+    onNavigateBack?: () => void;
+    onNavigateForward?: () => void;
     onOpenNavigationAssistant?: () => void;
+    isFocusModeAvailable?: boolean;
+    isFocusModeActive?: boolean;
+    onToggleFocusMode?: () => void;
 }
 
 type OpenTitlebarPanel = "version" | "ai" | null;
@@ -122,9 +132,16 @@ function getToneClasses(tone: AiStatusTone) {
 export function AppTitleBar({
     activePage = "dashboard",
     isLoading = false,
+    canGoBack = false,
+    canGoForward = false,
     onAddProject,
     onNavigate,
-    onOpenNavigationAssistant
+    onNavigateBack,
+    onNavigateForward,
+    onOpenNavigationAssistant,
+    isFocusModeAvailable = false,
+    isFocusModeActive = false,
+    onToggleFocusMode
 }: AppTitleBarProps) {
     const { t, i18n } = useTranslation();
     const [openPanel, setOpenPanel] = useState<OpenTitlebarPanel>(null);
@@ -182,6 +199,12 @@ export function AppTitleBar({
             window.removeEventListener("contextforge:settings-updated", handleSettingsUpdated);
         };
     }, [refreshAiWorkflow]);
+
+    useEffect(() => {
+        if (isFocusModeActive) {
+            setOpenPanel(null);
+        }
+    }, [isFocusModeActive]);
 
     useEffect(() => {
         if (!openPanel) return undefined;
@@ -366,6 +389,34 @@ export function AppTitleBar({
                         />
                     </button>
 
+                    <span
+                        aria-hidden="true"
+                        className="mx-1 h-4 w-px shrink-0 bg-white/[0.09]"
+                    />
+
+                    <div className="flex shrink-0 items-center gap-0.5">
+                        <button
+                            type="button"
+                            onClick={onNavigateBack}
+                            disabled={!canGoBack || !onNavigateBack}
+                            aria-label={t("titlebar.navigationBack")}
+                            title={`${t("titlebar.navigationBack")} · Alt+←`}
+                            className="grid size-7 place-items-center rounded-lg text-neutral-600 transition-[background-color,color,opacity] duration-150 hover:bg-white/[0.055] hover:text-neutral-200 disabled:pointer-events-none disabled:opacity-25"
+                        >
+                            <ArrowLeft size={14} />
+                        </button>
+                        <button
+                            type="button"
+                            onClick={onNavigateForward}
+                            disabled={!canGoForward || !onNavigateForward}
+                            aria-label={t("titlebar.navigationForward")}
+                            title={`${t("titlebar.navigationForward")} · Alt+→`}
+                            className="grid size-7 place-items-center rounded-lg text-neutral-600 transition-[background-color,color,opacity] duration-150 hover:bg-white/[0.055] hover:text-neutral-200 disabled:pointer-events-none disabled:opacity-25"
+                        >
+                            <ArrowRight size={14} />
+                        </button>
+                    </div>
+
                     {openPanel === "version" && (
                         <div className="absolute left-0 top-[calc(100%+9px)] z-[80] w-[330px] overflow-hidden rounded-2xl border border-white/10 bg-neutral-950/98 p-3 shadow-[0_22px_65px_rgba(0,0,0,0.72)] backdrop-blur-xl">
                             <div className="rounded-xl border border-white/[0.06] bg-black/35 p-4">
@@ -437,7 +488,10 @@ export function AppTitleBar({
                     type="button"
                     onClick={onOpenNavigationAssistant}
                     disabled={!onNavigate || !onOpenNavigationAssistant}
-                    className="app-no-drag group absolute left-1/2 top-1/2 hidden h-7 w-[238px] -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-1.5 overflow-hidden rounded-full border border-white/10 bg-white/[0.035] px-2.5 text-[11px] text-neutral-500 shadow-[0_8px_22px_rgba(0,0,0,0.30)] transition-[border-color,background-color,color,box-shadow,opacity] duration-200 hover:border-white hover:bg-white hover:text-black hover:shadow-[0_10px_26px_rgba(0,0,0,0.38)] disabled:pointer-events-none disabled:opacity-60 lg:flex"
+                    className={[
+                        "app-no-drag group absolute left-1/2 top-1/2 hidden h-7 w-[238px] -translate-x-1/2 -translate-y-1/2 items-center justify-center gap-1.5 overflow-hidden rounded-full border border-white/10 bg-white/[0.035] px-2.5 text-[11px] text-neutral-500 shadow-[0_8px_22px_rgba(0,0,0,0.30)] transition-[border-color,background-color,color,box-shadow,opacity] duration-200 hover:border-white hover:bg-white hover:text-black hover:shadow-[0_10px_26px_rgba(0,0,0,0.38)] disabled:pointer-events-none disabled:opacity-60 lg:flex",
+                        isFocusModeActive ? "pointer-events-none opacity-0" : "opacity-100"
+                    ].join(" ")}
                     title={t("titlebar.openNavigationAssistant")}
                 >
                     <span className="shrink-0 transition-colors group-hover:text-black/70">ContextForge</span>
@@ -449,21 +503,57 @@ export function AppTitleBar({
                 </button>
 
                 <div className="app-no-drag flex items-center gap-2">
-                    {onAddProject && (
+                    {isFocusModeAvailable && onToggleFocusMode && (
+                        <button
+                            type="button"
+                            onClick={onToggleFocusMode}
+                            aria-pressed={isFocusModeActive}
+                            aria-label={
+                                isFocusModeActive
+                                    ? t("titlebar.focusModeExit")
+                                    : t("titlebar.focusModeEnter")
+                            }
+                            title={
+                                isFocusModeActive
+                                    ? t("titlebar.focusModeExit")
+                                    : t("titlebar.focusModeEnter")
+                            }
+                            className={[
+                                "cf-pressable flex h-7 items-center gap-1.5 rounded-full px-2.5 text-[10.5px] font-medium backdrop-blur-sm transition-[border-color,background-color,color,box-shadow,transform] duration-200",
+                                isFocusModeActive
+                                    ? "border border-white/15 bg-white/[0.09] text-white shadow-[0_8px_24px_rgba(0,0,0,0.34)] hover:border-white/25 hover:bg-white/[0.13]"
+                                    : "border border-white/[0.08] bg-white/[0.025] text-neutral-500 hover:border-white/20 hover:bg-white/[0.07] hover:text-white"
+                            ].join(" ")}
+                        >
+                            {isFocusModeActive ? <Minimize2 size={13} /> : <Maximize2 size={13} />}
+                            <span className="hidden 2xl:inline">
+                                {isFocusModeActive
+                                    ? t("titlebar.focusModeExit")
+                                    : t("titlebar.focusModeEnter")}
+                            </span>
+                        </button>
+                    )}
+
+                    {!isFocusModeActive && onAddProject && (
                         <button
                             type="button"
                             onClick={onAddProject}
                             disabled={isLoading}
-                            className="cf-pressable group mr-2 hidden h-8 items-center gap-2 rounded-full bg-neutral-100 px-3.5 text-xs font-medium text-black shadow-[0_12px_30px_rgba(0,0,0,0.42)] transition-[background-color,box-shadow,transform] duration-200 hover:bg-white hover:shadow-[0_14px_34px_rgba(0,0,0,0.52)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 md:inline-flex"
+                            aria-label={isLoading ? t("common.scanning") : t("common.addProject")}
+                            title={isLoading ? t("common.scanning") : t("common.addProject")}
+                            className="cf-pressable group mr-1 inline-flex size-8 shrink-0 items-center justify-center gap-2 rounded-full bg-neutral-100 text-xs font-medium text-black shadow-[0_12px_30px_rgba(0,0,0,0.42)] transition-[background-color,box-shadow,transform] duration-200 hover:bg-white hover:shadow-[0_14px_34px_rgba(0,0,0,0.52)] active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-60 motion-reduce:transition-none motion-reduce:active:scale-100 md:mr-2 md:h-8 md:w-auto md:px-3.5"
                         >
                             <FolderOpen
                                 size={14}
                                 className="transition-transform duration-200 group-hover:-translate-y-px group-hover:-rotate-3"
                             />
-                            {isLoading ? t("common.scanning") : t("common.addProject")}
+                            <span className="hidden md:inline">
+                                {isLoading ? t("common.scanning") : t("common.addProject")}
+                            </span>
                         </button>
                     )}
 
+                    {!isFocusModeActive && (
                     <div ref={aiPanelRef} className="relative mr-2 hidden xl:block">
                         <button
                             type="button"
@@ -565,6 +655,7 @@ export function AppTitleBar({
                             </div>
                         )}
                     </div>
+                    )}
 
                     <button
                         type="button"

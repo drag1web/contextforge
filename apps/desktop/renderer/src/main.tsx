@@ -3,6 +3,9 @@ import { createRoot } from 'react-dom/client'
 import './i18n'
 import './index.css'
 import App from './App.tsx'
+import { initializeWorkspaceZoom } from './lib/workspaceZoom.ts'
+
+initializeWorkspaceZoom()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

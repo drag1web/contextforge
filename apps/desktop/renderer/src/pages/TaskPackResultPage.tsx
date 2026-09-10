@@ -26,6 +26,7 @@ import {
   MoreHorizontal,
   RotateCcw,
   Save,
+  ScanSearch,
   ShieldCheck,
   Sparkles,
   Target,
@@ -40,19 +41,27 @@ import {
 } from "../api/client";
 import { AiToolLogo } from "../components/ai/AiToolLogo";
 import { TaskPackExportActions } from "../components/taskPacks/TaskPackExportActions";
+import {
+  TaskPackFreshnessBadge,
+  TaskPackFreshnessNotice,
+} from "../components/taskPacks/TaskPackFreshness";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { HorizontalSlidingSelector } from "../components/ui/SlidingSelectors";
 import { SelectorDiagnosticsModal } from "../components/selector/SelectorDiagnosticsModal";
 import { GenerationDiagnosticsModal } from "../components/generation/GenerationDiagnosticsModal";
 import { PerformanceDiagnosticsModal } from "../components/performance/PerformanceDiagnosticsModal";
+import type { TaskPackFreshness } from "../utils/taskPackFreshness";
 
 interface TaskPackResultPageProps {
   taskPack: TaskPack;
   onClose: () => void;
   onOpenArchive: () => void;
+  onInspectTaskPack: (taskPack: TaskPack) => void;
   onTaskPackUpdated?: (taskPack: TaskPack) => void;
   onOpenInBuilder?: (taskPack: TaskPack) => void;
+  freshness: TaskPackFreshness;
+  onReviewProject: (projectId: number) => void;
 }
 
 type PromptViewMode = "preview" | "raw";
@@ -1511,8 +1520,11 @@ export function TaskPackResultPage({
   taskPack,
   onClose,
   onOpenArchive,
+  onInspectTaskPack,
   onTaskPackUpdated,
   onOpenInBuilder,
+  freshness,
+  onReviewProject,
 }: TaskPackResultPageProps) {
   const { t } = useTranslation();
   const [viewMode, setViewMode] = useState<PromptViewMode>("preview");
@@ -1651,6 +1663,7 @@ export function TaskPackResultPage({
                 <Check size={11} />
                 {t("taskPackResult.ready")}
               </Pill>
+              <TaskPackFreshnessBadge freshness={freshness} />
             </div>
 
             <h1 className="mt-2 line-clamp-2 max-w-5xl text-[27px] font-semibold leading-[1.05] tracking-[-0.05em] text-white">
@@ -1671,6 +1684,13 @@ export function TaskPackResultPage({
               <Archive size={15} />
               {t("taskPackResult.openArchive")}
             </Button>
+            <Button
+              variant="secondary"
+              onClick={() => onInspectTaskPack(currentTaskPack)}
+            >
+              <ScanSearch size={15} />
+              {t("inspector.inspect")}
+            </Button>
             <Button variant="primary" onClick={handleCopyPrompt}>
               {isCopied ? <Check size={15} /> : <Copy size={15} />}
               {isCopied
@@ -1683,6 +1703,15 @@ export function TaskPackResultPage({
             />
           </div>
         </div>
+
+        {freshness.status !== "current" ? (
+          <div className="border-t border-white/[0.065] p-3">
+            <TaskPackFreshnessNotice
+              freshness={freshness}
+              onReviewProject={() => onReviewProject(currentTaskPack.projectId)}
+            />
+          </div>
+        ) : null}
       </header>
 
       <div className="grid min-h-0 gap-4 overflow-hidden xl:grid-cols-[340px_minmax(0,1fr)]">

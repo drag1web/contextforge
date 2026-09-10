@@ -1,6 +1,7 @@
 import { useTranslation } from "react-i18next";
 import {
   Clock3,
+  Eye,
   FileText,
   FolderKanban,
   Info,
@@ -13,11 +14,13 @@ import {
 
 import type { Project } from "../../types";
 import { Button } from "../ui/Button";
+import { ProjectAwarenessSummary } from "./ProjectAwarenessPanel";
 
 interface ProjectCardProps {
   project: Project;
   isLoading: boolean;
   onOpenDetails: () => void;
+  onQuickPeek: () => void;
   onRescan: () => void;
   onGenerateAgents: () => void;
   onCreateTaskPack: () => void | Promise<void>;
@@ -57,6 +60,7 @@ export function ProjectCard({
   project,
   isLoading,
   onOpenDetails,
+  onQuickPeek,
   onRescan,
   onGenerateAgents,
   onCreateTaskPack
@@ -132,6 +136,11 @@ export function ProjectCard({
                   />
                 </div>
               </div>
+
+              <ProjectAwarenessSummary
+                project={project}
+                className="mt-3 rounded-xl border border-neutral-900 bg-black/25 px-3 py-2"
+              />
             </div>
 
             <div className="grid grid-cols-2 overflow-hidden rounded-2xl border border-neutral-900 bg-black/30">
@@ -171,16 +180,29 @@ export function ProjectCard({
             {t("projectsPage.createTaskPack")}
           </Button>
 
-          <Button
-            type="button"
-            variant="secondary"
-            disabled={isLoading}
-            onClick={onOpenDetails}
-            className="justify-center rounded-xl"
-          >
-            <Info size={15} />
-            {t("projectsPage.projectDetails")}
-          </Button>
+          <div className="grid grid-cols-[minmax(0,1fr)_40px] gap-2">
+            <Button
+              type="button"
+              variant="secondary"
+              disabled={isLoading}
+              onClick={onOpenDetails}
+              className="justify-center rounded-xl"
+            >
+              <Info size={15} />
+              {t("projectsPage.projectDetails")}
+            </Button>
+
+            <button
+              type="button"
+              disabled={isLoading}
+              onClick={onQuickPeek}
+              aria-label={t("quickPeek.title")}
+              title={t("quickPeek.title")}
+              className="grid size-10 place-items-center rounded-xl border border-neutral-900 bg-black/40 text-neutral-600 transition hover:border-neutral-700 hover:bg-neutral-950 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <Eye size={15} />
+            </button>
+          </div>
 
           <div className="grid grid-cols-2 gap-2">
             <Button

@@ -199,6 +199,7 @@ const SIDEBAR_NAV_ITEM_GAP = 4;
 interface SidebarProps {
   activePage: AppPageId;
   showDescriptions?: boolean;
+  focusMode?: boolean;
   onNavigate: (page: AppPageId) => void;
 }
 
@@ -232,6 +233,7 @@ function getInitialCollapsedState() {
 export function Sidebar({
   activePage,
   showDescriptions = false,
+  focusMode = false,
   onNavigate
 }: SidebarProps) {
   const { t } = useTranslation();
@@ -246,11 +248,17 @@ export function Sidebar({
 
   return (
     <motion.aside
-      animate={{ width: isCollapsed ? 76 : 256 }}
+      aria-hidden={focusMode}
+      animate={{
+        width: focusMode ? 0 : isCollapsed ? 76 : 256,
+        x: focusMode ? -18 : 0,
+        opacity: focusMode ? 0 : 1
+      }}
       transition={{
-        duration: 0.18,
+        duration: focusMode ? 0.22 : 0.18,
         ease: [0.16, 1, 0.3, 1]
       }}
+      style={{ pointerEvents: focusMode ? "none" : "auto" }}
       className="flex h-full min-h-0 shrink-0 flex-col overflow-hidden border-r border-white/[0.075] bg-black pb-5 pt-5"
     >
       <div

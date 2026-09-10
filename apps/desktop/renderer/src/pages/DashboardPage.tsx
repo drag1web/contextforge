@@ -13,7 +13,13 @@ import { useTranslation } from "react-i18next";
 import contextforgeLogoWhite from "../assets/brand/contextforge-logo-white.png";
 
 import { getAppSettings, updateAppSettings } from "../api/client";
-import type { AppSettings } from "../types";
+import type {
+  AppSettings,
+  TaskPack,
+  TaskPackDraft,
+} from "../types";
+import type { QuickPeekTarget } from "../types/quickPeek";
+import type { InspectorTarget } from "../types/inspector";
 
 import { AppTitleBar } from "../components/layout/AppTitleBar";
 import { PageTransition } from "../components/layout/PageTransition";
@@ -61,8 +67,36 @@ import { LoadingOverlay } from "../components/ui/LoadingOverlay";
 import { FirstRunOnboardingOverlay } from "../components/onboarding/FirstRunOnboardingOverlay";
 
 import { GlobalSearchModal } from "../components/modals/GlobalSearchModal";
-import { NavigationAssistantModal } from "../components/modals/NavigationAssistantModal";
+import { CommandPaletteModal } from "../components/modals/CommandPaletteModal";
+import { QuickPeekPanel } from "../components/workspace/QuickPeekPanel";
+import { PersistentInspectorPanel } from "../components/workspace/PersistentInspectorPanel";
+import { ExplainabilityLensPanel } from "../components/workspace/ExplainabilityLensPanel";
+import { ContextMapPanel } from "../components/workspace/ContextMapPanel";
+import { WorkspaceZoomHud } from "../components/workspace/WorkspaceZoomHud";
+import {
+  advanceContextDiffSession,
+  type ContextDiffSessionState,
+} from "../components/workspace/contextDiff";
+import {
+  buildContextComposerReviewedSelection,
+  taskContextDraftsMatch,
+} from "../utils/contextComposerReviewedDraft";
+import {
+  getWorkspaceDensityPadding,
+  resolveWorkspaceDensity,
+} from "../utils/workspaceDensity";
+import {
+  buildTaskPackFreshnessIndex,
+  deriveTaskPackFreshness,
+} from "../utils/taskPackFreshness";
 import { useKeyboardShortcuts } from "../hooks/useKeyboardShortcuts";
+import { useWorkspaceZoom } from "../hooks/useWorkspaceZoom";
+import { useGlobalDropNavigationGuard } from "../hooks/useGlobalDropNavigationGuard";
+import { buildCommandPaletteCommands } from "../utils/commandPalette";
+import {
+  useWorkspaceNavigationHistory,
+  type WorkspaceNavigationLocation,
+} from "../hooks/useWorkspaceNavigationHistory";
 import i18n, { applyAppLanguage } from "../i18n";
 
 const PAGE_ORDER: AppPageId[] = [
@@ -763,9 +797,39 @@ function WelcomeSplashOverlay({
 }
 
 export function DashboardPage() {
+  const { t } = useTranslation();
   const dashboard = useDashboardController();
+  const workspaceZoom = useWorkspaceZoom();
+  const taskPackFreshnessById = useMemo(
+    () =>
+      buildTaskPackFreshnessIndex(dashboard.taskPacks, dashboard.projects),
+    [dashboard.projects, dashboard.taskPacks],
+  );
+  const resolveTaskPackFreshness = useCallback(
+    (taskPack: TaskPack) =>
+      taskPackFreshnessById.get(taskPack.id) ??
+      deriveTaskPackFreshness(
+        taskPack,
+        dashboard.projects.find((project) => project.id === taskPack.projectId),
+      ),
+    [dashboard.projects, taskPackFreshnessById],
+  );
 
-  const [activePage, setActivePage] = useState<AppPageId>("dashboard");
+  const {
+    activeLocation,
+    activePage,
+    backLocation,
+    forwardLocation,
+    canGoBack,
+    canGoForward,
+    navigate: navigatePage,
+    navigateToLocation,
+    replaceCurrentLocation,
+    updateCurrentContextComposerState,
+    discardForwardHistory,
+    goBack,
+    goForward,
+  } = useWorkspaceNavigationHistory("dashboard");
   const [reportsPresenceActivity, setReportsPresenceActivity] =
     useState<"reports" | "validation_lab">("reports");
   const [operationPresenceActivity, setOperationPresenceActivity] =
@@ -774,14 +838,88 @@ export function DashboardPage() {
     useRef<DiscordPresenceActivity | null>(null);
   const [pageDirection, setPageDirection] = useState(1);
   const [isGlobalSearchOpen, setIsGlobalSearchOpen] = useState(false);
-  const [isNavigationAssistantOpen, setIsNavigationAssistantOpen] =
+  const [isCommandPaletteOpen, setIsCommandPaletteOpen] =
     useState(false);
+  const [isUnsupportedDropVisible, setIsUnsupportedDropVisible] =
+    useState(false);
+  const [quickPeekTarget, setQuickPeekTarget] =
+    useState<QuickPeekTarget | null>(null);
+  const [splitViewTarget, setSplitViewTarget] =
+    useState<QuickPeekTarget | null>(null);
+  const [inspectorTarget, setInspectorTarget] =
+    useState<InspectorTarget | null>(null);
+  const [isExplainabilityOpen, setIsExplainabilityOpen] = useState(false);
+  const [isContextMapOpen, setIsContextMapOpen] = useState(false);
+  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const [isFocusModeEnabled, setIsFocusModeEnabled] = useState(false);
+  const [isAutomaticFocusSuppressed, setIsAutomaticFocusSuppressed] =
+    useState(false);
+  const previousFocusModeSurfaceRef = useRef(false);
+  const previousFocusModeBehaviorRef =
+    useRef<AppSettings["focusModeBehavior"]>("manual");
+  const isFocusModeSurface =
+    activeLocation.surface === "task-pack-builder" ||
+    activeLocation.surface === "context-composer" ||
+    activeLocation.surface === "task-pack-result";
+  const focusModeBehavior = appSettings?.focusModeBehavior ?? "manual";
+  const isAutomaticFocusMode = focusModeBehavior === "automatic";
+  const isFocusModeActive =
+    isFocusModeSurface &&
+    (isAutomaticFocusMode ? !isAutomaticFocusSuppressed : isFocusModeEnabled);
+  const workspaceDensityPreference =
+    appSettings?.workspaceDensity ?? "adaptive";
+  const hasAuxiliaryWorkspace = Boolean(
+    splitViewTarget ||
+      inspectorTarget ||
+      isExplainabilityOpen ||
+      isContextMapOpen
+  );
+  const resolvedWorkspaceDensity = resolveWorkspaceDensity({
+    preference: workspaceDensityPreference,
+    isWorkflowSurface: isFocusModeSurface,
+    isFocusModeActive,
+    hasAuxiliaryWorkspace
+  });
+  const workspaceContentPadding = getWorkspaceDensityPadding(
+    resolvedWorkspaceDensity,
+    isFocusModeActive
+  );
+  const [contextDiffSession, setContextDiffSession] =
+    useState<ContextDiffSessionState | null>(null);
   const [onboardingDismissedThisSession, setOnboardingDismissedThisSession] =
     useState(false);
-  const [selectedProjectDetailsId, setSelectedProjectDetailsId] = useState<
-    number | null
-  >(null);
-  const [appSettings, setAppSettings] = useState<AppSettings | null>(null);
+  const selectedProjectDetailsId =
+    activeLocation.surface === "project-details"
+      ? activeLocation.projectId
+      : null;
+
+  const reportUnsupportedDrop = useCallback(() => {
+    setIsUnsupportedDropVisible(true);
+  }, []);
+
+  useGlobalDropNavigationGuard(reportUnsupportedDrop);
+
+  useEffect(() => {
+    if (!isUnsupportedDropVisible) return;
+
+    const timeout = window.setTimeout(
+      () => setIsUnsupportedDropVisible(false),
+      2600,
+    );
+    return () => window.clearTimeout(timeout);
+  }, [isUnsupportedDropVisible]);
+
+  useEffect(() => {
+    setIsExplainabilityOpen(false);
+    setIsContextMapOpen(false);
+  }, [activeLocation.surface]);
+
+  useEffect(() => {
+    if (!dashboard.contextComposerPreview?.contextEngine) {
+      setIsExplainabilityOpen(false);
+      setIsContextMapOpen(false);
+    }
+  }, [dashboard.contextComposerPreview?.contextEngine]);
 
   const [isWelcomeVisible, setIsWelcomeVisible] = useState(true);
   const [minimumSplashDone, setMinimumSplashDone] = useState(false);
@@ -836,30 +974,229 @@ export function DashboardPage() {
     }
   }, [dashboard.generatedTaskPack, operationPresenceActivity]);
 
+  const openTaskPackBuilderLocation = useCallback(
+    (draft: TaskPackDraft) => {
+      setPageDirection(1);
+      navigateToLocation({
+        page: activePage,
+        surface: "task-pack-builder",
+        draft,
+      });
+    },
+    [activePage, navigateToLocation],
+  );
+
+  const handleCreateTaskPackDraftWithNavigation = useCallback(
+    async (...args: Parameters<typeof dashboard.handleCreateTaskPackDraft>) => {
+      const draft = await dashboard.handleCreateTaskPackDraft(...args);
+      if (draft) {
+        openTaskPackBuilderLocation(draft);
+      }
+    },
+    [dashboard.handleCreateTaskPackDraft, openTaskPackBuilderLocation],
+  );
+
+  const handleCreateTaskPackDraftFromChangesWithNavigation = useCallback(
+    async (
+      ...args: Parameters<typeof dashboard.handleCreateTaskPackDraftFromChanges>
+    ) => {
+      const draft =
+        await dashboard.handleCreateTaskPackDraftFromChanges(...args);
+      if (draft) {
+        openTaskPackBuilderLocation(draft);
+      }
+    },
+    [
+      dashboard.handleCreateTaskPackDraftFromChanges,
+      openTaskPackBuilderLocation,
+    ],
+  );
+
+  const handleTaskPackDraftChange = useCallback(
+    (draft: TaskPackDraft) => {
+      dashboard.setTaskPackDraft(draft);
+
+      if (activeLocation.surface === "task-pack-builder") {
+        replaceCurrentLocation({
+          ...activeLocation,
+          draft,
+        });
+      }
+    },
+    [
+      activeLocation,
+      dashboard.setTaskPackDraft,
+      replaceCurrentLocation,
+    ],
+  );
+
+  const handleOpenTaskContextComposerWithNavigation = useCallback(async () => {
+    const draft = dashboard.taskPackDraft;
+    if (!draft) return;
+
+    if (
+      forwardLocation?.surface === "context-composer" &&
+      taskContextDraftsMatch(draft, forwardLocation.draft)
+    ) {
+      dashboard.setTaskPackDraft(forwardLocation.draft);
+      dashboard.setContextComposerPreview(forwardLocation.preview);
+      setPageDirection(1);
+      goForward();
+      return;
+    }
+
+    const preview = await dashboard.handleOpenTaskContextComposer();
+    if (!preview) return;
+
+    setContextDiffSession((current) =>
+      advanceContextDiffSession(current, preview),
+    );
+    setPageDirection(1);
+    navigateToLocation({
+      page: activePage,
+      surface: "context-composer",
+      draft,
+      preview,
+    });
+  }, [
+    activePage,
+    dashboard.handleOpenTaskContextComposer,
+    dashboard.setContextComposerPreview,
+    dashboard.setTaskPackDraft,
+    dashboard.taskPackDraft,
+    forwardLocation,
+    goForward,
+    navigateToLocation,
+  ]);
+
+  const handleOpenTaskPackResult = useCallback(
+    (taskPack: TaskPack) => {
+      setQuickPeekTarget(null);
+      dashboard.setTaskPackDraft(null);
+      dashboard.setContextComposerPreview(null);
+      dashboard.setGeneratedTaskPack(taskPack);
+
+      setPageDirection(1);
+      navigateToLocation({
+        page: activePage,
+        surface: "task-pack-result",
+        taskPack,
+      });
+    },
+    [
+      activePage,
+      dashboard.setContextComposerPreview,
+      dashboard.setGeneratedTaskPack,
+      dashboard.setTaskPackDraft,
+      navigateToLocation,
+    ],
+  );
+
+  const handleExternalTaskPackCreatedWithNavigation = useCallback(
+    (taskPack: TaskPack) => {
+      dashboard.handleExternalTaskPackCreated(taskPack);
+      setPageDirection(1);
+      navigateToLocation({
+        page: activePage,
+        surface: "task-pack-result",
+        taskPack,
+      });
+    },
+    [
+      activePage,
+      dashboard.handleExternalTaskPackCreated,
+      navigateToLocation,
+    ],
+  );
+
+  const handleTaskPackUpdatedWithNavigation = useCallback(
+    (taskPack: TaskPack) => {
+      dashboard.handleExternalTaskPackUpdated(taskPack);
+
+      if (activeLocation.surface === "task-pack-result") {
+        replaceCurrentLocation({
+          ...activeLocation,
+          taskPack,
+        });
+      }
+    },
+    [
+      activeLocation,
+      dashboard.handleExternalTaskPackUpdated,
+      replaceCurrentLocation,
+    ],
+  );
+
+  const handleOpenTaskPackInBuilderWithNavigation = useCallback(
+    (taskPack: TaskPack) => {
+      const draft = dashboard.handleOpenTaskPackInBuilder(taskPack);
+      openTaskPackBuilderLocation(draft);
+    },
+    [
+      dashboard.handleOpenTaskPackInBuilder,
+      openTaskPackBuilderLocation,
+    ],
+  );
+
   const handleAnalyzeTaskContextWithPresence = useCallback(
     async (...args: Parameters<typeof dashboard.handleAnalyzeTaskContext>) => {
       setOperationPresenceActivity("analyzing_task_context");
 
       try {
-        await dashboard.handleAnalyzeTaskContext(...args);
+        const preview = await dashboard.handleAnalyzeTaskContext(...args);
+
+        if (preview) {
+          discardForwardHistory();
+        }
+
+        return preview;
       } finally {
         setOperationPresenceActivity(null);
       }
     },
-    [dashboard.handleAnalyzeTaskContext],
+    [dashboard.handleAnalyzeTaskContext, discardForwardHistory],
   );
 
   const handleCreateTaskPackWithPresence = useCallback(
     async (...args: Parameters<typeof dashboard.handleCreateTaskPack>) => {
+      const draft = args[0] ?? dashboard.taskPackDraft;
       setOperationPresenceActivity("generating_task_pack");
 
       try {
-        await dashboard.handleCreateTaskPack(...args);
+        const outcome = await dashboard.handleCreateTaskPack(...args);
+
+        if (!outcome) {
+          return;
+        }
+
+        if (outcome.kind === "generated") {
+          handleOpenTaskPackResult(outcome.taskPack);
+          return;
+        }
+
+        if (outcome.kind === "context-review" && draft) {
+          setContextDiffSession((current) =>
+            advanceContextDiffSession(current, outcome.preview),
+          );
+          setPageDirection(1);
+          navigateToLocation({
+            page: activePage,
+            surface: "context-composer",
+            draft,
+            preview: outcome.preview,
+          });
+        }
       } finally {
         setOperationPresenceActivity(null);
       }
     },
-    [dashboard.handleCreateTaskPack],
+    [
+      activePage,
+      dashboard.handleCreateTaskPack,
+      dashboard.taskPackDraft,
+      handleOpenTaskPackResult,
+      navigateToLocation,
+    ],
   );
 
   const handleCreateTaskPackFromComposerWithPresence = useCallback(
@@ -869,12 +1206,20 @@ export function DashboardPage() {
       setOperationPresenceActivity("generating_task_pack");
 
       try {
-        await dashboard.handleCreateTaskPackFromComposer(...args);
+        const outcome =
+          await dashboard.handleCreateTaskPackFromComposer(...args);
+
+        if (outcome?.kind === "generated") {
+          handleOpenTaskPackResult(outcome.taskPack);
+        }
       } finally {
         setOperationPresenceActivity(null);
       }
     },
-    [dashboard.handleCreateTaskPackFromComposer],
+    [
+      dashboard.handleCreateTaskPackFromComposer,
+      handleOpenTaskPackResult,
+    ],
   );
 
   const handleValidationRunStateChange = useCallback((running: boolean) => {
@@ -889,25 +1234,103 @@ export function DashboardPage() {
       dashboard.setTaskPackDraft(null);
       dashboard.setContextComposerPreview(null);
       dashboard.setGeneratedTaskPack(null);
-      setSelectedProjectDetailsId(null);
+      setQuickPeekTarget(null);
 
       setPageDirection(nextIndex >= currentIndex ? 1 : -1);
-      setActivePage(nextPage);
+      navigatePage(nextPage);
     },
-    [activePage, dashboard],
+    [activePage, dashboard, navigatePage],
   );
 
-  useKeyboardShortcuts({
-      globalSearch: () => setIsGlobalSearchOpen(true),
-      navigationAssistant: () => setIsNavigationAssistantOpen(true),
-      addProject: () => {
-        if (!dashboard.isLoading) {
-          void dashboard.handleSelectProject();
-        }
-      },
-      openTaskPacks: () => handleNavigate("taskPacks"),
-      openSettings: () => handleNavigate("settings"),
-    });
+  const restoreNavigationLocation = useCallback(
+    (location: WorkspaceNavigationLocation) => {
+      if (location.surface === "task-pack-builder") {
+        dashboard.setGeneratedTaskPack(null);
+        dashboard.setContextComposerPreview(null);
+        dashboard.setTaskPackDraft(location.draft);
+        return;
+      }
+
+      if (location.surface === "context-composer") {
+        dashboard.setGeneratedTaskPack(null);
+        dashboard.setTaskPackDraft(location.draft);
+        dashboard.setContextComposerPreview(location.preview);
+        return;
+      }
+
+      dashboard.setTaskPackDraft(null);
+      dashboard.setContextComposerPreview(null);
+
+      if (location.surface === "task-pack-result") {
+        dashboard.setGeneratedTaskPack(location.taskPack);
+        return;
+      }
+
+      dashboard.setGeneratedTaskPack(null);
+    },
+    [
+      dashboard.setContextComposerPreview,
+      dashboard.setGeneratedTaskPack,
+      dashboard.setTaskPackDraft,
+    ],
+  );
+
+  const handleNavigateBack = useCallback(() => {
+    if (!backLocation) return;
+
+    setQuickPeekTarget(null);
+    restoreNavigationLocation(backLocation);
+    setPageDirection(-1);
+    goBack();
+  }, [backLocation, goBack, restoreNavigationLocation]);
+
+  const handleNavigateForward = useCallback(() => {
+    if (!forwardLocation) return;
+
+    setQuickPeekTarget(null);
+    restoreNavigationLocation(forwardLocation);
+    setPageDirection(1);
+    goForward();
+  }, [forwardLocation, goForward, restoreNavigationLocation]);
+
+  const toggleFocusMode = useCallback(() => {
+    if (!isFocusModeSurface) {
+      return;
+    }
+
+    if (isAutomaticFocusMode) {
+      setIsAutomaticFocusSuppressed((current) => !current);
+      return;
+    }
+
+    setIsFocusModeEnabled((current) => !current);
+  }, [isAutomaticFocusMode, isFocusModeSurface]);
+
+  useEffect(() => {
+    const previousBehavior = previousFocusModeBehaviorRef.current;
+
+    if (previousBehavior === focusModeBehavior) {
+      return;
+    }
+
+    if (focusModeBehavior === "automatic") {
+      setIsAutomaticFocusSuppressed(false);
+    } else {
+      setIsFocusModeEnabled(false);
+    }
+
+    previousFocusModeBehaviorRef.current = focusModeBehavior;
+  }, [focusModeBehavior]);
+
+  useEffect(() => {
+    const wasFocusSurface = previousFocusModeSurfaceRef.current;
+
+    if (wasFocusSurface && !isFocusModeSurface && isAutomaticFocusMode) {
+      setIsAutomaticFocusSuppressed(false);
+    }
+
+    previousFocusModeSurfaceRef.current = isFocusModeSurface;
+  }, [isAutomaticFocusMode, isFocusModeSurface]);
 
   useEffect(() => {
     const bridge = window.contextforge?.desktopSync;
@@ -955,8 +1378,18 @@ export function DashboardPage() {
     };
   }, [handleDesktopNavigationRequest]);
 
+  const handleCloseTaskPackSurface = useCallback(() => {
+    if (backLocation) {
+      handleNavigateBack();
+      return;
+    }
+
+    handleNavigate("taskPacks");
+  }, [backLocation, handleNavigate, handleNavigateBack]);
+
   const handleOpenProjectDetails = useCallback(
     (projectId: number) => {
+      setQuickPeekTarget(null);
       const currentIndex = getPageOrderIndex(activePage);
       const nextIndex = getPageOrderIndex("projects");
 
@@ -965,11 +1398,170 @@ export function DashboardPage() {
       dashboard.setGeneratedTaskPack(null);
 
       setPageDirection(nextIndex >= currentIndex ? 1 : -1);
-      setActivePage("projects");
-      setSelectedProjectDetailsId(projectId);
+      navigateToLocation({
+        page: "projects",
+        surface: "project-details",
+        projectId,
+      });
     },
-    [activePage, dashboard],
+    [activePage, dashboard, navigateToLocation],
   );
+
+  const handleCloseProjectDetails = useCallback(() => {
+    handleNavigate("projects");
+  }, [handleNavigate]);
+
+  const shouldShowFirstRunOnboarding = Boolean(
+    !isWelcomeVisible &&
+    shellSettingsReady &&
+    appSettings &&
+    !onboardingDismissedThisSession &&
+    appSettings.onboardingEnabled !== false &&
+    (appSettings.onboardingShowEveryLaunch !== false ||
+      !appSettings.onboardingCompleted),
+  );
+
+  const currentCommandProjectId = useMemo(() => {
+    if (activeLocation.surface === "project-details") {
+      return activeLocation.projectId;
+    }
+    if (activeLocation.surface === "task-pack-builder") {
+      return activeLocation.draft.projectId;
+    }
+    if (activeLocation.surface === "context-composer") {
+      return activeLocation.preview.project.id;
+    }
+    if (activeLocation.surface === "task-pack-result") {
+      return activeLocation.taskPack.projectId;
+    }
+    return null;
+  }, [activeLocation]);
+
+  const currentCommandProject = useMemo(
+    () =>
+      currentCommandProjectId === null
+        ? null
+        : dashboard.projects.find(
+            (project) => project.id === currentCommandProjectId,
+          ) ?? null,
+    [currentCommandProjectId, dashboard.projects],
+  );
+
+  const openCommandPalette = useCallback(() => {
+    if (
+      isWelcomeVisible ||
+      shouldShowFirstRunOnboarding ||
+      isGlobalSearchOpen ||
+      dashboard.agentsPreview ||
+      document.querySelector('[role="dialog"][aria-modal="true"]')
+    ) {
+      return;
+    }
+
+    setIsCommandPaletteOpen(true);
+  }, [
+    dashboard.agentsPreview,
+    isGlobalSearchOpen,
+    isWelcomeVisible,
+    shouldShowFirstRunOnboarding,
+  ]);
+
+  const openGlobalSearchFromShortcut = useCallback(() => {
+    if (
+      isWelcomeVisible ||
+      shouldShowFirstRunOnboarding ||
+      isCommandPaletteOpen ||
+      dashboard.agentsPreview ||
+      document.querySelector('[role="dialog"][aria-modal="true"]')
+    ) {
+      return;
+    }
+
+    setIsGlobalSearchOpen(true);
+  }, [
+    dashboard.agentsPreview,
+    isCommandPaletteOpen,
+    isWelcomeVisible,
+    shouldShowFirstRunOnboarding,
+  ]);
+
+  const commandPaletteCommands = useMemo(
+    () =>
+      isCommandPaletteOpen
+        ? buildCommandPaletteCommands({
+            activePage,
+            projects: dashboard.projects,
+            taskPacks: dashboard.taskPacks,
+            currentProject: currentCommandProject,
+            taskPackFreshnessById,
+            canGoBack,
+            canGoForward,
+            isWorkspaceBusy: dashboard.isLoading,
+            isFocusModeAvailable: isFocusModeSurface,
+            isFocusModeActive,
+            t,
+            onNavigate: handleNavigate,
+            onOpenProject: handleOpenProjectDetails,
+            onAddProject: () => void dashboard.handleSelectProject(),
+            onRescanProject: (project) =>
+              void dashboard.handleRescanProject(project),
+            onCreateTaskPack: (project) =>
+              void handleCreateTaskPackDraftWithNavigation(project),
+            onOpenTaskPack: handleOpenTaskPackResult,
+            onOpenGlobalSearch: () => setIsGlobalSearchOpen(true),
+            onBack: handleNavigateBack,
+            onForward: handleNavigateForward,
+            onToggleFocusMode: toggleFocusMode,
+            onZoomIn: workspaceZoom.zoomIn,
+            onZoomOut: workspaceZoom.zoomOut,
+            onZoomReset: workspaceZoom.resetZoom,
+          })
+        : [],
+    [
+      activePage,
+      canGoBack,
+      canGoForward,
+      currentCommandProject,
+      dashboard.handleRescanProject,
+      dashboard.handleSelectProject,
+      dashboard.isLoading,
+      dashboard.projects,
+      dashboard.taskPacks,
+      handleCreateTaskPackDraftWithNavigation,
+      handleNavigate,
+      handleNavigateBack,
+      handleNavigateForward,
+      handleOpenProjectDetails,
+      handleOpenTaskPackResult,
+      isCommandPaletteOpen,
+      isFocusModeActive,
+      isFocusModeSurface,
+      t,
+      taskPackFreshnessById,
+      toggleFocusMode,
+      workspaceZoom.resetZoom,
+      workspaceZoom.zoomIn,
+      workspaceZoom.zoomOut,
+    ],
+  );
+
+  useKeyboardShortcuts({
+    navigationBack: handleNavigateBack,
+    navigationForward: handleNavigateForward,
+    toggleFocusMode,
+    zoomIn: workspaceZoom.zoomIn,
+    zoomOut: workspaceZoom.zoomOut,
+    zoomReset: workspaceZoom.resetZoom,
+    globalSearch: openGlobalSearchFromShortcut,
+    navigationAssistant: openCommandPalette,
+    addProject: () => {
+      if (!dashboard.isLoading) {
+        void dashboard.handleSelectProject();
+      }
+    },
+    openTaskPacks: () => handleNavigate("taskPacks"),
+    openSettings: () => handleNavigate("settings"),
+  });
 
   const completeFirstRunOnboarding = useCallback(async () => {
     setOnboardingDismissedThisSession(true);
@@ -1132,18 +1724,43 @@ export function DashboardPage() {
     shellSettingsReady,
   ]);
 
+  const reviewedContextSelection = useMemo(() => {
+    if (
+      activeLocation.surface !== "task-pack-builder" ||
+      forwardLocation?.surface !== "context-composer" ||
+      !taskContextDraftsMatch(activeLocation.draft, forwardLocation.draft)
+    ) {
+      return null;
+    }
+
+    return buildContextComposerReviewedSelection(
+      forwardLocation.preview,
+      forwardLocation.state ?? null,
+    );
+  }, [activeLocation, forwardLocation]);
+
   const content = useMemo(() => {
     if (dashboard.generatedTaskPack) {
       return (
         <TaskPackResultPage
           taskPack={dashboard.generatedTaskPack}
-          onClose={() => dashboard.setGeneratedTaskPack(null)}
+          freshness={resolveTaskPackFreshness(dashboard.generatedTaskPack)}
+          onReviewProject={handleOpenProjectDetails}
+          onClose={handleCloseTaskPackSurface}
           onOpenArchive={() => {
             dashboard.setGeneratedTaskPack(null);
             handleNavigate("taskPacks");
           }}
-          onTaskPackUpdated={dashboard.handleExternalTaskPackUpdated}
-          onOpenInBuilder={dashboard.handleOpenTaskPackInBuilder}
+          onInspectTaskPack={(taskPack) => {
+            setQuickPeekTarget(null);
+            setSplitViewTarget(null);
+            setInspectorTarget({
+              kind: "task-pack",
+              taskPack,
+            });
+          }}
+          onTaskPackUpdated={handleTaskPackUpdatedWithNavigation}
+          onOpenInBuilder={handleOpenTaskPackInBuilderWithNavigation}
         />
       );
     }
@@ -1153,8 +1770,44 @@ export function DashboardPage() {
         <ContextComposerPage
           preview={dashboard.contextComposerPreview}
           isLoading={dashboard.isLoading}
-          onClose={() => dashboard.setContextComposerPreview(null)}
-          onGenerate={handleCreateTaskPackFromComposerWithPresence}
+          navigationState={
+            activeLocation.surface === "context-composer"
+              ? activeLocation.state ?? null
+              : null
+          }
+          onNavigationStateChange={updateCurrentContextComposerState}
+          onQuickPeekFile={setQuickPeekTarget}
+          onInspectTarget={(target) => {
+            setQuickPeekTarget(null);
+            setSplitViewTarget(null);
+            setIsExplainabilityOpen(false);
+            setIsContextMapOpen(false);
+            setInspectorTarget(target);
+          }}
+          onExplainContext={() => {
+            setQuickPeekTarget(null);
+            setSplitViewTarget(null);
+            setInspectorTarget(null);
+            setIsContextMapOpen(false);
+            setIsExplainabilityOpen(true);
+          }}
+          onOpenContextMap={() => {
+            setQuickPeekTarget(null);
+            setSplitViewTarget(null);
+            setInspectorTarget(null);
+            setIsExplainabilityOpen(false);
+            setIsContextMapOpen(true);
+          }}
+          onClose={() => {
+            setIsExplainabilityOpen(false);
+            setIsContextMapOpen(false);
+            handleCloseTaskPackSurface();
+          }}
+          onGenerate={(selectedFilePaths) => {
+            setIsExplainabilityOpen(false);
+            setIsContextMapOpen(false);
+            handleCreateTaskPackFromComposerWithPresence(selectedFilePaths);
+          }}
         />
       );
     }
@@ -1165,10 +1818,11 @@ export function DashboardPage() {
           draft={dashboard.taskPackDraft}
           isLoading={dashboard.isLoading}
           contextPreview={dashboard.taskPackContextPreview}
-          onChange={dashboard.setTaskPackDraft}
-          onClose={() => dashboard.setTaskPackDraft(null)}
+          reviewedContextSelection={reviewedContextSelection}
+          onChange={handleTaskPackDraftChange}
+          onClose={handleCloseTaskPackSurface}
           onAnalyzeContext={handleAnalyzeTaskContextWithPresence}
-          onOpenContextComposer={dashboard.handleOpenTaskContextComposer}
+          onOpenContextComposer={handleOpenTaskContextComposerWithNavigation}
           onGenerate={handleCreateTaskPackWithPresence}
         />
       );
@@ -1177,13 +1831,23 @@ export function DashboardPage() {
       return (
         <TaskPackResultPage
           taskPack={dashboard.generatedTaskPack}
-          onClose={() => dashboard.setGeneratedTaskPack(null)}
+          freshness={resolveTaskPackFreshness(dashboard.generatedTaskPack)}
+          onReviewProject={handleOpenProjectDetails}
+          onClose={handleCloseTaskPackSurface}
           onOpenArchive={() => {
             dashboard.setGeneratedTaskPack(null);
             handleNavigate("taskPacks");
           }}
-          onTaskPackUpdated={dashboard.handleExternalTaskPackUpdated}
-          onOpenInBuilder={dashboard.handleOpenTaskPackInBuilder}
+          onInspectTaskPack={(taskPack) => {
+            setQuickPeekTarget(null);
+            setSplitViewTarget(null);
+            setInspectorTarget({
+              kind: "task-pack",
+              taskPack,
+            });
+          }}
+          onTaskPackUpdated={handleTaskPackUpdatedWithNavigation}
+          onOpenInBuilder={handleOpenTaskPackInBuilderWithNavigation}
         />
       );
     }
@@ -1194,10 +1858,11 @@ export function DashboardPage() {
           draft={dashboard.taskPackDraft}
           isLoading={dashboard.isLoading}
           contextPreview={dashboard.taskPackContextPreview}
-          onChange={dashboard.setTaskPackDraft}
-          onClose={() => dashboard.setTaskPackDraft(null)}
+          reviewedContextSelection={reviewedContextSelection}
+          onChange={handleTaskPackDraftChange}
+          onClose={handleCloseTaskPackSurface}
           onAnalyzeContext={handleAnalyzeTaskContextWithPresence}
-          onOpenContextComposer={dashboard.handleOpenTaskContextComposer}
+          onOpenContextComposer={handleOpenTaskContextComposerWithNavigation}
           onGenerate={handleCreateTaskPackWithPresence}
         />
       );
@@ -1211,13 +1876,16 @@ export function DashboardPage() {
         return (
           <ProjectDetailsPage
             project={selectedProject}
+            taskPacks={dashboard.taskPacks}
+            freshnessByTaskPackId={taskPackFreshnessById}
+            onOpenTaskPack={handleOpenTaskPackResult}
             isLoading={dashboard.isLoading}
-            onBack={() => setSelectedProjectDetailsId(null)}
+            onBack={handleCloseProjectDetails}
             onRescan={dashboard.handleRescanProject}
             onGenerateAgents={dashboard.handleGenerateAgentsPreview}
-            onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
+            onCreateTaskPack={handleCreateTaskPackDraftWithNavigation}
             onCreateTaskPackFromChanges={
-              dashboard.handleCreateTaskPackDraftFromChanges
+              handleCreateTaskPackDraftFromChangesWithNavigation
             }
           />
         );
@@ -1229,6 +1897,7 @@ export function DashboardPage() {
         <DashboardHomePage
           projects={dashboard.projects}
           taskPacks={dashboard.taskPacks}
+          freshnessByTaskPackId={taskPackFreshnessById}
           readinessScore={dashboard.readinessScore}
           statusMessage={dashboard.statusMessage}
           isLoading={dashboard.isLoading}
@@ -1239,8 +1908,14 @@ export function DashboardPage() {
           onOpenSettings={() => handleNavigate("settings")}
           onRescanProject={dashboard.handleRescanProject}
           onGenerateAgents={dashboard.handleGenerateAgentsPreview}
-          onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
-          onOpenTaskPack={dashboard.setGeneratedTaskPack}
+          onCreateTaskPack={handleCreateTaskPackDraftWithNavigation}
+          onOpenTaskPack={handleOpenTaskPackResult}
+          onOpenProjectDetails={(project) =>
+            handleOpenProjectDetails(project.id)
+          }
+          onQuickPeekProject={(project) =>
+            setQuickPeekTarget({ kind: "project", project })
+          }
         />
       );
     }
@@ -1251,11 +1926,18 @@ export function DashboardPage() {
           projects={dashboard.projects}
           isLoading={dashboard.isLoading}
           onAddProject={dashboard.handleSelectProject}
+          onDropProjectFolder={dashboard.handleDropProjectFolder}
           onRescanProject={dashboard.handleRescanProject}
           onGenerateAgents={dashboard.handleGenerateAgentsPreview}
-          onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
+          onCreateTaskPack={handleCreateTaskPackDraftWithNavigation}
           onOpenProjectDetails={(project) =>
             handleOpenProjectDetails(project.id)
+          }
+          onQuickPeekProject={(project) =>
+            setQuickPeekTarget({
+              kind: "project",
+              project,
+            })
           }
         />
       );
@@ -1265,8 +1947,24 @@ export function DashboardPage() {
       return (
         <TaskPacksPage
           taskPacks={dashboard.taskPacks}
-          onOpenTaskPack={dashboard.setGeneratedTaskPack}
-          onImportedTaskPack={dashboard.handleExternalTaskPackCreated}
+          freshnessByTaskPackId={taskPackFreshnessById}
+          onReviewProject={handleOpenProjectDetails}
+          onOpenTaskPack={handleOpenTaskPackResult}
+          onQuickPeekTaskPack={(taskPack) =>
+            setQuickPeekTarget({
+              kind: "task-pack",
+              taskPack,
+            })
+          }
+          onInspectTaskPack={(taskPack) => {
+            setQuickPeekTarget(null);
+            setSplitViewTarget(null);
+            setInspectorTarget({
+              kind: "task-pack",
+              taskPack,
+            });
+          }}
+          onImportedTaskPack={handleExternalTaskPackCreatedWithNavigation}
         />
       );
     }
@@ -1278,7 +1976,7 @@ export function DashboardPage() {
           isLoading={dashboard.isLoading}
           onAddProject={dashboard.handleSelectProject}
           onRescanProject={dashboard.handleRescanProject}
-          onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
+          onCreateTaskPack={handleCreateTaskPackDraftWithNavigation}
         />
       );
     }
@@ -1291,7 +1989,7 @@ export function DashboardPage() {
           onAddProject={dashboard.handleSelectProject}
           onGenerateAgents={dashboard.handleGenerateAgentsPreview}
           onOpenContextFile={dashboard.handleOpenProjectContextFile}
-          onCreateTaskPack={dashboard.handleCreateTaskPackDraft}
+          onCreateTaskPack={handleCreateTaskPackDraftWithNavigation}
         />
       );
     }
@@ -1304,7 +2002,7 @@ export function DashboardPage() {
           readinessScore={dashboard.readinessScore}
           onOpenProjects={() => handleNavigate("projects")}
           onOpenTaskPacks={() => handleNavigate("taskPacks")}
-          onOpenTaskPack={dashboard.setGeneratedTaskPack}
+          onOpenTaskPack={handleOpenTaskPackResult}
           onPresenceActivityChange={setReportsPresenceActivity}
           onValidationRunStateChange={handleValidationRunStateChange}
         />
@@ -1337,7 +2035,7 @@ export function DashboardPage() {
     if (activePage === "github") {
       return (
         <GitHubPage
-          onTaskPackCreated={dashboard.handleExternalTaskPackCreated}
+          onTaskPackCreated={handleExternalTaskPackCreatedWithNavigation}
         />
       );
     }
@@ -1352,11 +2050,26 @@ export function DashboardPage() {
 
     return <PlaceholderPage pageId={activePage} />;
   }, [
+    activeLocation,
     activePage,
     dashboard,
+    handleCloseProjectDetails,
+    handleCloseTaskPackSurface,
+    handleCreateTaskPackDraftFromChangesWithNavigation,
+    handleCreateTaskPackDraftWithNavigation,
+    handleExternalTaskPackCreatedWithNavigation,
     handleNavigate,
     handleOpenProjectDetails,
+    handleOpenTaskContextComposerWithNavigation,
+    handleOpenTaskPackInBuilderWithNavigation,
+    handleOpenTaskPackResult,
+    handleTaskPackDraftChange,
+    handleTaskPackUpdatedWithNavigation,
+    resolveTaskPackFreshness,
+    reviewedContextSelection,
     selectedProjectDetailsId,
+    taskPackFreshnessById,
+    updateCurrentContextComposerState,
   ]);
 
   const contentTransitionKey = useMemo(() => {
@@ -1385,18 +2098,12 @@ export function DashboardPage() {
     selectedProjectDetailsId,
   ]);
 
-  const shouldShowFirstRunOnboarding = Boolean(
-    !isWelcomeVisible &&
-    shellSettingsReady &&
-    appSettings &&
-    !onboardingDismissedThisSession &&
-    appSettings.onboardingEnabled !== false &&
-    (appSettings.onboardingShowEveryLaunch !== false ||
-      !appSettings.onboardingCompleted),
-  );
-
   return (
-    <main className="relative h-screen min-h-0 w-screen overflow-hidden bg-black text-neutral-100">
+    <main
+      className="relative h-screen min-h-0 w-screen overflow-hidden bg-black text-neutral-100"
+      data-workspace-density={resolvedWorkspaceDensity}
+      data-workspace-density-preference={workspaceDensityPreference}
+    >
       <motion.div
         initial={false}
         animate={{
@@ -1413,28 +2120,213 @@ export function DashboardPage() {
         <AppTitleBar
           activePage={activePage}
           isLoading={dashboard.isLoading}
+          canGoBack={canGoBack}
+          canGoForward={canGoForward}
           onAddProject={dashboard.handleSelectProject}
           onNavigate={handleNavigate}
-          onOpenNavigationAssistant={() => setIsNavigationAssistantOpen(true)}
+          onNavigateBack={handleNavigateBack}
+          onNavigateForward={handleNavigateForward}
+          onOpenNavigationAssistant={openCommandPalette}
+          isFocusModeAvailable={isFocusModeSurface}
+          isFocusModeActive={isFocusModeActive}
+          onToggleFocusMode={toggleFocusMode}
         />
 
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <Sidebar
             activePage={activePage}
             showDescriptions={appSettings?.sidebarShowDescriptions ?? false}
+            focusMode={isFocusModeActive}
             onNavigate={handleNavigate}
           />
 
-          <section className="flex min-w-0 flex-1 flex-col bg-black">
-            <div className="min-h-0 flex-1 overflow-auto p-7">
-              <PageTransition
-                pageKey={contentTransitionKey}
-                direction={pageDirection}
+          <div className="flex min-w-0 flex-1 overflow-hidden bg-black">
+            <section className="flex min-w-0 flex-1 flex-col bg-black">
+              <motion.div
+                className="min-h-0 flex-1 overflow-auto"
+                animate={{ padding: workspaceContentPadding }}
+                transition={{
+                  duration: 0.22,
+                  ease: [0.16, 1, 0.3, 1],
+                }}
               >
-                {content}
-              </PageTransition>
-            </div>
-          </section>
+                <PageTransition
+                  pageKey={contentTransitionKey}
+                  direction={pageDirection}
+                >
+                  {content}
+                </PageTransition>
+              </motion.div>
+            </section>
+
+            <AnimatePresence initial={false} mode="wait">
+              {splitViewTarget ? (
+                <QuickPeekPanel
+                  key={`split-${
+                    splitViewTarget.kind === "project"
+                      ? splitViewTarget.project.id
+                      : splitViewTarget.kind === "task-pack"
+                        ? splitViewTarget.taskPack.id
+                        : splitViewTarget.displayPath
+                  }`}
+                  mode="split-view"
+                  target={splitViewTarget}
+                  taskPackFreshness={
+                    splitViewTarget.kind === "task-pack"
+                      ? resolveTaskPackFreshness(splitViewTarget.taskPack)
+                      : undefined
+                  }
+                  onClose={() => setSplitViewTarget(null)}
+                  onOpenProject={(projectId) => {
+                    setSplitViewTarget(null);
+                    handleOpenProjectDetails(projectId);
+                  }}
+                  onOpenTaskPack={(taskPack) => {
+                    setSplitViewTarget(null);
+                    handleOpenTaskPackResult(taskPack);
+                  }}
+                />
+              ) : inspectorTarget ? (
+                <PersistentInspectorPanel
+                  key={`inspector-${
+                    inspectorTarget.kind === "file"
+                      ? inspectorTarget.file.displayPath
+                      : inspectorTarget.kind === "task-pack"
+                        ? inspectorTarget.taskPack.id
+                        : inspectorTarget.kind === "context"
+                          ? inspectorTarget.preview.project.id
+                          : inspectorTarget.evidence.evidenceId
+                  }`}
+                  target={inspectorTarget}
+                  onClose={() => setInspectorTarget(null)}
+                  onOpenInSplitView={(target) => {
+                    setInspectorTarget(null);
+                    setSplitViewTarget(target);
+                  }}
+                  onOpenProject={(projectId) => {
+                    setInspectorTarget(null);
+                    handleOpenProjectDetails(projectId);
+                  }}
+                  onOpenTaskPack={(taskPack) => {
+                    setInspectorTarget(null);
+                    handleOpenTaskPackResult(taskPack);
+                  }}
+                />
+              ) : isExplainabilityOpen &&
+                dashboard.contextComposerPreview?.contextEngine ? (
+                <ExplainabilityLensPanel
+                  key="explainability-lens"
+                  view={dashboard.contextComposerPreview.contextEngine}
+                  projectName={dashboard.contextComposerPreview.project.name}
+                  contextDiff={
+                    contextDiffSession?.sourcePreview ===
+                    dashboard.contextComposerPreview
+                      ? {
+                          previous: contextDiffSession.previous,
+                          current: contextDiffSession.current,
+                        }
+                      : null
+                  }
+                  onClose={() => setIsExplainabilityOpen(false)}
+                  onInspectFile={(file) => {
+                    setIsExplainabilityOpen(false);
+                    setInspectorTarget({
+                      kind: "file",
+                      file: {
+                        kind: "file",
+                        title:
+                          file.path.split(/[\\/]/).filter(Boolean).pop() ??
+                          file.path,
+                        displayPath: file.path,
+                        filePath: file.path,
+                        projectId: dashboard.contextComposerPreview!.project.id,
+                        projectName:
+                          dashboard.contextComposerPreview!.project.name,
+                      },
+                      contextFile: file,
+                    });
+                  }}
+                  onInspectEvidence={(contextFile, evidence) => {
+                    setIsExplainabilityOpen(false);
+                    setInspectorTarget({
+                      kind: "evidence",
+                      projectId: dashboard.contextComposerPreview!.project.id,
+                      projectName:
+                        dashboard.contextComposerPreview!.project.name,
+                      evidence,
+                      contextFile,
+                    });
+                  }}
+                  onOpenSource={(path, line) => {
+                    setIsExplainabilityOpen(false);
+                    setSplitViewTarget({
+                      kind: "file",
+                      title:
+                        path.split(/[\\/]/).filter(Boolean).pop() ?? path,
+                      displayPath: path,
+                      filePath: path,
+                      projectId: dashboard.contextComposerPreview!.project.id,
+                      projectName:
+                        dashboard.contextComposerPreview!.project.name,
+                      line,
+                    });
+                  }}
+                />
+              ) : isContextMapOpen &&
+                dashboard.contextComposerPreview?.contextEngine ? (
+                <ContextMapPanel
+                  key="context-map"
+                  view={dashboard.contextComposerPreview.contextEngine}
+                  projectId={dashboard.contextComposerPreview.project.id}
+                  projectName={dashboard.contextComposerPreview.project.name}
+                  onClose={() => setIsContextMapOpen(false)}
+                  onInspectFile={(file) => {
+                    setIsContextMapOpen(false);
+                    setInspectorTarget({
+                      kind: "file",
+                      file: {
+                        kind: "file",
+                        title:
+                          file.path.split(/[\\/]/).filter(Boolean).pop() ??
+                          file.path,
+                        displayPath: file.path,
+                        filePath: file.path,
+                        projectId: dashboard.contextComposerPreview!.project.id,
+                        projectName:
+                          dashboard.contextComposerPreview!.project.name,
+                      },
+                      contextFile: file,
+                    });
+                  }}
+                  onInspectEvidence={(contextFile, evidence) => {
+                    setIsContextMapOpen(false);
+                    setInspectorTarget({
+                      kind: "evidence",
+                      projectId: dashboard.contextComposerPreview!.project.id,
+                      projectName:
+                        dashboard.contextComposerPreview!.project.name,
+                      evidence,
+                      contextFile,
+                    });
+                  }}
+                  onOpenSource={(path, line) => {
+                    setIsContextMapOpen(false);
+                    setSplitViewTarget({
+                      kind: "file",
+                      title:
+                        path.split(/[\\/]/).filter(Boolean).pop() ?? path,
+                      displayPath: path,
+                      filePath: path,
+                      projectId: dashboard.contextComposerPreview!.project.id,
+                      projectName:
+                        dashboard.contextComposerPreview!.project.name,
+                      line,
+                    });
+                  }}
+                />
+              ) : null}
+            </AnimatePresence>
+          </div>
         </div>
 
         {dashboard.agentsPreview && (
@@ -1447,15 +2339,10 @@ export function DashboardPage() {
           />
         )}
 
-        {isNavigationAssistantOpen && (
-          <NavigationAssistantModal
-            activePage={activePage}
-            onNavigate={(page) => {
-              setIsNavigationAssistantOpen(false);
-              handleNavigate(page);
-            }}
-            onAddProject={dashboard.handleSelectProject}
-            onClose={() => setIsNavigationAssistantOpen(false)}
+        {isCommandPaletteOpen && (
+          <CommandPaletteModal
+            commands={commandPaletteCommands}
+            onClose={() => setIsCommandPaletteOpen(false)}
           />
         )}
 
@@ -1465,11 +2352,65 @@ export function DashboardPage() {
             projects={dashboard.projects}
             taskPacks={dashboard.taskPacks}
             onNavigate={handleNavigate}
-            onOpenTaskPack={dashboard.setGeneratedTaskPack}
+            onOpenTaskPack={handleOpenTaskPackResult}
+            onQuickPeek={(target) => {
+              setIsGlobalSearchOpen(false);
+              setQuickPeekTarget(target);
+            }}
             onAddProject={dashboard.handleSelectProject}
             onClose={() => setIsGlobalSearchOpen(false)}
           />
         )}
+
+        <AnimatePresence>
+          {quickPeekTarget ? (
+            <QuickPeekPanel
+              key={`${quickPeekTarget.kind}-${
+                quickPeekTarget.kind === "project"
+                  ? quickPeekTarget.project.id
+                  : quickPeekTarget.kind === "task-pack"
+                    ? quickPeekTarget.taskPack.id
+                    : quickPeekTarget.displayPath
+              }`}
+              target={quickPeekTarget}
+              taskPackFreshness={
+                quickPeekTarget.kind === "task-pack"
+                  ? resolveTaskPackFreshness(quickPeekTarget.taskPack)
+                  : undefined
+              }
+              onClose={() => setQuickPeekTarget(null)}
+              onInspect={(target) => {
+                const nextInspectorTarget: InspectorTarget | null =
+                  target.kind === "file"
+                    ? {
+                        kind: "file",
+                        file: target,
+                      }
+                    : target.kind === "task-pack"
+                      ? {
+                          kind: "task-pack",
+                          taskPack: target.taskPack,
+                        }
+                      : null;
+
+                if (!nextInspectorTarget) {
+                  return;
+                }
+
+                setSplitViewTarget(null);
+                setInspectorTarget(nextInspectorTarget);
+                setQuickPeekTarget(null);
+              }}
+              onOpenInSplitView={(target) => {
+                setInspectorTarget(null);
+                setSplitViewTarget(target);
+                setQuickPeekTarget(null);
+              }}
+              onOpenProject={handleOpenProjectDetails}
+              onOpenTaskPack={handleOpenTaskPackResult}
+            />
+          ) : null}
+        </AnimatePresence>
 
         <AnimatePresence>
           {shouldShowFirstRunOnboarding && (
@@ -1493,10 +2434,17 @@ export function DashboardPage() {
 
       <StatusBar
         message={
-          dashboard.statusMessage === i18n.t("common.statusReady")
+          isUnsupportedDropVisible
+            ? t("dragAndDrop.unsupportedDrop")
+            : dashboard.statusMessage === i18n.t("common.statusReady")
             ? ""
             : dashboard.statusMessage
         }
+      />
+
+      <WorkspaceZoomHud
+        visible={workspaceZoom.isHudVisible}
+        percent={workspaceZoom.percent}
       />
 
       <AnimatePresence>
