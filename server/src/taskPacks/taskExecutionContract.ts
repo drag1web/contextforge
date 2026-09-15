@@ -10,6 +10,7 @@ import type {
 } from "../ollama/taskUnderstanding.js";
 import { classifyTaskSelectionProfile } from "../selection/taskSelectionProfile.js";
 import { extractClassifiedFileMentions } from "../selection/explicitFileMentions.js";
+import { getImplementationScopeConstraints } from "../selection/negativeConstraintSemantics.js";
 import type {
   FileSelectionEvidence,
   SelectionActionConfidence,
@@ -488,6 +489,10 @@ function inferRequiredLayers({
     .join(" ")
     .toLowerCase();
   const protectedLayers = new Set<TaskExecutionLayer>();
+  const scopeConstraints = getImplementationScopeConstraints(
+    [rawTask, ...(understanding.constraints ?? [])].join("; "),
+    structuredIntent?.protectedScopes ?? [],
+  );
   const explicitProtectedScopeText = (
     structuredIntent?.protectedScopes ?? []
   )
@@ -515,40 +520,20 @@ function inferRequiredLayers({
     protectedLayers.add("ui");
     protectedLayers.add("client-api");
   }
-  if (
-    /(?:\bbackend\b|server|api|endpoint|route|сервер|бэк|бекенд|бэкенд|эндпоинт|маршрут)[^.!?\n]{0,80}(?:не\s+(?:добавляй|добавлять|создавай|создавать|трогай|трогать|меняй|менять|изменяй|изменять|редактируй|редактировать)|do not|don't|dont|without)/iu.test(
-      protectedText,
-    ) ||
-    /(?:не\s+(?:добавляй|добавлять|создавай|создавать|трогай|трогать|меняй|менять|изменяй|изменять|редактируй|редактировать)|do not|don't|dont|without)[^.!?\n]{0,80}(?:\bbackend\b|server|api|endpoint|route|сервер|бэк|бекенд|бэкенд|эндпоинт|маршрут)/iu.test(
-      protectedText,
-    ) ||
-    /(?:\b(?:no|without)\s+(?:new|separate|additional)\s+(?:backend|server|api|endpoint|route)\b|без\s+(?:нов\p{L}*|отдельн\p{L}*|дополнительн\p{L}*)\s+(?:бэк\p{L}*|бек\p{L}*|backend|server|api|апи|сервер\p{L}*|эндпоинт\p{L}*|маршрут\p{L}*))/iu.test(
-      protectedText,
-    ) ||
-    /(?:\b(?:backend|server|api|endpoint|route)\b|бэк\p{L}*|бек\p{L}*|апи|сервер\p{L}*|эндпоинт\p{L}*|маршрут\p{L}*)[^.!?\n]{0,100}(?:(?:create|add|introduce|register)(?:ing)?\s+(?:is\s+)?not\s+(?:needed|required)|(?:создавать|добавлять|регистрировать)\s+не\s+(?:нужно|требуется))/iu.test(
-      protectedText,
-    )
-  ) {
+  if (scopeConstraints.backendProtected) {
     protectedLayers.add("backend");
   }
   if (
-    /(?:\b(?:database|storage|repository|schema|persistence)\b|баз\w*\s+данн|хранилищ|репозитор|схем|формат\w*\s+хранени)[^.!?\n]{0,100}(?:не\s+(?:трогай|трогать|меняй|менять|изменяй|изменять|редактируй|редактировать)|do not|don't|dont|without|запрещ)/iu.test(
+    /(?:\b(?:database|storage|repository|schema|persistence)\b|баз\w*\s+данн|хранилищ|репозитор|схем|формат\w*\s+хранени)[^;.!?\n]{0,100}(?:не\s+(?:трогай|трогать|меняй|менять|изменяй|изменять|редактируй|редактировать)|do not|don't|dont|without|запрещ)/iu.test(
       protectedText,
     ) ||
-    /(?:не\s+(?:трогай|трогать|меняй|менять|изменяй|изменять|редактируй|редактировать)|do not|don't|dont|without|запрещ)[^.!?\n]{0,100}(?:\b(?:database|storage|repository|schema|persistence)\b|баз\w*\s+данн|хранилищ|репозитор|схем|формат\w*\s+хранени)/iu.test(
+    /(?:не\s+(?:трогай|трогать|меняй|менять|изменяй|изменять|редактируй|редактировать)|do not|don't|dont|without|запрещ)[^;.!?\n]{0,100}(?:\b(?:database|storage|repository|schema|persistence)\b|баз\w*\s+данн|хранилищ|репозитор|схем|формат\w*\s+хранени)/iu.test(
       protectedText,
     )
   ) {
     protectedLayers.add("storage");
   }
-  if (
-    /(?:\b(?:frontend|ui|client)\b|фронт|интерфейс|клиент)[^.!?\n]{0,80}(?:не\s+(?:трогай|трогать|меняй|менять|изменяй|изменять|редактируй|редактировать)|do not|don't|dont|without)/iu.test(
-      protectedText,
-    ) ||
-    /(?:не\s+(?:трогай|трогать|меняй|менять|изменяй|изменять|редактируй|редактировать)|do not|don't|dont|without)[^.!?\n]{0,80}(?:\b(?:frontend|ui|client)\b|фронт|интерфейс|клиент)/iu.test(
-      protectedText,
-    )
-  ) {
+  if (scopeConstraints.frontendProtected) {
     protectedLayers.add("ui");
     protectedLayers.add("client-api");
   }

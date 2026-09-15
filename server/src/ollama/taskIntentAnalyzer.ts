@@ -2,6 +2,7 @@ import { getAppSettings } from "../settings/settingsService.js";
 import {
     isExplicitFileTargetMention
 } from "../selection/explicitFileMentions.js";
+import { getImplementationScopeConstraints } from "../selection/negativeConstraintSemantics.js";
 import {
     beginPerformanceAiCall,
     finishPerformanceAiCall
@@ -216,7 +217,10 @@ function hasRuntimeUiSurfaceTerm(rawTask: string) {
 }
 
 function hasNoBackendChangeConstraint(rawTask: string) {
-    return hasRuntimeNoBackendConstraint(rawTask) || includesAny(rawTask, [
+    const scopeConstraints = getImplementationScopeConstraints(rawTask);
+    if (scopeConstraints.backendProtected) return true;
+    if (scopeConstraints.frontendProtected) return false;
+    return includesAny(rawTask, [
         "do not change backend",
         "don't change backend",
         "do not modify backend",
@@ -278,7 +282,7 @@ function hasNoBackendChangeConstraint(rawTask: string) {
 }
 
 function hasNoFrontendChangeConstraint(rawTask: string) {
-    return includesAny(rawTask, [
+    return getImplementationScopeConstraints(rawTask).frontendProtected || includesAny(rawTask, [
         "do not change frontend",
         "don't change frontend",
         "do not change ui",

@@ -184,11 +184,15 @@ function isGroupedReferenceOnlyMention(rawTask: string, rawMention: string) {
   return false;
 }
 
+function isDirectFileMutationTargetContext(before: string) {
+  return /(?:edit|change|update|fix|modify|delete|remove|rename|move|create|generate|write|open|inspect|review|редактир\p{L}*|измен\p{L}*|обнов\p{L}*|исправ\p{L}*|почин\p{L}*|удал\p{L}*|переимен\p{L}*|перемест\p{L}*|созда\p{L}*|сгенерир\p{L}*|напиш\p{L}*|откр\p{L}*|проверь\p{L}*)\s+(?:the\s+)?(?:file\s+|файл\s+)?$/iu.test(
+    before,
+  );
+}
+
 function isDirectFileTargetContext(before: string) {
   return (
-    /(?:edit|change|update|fix|modify|delete|remove|rename|move|create|generate|write|open|inspect|review|редактир\p{L}*|измен\p{L}*|обнов\p{L}*|исправ\p{L}*|почин\p{L}*|удал\p{L}*|переимен\p{L}*|перемест\p{L}*|созда\p{L}*|сгенерир\p{L}*|напиш\p{L}*|откр\p{L}*|проверь\p{L}*)\s+(?:the\s+)?(?:file\s+|файл\s+)?$/iu.test(
-      before,
-    ) ||
+    isDirectFileMutationTargetContext(before) ||
     /(?:in|inside|within)\s+(?:the\s+)?(?:file\s+)?$/iu.test(before) ||
     /(?:в|внутри)\s+(?:файл(?:е|а)?\s+)?$/iu.test(before) ||
     /(?:file|файл)\s+$/iu.test(before)
@@ -218,6 +222,13 @@ export function classifyFileMentionSemanticRole(
     ) {
       artifactReferences += 1;
       continue;
+    }
+
+    // A direct action on an exact path remains the positive target when a
+    // later clause protects a different object, for example:
+    // "Edit app/(site)/admin/page.tsx and keep public pages unchanged".
+    if (isDirectFileMutationTargetContext(context.before)) {
+      return "editable-target";
     }
 
     // Explicit protection must outrank the generic "in <file>" target

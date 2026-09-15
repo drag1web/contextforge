@@ -24,6 +24,8 @@ import type {
 } from "./repositorySemanticIndex.js";
 import {
   classifyTaskSelectionProfile,
+  getTaskConfigSupportCategory,
+  isTestsPrimaryResponsibility,
   type TaskSelectionProfile,
 } from "./taskSelectionProfile.js";
 import {
@@ -31,6 +33,8 @@ import {
   isExplicitFileCreationForbidden,
   resolveExplicitFileMentions,
 } from "./explicitFileMentions.js";
+import { getImplementationScopeConstraints } from "./negativeConstraintSemantics.js";
+import { isSecretLikePath } from "./safetyPolicy.js";
 import { extractSymbolRenameIntent } from "./symbolRename.js";
 import { resolveGroundedSupportingContext } from "./supportingContextGrounding.js";
 
@@ -67,6 +71,14 @@ function normalizeIdentifier(value: string) {
 
 function canonicalIdentifier(value: string) {
   return normalizeIdentifier(value).replace(/\s+/g, "");
+}
+
+function profileConfigSupportCategory(
+  file: ProjectInventoryFile,
+  rawTask: string,
+): { category: string; priority: number } | null {
+  if (file.isLikelyGenerated || isSecretLikePath(file.path)) return null;
+  return getTaskConfigSupportCategory(file.path, rawTask);
 }
 
 function uniqueStrings(values: string[], limit = values.length) {
@@ -2199,6 +2211,23 @@ function resolveAnchoredStateInvestigationSelection(input: {
   maxFiles: number;
 }): FinalSelectionDecision | null {
   if (input.profile.kind !== "state-behavior") return null;
+  const taskArea = input.taskIntent?.taskArea;
+  const scopeConstraints = getImplementationScopeConstraints(
+    input.rawTask,
+    input.taskIntent?.structuredIntent.protectedScopes ?? [],
+  );
+  const hasPositiveUiScope =
+    taskArea === "ui" ||
+    taskArea === "fullstack" ||
+    (!scopeConstraints.frontendProtected &&
+      /\b(?:frontend|renderer|ui|interface|screen|page|component|modal|button)\b|(?:интерфейс|фронтенд|рендерер|экран|страниц|компонент|модал|кнопк)/iu.test(
+        input.rawTask,
+      ));
+  // This resolver deliberately builds a UI -> state investigation chain and
+  // overrides required layers to UI/state. Runtime predicates such as
+  // "when no cookie is present" are not evidence that a backend task has a UI
+  // surface, so backend/state work must continue to the general trace decision.
+  if (!hasPositiveUiScope) return null;
   const explicitStateLanguage =
     /\b(?:state|store|cache|cached|stale|refresh|reload|restart|rescan|reducer|controller|session|response\s+flow)\b|(?:состояни|кеш|кэш|устаревш|обновлени|перезагруз|перезапуск|повторн\w*\s+скан|контроллер|сесси|ответ\w*\s+поток)/iu.test(
       input.rawTask,
@@ -3336,12 +3365,22 @@ function literalUiSurfaceScore(
 
 function resolveLiteralUiSurfaceSelection(input: {
   rawTask: string;
+  taskType?: string;
   taskIntent?: TaskIntentAnalysis;
   inventory: ProjectInventory;
   selectedFiles: SelectedTaskFile[];
   profile: TaskSelectionProfile;
   maxFiles: number;
 }): FinalSelectionDecision | null {
+  if (
+    isTestsPrimaryResponsibility({
+      taskType: input.taskType,
+      taskIntent: input.taskIntent,
+      profile: input.profile,
+    })
+  ) {
+    return null;
+  }
   const backendMutationProtected =
     /(?:do\s+not|don't|should\s+not|must\s+not|without|не\s+(?:мен|трог|измен|добав|созд|змін|дода|створ|чіп|редаг)|без\s+(?:нов|змін))/iu.test(
       input.rawTask,
@@ -4706,6 +4745,7 @@ function executionLayerForExplicitTarget(
 
 function resolveLiteralFileTargetSelection(input: {
   rawTask: string;
+  taskType?: string;
   taskIntent?: TaskIntentAnalysis;
   inventory: ProjectInventory;
   selectedFiles: SelectedTaskFile[];
@@ -4776,6 +4816,11 @@ function resolveLiteralFileTargetSelection(input: {
     input.rawTask,
     input.taskIntent,
   );
+  const testsArePrimaryResponsibility = isTestsPrimaryResponsibility({
+    taskType: input.taskType,
+    taskIntent: input.taskIntent,
+    profile: input.profile,
+  });
   const exactTargets: SelectedTaskFile[] = [];
   const targetKeys = new Set<string>();
 
@@ -4800,6 +4845,12 @@ function resolveLiteralFileTargetSelection(input: {
       !isExplicitFileCreationForbidden(input.rawTask, targetPath) &&
       isSafeExplicitRelativePath(targetPath);
     if (!existing && !plannedCreate) continue;
+    if (
+      testsArePrimaryResponsibility &&
+      (existing?.kind ?? inferExplicitTargetKind(targetPath)) !== "test"
+    ) {
+      continue;
+    }
 
     const evidence: FileSelectionEvidence = {
       targetSource: "user_text",
@@ -4954,13 +5005,95 @@ function resolveLiteralFileTargetSelection(input: {
       selectionEvidence: evidence,
     };
   });
+  const profileConfigSupportBudget = Math.max(
+    0,
+    supportBudget -
+      explicitProtectedReferences.length -
+      explicitlyRequestedSupport.length,
+  );
+  const profileConfigCategories = new Set<string>();
+  const profileConfigSupport = input.profile.needsConfigContext
+    ? input.selectedFiles
+        .filter((file) => !targetKeys.has(normalizePath(file.path)))
+        .filter(
+          (file) =>
+            !protectedTargetKeys.has(normalizePath(file.path)) &&
+            !explicitlyRequestedSupport.some(
+              (support) =>
+                normalizePath(support.path) === normalizePath(file.path),
+            ),
+        )
+        .map((file) => ({
+          file,
+          inventoryFile: inventoryByPath.get(normalizePath(file.path)),
+        }))
+        .filter(
+          (
+            item,
+          ): item is {
+            file: SelectedTaskFile;
+            inventoryFile: ProjectInventoryFile;
+          } =>
+            Boolean(item.inventoryFile) &&
+            item.file.usage === "config-reference" &&
+            ["inventory_exact", "graph_supported", "user_confirmed"].includes(
+              item.file.evidenceLevel ?? "",
+            ) &&
+            !item.file.selectionEvidence?.negativeConstraintConflicts.length,
+        )
+        .filter((item) => fileMatchesRequiredLayer(item.inventoryFile, "config"))
+        .map((item) => ({
+          ...item,
+          supportCategory: profileConfigSupportCategory(
+            item.inventoryFile,
+            input.rawTask,
+          ),
+        }))
+        .filter(
+          (
+            item,
+          ): item is typeof item & {
+            supportCategory: { category: string; priority: number };
+          } => Boolean(item.supportCategory),
+        )
+        .sort(
+          (left, right) =>
+            right.supportCategory.priority - left.supportCategory.priority ||
+            normalizePath(left.file.path).localeCompare(
+              normalizePath(right.file.path),
+            ),
+        )
+        .filter((item) => {
+          if (profileConfigCategories.has(item.supportCategory.category)) {
+            return false;
+          }
+          profileConfigCategories.add(item.supportCategory.category);
+          return true;
+        })
+        .slice(0, profileConfigSupportBudget)
+        .map(({ file }) => ({
+          ...file,
+          usage: "config-reference" as const,
+          confidence: Math.min(file.confidence, 0.82),
+          selectionEvidence:
+            file.selectionEvidence?.actionConfidence === "confirmed_edit"
+              ? {
+                  ...file.selectionEvidence,
+                  actionConfidence: "inspect_only" as const,
+                }
+              : file.selectionEvidence,
+        }))
+    : [];
+  const reservedSupport = [
+    ...explicitProtectedReferences,
+    ...explicitlyRequestedSupport,
+    ...profileConfigSupport,
+  ];
   const requestedSupportKeys = new Set(
-    [...explicitProtectedReferences, ...explicitlyRequestedSupport].map((file) =>
-      normalizePath(file.path),
-    ),
+    reservedSupport.map((file) => normalizePath(file.path)),
   );
   const requestedSupportRoles = new Set(
-    [...explicitProtectedReferences, ...explicitlyRequestedSupport]
+    reservedSupport
       .map((file) => inventoryByPath.get(normalizePath(file.path))?.role)
       .filter((role): role is ProjectInventoryFile["role"] => Boolean(role)),
   );
@@ -4993,7 +5126,8 @@ function resolveLiteralFileTargetSelection(input: {
           0,
           supportBudget -
             explicitProtectedReferences.length -
-            explicitlyRequestedSupport.length,
+            explicitlyRequestedSupport.length -
+            profileConfigSupport.length,
         ),
       ),
     )
@@ -5015,6 +5149,7 @@ function resolveLiteralFileTargetSelection(input: {
   const supporting = [
     ...explicitProtectedReferences,
     ...explicitlyRequestedSupport,
+    ...profileConfigSupport,
     ...nearbySupporting,
   ].slice(0, supportBudget);
 
@@ -5046,6 +5181,9 @@ function resolveLiteralFileTargetSelection(input: {
       explicitlyRequestedSupport.length > 0
         ? `Grounded ${explicitlyRequestedSupport.length} additional user-requested existing provider/reference file(s) without expanding edit authorization.`
         : "No additional reuse-existing-context directive required provider evidence.",
+      profileConfigSupport.length > 0
+        ? `Retained ${profileConfigSupport.length} already-selected configuration reference(s) required by the task profile without expanding edit authorization.`
+        : "No task-profile configuration reference was required or grounded by the selected candidates.",
     ],
   };
 }
@@ -5185,6 +5323,7 @@ export function reconcileFinalSelectionDecision(input: {
 
   const literalFileTargets = resolveLiteralFileTargetSelection({
     rawTask: input.rawTask,
+    taskType: input.taskType,
     taskIntent: input.taskIntent,
     inventory: input.inventory,
     selectedFiles: input.selectedFiles,
@@ -5269,6 +5408,7 @@ export function reconcileFinalSelectionDecision(input: {
 
   const literalUiSurface = resolveLiteralUiSurfaceSelection({
     rawTask: input.rawTask,
+    taskType: input.taskType,
     taskIntent: input.taskIntent,
     inventory: input.inventory,
     selectedFiles: input.selectedFiles,

@@ -1,6 +1,7 @@
 import type { TaskIntentAnalysis } from "../ollama/taskIntentAnalyzer.js";
 import type { TaskUnderstanding } from "../ollama/taskUnderstanding.js";
 import { extractClassifiedFileMentions } from "./explicitFileMentions.js";
+import { getImplementationScopeConstraints } from "./negativeConstraintSemantics.js";
 import { extractSymbolRenameIntent } from "./symbolRename.js";
 
 export type TaskSelectionProfileKind =
@@ -26,8 +27,58 @@ export interface TaskSelectionProfile {
   reasons: string[];
 }
 
+export interface TaskConfigSupportCategory {
+  category: "package-runtime-contract" | "environment-contract";
+  priority: number;
+}
+
+export function isTestsPrimaryResponsibility(input: {
+  taskType?: string;
+  taskIntent?: TaskIntentAnalysis;
+  profile: TaskSelectionProfile;
+}) {
+  const requested = normalizeWhitespace(input.taskType).toLocaleLowerCase();
+  const requestedTests = requested.includes("test");
+  const inferredArea = input.taskIntent?.taskArea;
+  return (
+    input.profile.kind === "tests" &&
+    requestedTests &&
+    (!inferredArea || inferredArea === "tests")
+  );
+}
+
 function normalizeWhitespace(value: unknown) {
   return String(value ?? "").trim().replace(/\s+/g, " ");
+}
+
+export function getTaskConfigSupportCategory(
+  pathValue: string,
+  rawTask: string,
+): TaskConfigSupportCategory | null {
+  const path = pathValue.replace(/\\/g, "/").toLocaleLowerCase();
+  const name = path.split("/").pop() ?? path;
+  const task = normalizeWhitespace(rawTask).toLocaleLowerCase();
+  const packageEvidenceRequested =
+    /\b(?:run|running|build|building|start|startup|setup|script|scripts|command|commands|install|installation|package|packages|dependency|dependencies|npm|yarn|pnpm|bun)\b|(?:запуск|сборк|скрипт|команд|установ|пакет|зависимост)/iu.test(
+      task,
+    );
+  const environmentEvidenceRequested =
+    /\b(?:environment(?:\s+variables?)?|env(?:ironment)?\s+vars?|configuration)\b|(?:переменн\w*\s+окружени|конфигурац)/iu.test(
+      task,
+    );
+
+  if (name === "package.json" && packageEvidenceRequested) {
+    return { category: "package-runtime-contract", priority: 200 };
+  }
+  if (
+    /^(?:\.env\.(?:example|sample|template)|env\.example|example\.env|sample\.env)$/u.test(
+      name,
+    ) &&
+    environmentEvidenceRequested
+  ) {
+    return { category: "environment-contract", priority: 180 };
+  }
+  return null;
 }
 
 function uniqueStrings(values: string[], limit = 16) {
@@ -131,15 +182,27 @@ function protectsBackendMutation(
   rawTask: string,
   taskIntent?: TaskIntentAnalysis,
 ) {
+  const explicitConstraints = [
+    ...(taskIntent?.taskUnderstanding.constraints ?? []),
+  ];
+  const protectedScopes = taskIntent?.structuredIntent.protectedScopes ?? [];
+  if (
+    getImplementationScopeConstraints(
+      [rawTask, ...explicitConstraints].join("; "),
+      protectedScopes,
+    ).backendProtected
+  ) {
+    return true;
+  }
   const text = [
     rawTask,
-    ...(taskIntent?.taskUnderstanding.constraints ?? []),
-    ...(taskIntent?.structuredIntent.protectedScopes ?? []),
+    ...explicitConstraints,
+    ...protectedScopes,
   ].join(" ");
   const backend = String.raw`(?:\b(?:backend|server|api|endpoint|route)\b|бэкенд|бекенд|сервер|апи|эндпоинт\p{L}*|маршрут\p{L}*)`;
   const protection = String.raw`(?:do\s+not|don't|dont|without|never|не\s+(?:добавляй|добавлять|создавай|создавать|меняй|менять|трогай|трогать|изменяй|изменять|додавай|додавати|створюй|створювати|змінюй|змінювати|чіпай|чіпати|редагуй|редагувати)|без\s+змін|запрещ)`;
-  return new RegExp(`${protection}[^.!?\n]{0,120}${backend}`, "iu").test(text) ||
-    new RegExp(`${backend}[^.!?\n]{0,120}${protection}`, "iu").test(text);
+  return new RegExp(`${protection}[^.!?;\n]{0,120}${backend}`, "iu").test(text) ||
+    new RegExp(`${backend}[^.!?;\n]{0,120}${protection}`, "iu").test(text);
 }
 
 export function classifyTaskSelectionProfile(input: {
@@ -179,7 +242,7 @@ export function classifyTaskSelectionProfile(input: {
   const needsConfigContext = !explicitOnlyDocumentationTask && (
     /\b(?:package|packages|dependency|dependencies|library|libraries|npm|yarn|pnpm|bun|install|installation|installing)\b|(?:пакет|библиотек|зависимост|установ)/iu.test(text) ||
     verificationPlanning ||
-    (docsFocused && /\b(?:run|running|build|building|start|startup|setup|script|scripts|command|commands)\b|(?:запуск|сборк|скрипт|команд)/iu.test(text))
+    (docsFocused && /\b(?:run|running|build|building|start|startup|setup|script|scripts|command|commands|environment(?:\s+variables?)?|env(?:ironment)?\s+vars?|configuration)\b|(?:запуск|сборк|скрипт|команд|переменн\w*\s+окружени|конфигурац)/iu.test(text))
   );
   const needsTestContext =
     !explicitOnlyDocumentationTask &&
@@ -265,12 +328,21 @@ export function classifyTaskSelectionProfile(input: {
     return { kind: "api-contract", exactLiterals, maxPrimaryFiles: 5, needsConfigContext, needsTestContext, reasons: ["The task changes an API or data contract."] };
   }
   const backendIsProtected = protectsBackendMutation(rawTask, input.taskIntent);
+  const frontendIsProtected = getImplementationScopeConstraints(
+    [
+      rawTask,
+      ...(input.taskIntent?.taskUnderstanding.constraints ?? []),
+    ].join("; "),
+    input.taskIntent?.structuredIntent.protectedScopes ?? [],
+  ).frontendProtected;
   const modelFullstackIsGrounded =
     input.taskIntent?.taskArea === "fullstack" &&
     !backendIsProtected &&
+    !frontendIsProtected &&
     (mentionsBackend || input.taskIntent.structuredIntent.needsBackend === true);
   const crossLayerInteraction =
     !backendIsProtected &&
+    !frontendIsProtected &&
     mentionsUi &&
     mentionsBackend &&
     (input.taskIntent?.structuredIntent.needsBackend === true ||
@@ -278,7 +350,7 @@ export function classifyTaskSelectionProfile(input: {
   if (
     (modelFullstackIsGrounded && mentionsUi) ||
     crossLayerInteraction ||
-    ((!backendIsProtected && mentionsUi && mentionsBackend) &&
+    ((!backendIsProtected && !frontendIsProtected && mentionsUi && mentionsBackend) &&
       (mentionsStorage || mentionsStateBehavior || understanding?.action === "create"))
   ) {
     return { kind: "fullstack-feature", exactLiterals, maxPrimaryFiles: 10, needsConfigContext, needsTestContext, reasons: ["The task explicitly spans UI and backend behavior."] };

@@ -14,7 +14,10 @@ import {
   type SemanticGraphEdgeKind,
 } from "./projectSemanticGraph.js";
 import { detectHardTaskSafetyIssue, isSecretLikePath } from "./safetyPolicy.js";
-import { isFileExclusionConstraint } from "./negativeConstraintSemantics.js";
+import {
+  getImplementationScopeConstraints,
+  isFileExclusionConstraint,
+} from "./negativeConstraintSemantics.js";
 import {
   resolveRepositorySemanticEvidence,
   type FileSelectionEvidence,
@@ -264,23 +267,10 @@ export function inferRetrievalArea(rawTask: string, requestedTaskType: string): 
   if (requested === "refactor") return "refactor";
 
   const text = normalizeText(rawTask);
-  const uiIntent = matches(text, [/\b(?:ui|ux|page|screen|component|dashboard|modal|button|layout|style|frontend)\b/i, /(?:интерфейс|страниц|компонент|дашборд|модал|кноп|верстк|стил|дизайн|фронтенд)/iu]);
-  const backendIntent = matches(text, [/\b(?:endpoint|backend|server|route|service|repository|storage|database|schema|api)\b/i, /(?:эндпоинт|бэкенд|бекенд|сервер|роут|сервис|хранилищ|репозитор|база|схема|апи)/iu]);
-  const backendProtected = matches(text, [
-    /(?:do not touch|don't change|keep)\s+(?:the\s+)?(?:backend|server|api)\b/i,
-    /(?:without|avoid)\s+(?:changing|modifying|touching)\s+(?:the\s+)?(?:backend|server|api)(?:\s+behavior)?\b/i,
-    /\b(?:backend|server|api)(?:\s+behavior)?\b[^.!?]{0,32}\b(?:must remain|should remain|stays?|remain|unchanged|untouched)\b/i,
-    /\b(?:backend|server|api)(?:\s*[/,&+]\s*(?:backend|server|api))*\b[^.!?]{0,24}\b(?:unchanged|untouched|do not touch|don't change)\b/i,
-    /(?:не трогай|не меняй|не изменяй)\s+(?:бэкенд|бекенд|сервер|апи|api)\b/iu,
-    /без\s+(?:изменени\w*|правок)\s+(?:в\s+)?(?:бэкенд\w*|бекенд\w*|сервер\w*|апи|api)(?:\s+поведени\w*)?/iu,
-    /(?:бэкенд|бекенд|backend|сервер|server|апи|api)(?:\s*[/,&+]\s*(?:бэкенд|бекенд|backend|сервер|server|апи|api))*\b[^.!?]{0,24}(?:не трогай|не меняй|не изменяй|без изменений)/iu,
-  ]);
-  const frontendProtected = matches(text, [
-    /(?:do not touch|don't change|keep)\s+(?:the\s+)?(?:frontend|web\s+ui|ui|client|react\s+client)\b/i,
-    /\b(?:frontend|web\s+ui|ui|client|react\s+client)(?:\s*[/,&+]\s*(?:frontend|web\s+ui|ui|client|react\s+client))*\b[^.!?]{0,24}\b(?:unchanged|untouched|do not touch|don't change)\b/i,
-    /(?:не трогай|не меняй|не изменяй)\s+(?:фронтенд|интерфейс|ui|клиент)\b/iu,
-    /(?:фронтенд|frontend|интерфейс|ui|клиент|client)(?:\s*[/,&+]\s*(?:фронтенд|frontend|интерфейс|ui|клиент|client))*\b[^.!?]{0,24}(?:не трогай|не меняй|не изменяй|без изменений)/iu,
-  ]);
+  const { backendProtected, frontendProtected } =
+    getImplementationScopeConstraints(rawTask);
+  const uiIntent = !frontendProtected && matches(text, [/\b(?:ui|ux|page|screen|component|dashboard|modal|button|layout|style|frontend)\b/i, /(?:интерфейс|страниц|компонент|дашборд|модал|кноп|верстк|стил|дизайн|фронтенд)/iu]);
+  const backendIntent = !backendProtected && matches(text, [/\b(?:endpoint|backend|server|route|service|repository|storage|database|schema|api)\b/i, /(?:эндпоинт|бэкенд|бекенд|сервер|роут|сервис|хранилищ|репозитор|база|схема|апи)/iu]);
   if (uiIntent && backendProtected) return "ui";
   if (backendIntent && frontendProtected) return "backend";
   if (isReviewOnlyTask(rawTask) && uiIntent) return "ui";
