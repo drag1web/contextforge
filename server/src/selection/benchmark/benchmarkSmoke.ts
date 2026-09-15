@@ -85,6 +85,17 @@ async function main() {
   assert.equal(inferRetrievalArea("Добавь тесты для safety policy selector", "general"), "tests");
   assert.equal(inferRetrievalArea("Посмотри страницу документации и предложи улучшения, код не меняй", "general"), "ui");
   assert.equal(inferRetrievalArea("Добавь backend endpoint фильтрации проектов по readiness и обнови UI при необходимости", "general"), "fullstack");
+  const negativeScopeAreaCases = [
+    ["Update the frontend Dashboard; do not modify backend files.", "ui"],
+    ["Обнови frontend Dashboard; backend не изменять.", "ui"],
+    ["Fix frontend layout; сервер не изменять.", "ui"],
+    ["Add a backend endpoint; do not modify frontend files.", "backend"],
+    ["Добавь backend endpoint; frontend не изменять.", "backend"],
+    ["Update the frontend Dashboard and backend endpoint.", "fullstack"],
+  ] as const;
+  for (const [prompt, expectedArea] of negativeScopeAreaCases) {
+    assert.equal(inferRetrievalArea(prompt, "general"), expectedArea, prompt);
+  }
   assert.equal(inferRetrievalArea("Polish Dashboard metrics UI without changing server behavior", "general"), "ui");
 
   const russianOrders = retrieveCandidates({

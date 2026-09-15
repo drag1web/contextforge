@@ -9,6 +9,7 @@ import type { ProjectInventory } from "../scanner/projectInventoryScanner.js";
 import {
   extractClassifiedFileMentions,
   isExplicitFileCreationForbidden,
+  resolveExplicitFileMentions,
 } from "./explicitFileMentions.js";
 import { enforceExecutionAuthorizationAuthority } from "./executionAuthorizationAuthority.js";
 import { detectHardTaskSafetyIssue } from "./safetyPolicy.js";
@@ -140,6 +141,65 @@ function authorized(result: TaskFileSelection) {
   return (
     result.diagnostics?.executionContract?.authorization?.authorizedTargets ?? []
   );
+}
+
+// Exact special-segment path identity (7)
+{
+  const task =
+    "Edit app/(site)/admin/page.tsx and keep the public pages unchanged";
+  const result = resolveExplicitFileMentions(task, inventory([]));
+  assert.equal(mentionRole(task, "app/(site)/admin/page.tsx"), "editable-target");
+  assert.deepEqual(result.missingPaths, ["app/(site)/admin/page.tsx"]);
+  assert.deepEqual(result.existingPaths, []);
+}
+
+{
+  const target = "app/(site)/admin/page.tsx";
+  const result = resolveExplicitFileMentions(`Edit ${target}`, inventory([target]));
+  assert.deepEqual(result.existingPaths, [target]);
+  assert.deepEqual(result.missingPaths, []);
+}
+
+{
+  for (const target of [
+    "app/[id]/page.tsx",
+    "app/[...slug]/page.tsx",
+    "app/[[...slug]]/page.tsx",
+  ]) {
+    const result = resolveExplicitFileMentions(`Edit ${target}`, inventory([]));
+    assert.deepEqual(result.missingPaths, [target], target);
+  }
+}
+
+{
+  const target = "app/[id]/page.tsx";
+  const result = resolveExplicitFileMentions(`Edit ${target}`, inventory([target]));
+  assert.deepEqual(result.existingPaths, [target]);
+}
+
+{
+  const target = "src/pages/MissingPanel.tsx";
+  const result = resolveExplicitFileMentions(`Edit ${target}`, inventory([]));
+  assert.deepEqual(result.missingPaths, [target]);
+}
+
+{
+  const target = "app/(site)/admin/page.tsx";
+  const task = `Create ${target}`;
+  const result = resolveExplicitFileMentions(task, inventory([]));
+  assert.equal(mentionRole(task, target), "editable-target");
+  assert.equal(isExplicitFileCreationForbidden(task, target), false);
+  assert.deepEqual(result.missingPaths, [target]);
+}
+
+{
+  const target = "app/(site)/admin/page.tsx";
+  const result = resolveExplicitFileMentions(
+    `Edit ${target}`,
+    inventory(["app/admin/page.tsx", "app/(public)/admin/page.tsx"]),
+  );
+  assert.deepEqual(result.existingPaths, []);
+  assert.deepEqual(result.missingPaths, [target]);
 }
 
 // Sources-of-facts / qualified-reference protection (4)
@@ -408,4 +468,4 @@ function authorized(result: TaskFileSelection) {
   );
 }
 
-console.log("Safety preconditions smoke passed (22 scenarios).");
+console.log("Safety preconditions smoke passed (29 scenarios).");

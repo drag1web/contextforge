@@ -1006,6 +1006,14 @@ interface ReplayCase {
   maxScore?: number;
   maxSignalConfidence?: number;
   expectSelectionSource?: string;
+  expectExecutionMode?:
+    | "implementation"
+    | "investigation"
+    | "clarification_required";
+  expectRequiredManualReview?: boolean;
+  expectAuthorizedEditTargets?: string[];
+  expectNoteIncludes?: string[];
+  minNextActions?: number;
   expectNoEditTargets?: boolean;
   expectAreaConflict?: boolean;
   minSemanticGraphEvidence?: number;
@@ -1756,9 +1764,16 @@ const replayCases: ReplayCase[] = [
       false,
     ),
     expectArea: "ui",
+    expectStatus: "ready",
     include: ["src/pages/HomePage.tsx"],
+    includeUsage: [
+      { path: "src/pages/HomePage.tsx", usage: "inspect-and-edit" },
+    ],
     exclude: ["server/index.mjs", "src/api/client.ts"],
-    maxScore: 95,
+    expectSelectionSource: "final-decision",
+    expectAreaConflict: false,
+    minSemanticGraphEvidence: 1,
+    maxProtectedRisk: 18,
   },
   {
     id: "golden-cf-doc-01-readme",
@@ -1772,8 +1787,15 @@ const replayCases: ReplayCase[] = [
       null,
     ),
     expectArea: "docs",
-    include: ["README.md", "package.json"],
+    expectStatus: "ready",
+    includeUsage: [
+      { path: "README.md", usage: "inspect-and-edit" },
+      { path: "package.json", usage: "config-reference" },
+    ],
     exclude: ["src/pages/HomePage.tsx", "src/pages/DocsPage.tsx"],
+    expectSelectionSource: "final-decision",
+    expectExecutionMode: "implementation",
+    expectAuthorizedEditTargets: ["README.md"],
   },
   {
     id: "golden-cf-test-01-planning",
@@ -1788,6 +1810,10 @@ const replayCases: ReplayCase[] = [
     ),
     expectArea: "tests",
     include: ["package.json"],
+    expectExecutionMode: "investigation",
+    expectNoEditTargets: true,
+    expectAuthorizedEditTargets: [],
+    expectAreaConflict: false,
     exclude: [
       "src/pages/DocsPage.tsx",
       "src/pages/DownloadPage.tsx",
@@ -1829,7 +1855,11 @@ const replayCases: ReplayCase[] = [
     empty: true,
     maxScore: 45,
     maxSignalConfidence: 48,
-    expectSelectionSource: "manual-review",
+    expectExecutionMode: "investigation",
+    expectRequiredManualReview: true,
+    expectAuthorizedEditTargets: [],
+    minNextActions: 1,
+    expectNoEditTargets: true,
   },
   {
     id: "v0611-docs-routing-readme",
@@ -2005,7 +2035,12 @@ const replayCases: ReplayCase[] = [
     expectInferredArea: "ui",
     includeUsage: [{ path: "src/pages/DashboardPage.tsx", usage: "inspect-only" }],
     expectNoEditTargets: true,
-    expectSelectionSource: "fallback",
+    expectSelectionSource: "final-decision",
+    expectExecutionMode: "investigation",
+    expectAuthorizedEditTargets: [],
+    maxScore: 75,
+    maxSignalConfidence: 65,
+    minNextActions: 1,
   },
   {
     id: "v0612-ru-core-fallback-scoring-manual-review",
@@ -2028,7 +2063,13 @@ const replayCases: ReplayCase[] = [
       "server/src/storage/storageAdapter.ts",
     ],
     exclude: ["src/pages/DashboardPage.tsx", "src/pages/HomePage.tsx"],
-    expectSelectionSource: "fallback",
+    expectSelectionSource: "final-decision",
+    expectExecutionMode: "investigation",
+    expectNoEditTargets: true,
+    expectAuthorizedEditTargets: [],
+    maxScore: 75,
+    maxSignalConfidence: 65,
+    minNextActions: 1,
   },
   {
     id: "v0612-ru-api-client-hook-projects-page",
@@ -2105,12 +2146,22 @@ const replayCases: ReplayCase[] = [
     id: "v0612-explicit-missing-nonexisting-settings-panel",
     rawTask: "Edit NonExistingSettingsPanel.tsx.",
     taskType: "ui",
-    intent: taskAreaIntent("ui", ["NonExistingSettingsPanel"], [], true),
+    intent: taskAreaIntent("ui", ["NonExistingSettingsPanel"], [], false),
+    expectArea: "ui",
+    expectRequestedTaskType: "ui",
+    expectInferredArea: "ui",
     expectStatus: "blocked",
     empty: true,
     maxScore: 30,
     maxSignalConfidence: 24,
-    expectSelectionSource: "manual-review",
+    expectSelectionSource: "final-decision",
+    expectExecutionMode: "investigation",
+    expectRequiredManualReview: true,
+    expectAuthorizedEditTargets: [],
+    expectNoteIncludes: [
+      "Missing explicit path(s): NonExistingSettingsPanel.tsx.",
+    ],
+    minNextActions: 1,
   },
   {
     id: "golden-metall-ui-02-home-no-backend",
@@ -2176,6 +2227,10 @@ const replayCases: ReplayCase[] = [
     ),
     expectArea: "tests",
     include: ["package.json"],
+    expectExecutionMode: "investigation",
+    expectNoEditTargets: true,
+    expectAuthorizedEditTargets: [],
+    expectAreaConflict: false,
     exclude: [
       "src/app/(site)/policy/page.tsx",
       "src/app/(site)/requisites/page.tsx",
@@ -2321,6 +2376,12 @@ const replayCases: ReplayCase[] = [
     ),
     expectArea: "docs",
     include: ["README.md", "package.json", ".env.example"],
+    includeUsage: [
+      { path: "README.md", usage: "inspect-and-edit" },
+      { path: "package.json", usage: "config-reference" },
+      { path: ".env.example", usage: "config-reference" },
+    ],
+    expectAuthorizedEditTargets: ["README.md"],
     excludeSelected: [".env"],
   },
   {
@@ -2441,8 +2502,16 @@ const replayCases: ReplayCase[] = [
     ),
     expectArea: "docs",
     include: ["README.md", "package.json"],
+    includeUsage: [
+      { path: "README.md", usage: "inspect-and-edit" },
+      { path: "package.json", usage: "config-reference" },
+    ],
     excludePathIncludes: ["server/"],
-    maxScore: 92,
+    excludeSelected: [".env", ".env.local"],
+    expectStatus: "ready",
+    expectSelectionSource: "final-decision",
+    expectExecutionMode: "implementation",
+    expectAuthorizedEditTargets: ["README.md"],
   },
 ];
 
@@ -2595,6 +2664,54 @@ async function runReplayCase(caseItem: ReplayCase) {
   ) {
     failures.push(
       `expected selection source ${caseItem.expectSelectionSource}, got ${selection.diagnostics?.selectionSource ?? "missing"}`,
+    );
+  }
+
+  if (
+    caseItem.expectExecutionMode &&
+    selection.diagnostics?.executionMode !== caseItem.expectExecutionMode
+  ) {
+    failures.push(
+      `expected execution mode ${caseItem.expectExecutionMode}, got ${selection.diagnostics?.executionMode ?? "missing"}`,
+    );
+  }
+
+  if (
+    caseItem.expectRequiredManualReview != null &&
+    quality.requiredManualReview !== caseItem.expectRequiredManualReview
+  ) {
+    failures.push(
+      `expected requiredManualReview=${caseItem.expectRequiredManualReview}, got ${quality.requiredManualReview}`,
+    );
+  }
+
+  if (caseItem.expectAuthorizedEditTargets) {
+    const actual = [
+      ...(selection.diagnostics?.executionContract?.authorization
+        ?.authorizedTargets ?? []),
+    ].sort();
+    const expected = [...caseItem.expectAuthorizedEditTargets].sort();
+    if (JSON.stringify(actual) !== JSON.stringify(expected)) {
+      failures.push(
+        `expected authorized edit targets [${expected.join(", ")}], got [${actual.join(", ")}]`,
+      );
+    }
+  }
+
+  for (const expectedNote of caseItem.expectNoteIncludes ?? []) {
+    if (!selection.notes.some((note) => note.includes(expectedNote))) {
+      failures.push(
+        `expected note containing ${expectedNote}; got [${selection.notes.join(" | ")}]`,
+      );
+    }
+  }
+
+  if (
+    caseItem.minNextActions != null &&
+    quality.signals.nextActions.length < caseItem.minNextActions
+  ) {
+    failures.push(
+      `expected at least ${caseItem.minNextActions} next action(s), got ${quality.signals.nextActions.length}`,
     );
   }
 

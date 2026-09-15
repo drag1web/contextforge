@@ -19,6 +19,7 @@ import type { TaskIntentAnalysis } from "./taskIntentAnalyzer.js";
 import type { ProjectInventory } from "../scanner/projectInventoryScanner.js";
 import {
   buildCompactIntentProjectTreeSnapshot,
+  buildDeterministicTaskIntentFallback,
   buildIntentPrompt,
   TASK_UNDERSTANDING_INITIAL_NUM_PREDICT,
   TASK_UNDERSTANDING_PROJECT_PATH_LIMIT,
@@ -59,6 +60,67 @@ function assertReady(result: TaskUnderstanding) {
   assert.equal(result.readiness, "ready");
   assert.equal(result.canProceed, true);
   assert.equal(result.clarificationQuestion, null);
+}
+
+function testNegativeImplementationConstraintsStaySeparateFromIntent() {
+  const cases = [
+    {
+      prompt:
+        "Update the frontend Settings page; do not modify backend files.",
+      area: "ui",
+      protectedScope: "backend/api",
+      needsBackend: false,
+    },
+    {
+      prompt: "Обнови frontend Settings; backend не изменять.",
+      area: "ui",
+      protectedScope: "backend/api",
+      needsBackend: false,
+    },
+    {
+      prompt: "Fix the frontend Settings page; сервер не изменять.",
+      area: "ui",
+      protectedScope: "backend/api",
+      needsBackend: false,
+    },
+    {
+      prompt:
+        "Add a backend endpoint in server/src/routes/auth.ts; do not modify frontend files.",
+      area: "backend",
+      protectedScope: "frontend/ui",
+      needsBackend: true,
+    },
+  ] as const;
+
+  for (const testCase of cases) {
+    const intent = buildDeterministicTaskIntentFallback({
+      rawTask: testCase.prompt,
+      taskType: "general",
+      projectTree,
+    });
+    assert.equal(intent.taskArea, testCase.area, testCase.prompt);
+    assert.ok(
+      intent.structuredIntent.protectedScopes.includes(
+        testCase.protectedScope,
+      ),
+      testCase.prompt,
+    );
+    assert.equal(
+      intent.structuredIntent.needsBackend,
+      testCase.needsBackend,
+      testCase.prompt,
+    );
+  }
+
+  const fullstack = buildDeterministicTaskIntentFallback({
+    rawTask:
+      "Update the frontend Settings page and the backend settings endpoint.",
+    taskType: "general",
+    projectTree,
+  });
+  assert.equal(fullstack.taskArea, "fullstack");
+  assert.deepEqual(fullstack.structuredIntent.protectedScopes, []);
+  assert.equal(fullstack.structuredIntent.needsBackend, true);
 }
 
 function testMissingRussianReplacement() {
@@ -1011,6 +1073,7 @@ function testCurrentShortcutStateMismatchRequiresReview() {
 }
 
 const tests = [
+  testNegativeImplementationConstraintsStaySeparateFromIntent,
   testMissingRussianReplacement,
   testRussianQuotedReplacement,
   testEnglishQuotedReplacement,
