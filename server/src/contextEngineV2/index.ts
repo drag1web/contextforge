@@ -21,6 +21,7 @@ export type {
   ContextProjectionService,
   DeterministicInvestigationPlan,
   DeterministicInvestigationInterpreter,
+  DeterministicInvestigationPlannerStep,
   DeterministicInvestigationSeed,
   DeterministicInvestigationPlanner,
   DeterministicPlannerPolicy,

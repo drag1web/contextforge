@@ -78,6 +78,7 @@ import {
   isFileBackedOwnerDefinitionFact,
 } from "./factClaimEligibility.js";
 import type {
+  DeterministicInvestigationPlan,
   DeterministicInvestigationPlanner,
   InvestigationRunner,
   InvestigationRunnerDependencies,
@@ -2264,11 +2265,25 @@ export function createInvestigationRunner(
           break;
         }
         round += 1;
-        refreshGroundedOperationCandidates(input, state);
-        const plan = await planner.proposeNextOperations(
-          plannerStateFor(input, state),
-          dependencies.plannerSignal,
-        );
+        const plannerState = plannerStateFor(input, state);
+        const preparedStep = dependencies.actionPlanner === undefined &&
+          dependencies.planner === undefined
+          ? deterministicPlanner.prepareNextOperations?.(plannerState)
+          : undefined;
+        let plan: DeterministicInvestigationPlan;
+        if (preparedStep) {
+          state.operationCandidates = mergeCompatibleOperations(
+            input.snapshot.id,
+            preparedStep.groundedOperationCandidates,
+          );
+          plan = preparedStep.plan;
+        } else {
+          refreshGroundedOperationCandidates(input, state);
+          plan = await planner.proposeNextOperations(
+            plannerStateFor(input, state),
+            dependencies.plannerSignal,
+          );
+        }
         checkCancellation(true);
         state.operationCandidates = mergeCompatibleOperations(
           input.snapshot.id,

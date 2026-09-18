@@ -112,10 +112,18 @@ export interface DeterministicInvestigationPlan {
   productive: boolean;
 }
 
+export interface DeterministicInvestigationPlannerStep {
+  groundedOperationCandidates: InvestigationOperation[];
+  plan: DeterministicInvestigationPlan;
+}
+
 export interface DeterministicInvestigationPlanner {
   proposeNextOperations(
     state: Readonly<DeterministicPlannerState>,
   ): DeterministicInvestigationPlan;
+  prepareNextOperations?(
+    state: Readonly<DeterministicPlannerState>,
+  ): DeterministicInvestigationPlannerStep;
 }
 
 export interface InvestigationPlanner {

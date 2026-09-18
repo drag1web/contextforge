@@ -13,6 +13,7 @@ import {
   createInvestigationRunner,
   createContextProjectionService,
 } from "../application/index.js";
+import { deriveGroundedOperationCandidates } from "../application/deterministicInvestigationPlanner.js";
 import { DOCUMENT_IDENTITY_PREDICATE } from "../application/documentIdentity.js";
 import { CONFIGURATION_IDENTITY_PREDICATE } from "../application/configurationIdentity.js";
 import {
@@ -37,6 +38,7 @@ import { createDeterministicOperationQueue } from "../application/deterministicO
 import {
   createDeterministicOperation,
   deterministicApplicationId,
+  mergeCompatibleOperations,
 } from "../application/operationIdentity.js";
 import { ZERO_OPERATION_COST } from "../application/operationCost.js";
 import type {
@@ -1464,6 +1466,33 @@ scenario("6. planner proposal order is deterministic", () => {
     plannerState(source, { operationCandidates: [second, first] }),
   );
   assert.deepEqual(left, right);
+});
+
+scenario("6a. prepared planner step preserves legacy refresh and proposal semantics", () => {
+  const source = snapshot({ suffix: "planner-prepared-step" });
+  const question = openQuestion("prepared-step", "critical");
+  const candidate = searchOperation(source, "feature", {
+    questions: [question.id],
+    priority: 75,
+  });
+  const state = plannerState(source, {
+    explicitTargets: [{ kind: "path", path: source.files[0]!.normalizedPath }],
+    questions: [question],
+    operationCandidates: [candidate],
+  });
+  const planner = createDeterministicInvestigationPlanner();
+  const prepared = planner.prepareNextOperations?.(state);
+  assert.ok(prepared);
+  const legacyRefreshedCandidates = mergeCompatibleOperations(
+    source.id,
+    deriveGroundedOperationCandidates(state).map((item) => item.operation),
+  );
+  const legacyPlan = planner.proposeNextOperations({
+    ...state,
+    operationCandidates: legacyRefreshedCandidates,
+  });
+  assert.deepEqual(prepared.groundedOperationCandidates, legacyRefreshedCandidates);
+  assert.deepEqual(prepared.plan, legacyPlan);
 });
 
 scenario("7. no grounded input creates no invented target", () => {

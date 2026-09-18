@@ -21,6 +21,7 @@ export {
 export type {
   DeterministicInvestigationPlan,
   DeterministicInvestigationInterpreter,
+  DeterministicInvestigationPlannerStep,
   DeterministicInvestigationSeed,
   DeterministicInvestigationPlanner,
   DeterministicPlannerPolicy,

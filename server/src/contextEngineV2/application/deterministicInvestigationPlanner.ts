@@ -24,6 +24,7 @@ import { compareQueuedOperations } from "./deterministicOperationQueue.js";
 import type {
   DeterministicInvestigationPlan,
   DeterministicInvestigationPlanner,
+  DeterministicInvestigationPlannerStep,
   DeterministicPlannerPolicy,
   DeterministicPlannerState,
   GroundedOperationSource,
@@ -618,74 +619,90 @@ export function deriveGroundedOperationCandidates(
   return synthesizeGroundedCandidates(state).map(cloneDomainValue);
 }
 
+function planFromGroundedCandidates(
+  state: DeterministicPlannerState,
+  candidates: readonly GroundedCandidate[],
+): DeterministicInvestigationPlan {
+  const questionIds = new Set(state.questions.map((question) => question.id));
+  const hypothesisIds = new Set(state.hypotheses.map((hypothesis) => hypothesis.id));
+  for (const candidate of candidates) {
+    if (
+      candidate.operation.questionIds.some((id) => !questionIds.has(id)) ||
+      candidate.operation.hypothesisIds.some((id) => !hypothesisIds.has(id))
+    ) {
+      throw new InvestigationRunnerError(
+        "invalid_input",
+        "Operation purpose references an unknown question or hypothesis.",
+      );
+    }
+  }
+  const skipped: InvestigationOperation["id"][] = [];
+  const eligible = candidates.filter((candidate) => {
+    const operation = candidate.operation;
+    const onlyResolvedGapGrounding = state.knowledgeGaps.some(
+      (gap) => gap.status !== "open" && gapMatchesOperation(operation, gap),
+    ) && !state.knowledgeGaps.some(
+      (gap) => gap.status === "open" && gapMatchesOperation(operation, gap),
+    ) && !operation.questionIds.some((id) =>
+      state.questions.some((question) => question.id === id && question.status !== "answered"),
+    ) && !operation.hypothesisIds.some((id) =>
+      state.hypotheses.some((hypothesis) => hypothesis.id === id && hypothesis.status === "open"),
+    );
+    const retryEligible = isOperationRetryEligible({
+      operation,
+      operationRecords: state.operationRecords,
+      maxFailedOperationRetries: state.policy.maxFailedOperationRetries,
+      budgetState: state.budgetState,
+      grounded: operationIsGrounded(operation, state),
+      repositoryChanged: state.repositoryChanged,
+    });
+    if (!retryEligible || onlyResolvedGapGrounding) skipped.push(operation.id);
+    return retryEligible && !onlyResolvedGapGrounding;
+  });
+  const ranked = eligible
+    .map((candidate) => ({ candidate, tier: operationTier(candidate, state) }))
+    .sort((left, right) =>
+      left.tier - right.tier || compareQueuedOperations(left.candidate.operation, right.candidate.operation),
+    );
+  const selected = ranked.slice(0, state.policy.maxOperationsPerRound);
+  const operations = selected.map(({ candidate }) => cloneDomainValue(candidate.operation));
+  return {
+    rationale: rationaleForTier(selected[0]?.tier),
+    operations,
+    skippedDuplicateOperationIds: sortedUnique(skipped),
+    consideredQuestionIds: sortedUnique(operations.flatMap((operation) => operation.questionIds)),
+    consideredHypothesisIds: sortedUnique(operations.flatMap((operation) => operation.hypothesisIds)),
+    consideredKnowledgeGapIds: sortedUnique(
+      state.knowledgeGaps
+        .filter((gap) => gap.status === "open" && operations.some((operation) => gapMatchesOperation(operation, gap)))
+        .map((gap) => gap.id),
+    ),
+    synthesizedOperationSources: selected.map(({ candidate }) => ({
+      operationId: candidate.operation.id,
+      source: candidate.source,
+    })),
+    productive: operations.length > 0,
+  };
+}
+
+function prepareNextOperations(
+  rawState: Readonly<DeterministicPlannerState>,
+): DeterministicInvestigationPlannerStep {
+  const state = cloneDomainValue(rawState as DeterministicPlannerState);
+  validatePolicy(state.policy);
+  validateOperationRecords(state);
+  const candidates = synthesizeGroundedCandidates(state);
+  return cloneDomainValue({
+    groundedOperationCandidates: candidates.map((candidate) => candidate.operation),
+    plan: planFromGroundedCandidates(state, candidates),
+  });
+}
+
 export function createDeterministicInvestigationPlanner(): DeterministicInvestigationPlanner {
   return {
+    prepareNextOperations,
     proposeNextOperations(rawState) {
-      const state = cloneDomainValue(rawState as DeterministicPlannerState);
-      validatePolicy(state.policy);
-      validateOperationRecords(state);
-      const questionIds = new Set(state.questions.map((question) => question.id));
-      const hypothesisIds = new Set(state.hypotheses.map((hypothesis) => hypothesis.id));
-      const candidates = synthesizeGroundedCandidates(state);
-      for (const candidate of candidates) {
-        if (
-          candidate.operation.questionIds.some((id) => !questionIds.has(id)) ||
-          candidate.operation.hypothesisIds.some((id) => !hypothesisIds.has(id))
-        ) {
-          throw new InvestigationRunnerError(
-            "invalid_input",
-            "Operation purpose references an unknown question or hypothesis.",
-          );
-        }
-      }
-      const skipped: InvestigationOperation["id"][] = [];
-      const eligible = candidates.filter((candidate) => {
-        const operation = candidate.operation;
-        const onlyResolvedGapGrounding = state.knowledgeGaps.some(
-          (gap) => gap.status !== "open" && gapMatchesOperation(operation, gap),
-        ) && !state.knowledgeGaps.some(
-          (gap) => gap.status === "open" && gapMatchesOperation(operation, gap),
-        ) && !operation.questionIds.some((id) =>
-          state.questions.some((question) => question.id === id && question.status !== "answered"),
-        ) && !operation.hypothesisIds.some((id) =>
-          state.hypotheses.some((hypothesis) => hypothesis.id === id && hypothesis.status === "open"),
-        );
-        const retryEligible = isOperationRetryEligible({
-          operation,
-          operationRecords: state.operationRecords,
-          maxFailedOperationRetries: state.policy.maxFailedOperationRetries,
-          budgetState: state.budgetState,
-          grounded: operationIsGrounded(operation, state),
-          repositoryChanged: state.repositoryChanged,
-        });
-        if (!retryEligible || onlyResolvedGapGrounding) skipped.push(operation.id);
-        return retryEligible && !onlyResolvedGapGrounding;
-      });
-      const ranked = eligible
-        .map((candidate) => ({ candidate, tier: operationTier(candidate, state) }))
-        .sort((left, right) =>
-          left.tier - right.tier || compareQueuedOperations(left.candidate.operation, right.candidate.operation),
-        );
-      const selected = ranked.slice(0, state.policy.maxOperationsPerRound);
-      const operations = selected.map(({ candidate }) => cloneDomainValue(candidate.operation));
-      const plan: DeterministicInvestigationPlan = {
-        rationale: rationaleForTier(selected[0]?.tier),
-        operations,
-        skippedDuplicateOperationIds: sortedUnique(skipped),
-        consideredQuestionIds: sortedUnique(operations.flatMap((operation) => operation.questionIds)),
-        consideredHypothesisIds: sortedUnique(operations.flatMap((operation) => operation.hypothesisIds)),
-        consideredKnowledgeGapIds: sortedUnique(
-          state.knowledgeGaps
-            .filter((gap) => gap.status === "open" && operations.some((operation) => gapMatchesOperation(operation, gap)))
-            .map((gap) => gap.id),
-        ),
-        synthesizedOperationSources: selected.map(({ candidate }) => ({
-          operationId: candidate.operation.id,
-          source: candidate.source,
-        })),
-        productive: operations.length > 0,
-      };
-      return cloneDomainValue(plan);
+      return prepareNextOperations(rawState).plan;
     },
   };
 }
