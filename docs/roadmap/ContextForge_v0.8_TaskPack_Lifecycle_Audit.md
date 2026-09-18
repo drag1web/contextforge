@@ -515,7 +515,7 @@ The first migration should not create output-review tables before that contract 
 1. Require a successful workspace backup before desktop migration when packaged restore support exists; until then, surface a clear preflight and retain the database copy used by existing storage safeguards.
 2. Create new tables/columns without dropping or rewriting legacy content columns.
 3. Insert one revision per legacy Task Pack by copying values exactly.
-4. Compute a versioned canonical content hash without normalizing user text beyond the documented JSON encoding.
+4. Compute `sha256:<64 lowercase hex>` from the `contextforge.task-pack-revision-content.v1` canonical envelope. Canonical hash computation sorts object keys, normalizes CRLF/CR to LF, normalizes repository-relative path separators, deduplicates and sorts unordered proof classes, preserves selected-file ordering and every other meaningful array order, and never mutates or rewrites persisted/user-authored values. Only explicitly classified timing/timestamp telemetry inside known diagnostic subtrees is excluded; ordinary generation-recipe configuration remains hash-significant.
 5. Set current pointers and `active` lifecycle state.
 6. Validate counts, unique `(task_pack_id, revision_number)`, pointer ownership, content hashes, and null-recipe preservation.
 7. Record the migration only after validation succeeds.
