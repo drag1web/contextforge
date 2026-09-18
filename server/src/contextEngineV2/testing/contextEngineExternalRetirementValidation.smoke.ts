@@ -5,6 +5,7 @@ import path from "node:path";
 
 import {
   deriveExternalRetirementExecutionInput,
+  hashNormalizedExternalRetirementManifestBytes,
   parseExternalRetirementManifestBytes,
   runExternalRetirementValidation,
   runExternalRetirementValidationFile,
@@ -25,11 +26,12 @@ import {
   type TaskPackPrimaryRuntimeDependencies,
 } from "../retirement/index.js";
 import {
+  createExternalObservationReport,
   createExternalRetirementReport,
-  serializeExternalRetirementReportJson,
+  serializeExternalObservationReportJson,
   validateExternalRetirementManifest,
-  validateExternalRetirementReport,
-  type ExternalRetirementValidationReport,
+  validateExternalObservationReport,
+  type ExternalObservationValidationReport,
 } from "../validation/index.js";
 
 let scenarios = 0;
@@ -133,6 +135,9 @@ await scenario("file harness executes a UTF-8 BOM manifest", async () => {
   assert.equal(bomReport.metrics.totalCases, 1);
   assert.equal(bomReport.metrics.executedCases, 1);
   assert.equal(bomReport.metrics.notRunCases, 0);
+  assert.equal(bomReport.manifest.normalizedContentHash, hashNormalizedExternalRetirementManifestBytes(Buffer.concat([
+    Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(manifestJson, "utf8"),
+  ])));
 });
 await scenario("malformed manifest JSON fails closed", () => assert.throws(() =>
   parseExternalRetirementManifestBytes(Buffer.from('{"schemaVersion":', "utf8")),
@@ -166,6 +171,50 @@ const report = await runExternalRetirementValidation(manifest, {
     return observedInventory;
   },
 });
+function recreateObservationReport(input: {
+  basis: ExternalObservationValidationReport;
+  manifestId: string;
+  cases: ExternalObservationValidationReport["cases"];
+  createdAt?: string;
+  repositories?: ExternalObservationValidationReport["repositories"];
+  manifestContentHash?: string;
+}): ExternalObservationValidationReport {
+  return createExternalObservationReport({
+    manifestId: input.manifestId,
+    manifestContentHash: input.manifestContentHash ?? input.basis.manifest.normalizedContentHash,
+    createdAt: input.createdAt ?? input.basis.createdAt,
+    contextForgeVersion: input.basis.run.contextForgeVersion,
+    contextForgeGitCommit: input.basis.run.contextForgeGitCommit,
+    contextForgeWorkingTreeClean: input.basis.run.contextForgeWorkingTreeClean,
+    ce2SourceFingerprint: input.basis.run.ce2SourceFingerprint,
+    observationToolingFingerprint: input.basis.run.observationToolingFingerprint,
+    repositories: input.repositories ?? input.basis.repositories,
+    cases: input.cases,
+    runTotalMs: input.basis.performance.runTotalMs,
+  });
+}
+
+function distinctFingerprint(current: string, preferred: "a" | "b" | "c"): string {
+  const candidate = `sha256:${preferred.repeat(64)}`;
+  return candidate === current ? `sha256:${(preferred === "a" ? "b" : "a").repeat(64)}` : candidate;
+}
+
+function repositoriesCoveringCases(
+  basis: ExternalObservationValidationReport,
+  cases: ExternalObservationValidationReport["cases"],
+): ExternalObservationValidationReport["repositories"] {
+  return basis.repositories.map((repository) => {
+    const identities = cases.filter((item) => item.projectId === repository.projectId).flatMap((item) => [
+      item.determinism.firstExecutionIdentity,
+      item.determinism.replayExecutionIdentity,
+    ]).filter((identity): identity is NonNullable<typeof identity> => identity !== null);
+    return {
+      ...repository,
+      inventoryFingerprints: [...new Set(identities.map((identity) => identity.inventoryFingerprint))].sort(),
+      snapshotFingerprints: [...new Set(identities.map((identity) => identity.snapshotFingerprint))].sort(),
+    };
+  });
+}
 await scenario("external project is scanned once for all cases and replays", () => assert.equal(scans, 1));
 await scenario("benchmark expected paths cannot inject user-confirmed authority", () => {
   const rawOnly = {
@@ -271,6 +320,142 @@ await scenario("report counts derive from actual case executions", () => {
   assert.equal(report.metrics.groundedApplied, 1);
   assert.equal(report.metrics.semanticLegacyFallbackCount, 0);
   assert.equal(report.readiness.hardSafetyGatesPassed, true);
+});
+await scenario("observation report uses explicit schema v2 identity", () => {
+  assert.equal(report.schemaVersion, 2);
+  assert.equal(report.run.harnessMode, "external_primary_observation");
+  assert.equal(report.engine.ce2Mode, "primary");
+  assert.equal(report.engine.plannerMode, "deterministic");
+  assert.equal(report.engine.globalDefaultState, "disabled");
+  assert.match(report.run.ce2SourceFingerprint ?? "", /^sha256:[a-f0-9]{64}$/u);
+  assert.match(report.run.observationToolingFingerprint ?? "", /^sha256:[a-f0-9]{64}$/u);
+});
+await scenario("manifest hashing is BOM and newline portable", () => {
+  const lf = Buffer.from(`${manifestJson}\n`, "utf8");
+  const crlf = Buffer.concat([Buffer.from([0xef, 0xbb, 0xbf]), Buffer.from(`${manifestJson}\r\n`, "utf8")]);
+  assert.equal(hashNormalizedExternalRetirementManifestBytes(lf), hashNormalizedExternalRetirementManifestBytes(crlf));
+  assert.match(hashNormalizedExternalRetirementManifestBytes(lf), /^sha256:[a-f0-9]{64}$/u);
+});
+await scenario("repository and snapshot identities are stable and linked", () => {
+  const repository = report.repositories[0]!;
+  const identities = report.cases.flatMap((item) => [
+    item.determinism.firstExecutionIdentity,
+    item.determinism.replayExecutionIdentity,
+  ]).filter((identity): identity is NonNullable<typeof identity> => identity !== null);
+  assert.ok(identities.length > 0);
+  assert.deepEqual(repository.inventoryFingerprints, [...new Set(identities.map((item) => item.inventoryFingerprint))].sort());
+  assert.deepEqual(repository.snapshotFingerprints, [...new Set(identities.map((item) => item.snapshotFingerprint))].sort());
+});
+await scenario("identical observation identity produces a stable run id", () => {
+  const repeated = recreateObservationReport({ basis: report, manifestId: report.manifestId, cases: report.cases });
+  assert.equal(repeated.runId, report.runId);
+  assert.deepEqual(repeated.engine.configurationFingerprints, report.engine.configurationFingerprints);
+});
+await scenario("run id is observation identity rather than verdict data", () => {
+  const changedOutcome = structuredClone(report.cases);
+  changedOutcome[0]!.verdict = changedOutcome[0]!.verdict === "PASS" ? "ACCEPTABLE" : "PASS";
+  const recreated = recreateObservationReport({ basis: report, manifestId: report.manifestId, cases: changedOutcome });
+  assert.equal(recreated.runId, report.runId);
+  assert.notDeepEqual(recreated.metrics.verdicts, report.metrics.verdicts);
+});
+await scenario("dirty and clean repository observations have distinct run identities", () => {
+  const baseRepository = {
+    ...report.repositories[0]!,
+    gitHead: "a".repeat(40),
+    gitIdentityUnavailableReason: null,
+  };
+  const clean = recreateObservationReport({
+    basis: report, manifestId: "external-clean-identity", cases: report.cases,
+    repositories: [{ ...baseRepository, workingTreeClean: true }],
+  });
+  const dirty = recreateObservationReport({
+    basis: report, manifestId: "external-clean-identity", cases: report.cases,
+    repositories: [{ ...baseRepository, workingTreeClean: false }],
+  });
+  assert.notEqual(clean.runId, dirty.runId);
+});
+await scenario("grounded proof distribution and applied target count are retained", () => {
+  const item = report.cases.find((entry) => entry.caseId === groundedCase.id)!;
+  assert.ok(item.proofs.counts.direct_source_identity > 0);
+  assert.equal(item.proofs.appliedGroundedTargetCount, 1);
+  assert.equal(report.summary.proofClassCounts.direct_source_identity >= item.proofs.counts.direct_source_identity, true);
+});
+await scenario("selection roles and usages are retained", () => {
+  const item = report.cases.find((entry) => entry.caseId === groundedCase.id)!;
+  assert.deepEqual(item.selection.appliedFiles, [{ path: "src/service.ts", role: "target", usage: "inspect-and-edit" }]);
+  assert.equal(report.summary.appliedRoleCounts.target, 1);
+  assert.equal(report.summary.appliedUsageCounts["inspect-and-edit"], 1);
+  assert.ok(report.summary.projectedPathCount >= report.summary.appliedPathCount);
+});
+await scenario("downstream authorization is reported without expanding authority", () => {
+  const item = report.cases.find((entry) => entry.caseId === groundedCase.id)!;
+  assert.deepEqual(item.authorization.authorizedEditPaths, ["src/service.ts"]);
+  assert.equal(item.authorization.projectedAuthorizationMatchesApplied, true);
+  assert.equal(item.authorization.unauthorizedEditableTarget, false);
+  assert.equal(report.summary.unauthorizedEditableTargetCount, 0);
+});
+await scenario("unavailable detailed metrics are represented as unavailable", () => {
+  const item = report.cases.find((entry) => entry.caseId === groundedCase.id)!;
+  assert.equal(item.contradictions.count, null);
+  assert.equal(item.contradictions.unavailableReason, "downstream_contract_not_exposed");
+  assert.equal(item.operations.uniqueFilesRead, null);
+  assert.equal(report.summary.contradictionCount, null);
+  assert.equal(report.summary.detailedOperationMetricsUnavailableReason, "downstream_contract_not_exposed");
+});
+await scenario("operation and timing telemetry retains both deterministic executions", () => {
+  const item = report.cases.find((entry) => entry.caseId === groundedCase.id)!;
+  assert.ok(item.operations.first);
+  assert.ok(item.operations.replay);
+  assert.ok(item.operations.first!.operations >= 0);
+  assert.ok(item.timing.firstExecutionMs !== null && item.timing.firstExecutionMs >= 0);
+  assert.ok(item.timing.replayExecutionMs !== null && item.timing.replayExecutionMs >= 0);
+  assert.ok(report.performance.runTotalMs >= 0);
+  assert.equal(report.performance.coldWarmClassification, null);
+});
+await scenario("determinism is explicitly same-process and same-snapshot", () => {
+  const item = report.cases.find((entry) => entry.caseId === groundedCase.id)!;
+  assert.equal(item.determinism.scope, "same_process_same_snapshot");
+  assert.deepEqual(item.determinism.firstExecutionIdentity, item.determinism.replayExecutionIdentity);
+  assert.equal(item.determinism.executionBasisEquivalent, true);
+  assert.equal(item.determinism.resultEquivalent, true);
+  assert.equal(item.determinism.equivalent, true);
+  assert.equal(item.determinism.firstResultIdentity, item.determinism.replayResultIdentity);
+  assert.equal(report.determinism.crossProcessEstablished, false);
+  assert.equal(report.determinism.failureCount, 0);
+});
+await scenario("fallback and rollback concepts remain separate", () => {
+  assert.equal(report.fallback.infrastructureRollbackCount, 0);
+  assert.equal(report.fallback.semanticLegacyFallbackCount, 0);
+  assert.equal(report.fallback.legacySelectorInvocationCount, 0);
+  assert.equal(report.fallback.legacySelectorFallbackRate, null);
+  assert.equal(report.fallback.legacySelectorFallbackUnavailableReason, "legacy_selector_not_invoked");
+  assert.equal(report.fallback.legacyComparisonEligibleCount, null);
+});
+await scenario("historical schema v1 report construction remains available", () => {
+  const legacy = createExternalRetirementReport({
+    manifestId: "external-v1-readable",
+    createdAt: "2026-08-28T00:00:00.000Z",
+    cases: report.cases.map((item) => ({
+      projectId: item.projectId,
+      caseId: item.caseId,
+      repositoryShape: item.repositoryShape,
+      availability: item.availability,
+      actualStatus: item.actualStatus,
+      actualPaths: item.actualPaths,
+      reasonCodes: item.reasonCodes,
+      rollbackReason: item.rollbackReason,
+      verdict: item.verdict,
+      unsafeAutomaticAdoption: item.unsafeAutomaticAdoption,
+      negativeConstraintViolation: item.negativeConstraintViolation,
+      restrictedEditableSelection: item.restrictedEditableSelection,
+      silentHybridSelection: item.silentHybridSelection,
+      modelPlannerUsed: item.modelPlannerUsed,
+      deterministicReplayEquivalent: item.deterministicReplayEquivalent,
+      semanticAmbiguityHandledSafely: item.semanticAmbiguityHandledSafely,
+      groundedRolesSupported: item.groundedRolesSupported,
+    })),
+  });
+  assert.equal(legacy.schemaVersion, 1);
 });
 
 function oversizedInventory(source: ProjectInventory): ProjectInventory {
@@ -389,11 +574,118 @@ await scenario("observed unsafe target derives critical failure and blocks readi
 await scenario("replay mismatch independently blocks readiness", () => {
   const mismatch = structuredClone(report.cases);
   mismatch[0]!.deterministicReplayEquivalent = false;
-  const mismatchReport = createExternalRetirementReport({
-    manifestId: "external-replay-mismatch", createdAt: "2026-08-28T00:00:00.000Z", cases: mismatch,
+  mismatch[0]!.determinism.resultEquivalent = false;
+  mismatch[0]!.determinism.equivalent = false;
+  mismatch[0]!.determinism.replayResultIdentity = `sha256:${"f".repeat(64)}`;
+  const mismatchReport = recreateObservationReport({
+    basis: report, manifestId: "external-replay-mismatch", createdAt: "2026-08-28T00:00:00.000Z", cases: mismatch,
   });
   assert.equal(mismatchReport.readiness.hardSafetyGatesPassed, false);
   assert.ok(mismatchReport.readiness.blockers.includes("deterministic_replay_failures"));
+});
+await scenario("same result with a different replay snapshot fails same-snapshot determinism", () => {
+  const cases = structuredClone(report.cases);
+  const item = cases[0]!;
+  const replayIdentity = item.determinism.replayExecutionIdentity!;
+  replayIdentity.snapshotFingerprint = distinctFingerprint(replayIdentity.snapshotFingerprint, "a");
+  item.determinism.executionBasisEquivalent = false;
+  item.determinism.equivalent = false;
+  item.deterministicReplayEquivalent = false;
+  const changed = recreateObservationReport({
+    basis: report,
+    manifestId: report.manifestId,
+    cases,
+    repositories: repositoriesCoveringCases(report, cases),
+  });
+  assert.equal(changed.cases[0]!.determinism.resultEquivalent, true);
+  assert.equal(changed.cases[0]!.determinism.executionBasisEquivalent, false);
+  assert.equal(changed.cases[0]!.determinism.equivalent, false);
+  assert.equal(changed.cases[0]!.deterministicReplayEquivalent, false);
+  assert.ok(changed.readiness.blockers.includes("deterministic_replay_failures"));
+  assert.notEqual(changed.runId, report.runId);
+});
+await scenario("same result with a different replay configuration fails determinism", () => {
+  const cases = structuredClone(report.cases);
+  const item = cases[0]!;
+  const replayIdentity = item.determinism.replayExecutionIdentity!;
+  replayIdentity.configurationFingerprint = distinctFingerprint(replayIdentity.configurationFingerprint, "b");
+  item.determinism.executionBasisEquivalent = false;
+  item.determinism.equivalent = false;
+  item.deterministicReplayEquivalent = false;
+  const changed = recreateObservationReport({ basis: report, manifestId: report.manifestId, cases });
+  assert.equal(changed.cases[0]!.determinism.resultEquivalent, true);
+  assert.equal(changed.determinism.failureCount, 1);
+  assert.notEqual(changed.runId, report.runId);
+});
+await scenario("same result with a different replay task fails determinism", () => {
+  const cases = structuredClone(report.cases);
+  const item = cases[0]!;
+  const replayIdentity = item.determinism.replayExecutionIdentity!;
+  replayIdentity.taskFingerprint = distinctFingerprint(replayIdentity.taskFingerprint, "c");
+  item.determinism.executionBasisEquivalent = false;
+  item.determinism.equivalent = false;
+  item.deterministicReplayEquivalent = false;
+  const changed = recreateObservationReport({ basis: report, manifestId: report.manifestId, cases });
+  assert.equal(changed.cases[0]!.determinism.resultEquivalent, true);
+  assert.equal(changed.determinism.failureCount, 1);
+});
+await scenario("validator rejects forged execution-basis equivalence", () => {
+  const forged = structuredClone(report);
+  const item = forged.cases[0]!;
+  item.determinism.replayExecutionIdentity!.snapshotFingerprint = distinctFingerprint(
+    item.determinism.replayExecutionIdentity!.snapshotFingerprint,
+    "a",
+  );
+  assert.equal(item.determinism.executionBasisEquivalent, true);
+  assert.throws(() => validateExternalObservationReport(forged));
+});
+await scenario("validator rejects forged overall equivalence when result equivalence is false", () => {
+  const forged = structuredClone(report);
+  forged.cases[0]!.determinism.resultEquivalent = false;
+  assert.equal(forged.cases[0]!.determinism.equivalent, true);
+  assert.throws(() => validateExternalObservationReport(forged));
+});
+await scenario("validator rejects disagreement between legacy and strong determinism fields", () => {
+  const forged = structuredClone(report);
+  forged.cases[0]!.deterministicReplayEquivalent = false;
+  assert.equal(forged.cases[0]!.determinism.equivalent, true);
+  assert.throws(() => validateExternalObservationReport(forged));
+});
+await scenario("ContextForge provenance is resolved per run before project scanning", async () => {
+  let provenanceCalls = 0;
+  const events: string[] = [];
+  const resolveContextForgeIdentity = async () => {
+    provenanceCalls += 1;
+    events.push(`identity-${provenanceCalls}`);
+    return {
+      gitCommit: "d".repeat(40),
+      workingTreeClean: false,
+      ce2SourceFingerprint: `sha256:${(provenanceCalls === 1 ? "a" : "b").repeat(64)}`,
+      observationToolingFingerprint: `sha256:${"c".repeat(64)}`,
+    };
+  };
+  const options = {
+    nowIso: () => "2026-08-28T00:00:00.000Z",
+    scanInventory: async () => {
+      events.push(`scan-${provenanceCalls}`);
+      return observedInventory!;
+    },
+    resolveContextForgeIdentity,
+  };
+  const first = await runExternalRetirementValidation({
+    ...manifest,
+    manifestId: "external-provenance-per-run",
+    projects: [{ ...manifest.projects[0], cases: [safeCase] }],
+  }, options);
+  const second = await runExternalRetirementValidation({
+    ...manifest,
+    manifestId: "external-provenance-per-run",
+    projects: [{ ...manifest.projects[0], cases: [safeCase] }],
+  }, options);
+  assert.equal(provenanceCalls, 2);
+  assert.deepEqual(events, ["identity-1", "scan-1", "identity-2", "scan-2"]);
+  assert.notEqual(first.run.ce2SourceFingerprint, second.run.ce2SourceFingerprint);
+  assert.notEqual(first.runId, second.runId);
 });
 await scenario("unavailable project is explicitly not run", async () => {
   const unavailable = await runExternalRetirementValidation({
@@ -450,7 +742,8 @@ await scenario("CLI returns zero for a fully executed clean scope", async () => 
   ]), 0);
 });
 await scenario("CLI summary separates hard safety from unevaluated quality acceptance", () => {
-  const safeFailReport = createExternalRetirementReport({
+  const safeFailReport = recreateObservationReport({
+    basis: report,
     manifestId: "external-safe-fail-summary",
     createdAt: "2026-08-29T00:00:00.000Z",
     cases: [{
@@ -471,13 +764,20 @@ await scenario("CLI summary separates hard safety from unevaluated quality accep
   assert.equal(summary.includes("External retirement validation: PASS"), false);
 });
 await scenario("portable report excludes local root and source content", () => {
-  const serialized = serializeExternalRetirementReportJson(report);
+  const serialized = serializeExternalObservationReportJson(report);
   assert.equal(serialized.includes(root), false);
   assert.equal(serialized.includes("grounded-marker"), false);
   assert.equal(serialized.includes("provider source fragment"), false);
+  assert.equal(serialized.includes(groundedCase.task), false);
+  assert.equal(serialized.includes(safeCase.task), false);
+});
+await scenario("privacy validation rejects secret-bearing observation metadata", () => {
+  const malformed = structuredClone(report);
+  malformed.run.contextForgeVersion = "token=secret-observation-value";
+  assert.throws(() => validateExternalObservationReport(malformed));
 });
 await scenario("validated report is defensively cloned", () => {
-  const validated = validateExternalRetirementReport(report);
+  const validated = validateExternalObservationReport(report);
   validated.cases[0]!.actualPaths.push("src/other.ts");
   assert.deepEqual(report.cases[0]!.actualPaths, ["src/service.ts"]);
 });
@@ -485,13 +785,13 @@ await scenario("report accessor is rejected without execution", () => {
   let executed = false;
   const malformed = Object.create(null);
   Object.defineProperty(malformed, "schemaVersion", { enumerable: true, get() { executed = true; return 1; } });
-  assert.throws(() => validateExternalRetirementReport(malformed));
+  assert.throws(() => validateExternalObservationReport(malformed));
   assert.equal(executed, false);
 });
 await scenario("unknown nested report properties fail closed", () => {
-  const malformed = structuredClone(report) as ExternalRetirementValidationReport & { metrics: ExternalRetirementValidationReport["metrics"] & { sourceContent?: string } };
+  const malformed = structuredClone(report) as ExternalObservationValidationReport & { metrics: ExternalObservationValidationReport["metrics"] & { sourceContent?: string } };
   malformed.metrics.sourceContent = serviceSource;
-  assert.throws(() => validateExternalRetirementReport(malformed));
+  assert.throws(() => validateExternalObservationReport(malformed));
 });
 
 await fs.rm(root, { recursive: true, force: true });

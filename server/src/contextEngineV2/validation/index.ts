@@ -12,3 +12,4 @@ export * from "./validationProjectLoader.js";
 export * from "./deterministicValidationExecutor.js";
 export * from "./externalRetirementManifest.js";
 export * from "./externalRetirementReport.js";
+export * from "./externalObservationReport.js";
