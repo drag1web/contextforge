@@ -21,6 +21,7 @@
     "test:mcp": "tsx src/mcp/mcp.smoke.ts",
     "test:generation:taskpack": "tsx src/ollama/taskPackGenerationReliability.smoke.ts",
     "test:task-pack-lifecycle": "tsx src/taskPacks/taskPackLifecycle.smoke.ts",
+    "test:task-pack-lifecycle-storage": "tsx src/storage/taskPackLifecycleStorage.smoke.ts",
     "test:understanding": "tsx src/ollama/taskUnderstanding.smoke.ts",
     "test:clarification": "tsx src/taskPacks/taskClarifications.smoke.ts",
     "test:performance": "tsx src/performance/performanceTrace.smoke.ts && tsx src/taskPacks/taskUnderstandingSnapshot.smoke.ts && tsx src/selection/explicitTargetGuard.smoke.ts",

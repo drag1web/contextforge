@@ -6,9 +6,39 @@ import type { Database, SqlJsStatic, SqlValue } from "sql.js";
 
 import type { ScannedProject } from "../scanner/projectScanner.js";
 import type { RulesAndTemplatesStore } from "../rules/types.js";
+import {
+  assertTaskPackAggregateLifecycleEvent,
+  assertTaskPackRevision,
+  assertTaskPackRevisionReviewEvent,
+  computeTaskPackRevisionContentHash,
+  type TaskPackRevisionContent,
+} from "../taskPacks/taskPackLifecycle.js";
 import { parseJsonValue, stringifyJsonValue } from "./json.js";
-import { SQLITE_MIGRATIONS, SQLITE_SCHEMA_VERSION } from "./migrations.js";
+import {
+  applySqliteMigrationTransaction,
+  SQLITE_MIGRATIONS,
+  SQLITE_SCHEMA_VERSION,
+  TASK_PACK_LIFECYCLE_MIGRATION_ID,
+  type SqliteMigrationTransactionHooks,
+} from "./migrations.js";
+import {
+  createSqlitePreMigrationBackup,
+  type SqlitePreMigrationBackupInput,
+  type SqlitePreMigrationBackupResult,
+} from "./storageBackupPaths.js";
+import {
+  buildCreatedTaskPackRevisionContent,
+  mapTaskPackAggregatePersistenceRow,
+  mapTaskPackLifecycleEventPersistenceRow,
+  mapTaskPackReviewEventPersistenceRow,
+  mapTaskPackRevisionPersistenceRow,
+  type TaskPackAggregatePersistenceRow,
+  type TaskPackLifecycleEventPersistenceRow,
+  type TaskPackReviewEventPersistenceRow,
+  type TaskPackRevisionPersistenceRow,
+} from "./taskPackLifecyclePersistence.js";
 import type {
+  AppendTaskPackRevisionInput,
   CreateProjectMemoryInput,
   CreateTaskPackInput,
   ProjectMemoryRecord,
@@ -17,7 +47,11 @@ import type {
   RulesAndTemplatesCatalogStats,
   StorageHealth,
   StorageSchemaInfo,
+  TaskPackAggregateLifecycleEventRecord,
+  TaskPackAggregateRecord,
   TaskPackRecord,
+  TaskPackRevisionRecord,
+  TaskPackRevisionReviewEventRecord,
   UpdateProjectMemoryInput,
   UpdateTaskPackContentInput
 } from "./types.js";
@@ -72,6 +106,15 @@ type ProjectMemoryRow = {
 const defaultReadinessReport = { score: 0, checks: [], issues: [] };
 const require = createRequire(import.meta.url);
 
+export interface SqliteStorageAdapterOptions {
+  readonly migrationBackupDirectory?: string;
+  readonly createPreMigrationBackup?: (
+    input: SqlitePreMigrationBackupInput,
+  ) => SqlitePreMigrationBackupResult;
+  /** Narrow failure-injection seam used by migration transaction smoke tests. */
+  readonly migrationTransactionHooks?: SqliteMigrationTransactionHooks;
+}
+
 function nowIso() {
   return new Date().toISOString();
 }
@@ -114,6 +157,27 @@ function mapTaskPackRow(row: TaskPackRow): TaskPackRecord {
     generationRecipe: parseJsonValue(row.generation_recipe, null),
     createdAt: row.created_at,
     updatedAt: row.updated_at
+  };
+}
+
+function revisionContentFromAppendInput(
+  input: AppendTaskPackRevisionInput,
+): TaskPackRevisionContent {
+  return {
+    sourceKind: input.sourceKind,
+    rawTask: input.rawTask,
+    taskType: input.taskType,
+    targetTool: input.targetTool,
+    generatedPrompt: input.generatedPrompt,
+    generationMode: input.generationMode,
+    generationModel: input.generationModel,
+    generationMessage: input.generationMessage,
+    generationUsedFallback: input.generationUsedFallback,
+    generationDurationMs: input.generationDurationMs,
+    generationRecipe: input.generationRecipe,
+    diagnostics: input.diagnostics,
+    groundedContextSnapshot: input.groundedContextSnapshot,
+    freshnessBasis: input.freshnessBasis,
   };
 }
 
@@ -185,11 +249,18 @@ export class SqliteStorageAdapter implements StorageAdapter {
 
   private sqlJs: SqlJsStatic | null = null;
   private db: Database | null = null;
+  private loadedPersistedDatabase = false;
+  private lifecycleMigrationPreflightComplete = false;
 
-  constructor(private readonly databasePath: string) {}
+  constructor(
+    private readonly databasePath: string,
+    private readonly options: SqliteStorageAdapterOptions = {},
+  ) {}
 
   async ensureSchema() {
     const db = await this.getDatabase();
+
+    this.ensureTaskPackLifecycleMigrationPreflight(db);
 
     db.run(`
       PRAGMA foreign_keys = ON;
@@ -521,48 +592,53 @@ export class SqliteStorageAdapter implements StorageAdapter {
 
   async createTaskPack(input: CreateTaskPackInput): Promise<TaskPackRecord> {
     const timestamp = nowIso();
+    const content = buildCreatedTaskPackRevisionContent(input);
+    const createdTaskPackId = await this.withTransaction(async () => {
+      await this.run(
+        `
+        INSERT INTO task_packs (
+          project_id, title, raw_task, task_type, target_tool, generated_prompt,
+          generation_mode, generation_model, generation_message,
+          generation_used_fallback, generation_duration_ms, generation_recipe,
+          created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        `,
+        [
+          input.projectId,
+          input.title,
+          input.rawTask,
+          input.taskType,
+          input.targetTool,
+          input.generatedPrompt,
+          input.generationMode,
+          input.generationModel,
+          input.generationMessage,
+          input.generationUsedFallback ? 1 : 0,
+          input.generationDurationMs ?? null,
+          stringifyJsonValue(input.generationRecipe ?? null),
+          timestamp,
+          timestamp,
+        ],
+      );
 
-    await this.run(
-      `
-      INSERT INTO task_packs (
-        project_id,
-        title,
-        raw_task,
-        task_type,
-        target_tool,
-        generated_prompt,
-        generation_mode,
-        generation_model,
-        generation_message,
-        generation_used_fallback,
-        generation_duration_ms,
-        generation_recipe,
-        created_at,
-        updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
-      `,
-      [
-        input.projectId,
-        input.title,
-        input.rawTask,
-        input.taskType,
-        input.targetTool,
-        input.generatedPrompt,
-        input.generationMode,
-        input.generationModel,
-        input.generationMessage,
-        input.generationUsedFallback ? 1 : 0,
-        input.generationDurationMs ?? null,
-        stringifyJsonValue(input.generationRecipe ?? null),
-        timestamp,
-        timestamp
-      ],
-      false
-    );
-
-    const createdTaskPackId = await this.getLastInsertRowId();
-    this.persist();
+      const taskPackId = await this.getLastInsertRowId();
+      await this.insertTaskPackRevision({
+        taskPackId,
+        revisionNumber: 1,
+        baseRevisionId: null,
+        content,
+        createdAt: timestamp,
+        generatedAt: content.sourceKind === "generated" ? timestamp : null,
+      });
+      const revisionId = await this.getLastInsertRowId();
+      await this.run(
+        `UPDATE task_packs
+         SET current_revision_id = ?, lifecycle_state = 'active', lifecycle_version = 1
+         WHERE id = ?;`,
+        [revisionId, taskPackId],
+      );
+      return taskPackId;
+    });
 
     const row = await this.getOne<TaskPackRow>(
       `
@@ -633,6 +709,203 @@ export class SqliteStorageAdapter implements StorageAdapter {
     this.persist();
 
     return this.getTaskPackById(taskPackId);
+  }
+
+  async getTaskPackAggregate(taskPackId: number): Promise<TaskPackAggregateRecord | null> {
+    const row = await this.getOne<TaskPackAggregatePersistenceRow>(
+      `SELECT id, project_id, title, lifecycle_state, archived_from_state,
+              current_revision_id, accepted_revision_id, lifecycle_version,
+              created_at, updated_at, completed_at, archived_at
+       FROM task_packs
+       WHERE id = ? AND current_revision_id IS NOT NULL;`,
+      [taskPackId],
+    );
+    return row ? mapTaskPackAggregatePersistenceRow(row) : null;
+  }
+
+  async getCurrentTaskPackRevision(taskPackId: number): Promise<TaskPackRevisionRecord | null> {
+    const row = await this.getOne<TaskPackRevisionPersistenceRow>(
+      `SELECT r.*
+       FROM task_packs tp
+       JOIN task_pack_revisions r ON r.id = tp.current_revision_id
+       WHERE tp.id = ? AND r.task_pack_id = tp.id;`,
+      [taskPackId],
+    );
+    return row ? mapTaskPackRevisionPersistenceRow(row) : null;
+  }
+
+  async getTaskPackRevisionById(
+    taskPackId: number,
+    revisionId: number,
+  ): Promise<TaskPackRevisionRecord | null> {
+    const row = await this.getOne<TaskPackRevisionPersistenceRow>(
+      `SELECT * FROM task_pack_revisions WHERE task_pack_id = ? AND id = ?;`,
+      [taskPackId, revisionId],
+    );
+    return row ? mapTaskPackRevisionPersistenceRow(row) : null;
+  }
+
+  async listTaskPackRevisions(taskPackId: number): Promise<TaskPackRevisionRecord[]> {
+    const rows = await this.getAll<TaskPackRevisionPersistenceRow>(
+      `SELECT * FROM task_pack_revisions
+       WHERE task_pack_id = ?
+       ORDER BY revision_number ASC;`,
+      [taskPackId],
+    );
+    return rows.map(mapTaskPackRevisionPersistenceRow);
+  }
+
+  async appendTaskPackRevision(
+    input: AppendTaskPackRevisionInput,
+  ): Promise<TaskPackRevisionRecord> {
+    return this.withTransaction(async () => {
+      const aggregate = await this.getTaskPackAggregate(input.taskPackId);
+      if (!aggregate) throw new Error("Task Pack aggregate not found.");
+      if (aggregate.lifecycle.state !== "active") {
+        throw new Error("Only an active Task Pack can receive a revision.");
+      }
+      if (aggregate.currentRevisionId !== input.baseRevisionId) {
+        throw new Error("Task Pack base revision is stale.");
+      }
+      const base = await this.getTaskPackRevisionById(input.taskPackId, input.baseRevisionId);
+      if (!base) throw new Error("Task Pack base revision does not belong to the aggregate.");
+
+      const content = revisionContentFromAppendInput(input);
+      const nextRevisionRow = await this.getOne<{ revision_number: number }>(
+        `SELECT COALESCE(MAX(revision_number), 0) + 1 AS revision_number
+         FROM task_pack_revisions WHERE task_pack_id = ?;`,
+        [input.taskPackId],
+      );
+      const nextRevisionNumber = Number(nextRevisionRow?.revision_number ?? 0);
+      await this.insertTaskPackRevision({
+        taskPackId: input.taskPackId,
+        revisionNumber: nextRevisionNumber,
+        baseRevisionId: input.baseRevisionId,
+        content,
+        createdAt: input.createdAt,
+        generatedAt: input.generatedAt,
+      });
+      const revisionId = await this.getLastInsertRowId();
+      const revision = await this.getTaskPackRevisionById(input.taskPackId, revisionId);
+      if (!revision) throw new Error("Failed to read appended Task Pack revision.");
+      assertTaskPackRevision(revision, { aggregate, baseRevision: base });
+
+      await this.run(
+        `UPDATE task_packs
+         SET current_revision_id = ?, lifecycle_version = lifecycle_version + 1,
+             raw_task = ?, task_type = ?, target_tool = ?, generated_prompt = ?,
+             generation_mode = ?, generation_model = ?, generation_message = ?,
+             generation_used_fallback = ?, generation_duration_ms = ?,
+             generation_recipe = ?, updated_at = ?
+         WHERE id = ? AND current_revision_id = ?;`,
+        [
+          revision.id,
+          content.rawTask,
+          content.taskType,
+          content.targetTool,
+          content.generatedPrompt,
+          content.generationMode,
+          content.generationModel,
+          content.generationMessage,
+          content.generationUsedFallback ? 1 : 0,
+          content.generationDurationMs,
+          content.generationRecipe === null ? null : stringifyJsonValue(content.generationRecipe),
+          input.createdAt,
+          input.taskPackId,
+          input.baseRevisionId,
+        ],
+      );
+      return revision;
+    });
+  }
+
+  async appendTaskPackAggregateLifecycleEvent(
+    event: TaskPackAggregateLifecycleEventRecord,
+  ): Promise<void> {
+    const aggregate = await this.getTaskPackAggregate(event.taskPackId);
+    if (!aggregate) throw new Error("Task Pack aggregate not found.");
+    const revision =
+      event.revisionId === null
+        ? undefined
+        : (await this.getTaskPackRevisionById(event.taskPackId, event.revisionId)) ?? undefined;
+    if (event.revisionId !== null && revision === undefined) {
+      throw new Error("Task Pack lifecycle event revision ownership is invalid.");
+    }
+    assertTaskPackAggregateLifecycleEvent(event, { aggregate, revision });
+    await this.run(
+      `INSERT INTO task_pack_lifecycle_events (
+        id, task_pack_id, revision_id, event_type, from_state, to_state,
+        source, actor_id, created_at, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      [
+        event.id,
+        event.taskPackId,
+        event.revisionId,
+        event.eventType,
+        event.fromState,
+        event.toState,
+        event.source,
+        event.actorId,
+        event.createdAt,
+        event.metadata === null ? null : stringifyJsonValue(event.metadata),
+      ],
+      true,
+    );
+  }
+
+  async listTaskPackAggregateLifecycleEvents(
+    taskPackId: number,
+  ): Promise<TaskPackAggregateLifecycleEventRecord[]> {
+    const rows = await this.getAll<TaskPackLifecycleEventPersistenceRow>(
+      `SELECT * FROM task_pack_lifecycle_events
+       WHERE task_pack_id = ?
+       ORDER BY created_at ASC, id ASC;`,
+      [taskPackId],
+    );
+    return rows.map(mapTaskPackLifecycleEventPersistenceRow);
+  }
+
+  async appendTaskPackRevisionReviewEvent(
+    event: TaskPackRevisionReviewEventRecord,
+  ): Promise<void> {
+    const aggregate = await this.getTaskPackAggregate(event.taskPackId);
+    const revision = await this.getTaskPackRevisionById(event.taskPackId, event.revisionId);
+    if (!aggregate || !revision) throw new Error("Task Pack revision ownership is invalid.");
+    assertTaskPackRevisionReviewEvent(event, { aggregate, revision });
+    await this.run(
+      `INSERT INTO task_pack_revision_review_events (
+        id, task_pack_id, revision_id, event_type, from_state, to_state,
+        source, actor_id, created_at, metadata
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      [
+        event.id,
+        event.taskPackId,
+        event.revisionId,
+        event.eventType,
+        event.fromState,
+        event.toState,
+        event.source,
+        event.actorId,
+        event.createdAt,
+        event.metadata === null ? null : stringifyJsonValue(event.metadata),
+      ],
+      true,
+    );
+  }
+
+  async listTaskPackRevisionReviewEvents(
+    taskPackId: number,
+    revisionId?: number,
+  ): Promise<TaskPackRevisionReviewEventRecord[]> {
+    const rows = await this.getAll<TaskPackReviewEventPersistenceRow>(
+      revisionId === undefined
+        ? `SELECT * FROM task_pack_revision_review_events
+           WHERE task_pack_id = ? ORDER BY created_at ASC, id ASC;`
+        : `SELECT * FROM task_pack_revision_review_events
+           WHERE task_pack_id = ? AND revision_id = ? ORDER BY created_at ASC, id ASC;`,
+      revisionId === undefined ? [taskPackId] : [taskPackId, revisionId],
+    );
+    return rows.map(mapTaskPackReviewEventPersistenceRow);
   }
 
   async listProjectMemories(projectId: number): Promise<ProjectMemoryRecord[]> {
@@ -1032,22 +1305,11 @@ export class SqliteStorageAdapter implements StorageAdapter {
       const appliedAt = nowIso();
       const db = await this.getDatabase();
 
-      migration.run(db);
-
-      await this.run(
-        `
-        INSERT INTO schema_migrations (id, version, name, description, checksum, applied_at)
-        VALUES (?, ?, ?, ?, ?, ?);
-        `,
-        [
-          migration.id,
-          migration.version,
-          migration.name,
-          migration.description,
-          migration.checksum,
-          appliedAt
-        ],
-        false
+      applySqliteMigrationTransaction(
+        db,
+        migration,
+        appliedAt,
+        this.options.migrationTransactionHooks,
       );
 
       changed = true;
@@ -1093,14 +1355,57 @@ export class SqliteStorageAdapter implements StorageAdapter {
       });
     }
 
-    const databaseBytes = fs.existsSync(this.databasePath)
-      ? fs.readFileSync(this.databasePath)
-      : null;
+    const databaseExists = fs.existsSync(this.databasePath);
+    const databaseBytes = databaseExists ? fs.readFileSync(this.databasePath) : null;
+    this.loadedPersistedDatabase = Boolean(databaseBytes?.length);
 
     this.db = new this.sqlJs.Database(databaseBytes);
     this.db.run("PRAGMA foreign_keys = ON;");
 
     return this.db;
+  }
+
+  private ensureTaskPackLifecycleMigrationPreflight(db: Database): void {
+    if (
+      this.lifecycleMigrationPreflightComplete ||
+      !this.loadedPersistedDatabase ||
+      this.isMigrationApplied(db, TASK_PACK_LIFECYCLE_MIGRATION_ID)
+    ) {
+      this.lifecycleMigrationPreflightComplete = true;
+      return;
+    }
+
+    const createBackup =
+      this.options.createPreMigrationBackup ?? createSqlitePreMigrationBackup;
+    createBackup({
+      databasePath: this.databasePath,
+      migrationId: TASK_PACK_LIFECYCLE_MIGRATION_ID,
+      backupDirectory: this.options.migrationBackupDirectory,
+    });
+    this.lifecycleMigrationPreflightComplete = true;
+  }
+
+  private isMigrationApplied(db: Database, migrationId: string): boolean {
+    const ledger = db.prepare(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'schema_migrations' LIMIT 1;",
+    );
+    try {
+      if (!ledger.step()) {
+        return false;
+      }
+    } finally {
+      ledger.free();
+    }
+
+    const migration = db.prepare(
+      "SELECT 1 FROM schema_migrations WHERE id = ? LIMIT 1;",
+    );
+    try {
+      migration.bind([migrationId]);
+      return migration.step();
+    } finally {
+      migration.free();
+    }
   }
 
   private async getAll<T extends Record<string, unknown>>(
@@ -1145,6 +1450,75 @@ export class SqliteStorageAdapter implements StorageAdapter {
   private async getLastInsertRowId() {
     const row = await this.getOne<{ id: number }>("SELECT last_insert_rowid() AS id;");
     return Number(row?.id ?? 0);
+  }
+
+  private async insertTaskPackRevision(input: {
+    taskPackId: number;
+    revisionNumber: number;
+    baseRevisionId: number | null;
+    content: TaskPackRevisionContent;
+    createdAt: string;
+    generatedAt: string | null;
+  }): Promise<void> {
+    const contentHash = computeTaskPackRevisionContentHash(input.content);
+    await this.run(
+      `INSERT INTO task_pack_revisions (
+        task_pack_id, revision_number, base_revision_id, source_kind,
+        raw_task, task_type, target_tool, generated_prompt,
+        generation_mode, generation_model, generation_message,
+        generation_used_fallback, generation_duration_ms, generation_recipe,
+        diagnostics, grounded_context_snapshot, freshness_basis,
+        content_hash, created_at, generated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+      [
+        input.taskPackId,
+        input.revisionNumber,
+        input.baseRevisionId,
+        input.content.sourceKind,
+        input.content.rawTask,
+        input.content.taskType,
+        input.content.targetTool,
+        input.content.generatedPrompt,
+        input.content.generationMode,
+        input.content.generationModel,
+        input.content.generationMessage,
+        input.content.generationUsedFallback ? 1 : 0,
+        input.content.generationDurationMs,
+        input.content.generationRecipe === null
+          ? null
+          : stringifyJsonValue(input.content.generationRecipe),
+        input.content.diagnostics === null
+          ? null
+          : stringifyJsonValue(input.content.diagnostics),
+        input.content.groundedContextSnapshot === null
+          ? null
+          : stringifyJsonValue(input.content.groundedContextSnapshot),
+        input.content.freshnessBasis === null
+          ? null
+          : stringifyJsonValue(input.content.freshnessBasis),
+        contentHash,
+        input.createdAt,
+        input.generatedAt,
+      ],
+    );
+  }
+
+  private async withTransaction<T>(work: () => Promise<T>): Promise<T> {
+    const db = await this.getDatabase();
+    db.run("BEGIN IMMEDIATE;");
+    try {
+      const result = await work();
+      db.run("COMMIT;");
+      this.persist();
+      return result;
+    } catch (error) {
+      try {
+        db.run("ROLLBACK;");
+      } catch {
+        // Preserve the original storage error.
+      }
+      throw error;
+    }
   }
 
   private insertDefaultSetting(key: string, value: unknown) {

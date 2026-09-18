@@ -4,6 +4,7 @@ import path from "node:path";
 import { config } from "../config/index.js";
 import type { RulesAndTemplatesStore } from "../rules/types.js";
 import { storage } from "./index.js";
+import { getWorkspaceBackupDirectory } from "./storageBackupPaths.js";
 
 export interface WorkspaceBackupExportResult {
   fileName: string;
@@ -53,10 +54,6 @@ const EXCLUDED_SETTINGS = [
   "github_connected_at",
   "github_last_checked_at"
 ];
-
-function backupDirectory() {
-  return path.resolve(process.cwd(), "data", "backups");
-}
 
 function makeBackupFileName(createdAt: string) {
   const safeTimestamp = createdAt.replace(/[:.]/g, "-");
@@ -172,7 +169,7 @@ export async function exportWorkspaceBackup(): Promise<WorkspaceBackupExportResu
     }
   };
 
-  const backupsDir = backupDirectory();
+  const backupsDir = getWorkspaceBackupDirectory();
   await fs.mkdir(backupsDir, { recursive: true });
 
   const fileName = makeBackupFileName(createdAt);
@@ -194,7 +191,7 @@ export async function exportWorkspaceBackup(): Promise<WorkspaceBackupExportResu
 }
 
 export async function getWorkspaceBackupStats() {
-  const backupsDir = backupDirectory();
+  const backupsDir = getWorkspaceBackupDirectory();
 
   try {
     const entries = await fs.readdir(backupsDir, { withFileTypes: true });

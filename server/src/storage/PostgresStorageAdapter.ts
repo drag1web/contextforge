@@ -1,13 +1,41 @@
 import { pool } from "../db/pool.js";
 import type { ScannedProject } from "../scanner/projectScanner.js";
+import {
+  assertTaskPackAggregateLifecycleEvent,
+  assertTaskPackRevision,
+  assertTaskPackRevisionReviewEvent,
+  computeTaskPackRevisionContentHash,
+  type TaskPackRevisionContent,
+} from "../taskPacks/taskPackLifecycle.js";
+import {
+  applyPostgresTaskPackLifecycleMigration,
+  TASK_PACK_LIFECYCLE_MIGRATION_ID,
+} from "./migrations.js";
+import {
+  buildCreatedTaskPackRevisionContent,
+  mapTaskPackAggregatePersistenceRow,
+  mapTaskPackLifecycleEventPersistenceRow,
+  mapTaskPackReviewEventPersistenceRow,
+  mapTaskPackRevisionPersistenceRow,
+  type TaskPackAggregatePersistenceRow,
+  type TaskPackLifecycleEventPersistenceRow,
+  type TaskPackReviewEventPersistenceRow,
+  type TaskPackRevisionPersistenceRow,
+} from "./taskPackLifecyclePersistence.js";
 import type {
+  AppendTaskPackRevisionInput,
   CreateProjectMemoryInput,
   CreateTaskPackInput,
   ProjectMemoryRecord,
   ProjectRecord,
   StorageAdapter,
   StorageHealth,
+  StorageSchemaInfo,
+  TaskPackAggregateLifecycleEventRecord,
+  TaskPackAggregateRecord,
   TaskPackRecord,
+  TaskPackRevisionRecord,
+  TaskPackRevisionReviewEventRecord,
   UpdateProjectMemoryInput,
   UpdateTaskPackContentInput
 } from "./types.js";
@@ -49,6 +77,31 @@ function mapTaskPackRow(row: any): TaskPackRecord {
   };
 }
 
+function revisionContentFromAppendInput(
+  input: AppendTaskPackRevisionInput,
+): TaskPackRevisionContent {
+  return {
+    sourceKind: input.sourceKind,
+    rawTask: input.rawTask,
+    taskType: input.taskType,
+    targetTool: input.targetTool,
+    generatedPrompt: input.generatedPrompt,
+    generationMode: input.generationMode,
+    generationModel: input.generationModel,
+    generationMessage: input.generationMessage,
+    generationUsedFallback: input.generationUsedFallback,
+    generationDurationMs: input.generationDurationMs,
+    generationRecipe: input.generationRecipe,
+    diagnostics: input.diagnostics,
+    groundedContextSnapshot: input.groundedContextSnapshot,
+    freshnessBasis: input.freshnessBasis,
+  };
+}
+
+function jsonParameter(value: unknown | null): string | null {
+  return value === null ? null : JSON.stringify(value);
+}
+
 function mapProjectMemoryRow(row: any): ProjectMemoryRecord {
   return {
     id: row.id,
@@ -82,6 +135,17 @@ export class PostgresStorageAdapter implements StorageAdapter {
   readonly driver = "postgres" as const;
 
   async ensureSchema() {
+    await pool.query(`
+      CREATE TABLE IF NOT EXISTS schema_migrations (
+        id TEXT PRIMARY KEY,
+        version INTEGER NOT NULL,
+        name TEXT NOT NULL,
+        description TEXT,
+        checksum TEXT NOT NULL,
+        applied_at TIMESTAMPTZ NOT NULL
+      );
+    `);
+
     await pool.query(`
       CREATE TABLE IF NOT EXISTS projects (
         id SERIAL PRIMARY KEY,
@@ -194,6 +258,69 @@ export class PostgresStorageAdapter implements StorageAdapter {
       ALTER TABLE task_packs
       ADD COLUMN IF NOT EXISTS generation_recipe JSONB;
     `);
+
+    const lifecycleMigration = await pool.query(
+      "SELECT id FROM schema_migrations WHERE id = $1;",
+      [TASK_PACK_LIFECYCLE_MIGRATION_ID],
+    );
+    if (lifecycleMigration.rowCount === 0) {
+      const client = await pool.connect();
+      try {
+        await applyPostgresTaskPackLifecycleMigration(
+          {
+            query: async <T>(text: string, values?: readonly unknown[]) => {
+              const result = await client.query(text, values ? [...values] : undefined);
+              return { rows: result.rows as T[], rowCount: result.rowCount };
+            },
+          },
+          new Date().toISOString(),
+        );
+      } finally {
+        client.release();
+      }
+    }
+  }
+
+  async getSchemaInfo(): Promise<StorageSchemaInfo> {
+    await this.ensureSchema();
+    const result = await pool.query(`
+      SELECT id, version, name, description, checksum,
+             applied_at AS "appliedAt"
+      FROM schema_migrations
+      ORDER BY version ASC, applied_at ASC;
+    `);
+    const appliedMigrations = result.rows.map((row) => ({
+      id: row.id as string,
+      version: Number(row.version),
+      name: row.name as string,
+      description: (row.description as string | null) ?? null,
+      checksum: row.checksum as string,
+      appliedAt:
+        row.appliedAt instanceof Date
+          ? row.appliedAt.toISOString()
+          : String(row.appliedAt),
+    }));
+    const applied = appliedMigrations.some(
+      (migration) => migration.id === TASK_PACK_LIFECYCLE_MIGRATION_ID,
+    );
+    return {
+      currentVersion: applied ? 3 : 0,
+      latestVersion: 3,
+      status: applied ? "ready" : "needs_migration",
+      pendingCount: applied ? 0 : 1,
+      appliedMigrations,
+      pendingMigrations: applied
+        ? []
+        : [
+            {
+              id: TASK_PACK_LIFECYCLE_MIGRATION_ID,
+              version: 3,
+              name: "Task Pack lifecycle and immutable revisions",
+              description:
+                "Adds aggregate lifecycle projection, immutable revisions, append-only lifecycle/review events, and legacy revision backfill.",
+            },
+          ],
+    };
   }
 
   async health(): Promise<StorageHealth> {
@@ -337,57 +464,84 @@ export class PostgresStorageAdapter implements StorageAdapter {
   }
 
   async createTaskPack(input: CreateTaskPackInput): Promise<TaskPackRecord> {
-    const result = await pool.query(
-      `
-      INSERT INTO task_packs (
-        project_id,
-        title,
-        raw_task,
-        task_type,
-        target_tool,
-        generated_prompt,
-        generation_mode,
-        generation_model,
-        generation_message,
-        generation_used_fallback,
-        generation_duration_ms,
-        generation_recipe
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-      RETURNING
-        id,
-        project_id AS "projectId",
-        title,
-        raw_task AS "rawTask",
-        task_type AS "taskType",
-        target_tool AS "targetTool",
-        generated_prompt AS "generatedPrompt",
-        generation_mode AS "generationMode",
-        generation_model AS "generationModel",
-        generation_message AS "generationMessage",
-        generation_used_fallback AS "generationUsedFallback",
-        generation_duration_ms AS "generationDurationMs",
-        generation_recipe AS "generationRecipe",
-        created_at AS "createdAt",
-        updated_at AS "updatedAt";
-      `,
-      [
-        input.projectId,
-        input.title,
-        input.rawTask,
-        input.taskType,
-        input.targetTool,
-        input.generatedPrompt,
-        input.generationMode,
-        input.generationModel,
-        input.generationMessage,
-        input.generationUsedFallback,
-        input.generationDurationMs ?? null,
-        JSON.stringify(input.generationRecipe ?? null)
-      ]
-    );
-
-    return mapTaskPackRow(result.rows[0]);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const result = await client.query(
+        `INSERT INTO task_packs (
+          project_id, title, raw_task, task_type, target_tool, generated_prompt,
+          generation_mode, generation_model, generation_message,
+          generation_used_fallback, generation_duration_ms, generation_recipe
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb)
+        RETURNING
+          id, project_id AS "projectId", title, raw_task AS "rawTask",
+          task_type AS "taskType", target_tool AS "targetTool",
+          generated_prompt AS "generatedPrompt", generation_mode AS "generationMode",
+          generation_model AS "generationModel", generation_message AS "generationMessage",
+          generation_used_fallback AS "generationUsedFallback",
+          generation_duration_ms AS "generationDurationMs",
+          generation_recipe AS "generationRecipe", created_at AS "createdAt",
+          updated_at AS "updatedAt";`,
+        [
+          input.projectId,
+          input.title,
+          input.rawTask,
+          input.taskType,
+          input.targetTool,
+          input.generatedPrompt,
+          input.generationMode,
+          input.generationModel,
+          input.generationMessage,
+          input.generationUsedFallback,
+          input.generationDurationMs ?? null,
+          JSON.stringify(input.generationRecipe ?? null),
+        ],
+      );
+      const taskPack = mapTaskPackRow(result.rows[0]);
+      const content = buildCreatedTaskPackRevisionContent(input);
+      const generatedAt = content.sourceKind === "generated" ? taskPack.createdAt : null;
+      const revision = await client.query(
+        `INSERT INTO task_pack_revisions (
+          task_pack_id, revision_number, base_revision_id, source_kind,
+          raw_task, task_type, target_tool, generated_prompt,
+          generation_mode, generation_model, generation_message,
+          generation_used_fallback, generation_duration_ms, generation_recipe,
+          diagnostics, grounded_context_snapshot, freshness_basis,
+          content_hash, created_at, generated_at
+        ) VALUES (
+          $1, 1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+          $12::jsonb, NULL, NULL, NULL, $13, $14, $15
+        ) RETURNING id;`,
+        [
+          taskPack.id,
+          content.sourceKind,
+          content.rawTask,
+          content.taskType,
+          content.targetTool,
+          content.generatedPrompt,
+          content.generationMode,
+          content.generationModel,
+          content.generationMessage,
+          content.generationUsedFallback,
+          content.generationDurationMs,
+          content.generationRecipe === null ? null : JSON.stringify(content.generationRecipe),
+          computeTaskPackRevisionContentHash(content),
+          taskPack.createdAt,
+          generatedAt,
+        ],
+      );
+      await client.query(
+        "UPDATE task_packs SET current_revision_id = $1 WHERE id = $2;",
+        [revision.rows[0]!.id, taskPack.id],
+      );
+      await client.query("COMMIT");
+      return taskPack;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
 
@@ -452,6 +606,261 @@ export class PostgresStorageAdapter implements StorageAdapter {
     );
 
     return this.getTaskPackById(taskPackId);
+  }
+
+  async getTaskPackAggregate(taskPackId: number): Promise<TaskPackAggregateRecord | null> {
+    const result = await pool.query(
+      `SELECT id, project_id, title, lifecycle_state, archived_from_state,
+              current_revision_id, accepted_revision_id, lifecycle_version,
+              created_at, updated_at, completed_at, archived_at
+       FROM task_packs
+       WHERE id = $1 AND current_revision_id IS NOT NULL;`,
+      [taskPackId],
+    );
+    return result.rows[0]
+      ? mapTaskPackAggregatePersistenceRow(result.rows[0] as TaskPackAggregatePersistenceRow)
+      : null;
+  }
+
+  async getCurrentTaskPackRevision(taskPackId: number): Promise<TaskPackRevisionRecord | null> {
+    const result = await pool.query(
+      `SELECT r.*
+       FROM task_packs tp
+       JOIN task_pack_revisions r ON r.id = tp.current_revision_id
+       WHERE tp.id = $1 AND r.task_pack_id = tp.id;`,
+      [taskPackId],
+    );
+    return result.rows[0]
+      ? mapTaskPackRevisionPersistenceRow(result.rows[0] as TaskPackRevisionPersistenceRow)
+      : null;
+  }
+
+  async getTaskPackRevisionById(
+    taskPackId: number,
+    revisionId: number,
+  ): Promise<TaskPackRevisionRecord | null> {
+    const result = await pool.query(
+      "SELECT * FROM task_pack_revisions WHERE task_pack_id = $1 AND id = $2;",
+      [taskPackId, revisionId],
+    );
+    return result.rows[0]
+      ? mapTaskPackRevisionPersistenceRow(result.rows[0] as TaskPackRevisionPersistenceRow)
+      : null;
+  }
+
+  async listTaskPackRevisions(taskPackId: number): Promise<TaskPackRevisionRecord[]> {
+    const result = await pool.query(
+      `SELECT * FROM task_pack_revisions
+       WHERE task_pack_id = $1 ORDER BY revision_number ASC;`,
+      [taskPackId],
+    );
+    return result.rows.map((row) =>
+      mapTaskPackRevisionPersistenceRow(row as TaskPackRevisionPersistenceRow),
+    );
+  }
+
+  async appendTaskPackRevision(
+    input: AppendTaskPackRevisionInput,
+  ): Promise<TaskPackRevisionRecord> {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const aggregateResult = await client.query(
+        `SELECT id, project_id, title, lifecycle_state, archived_from_state,
+                current_revision_id, accepted_revision_id, lifecycle_version,
+                created_at, updated_at, completed_at, archived_at
+         FROM task_packs WHERE id = $1 FOR UPDATE;`,
+        [input.taskPackId],
+      );
+      if (!aggregateResult.rows[0]) throw new Error("Task Pack aggregate not found.");
+      const aggregate = mapTaskPackAggregatePersistenceRow(
+        aggregateResult.rows[0] as TaskPackAggregatePersistenceRow,
+      );
+      if (aggregate.lifecycle.state !== "active") {
+        throw new Error("Only an active Task Pack can receive a revision.");
+      }
+      if (aggregate.currentRevisionId !== input.baseRevisionId) {
+        throw new Error("Task Pack base revision is stale.");
+      }
+      const baseResult = await client.query(
+        "SELECT * FROM task_pack_revisions WHERE task_pack_id = $1 AND id = $2;",
+        [input.taskPackId, input.baseRevisionId],
+      );
+      if (!baseResult.rows[0]) {
+        throw new Error("Task Pack base revision does not belong to the aggregate.");
+      }
+      const base = mapTaskPackRevisionPersistenceRow(
+        baseResult.rows[0] as TaskPackRevisionPersistenceRow,
+      );
+      const nextNumberResult = await client.query(
+        `SELECT COALESCE(MAX(revision_number), 0) + 1 AS revision_number
+         FROM task_pack_revisions WHERE task_pack_id = $1;`,
+        [input.taskPackId],
+      );
+      const nextRevisionNumber = Number(nextNumberResult.rows[0]!.revision_number);
+      const content = revisionContentFromAppendInput(input);
+      const inserted = await client.query(
+        `INSERT INTO task_pack_revisions (
+          task_pack_id, revision_number, base_revision_id, source_kind,
+          raw_task, task_type, target_tool, generated_prompt,
+          generation_mode, generation_model, generation_message,
+          generation_used_fallback, generation_duration_ms, generation_recipe,
+          diagnostics, grounded_context_snapshot, freshness_basis,
+          content_hash, created_at, generated_at
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+          $14::jsonb, $15::jsonb, $16::jsonb, $17::jsonb, $18, $19, $20
+        ) RETURNING *;`,
+        [
+          input.taskPackId,
+          nextRevisionNumber,
+          input.baseRevisionId,
+          content.sourceKind,
+          content.rawTask,
+          content.taskType,
+          content.targetTool,
+          content.generatedPrompt,
+          content.generationMode,
+          content.generationModel,
+          content.generationMessage,
+          content.generationUsedFallback,
+          content.generationDurationMs,
+          jsonParameter(content.generationRecipe),
+          jsonParameter(content.diagnostics),
+          jsonParameter(content.groundedContextSnapshot),
+          jsonParameter(content.freshnessBasis),
+          computeTaskPackRevisionContentHash(content),
+          input.createdAt,
+          input.generatedAt,
+        ],
+      );
+      const revision = mapTaskPackRevisionPersistenceRow(
+        inserted.rows[0] as TaskPackRevisionPersistenceRow,
+      );
+      assertTaskPackRevision(revision, { aggregate, baseRevision: base });
+      await client.query(
+        `UPDATE task_packs
+         SET current_revision_id = $1, lifecycle_version = lifecycle_version + 1,
+             raw_task = $2, task_type = $3, target_tool = $4, generated_prompt = $5,
+             generation_mode = $6, generation_model = $7, generation_message = $8,
+             generation_used_fallback = $9, generation_duration_ms = $10,
+             generation_recipe = $11::jsonb, updated_at = $12
+         WHERE id = $13 AND current_revision_id = $14;`,
+        [
+          revision.id,
+          content.rawTask,
+          content.taskType,
+          content.targetTool,
+          content.generatedPrompt,
+          content.generationMode,
+          content.generationModel,
+          content.generationMessage,
+          content.generationUsedFallback,
+          content.generationDurationMs,
+          jsonParameter(content.generationRecipe),
+          input.createdAt,
+          input.taskPackId,
+          input.baseRevisionId,
+        ],
+      );
+      await client.query("COMMIT");
+      return revision;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async appendTaskPackAggregateLifecycleEvent(
+    event: TaskPackAggregateLifecycleEventRecord,
+  ): Promise<void> {
+    const aggregate = await this.getTaskPackAggregate(event.taskPackId);
+    if (!aggregate) throw new Error("Task Pack aggregate not found.");
+    const revision =
+      event.revisionId === null
+        ? undefined
+        : (await this.getTaskPackRevisionById(event.taskPackId, event.revisionId)) ?? undefined;
+    if (event.revisionId !== null && revision === undefined) {
+      throw new Error("Task Pack lifecycle event revision ownership is invalid.");
+    }
+    assertTaskPackAggregateLifecycleEvent(event, { aggregate, revision });
+    await pool.query(
+      `INSERT INTO task_pack_lifecycle_events (
+        id, task_pack_id, revision_id, event_type, from_state, to_state,
+        source, actor_id, created_at, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb);`,
+      [
+        event.id,
+        event.taskPackId,
+        event.revisionId,
+        event.eventType,
+        event.fromState,
+        event.toState,
+        event.source,
+        event.actorId,
+        event.createdAt,
+        jsonParameter(event.metadata),
+      ],
+    );
+  }
+
+  async listTaskPackAggregateLifecycleEvents(
+    taskPackId: number,
+  ): Promise<TaskPackAggregateLifecycleEventRecord[]> {
+    const result = await pool.query(
+      `SELECT * FROM task_pack_lifecycle_events
+       WHERE task_pack_id = $1 ORDER BY created_at ASC, id ASC;`,
+      [taskPackId],
+    );
+    return result.rows.map((row) =>
+      mapTaskPackLifecycleEventPersistenceRow(row as TaskPackLifecycleEventPersistenceRow),
+    );
+  }
+
+  async appendTaskPackRevisionReviewEvent(
+    event: TaskPackRevisionReviewEventRecord,
+  ): Promise<void> {
+    const aggregate = await this.getTaskPackAggregate(event.taskPackId);
+    const revision = await this.getTaskPackRevisionById(event.taskPackId, event.revisionId);
+    if (!aggregate || !revision) throw new Error("Task Pack revision ownership is invalid.");
+    assertTaskPackRevisionReviewEvent(event, { aggregate, revision });
+    await pool.query(
+      `INSERT INTO task_pack_revision_review_events (
+        id, task_pack_id, revision_id, event_type, from_state, to_state,
+        source, actor_id, created_at, metadata
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb);`,
+      [
+        event.id,
+        event.taskPackId,
+        event.revisionId,
+        event.eventType,
+        event.fromState,
+        event.toState,
+        event.source,
+        event.actorId,
+        event.createdAt,
+        jsonParameter(event.metadata),
+      ],
+    );
+  }
+
+  async listTaskPackRevisionReviewEvents(
+    taskPackId: number,
+    revisionId?: number,
+  ): Promise<TaskPackRevisionReviewEventRecord[]> {
+    const result = await pool.query(
+      revisionId === undefined
+        ? `SELECT * FROM task_pack_revision_review_events
+           WHERE task_pack_id = $1 ORDER BY created_at ASC, id ASC;`
+        : `SELECT * FROM task_pack_revision_review_events
+           WHERE task_pack_id = $1 AND revision_id = $2 ORDER BY created_at ASC, id ASC;`,
+      revisionId === undefined ? [taskPackId] : [taskPackId, revisionId],
+    );
+    return result.rows.map((row) =>
+      mapTaskPackReviewEventPersistenceRow(row as TaskPackReviewEventPersistenceRow),
+    );
   }
 
   async listProjectMemories(projectId: number): Promise<ProjectMemoryRecord[]> {

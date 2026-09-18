@@ -1,5 +1,12 @@
 import type { ReadinessReport, ScannedProject } from "../scanner/projectScanner.js";
 import type { RulesAndTemplatesStore } from "../rules/types.js";
+import type {
+  TaskPackAggregate,
+  TaskPackAggregateLifecycleEvent,
+  TaskPackRevision,
+  TaskPackRevisionContent,
+  TaskPackRevisionReviewEvent,
+} from "../taskPacks/taskPackLifecycle.js";
 
 export type StorageDriver = "sqlite" | "postgres";
 
@@ -92,6 +99,22 @@ export interface UpdateTaskPackContentInput {
   generatedPrompt?: string;
 }
 
+export type TaskPackAggregateRecord = TaskPackAggregate;
+export type TaskPackRevisionRecord = TaskPackRevision;
+export type TaskPackAggregateLifecycleEventRecord = TaskPackAggregateLifecycleEvent;
+export type TaskPackRevisionReviewEventRecord = TaskPackRevisionReviewEvent;
+
+/**
+ * Storage assigns the immutable revision identity, monotonically increasing
+ * revision number, and canonical content hash inside one transaction.
+ */
+export interface AppendTaskPackRevisionInput extends TaskPackRevisionContent {
+  readonly taskPackId: number;
+  readonly baseRevisionId: number;
+  readonly createdAt: string;
+  readonly generatedAt: string | null;
+}
+
 export interface StorageSchemaMigrationRecord {
   id: string;
   version: number;
@@ -158,6 +181,26 @@ export interface StorageAdapter {
     taskPackId: number,
     input: UpdateTaskPackContentInput
   ): Promise<TaskPackRecord | null>;
+
+  getTaskPackAggregate(taskPackId: number): Promise<TaskPackAggregateRecord | null>;
+  getCurrentTaskPackRevision(taskPackId: number): Promise<TaskPackRevisionRecord | null>;
+  getTaskPackRevisionById(
+    taskPackId: number,
+    revisionId: number
+  ): Promise<TaskPackRevisionRecord | null>;
+  listTaskPackRevisions(taskPackId: number): Promise<TaskPackRevisionRecord[]>;
+  appendTaskPackRevision(input: AppendTaskPackRevisionInput): Promise<TaskPackRevisionRecord>;
+  appendTaskPackAggregateLifecycleEvent(
+    event: TaskPackAggregateLifecycleEventRecord
+  ): Promise<void>;
+  listTaskPackAggregateLifecycleEvents(
+    taskPackId: number
+  ): Promise<TaskPackAggregateLifecycleEventRecord[]>;
+  appendTaskPackRevisionReviewEvent(event: TaskPackRevisionReviewEventRecord): Promise<void>;
+  listTaskPackRevisionReviewEvents(
+    taskPackId: number,
+    revisionId?: number
+  ): Promise<TaskPackRevisionReviewEventRecord[]>;
 
   listProjectMemories(projectId: number): Promise<ProjectMemoryRecord[]>;
   createProjectMemory(input: CreateProjectMemoryInput): Promise<ProjectMemoryRecord>;
