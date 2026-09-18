@@ -3074,11 +3074,14 @@ export function SettingsPage() {
               )}
 
               {activeSection === "privacy" && (
-                <DesktopExperiencePanel />
+                <>
+                  <PlaceholderSettingsPanel sectionId="privacy" />
+                  <DesktopExperiencePanel />
+                </>
               )}
 
-              {(activeSection === "privacy" || activeSection === "updates") && (
-                <PlaceholderSettingsPanel sectionId={activeSection} />
+              {activeSection === "updates" && (
+                <PlaceholderSettingsPanel sectionId="updates" />
               )}
 
               {activeSection === "storage" && (

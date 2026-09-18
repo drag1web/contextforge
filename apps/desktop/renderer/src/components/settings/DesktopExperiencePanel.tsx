@@ -2,7 +2,6 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
   Bell,
-  Gamepad2,
   ListTree,
   MonitorDot,
 } from "lucide-react";
@@ -17,6 +16,29 @@ import {
 import { Switch } from "../ui/Switch";
 
 type PreferenceKey = keyof DesktopPreferences;
+
+function DiscordMark({
+  size = 16,
+  className,
+}: {
+  size?: number;
+  className?: string;
+  strokeWidth?: number;
+}) {
+  return (
+    <svg
+      aria-hidden="true"
+      className={className}
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="currentColor"
+      xmlns="http://www.w3.org/2000/svg"
+    >
+      <path d="M19.73 4.87a17.4 17.4 0 0 0-4.33-1.35l-.53 1.08a16.2 16.2 0 0 0-5.73 0L8.6 3.52a17.5 17.5 0 0 0-4.34 1.36C1.52 8.97.78 12.96 1.15 16.9a17.4 17.4 0 0 0 5.32 2.67l1.3-1.78a10.9 10.9 0 0 1-2.03-.98l.5-.39c3.92 1.82 8.18 1.82 12.06 0l.52.39c-.65.38-1.33.71-2.04.98l1.3 1.78a17.4 17.4 0 0 0 5.32-2.67c.44-4.57-.75-8.52-3.67-12.03ZM8.68 14.49c-1.16 0-2.12-1.08-2.12-2.42 0-1.33.94-2.42 2.12-2.42 1.2 0 2.14 1.1 2.12 2.42 0 1.34-.94 2.42-2.12 2.42Zm6.64 0c-1.16 0-2.12-1.08-2.12-2.42 0-1.33.94-2.42 2.12-2.42 1.2 0 2.14 1.1 2.12 2.42 0 1.34-.92 2.42-2.12 2.42Z" />
+    </svg>
+  );
+}
 
 export function DesktopExperiencePanel() {
   const { t } = useTranslation();
@@ -64,7 +86,7 @@ export function DesktopExperiencePanel() {
     ? [
         {
           key: "discordRichPresence" as const,
-          icon: Gamepad2,
+          icon: DiscordMark,
           title: t("desktopExperience.discordTitle"),
           description: t("desktopExperience.discordDescription"),
         },
