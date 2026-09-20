@@ -1,10 +1,28 @@
 <div align="center">
 
-# ContextForge
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/kernwise-labs-white.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/brand/kernwise-labs-dark.png">
+  <img src="docs/assets/brand/kernwise-labs-dark.png" alt="Kernwise Labs" width="190">
+</picture>
+
+<br/>
+
+<sub><strong>A Kernwise Labs project</strong></sub>
+
+<br/><br/>
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/assets/brand/contextforge-logo-white.png">
+  <source media="(prefers-color-scheme: light)" srcset="docs/assets/brand/contextforge-logo-dark.png">
+  <img src="docs/assets/brand/contextforge-logo-dark.png" alt="ContextForge" width="520">
+</picture>
 
 ### Grounded project context for AI coding agents.
 
-**ContextForge is a local-first desktop workspace that understands your repository, selects real project evidence, and turns tasks into reviewable Task Packs for Codex, Cursor, Claude Code, Gemini, and other coding agents.**
+**Understand the repository. Ground the task in real evidence. Hand off a reviewable Task Pack.**
+
+ContextForge is a local-first desktop workspace that understands your repository, selects real project evidence, and turns tasks into reviewable Task Packs for Codex, Cursor, Claude Code, Gemini, and other coding agents.
 
 [![CI](https://github.com/drag1web/contextforge/actions/workflows/ci.yml/badge.svg)](https://github.com/drag1web/contextforge/actions/workflows/ci.yml)
 ![Version](https://img.shields.io/badge/version-0.7.1--alpha-111111)
@@ -12,10 +30,16 @@
 ![Local first](https://img.shields.io/badge/local--first-yes-0f766e)
 ![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6)
 
+[Product tour](#product-tour) · [Capabilities](#current-capabilities) · [Local MCP](#local-mcp) · [Architecture](#architecture) · [Roadmap](#project-status)
+
 </div>
 
 <p align="center">
   <img src="docs/assets/screenshots/dashboard-v0.7.1.webp" alt="ContextForge workspace dashboard" width="100%" />
+</p>
+
+<p align="center">
+  <sub>One local workspace for project readiness, grounded context, Task Packs, and agent handoff.</sub>
 </p>
 
 ## What ContextForge does
@@ -45,24 +69,23 @@ ContextForge is designed around one idea: **better coding-agent results start wi
 
 ## Product tour
 
-### Build context, then turn it into a Task Pack
+### 1. Build grounded project context
 
-<table>
-  <tr>
-    <td width="50%">
-      <img src="docs/assets/screenshots/context-builder-v0.7.1.webp" alt="ContextForge Context Builder" />
-    </td>
-    <td width="50%">
-      <img src="docs/assets/screenshots/task-pack-v0.7.1.webp" alt="ContextForge Task Pack result" />
-    </td>
-  </tr>
-  <tr>
-    <td align="center"><b>Context Builder</b><br/>Review readiness, checks, project memory, and context before generation.</td>
-    <td align="center"><b>Task Packs</b><br/>Generate a portable, reviewable instruction package for the selected agent.</td>
-  </tr>
-</table>
+<p align="center">
+  <img src="docs/assets/screenshots/context-builder-v0.7.1.webp" alt="ContextForge Context Builder" width="100%" />
+</p>
 
-### Shape the handoff for the coding agent
+Review project readiness, checks, memory, and real repository context before generation.
+
+### 2. Turn the task into a reviewable Task Pack
+
+<p align="center">
+  <img src="docs/assets/screenshots/task-pack-v0.7.1.webp" alt="ContextForge Task Pack result" width="100%" />
+</p>
+
+Generate a portable instruction package with the selected context, constraints, agent profile, and verification guidance.
+
+### 3. Shape the handoff for the coding agent
 
 <p align="center">
   <img src="docs/assets/screenshots/agents-v0.7.1.webp" alt="ContextForge agent profiles" width="100%" />
@@ -70,7 +93,7 @@ ContextForge is designed around one idea: **better coding-agent results start wi
 
 Agent profiles change how a Task Pack is framed — context shape, instruction style, verification expectations, and boundaries — without silently running an agent or writing to the repository.
 
-### See the whole workspace
+### 4. See the whole workspace
 
 <p align="center">
   <img src="docs/assets/screenshots/reports-v0.7.1.webp" alt="ContextForge workspace reports" width="100%" />
