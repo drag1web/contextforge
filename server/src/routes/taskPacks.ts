@@ -2241,11 +2241,10 @@ function buildGenerationRecipeMetadata(
       customRules: recipe.customRules.length,
       acceptanceCriteria: recipe.acceptanceCriteria.length,
     },
-    githubIssue,
-    taskClarifications:
-      taskClarifications && taskClarifications.length > 0
-        ? taskClarifications
-        : undefined,
+    ...(githubIssue ? { githubIssue } : {}),
+    ...(taskClarifications && taskClarifications.length > 0
+      ? { taskClarifications }
+      : {}),
   };
 }
 
