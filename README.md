@@ -1,91 +1,130 @@
+<div align="center">
+
 # ContextForge
 
+### Grounded project context for AI coding agents.
+
+**ContextForge is a local-first desktop workspace that understands your repository, selects real project evidence, and turns tasks into reviewable Task Packs for Codex, Cursor, Claude Code, Gemini, and other coding agents.**
+
 [![CI](https://github.com/drag1web/contextforge/actions/workflows/ci.yml/badge.svg)](https://github.com/drag1web/contextforge/actions/workflows/ci.yml)
-![Version](https://img.shields.io/badge/version-0.7.0--alpha-111111)
-![Status](https://img.shields.io/badge/status-source%20pre--release-333333)
+![Version](https://img.shields.io/badge/version-0.7.1--alpha-111111)
+![Status](https://img.shields.io/badge/status-active%20alpha-333333)
 ![Local first](https://img.shields.io/badge/local--first-yes-0f766e)
+![TypeScript](https://img.shields.io/badge/TypeScript-5.x-3178c6)
 
-**ContextForge** is a local-first desktop workspace for preparing software projects for AI coding agents.
-
-It scans a repository, explains project readiness, builds reusable project context, generates editable `AGENTS.md` files, and creates guarded Task Packs for **Codex**, **Cursor**, **Claude Code**, **Gemini**, and generic coding agents. ContextForge also includes a local stdio **MCP server** for safe project and Task Pack access from compatible clients.
-
-> Current release: **v0.7.0-alpha — Desktop Workspace & Local MCP**<br>
-> This is a source pre-release. A packaged installer is intentionally not included yet.
+</div>
 
 <p align="center">
-  <img src="docs/assets/screenshots/dashboard-v0.7.png" alt="ContextForge dashboard" width="100%" />
+  <img src="docs/assets/screenshots/dashboard-v0.7.1.webp" alt="ContextForge workspace dashboard" width="100%" />
 </p>
 
-## Why ContextForge
-
-- **Local-first by default.** Project scanning, SQLite storage, context selection, Task Packs, and MCP run on the local machine.
-- **Explainable context.** Selected files have roles, reasons, confidence, quality signals, and review states instead of opaque file dumps.
-- **Guarded AI workflow.** Missing values, subjective scope, unsafe targets, and weak ownership evidence stay in clarification, review, or investigation flows.
-- **Reusable outputs.** Project Memory, templates, rule profiles, acceptance criteria, `AGENTS.md`, and Task Packs survive restarts and can be reused across tools.
-
-## Current capabilities
-
-### Project workspace
-
-- Add and rescan local repositories.
-- Detect stack, package manager, scripts, tests, documentation, CI, configuration, and inventory signals.
-- Show AI readiness, project details, scanner evidence, local Git state, and lightweight diff review.
-- Maintain project-specific memory and decisions without uploading source code.
-
-### Task Packs
-
-- Understand informal RU/EN/mixed-language tasks before file selection.
-- Ask focused clarification questions when required information is missing.
-- Select grounded implementation and supporting context from real repository evidence.
-- Apply templates, rule profiles, custom rules, and acceptance criteria.
-- Generate, edit, save, copy, and export Task Packs as Markdown or text.
-- Show privacy-safe selector, generation, and performance diagnostics.
-
-### Integrations
-
-- Optional Ollama and supported AI-provider refinement with validated fallback.
-- Optional GitHub device authentication, repository linking, Issue → Task Pack, and Task Pack → Issue workflows.
-- Optional website account and explicit Task Pack handoff through Desktop Link.
-- Local ContextForge MCP server for Codex and other MCP-compatible clients.
-
-## Local MCP
-
-ContextForge MCP uses stdio and the same local storage and guarded Task Pack pipeline as the desktop backend.
-
-Read operations are enabled with the server. Task Pack creation is disabled by default and requires both:
-
-1. an explicit local permission;
-2. `confirmCreate: true` on the individual tool call.
-
-The MCP server does **not** edit repository files, run shell commands, mutate Git, or launch coding-agent tasks.
-
-Main commands:
-
-```bash
-npm run build
-npm run mcp:start
-npm run test:mcp
-```
-
-Setup, permissions, tools, resources, prompts, Codex registration, and troubleshooting are documented in [`docs/mcp.md`](docs/mcp.md).
+## What ContextForge does
 
 <table>
   <tr>
-    <td width="50%"><img src="docs/assets/screenshots/navigation-v0.7.png" alt="ContextForge navigation modal" /></td>
-    <td width="50%"><img src="docs/assets/screenshots/global-search-v0.7.png" alt="ContextForge global search" /></td>
+    <td width="33%" valign="top">
+      <h3>Understand</h3>
+      Scan a real repository, detect stack and project signals, assess AI readiness, and understand the task before choosing files.
+    </td>
+    <td width="33%" valign="top">
+      <h3>Ground</h3>
+      Select implementation context from real repository evidence instead of inventing files, owners, APIs, or architecture.
+    </td>
+    <td width="33%" valign="top">
+      <h3>Deliver</h3>
+      Build a reviewable Task Pack shaped for the target coding agent, with rules, constraints, context, and verification guidance.
+    </td>
   </tr>
 </table>
 
-## Privacy and safety boundary
+```text
+Repository → Task Understanding → Grounded Context → Review → Task Pack → Coding Agent
+```
 
-ContextForge is designed to keep source code local unless the user starts an explicit external workflow.
+ContextForge is designed around one idea: **better coding-agent results start with better context, not bigger prompts.**
+
+## Product tour
+
+### Build context, then turn it into a Task Pack
+
+<table>
+  <tr>
+    <td width="50%">
+      <img src="docs/assets/screenshots/context-builder-v0.7.1.webp" alt="ContextForge Context Builder" />
+    </td>
+    <td width="50%">
+      <img src="docs/assets/screenshots/task-pack-v0.7.1.webp" alt="ContextForge Task Pack result" />
+    </td>
+  </tr>
+  <tr>
+    <td align="center"><b>Context Builder</b><br/>Review readiness, checks, project memory, and context before generation.</td>
+    <td align="center"><b>Task Packs</b><br/>Generate a portable, reviewable instruction package for the selected agent.</td>
+  </tr>
+</table>
+
+### Shape the handoff for the coding agent
+
+<p align="center">
+  <img src="docs/assets/screenshots/agents-v0.7.1.webp" alt="ContextForge agent profiles" width="100%" />
+</p>
+
+Agent profiles change how a Task Pack is framed — context shape, instruction style, verification expectations, and boundaries — without silently running an agent or writing to the repository.
+
+### See the whole workspace
+
+<p align="center">
+  <img src="docs/assets/screenshots/reports-v0.7.1.webp" alt="ContextForge workspace reports" width="100%" />
+</p>
+
+Reports summarize project readiness, recurring gaps, Task Pack activity, and the next useful actions across the local workspace.
+
+## Why ContextForge
+
+- **Local-first by default.** Repository scanning, SQLite storage, context selection, Task Packs, and MCP run locally.
+- **Grounded instead of guessed.** Context is selected from real inventory paths and repository evidence.
+- **Explainable selection.** Files carry roles, reasons, confidence/evidence signals, review state, and diagnostics.
+- **Guarded workflows.** Missing values, weak ownership evidence, unsafe targets, and ambiguous scope can stay in clarification, review, or investigation flows.
+- **Reusable project knowledge.** Project Memory, templates, rule profiles, acceptance criteria, AGENTS.md, and saved Task Packs survive restarts.
+- **Agent-aware handoff.** The same project context can be shaped differently for Codex, Cursor, Claude Code, Gemini, or a generic coding agent.
+
+## Current capabilities
+
+### Workspace and project understanding
+
+- Add and rescan local repositories.
+- Detect stack, package manager, scripts, tests, documentation, CI, configuration, and repository inventory signals.
+- Track AI-readiness issues and workspace-level priorities.
+- Maintain project-specific memory and decisions.
+- Review local Git state and lightweight project changes.
+
+### Context and Task Packs
+
+- Understand informal English, Russian, and mixed-language tasks before file selection.
+- Ask focused clarification questions when required information is missing.
+- Select grounded implementation and supporting context from real project evidence.
+- Apply templates, rule profiles, custom rules, and acceptance criteria.
+- Generate, edit, save, copy, and export Task Packs as Markdown or text.
+- Show selector, generation, context, and performance diagnostics.
+- Persist Task Packs locally with lifecycle/revision foundations under active development.
+
+### Integrations
+
+- Optional local or configured AI refinement with validated fallback.
+- GitHub device authentication and Issue ↔ Task Pack workflows.
+- Explicit Desktop Link handoff to the ContextForge website.
+- Local stdio MCP server for Codex and other MCP-compatible clients.
+
+## Local-first and safety boundary
+
+ContextForge keeps source code local unless the user explicitly starts an external workflow.
 
 - SQLite is the default desktop storage.
 - Absolute local project roots are omitted from exported Task Pack metadata.
-- Diagnostics do not store raw prompts, model responses, source snippets, secrets, or absolute paths.
-- GitHub workflows send repository and issue metadata only when explicitly requested.
-- Website publication transfers only the selected Task Pack and rejects detected secrets and absolute local paths.
-- MCP list operations omit full Task Pack prompts and redact secret-like values.
+- Diagnostics avoid persisting raw prompts, model responses, source snippets, secrets, and absolute paths where they are not required.
+- GitHub workflows send repository/issue metadata only when explicitly requested.
+- Website publication transfers only the selected Task Pack and applies privacy checks.
+- MCP list operations avoid exposing full Task Pack prompts by default and redact secret-like values.
+- ContextForge does **not** silently edit repository files, mutate Git, publish releases, or launch coding-agent work.
 
 ## Run from source
 
@@ -94,7 +133,7 @@ ContextForge is designed to keep source code local unless the user starts an exp
 - Node.js 20+
 - npm
 - Optional: Ollama for local AI refinement
-- Optional: Docker only for PostgreSQL adapter experiments
+- Optional: Docker for PostgreSQL adapter experiments
 
 ### Install and start
 
@@ -103,13 +142,7 @@ npm install
 npm run dev
 ```
 
-Development mode starts:
-
-- Express API on `http://localhost:4000`;
-- Vite renderer on `http://localhost:5173`;
-- Electron desktop shell.
-
-Normal desktop development uses local SQLite and does not require Docker.
+Development mode starts the local Express API, Vite renderer, and Electron desktop shell.
 
 ### Build
 
@@ -120,74 +153,82 @@ npm run build
 ### Focused validation
 
 ```bash
-npm run test:mcp
-npm run test:desktop-sync
-npm run test:understanding
-npm run test:clarification
 npm run test:generation:taskpack
-npm run test:selector:rollout
-npm run test:ownership
-npm run test:canonical-core
-npm run test:context-quality
+npm run test:task-pack-lifecycle
+npm run test:task-pack-lifecycle-storage
+npm run test:mcp
+npm run test:repository-hygiene
 ```
 
-Additional selector, safety, grounding, benchmark, and Validation Lab commands are available in `package.json`.
+Additional selector, grounding, safety, performance, benchmark, and Validation Lab commands are available in `package.json`.
 
-## Environment
+## Local MCP
 
-Copy `.env.example` to `.env` and adjust only the integrations you need.
+ContextForge includes a local stdio MCP server that uses the same local storage and guarded Task Pack pipeline as the desktop backend.
 
-```env
-STORAGE_DRIVER=sqlite
-SQLITE_DB_PATH=./data/contextforge.sqlite
-SERVER_PORT=4000
-OLLAMA_URL=http://localhost:11434
-APP_VERSION=0.7.1-alpha
+Task Pack creation is disabled by default and requires both:
 
-CONTEXTFORGE_MCP_ENABLED=true
-CONTEXTFORGE_MCP_ALLOW_CREATE_TASK_PACKS=false
+1. an explicit local permission;
+2. `confirmCreate: true` on the individual tool call.
+
+```bash
+npm run build
+npm run mcp:start
+npm run test:mcp
 ```
 
-GitHub, website account, PostgreSQL, and external AI providers are optional.
+See [`docs/mcp.md`](docs/mcp.md) for setup, permissions, tools, resources, prompts, Codex registration, and troubleshooting.
 
 ## Architecture
 
 ```text
-Electron desktop shell
-  ├─ React + TypeScript + Vite renderer
-  ├─ Local Express API
-  │    ├─ scanner and readiness
-  │    ├─ Task Understanding and clarification
-  │    ├─ selector / ownership / authorization pipeline
-  │    ├─ Context Composer and Task Pack generation
-  │    ├─ Git and GitHub workflow services
-  │    └─ SQLite-first StorageAdapter
-  └─ Local MCP stdio server
-       ├─ read-only project, memory, and Task Pack access
-       └─ explicitly authorized Task Pack creation
+ContextForge Desktop
+├─ Electron shell
+├─ React + TypeScript + Vite renderer
+├─ Local Express API
+│  ├─ scanner and readiness
+│  ├─ Task Understanding and clarification
+│  ├─ context selection / ownership / authorization
+│  ├─ Context Builder and Task Pack generation
+│  ├─ Git + GitHub workflows
+│  └─ SQLite-first StorageAdapter
+└─ Local MCP stdio server
+   ├─ project / memory / Task Pack reads
+   └─ explicitly authorized Task Pack creation
+```
+
+## Project status
+
+ContextForge is currently in the **`0.7.1-alpha` development cycle**.
+
+The desktop product, local storage, Context Engine, Task Pack generation, and MCP foundation are working. The current development focus is the **Task Pack lifecycle**: immutable revisions, history, drafts, review state, safe editing, and stronger recovery guarantees.
+
+A packaged installer is intentionally not published yet. The goal is to stabilize the desktop workflow before the first public `1.0.0` release.
+
+```text
+0.7.x alpha  →  desktop + context foundation
+0.8.x alpha  →  Task Pack lifecycle, revisions, drafts, review
+0.9.x beta   →  stabilization, UX, packaging, real-world testing
+1.0.0-rc     →  release candidate
+1.0.0        →  first stable ContextForge Desktop release
 ```
 
 ## Documentation
 
-- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution workflow and validation guidance.
-- [`SECURITY.md`](SECURITY.md) — private vulnerability reporting and current security boundaries.
-- [`docs/mcp.md`](docs/mcp.md) — local MCP server and Codex setup.
-- [`docs/MVP.md`](docs/MVP.md) — current alpha product boundary and release checklist.
-- [`docs/ROADMAP.md`](docs/ROADMAP.md) — completed milestones and next product phases.
-- [`docs/CONTEXT_ENGINE_V2_ROADMAP.md`](docs/CONTEXT_ENGINE_V2_ROADMAP.md) — frozen CE2 baseline, deferred semantics, and rollout gates.
-- [`docs/VALIDATION_LAB.md`](docs/VALIDATION_LAB.md) — portable sequential validation workflow.
-- [`docs/SELECTOR_BENCHMARK.md`](docs/SELECTOR_BENCHMARK.md) — selector benchmark model and private-manifest boundary.
-- [`CHANGELOG.md`](CHANGELOG.md) — detailed release history.
+- [`docs/ROADMAP.md`](docs/ROADMAP.md) — product roadmap and milestones
+- [`docs/MVP.md`](docs/MVP.md) — current alpha product boundary
+- [`docs/mcp.md`](docs/mcp.md) — local MCP server and Codex setup
+- [`docs/CONTEXT_ENGINE_V2_ROADMAP.md`](docs/CONTEXT_ENGINE_V2_ROADMAP.md) — Context Engine v2 baseline and rollout notes
+- [`docs/VALIDATION_LAB.md`](docs/VALIDATION_LAB.md) — portable validation workflow
+- [`docs/SELECTOR_BENCHMARK.md`](docs/SELECTOR_BENCHMARK.md) — selector benchmark model
+- [`CHANGELOG.md`](CHANGELOG.md) — detailed change history
+- [`CONTRIBUTING.md`](CONTRIBUTING.md) — contribution workflow
+- [`SECURITY.md`](SECURITY.md) — security and vulnerability reporting
 
-## Release status
+---
 
-`v0.7.0-alpha` is a GitHub source pre-release. It marks the completion of the large desktop UI refresh, the current universal grounding baseline, Desktop Link improvements, and ContextForge MCP Server v1.
+<div align="center">
 
-Known release boundaries:
+**ContextForge** — local project context, grounded for coding agents.
 
-- no installer or portable binary yet;
-- deep selector support remains strongest for TypeScript/JavaScript projects;
-- MCP v1 is local stdio only;
-- remote MCP, automatic code changes, automatic PRs, and agent task orchestration are not part of this release.
-
-See [`docs/releases/v0.7.0-alpha.md`](docs/releases/v0.7.0-alpha.md) for the release summary.
+</div>
