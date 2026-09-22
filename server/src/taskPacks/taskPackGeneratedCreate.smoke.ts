@@ -275,6 +275,76 @@ scenario("legacy and imported create behavior remains available", async () => {
   assert.equal(importedRevision?.generatedAt, null);
 });
 
+scenario("generated Revision 1 rejects created-issue workflow metadata", async () => {
+  await assert.rejects(
+    () =>
+      service.createGeneratedTaskPack({
+        projectId,
+        title: "Invalid created issue metadata",
+        generatedAt,
+        revisionContent: {
+          rawTask: "Reject workflow metadata from immutable provenance.",
+          taskType: "tests",
+          targetTool: "codex",
+          generatedPrompt: "Keep created issue linkage aggregate-owned.",
+          generationMode: "template",
+          generationModel: null,
+          generationMessage: null,
+          generationUsedFallback: false,
+          generationDurationMs: null,
+        },
+        generationRecipe: {
+          githubCreatedIssue: { issueNumber: 1 },
+        },
+        selectorDiagnostics: null,
+        generationDiagnostics: null,
+        performanceDiagnostics: null,
+      }),
+    TaskPackGeneratedCreateInputError,
+  );
+});
+
+scenario("generated Revision 1 retains GitHub source-issue provenance", async () => {
+  const created = await service.createGeneratedTaskPack({
+    projectId,
+    title: "GitHub source provenance",
+    generatedAt,
+    revisionContent: {
+      rawTask: "Generate from an existing source issue.",
+      taskType: "implementation",
+      targetTool: "codex",
+      generatedPrompt: "Preserve source provenance.",
+      generationMode: "template",
+      generationModel: null,
+      generationMessage: null,
+      generationUsedFallback: false,
+      generationDurationMs: null,
+    },
+    generationRecipe: {
+      githubIssue: {
+        type: "github-issue",
+        owner: "fixture",
+        repo: "source",
+        issueNumber: 7,
+      },
+    },
+    selectorDiagnostics: null,
+    generationDiagnostics: null,
+    performanceDiagnostics: null,
+  });
+  assert.deepEqual(
+    (await service.getCurrentTaskPackRevision(created.id))?.generationRecipe,
+    {
+      githubIssue: {
+        type: "github-issue",
+        owner: "fixture",
+        repo: "source",
+        issueNumber: 7,
+      },
+    },
+  );
+});
+
 scenario("generated pipeline persists once after performance trace completion", () => {
   const source = fs.readFileSync(
     path.join(process.cwd(), "src", "routes", "taskPacks.ts"),

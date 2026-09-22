@@ -14,7 +14,12 @@ import {
   type TaskPackRevisionContent,
 } from "../taskPacks/taskPackLifecycle.js";
 import { parseJsonValue, stringifyJsonValue } from "./json.js";
-import { TaskPackCurrentStateStorageError } from "./types.js";
+import {
+  assertTaskPackGitHubCreatedIssueLinkInput,
+  projectTaskPackGenerationRecipeWithGitHubCreatedIssue,
+  TaskPackCurrentStateStorageError,
+  TaskPackGitHubCreatedIssueLinkStorageError,
+} from "./types.js";
 import {
   applySqliteMigrationTransaction,
   SQLITE_MIGRATIONS,
@@ -40,6 +45,7 @@ import {
 } from "./taskPackLifecyclePersistence.js";
 import type {
   AppendTaskPackRevisionInput,
+  CreateTaskPackGitHubCreatedIssueLinkInput,
   CreateProjectMemoryInput,
   CreateTaskPackInput,
   CreateTaskPackWithInitialRevisionInput,
@@ -52,6 +58,7 @@ import type {
   TaskPackAggregateLifecycleEventRecord,
   TaskPackAggregateRecord,
   TaskPackCurrentRecord,
+  TaskPackGitHubCreatedIssueLinkRecord,
   TaskPackRecord,
   TaskPackRevisionRecord,
   TaskPackRevisionReviewEventRecord,
@@ -92,6 +99,17 @@ type TaskPackRow = {
   generation_recipe: string | null;
   created_at: string;
   updated_at: string;
+  github_link_task_pack_id?: number | null;
+  github_link_owner?: string | null;
+  github_link_repo?: string | null;
+  github_link_full_name?: string | null;
+  github_link_issue_number?: number | null;
+  github_link_issue_title?: string | null;
+  github_link_issue_url?: string | null;
+  github_link_issue_state?: "open" | "closed" | null;
+  github_link_labels?: string | null;
+  github_link_repository_url?: string | null;
+  github_link_created_at?: string | null;
 };
 
 type TaskPackCurrentRow = TaskPackRow & {
@@ -148,7 +166,31 @@ function mapProjectRow(row: ProjectRow): ProjectRecord {
   };
 }
 
+function mapTaskPackGitHubCreatedIssueLinkRow(
+  row: TaskPackRow,
+): TaskPackGitHubCreatedIssueLinkRecord | null {
+  if (row.github_link_task_pack_id === null || row.github_link_task_pack_id === undefined) {
+    return null;
+  }
+  const link: TaskPackGitHubCreatedIssueLinkRecord = {
+    taskPackId: Number(row.github_link_task_pack_id),
+    owner: row.github_link_owner as string,
+    repo: row.github_link_repo as string,
+    fullName: row.github_link_full_name as string,
+    issueNumber: Number(row.github_link_issue_number),
+    issueTitle: row.github_link_issue_title as string,
+    issueUrl: row.github_link_issue_url as string,
+    issueState: row.github_link_issue_state as "open" | "closed",
+    labels: parseJsonValue<unknown>(row.github_link_labels, null) as string[],
+    repositoryUrl: row.github_link_repository_url as string,
+    createdAt: row.github_link_created_at as string,
+  };
+  assertTaskPackGitHubCreatedIssueLinkInput(link);
+  return link;
+}
+
 function mapTaskPackRow(row: TaskPackRow): TaskPackRecord {
+  const storedRecipe = parseJsonValue(row.generation_recipe, null);
   return {
     id: row.id,
     projectId: row.project_id,
@@ -163,7 +205,10 @@ function mapTaskPackRow(row: TaskPackRow): TaskPackRecord {
     generationMessage: row.generation_message,
     generationUsedFallback: Boolean(row.generation_used_fallback),
     generationDurationMs: row.generation_duration_ms,
-    generationRecipe: parseJsonValue(row.generation_recipe, null),
+    generationRecipe: projectTaskPackGenerationRecipeWithGitHubCreatedIssue(
+      storedRecipe,
+      mapTaskPackGitHubCreatedIssueLinkRow(row),
+    ),
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
@@ -589,9 +634,22 @@ export class SqliteStorageAdapter implements StorageAdapter {
     const rows = await this.getAll<TaskPackRow>(`
       SELECT
         tp.*,
-        p.name AS project_name
+        p.name AS project_name,
+        github_link.task_pack_id AS github_link_task_pack_id,
+        github_link.owner AS github_link_owner,
+        github_link.repo AS github_link_repo,
+        github_link.full_name AS github_link_full_name,
+        github_link.issue_number AS github_link_issue_number,
+        github_link.issue_title AS github_link_issue_title,
+        github_link.issue_url AS github_link_issue_url,
+        github_link.issue_state AS github_link_issue_state,
+        github_link.labels AS github_link_labels,
+        github_link.repository_url AS github_link_repository_url,
+        github_link.created_at AS github_link_created_at
       FROM task_packs tp
       JOIN projects p ON p.id = tp.project_id
+      LEFT JOIN task_pack_github_created_issue_links github_link
+        ON github_link.task_pack_id = tp.id
       ORDER BY tp.created_at DESC;
     `);
 
@@ -604,9 +662,22 @@ export class SqliteStorageAdapter implements StorageAdapter {
       `
       SELECT
         tp.*,
-        p.name AS project_name
+        p.name AS project_name,
+        github_link.task_pack_id AS github_link_task_pack_id,
+        github_link.owner AS github_link_owner,
+        github_link.repo AS github_link_repo,
+        github_link.full_name AS github_link_full_name,
+        github_link.issue_number AS github_link_issue_number,
+        github_link.issue_title AS github_link_issue_title,
+        github_link.issue_url AS github_link_issue_url,
+        github_link.issue_state AS github_link_issue_state,
+        github_link.labels AS github_link_labels,
+        github_link.repository_url AS github_link_repository_url,
+        github_link.created_at AS github_link_created_at
       FROM task_packs tp
       JOIN projects p ON p.id = tp.project_id
+      LEFT JOIN task_pack_github_created_issue_links github_link
+        ON github_link.task_pack_id = tp.id
       WHERE tp.id = ?;
       `,
       [taskPackId]
@@ -621,11 +692,24 @@ export class SqliteStorageAdapter implements StorageAdapter {
         tp.*,
         p.name AS project_name,
         current_revision.id AS resolved_current_revision_id,
-        current_revision.task_pack_id AS current_revision_task_pack_id
+        current_revision.task_pack_id AS current_revision_task_pack_id,
+        github_link.task_pack_id AS github_link_task_pack_id,
+        github_link.owner AS github_link_owner,
+        github_link.repo AS github_link_repo,
+        github_link.full_name AS github_link_full_name,
+        github_link.issue_number AS github_link_issue_number,
+        github_link.issue_title AS github_link_issue_title,
+        github_link.issue_url AS github_link_issue_url,
+        github_link.issue_state AS github_link_issue_state,
+        github_link.labels AS github_link_labels,
+        github_link.repository_url AS github_link_repository_url,
+        github_link.created_at AS github_link_created_at
       FROM task_packs tp
       JOIN projects p ON p.id = tp.project_id
       LEFT JOIN task_pack_revisions current_revision
         ON current_revision.id = tp.current_revision_id
+      LEFT JOIN task_pack_github_created_issue_links github_link
+        ON github_link.task_pack_id = tp.id
       ORDER BY tp.created_at DESC;
     `);
 
@@ -641,11 +725,24 @@ export class SqliteStorageAdapter implements StorageAdapter {
         tp.*,
         p.name AS project_name,
         current_revision.id AS resolved_current_revision_id,
-        current_revision.task_pack_id AS current_revision_task_pack_id
+        current_revision.task_pack_id AS current_revision_task_pack_id,
+        github_link.task_pack_id AS github_link_task_pack_id,
+        github_link.owner AS github_link_owner,
+        github_link.repo AS github_link_repo,
+        github_link.full_name AS github_link_full_name,
+        github_link.issue_number AS github_link_issue_number,
+        github_link.issue_title AS github_link_issue_title,
+        github_link.issue_url AS github_link_issue_url,
+        github_link.issue_state AS github_link_issue_state,
+        github_link.labels AS github_link_labels,
+        github_link.repository_url AS github_link_repository_url,
+        github_link.created_at AS github_link_created_at
       FROM task_packs tp
       JOIN projects p ON p.id = tp.project_id
       LEFT JOIN task_pack_revisions current_revision
         ON current_revision.id = tp.current_revision_id
+      LEFT JOIN task_pack_github_created_issue_links github_link
+        ON github_link.task_pack_id = tp.id
       WHERE tp.id = ?;
       `,
       [taskPackId],
@@ -794,6 +891,105 @@ export class SqliteStorageAdapter implements StorageAdapter {
       throw new Error("Failed to read the created Task Pack.");
     }
     return mapTaskPackRow(row);
+  }
+
+  async getTaskPackGitHubCreatedIssueLink(
+    taskPackId: number,
+  ): Promise<TaskPackGitHubCreatedIssueLinkRecord | null> {
+    const row = await this.getOne<{
+      task_pack_id: number;
+      owner: string;
+      repo: string;
+      full_name: string;
+      issue_number: number;
+      issue_title: string;
+      issue_url: string;
+      issue_state: "open" | "closed";
+      labels: string;
+      repository_url: string;
+      created_at: string;
+    }>(
+      `SELECT task_pack_id, owner, repo, full_name, issue_number, issue_title,
+              issue_url, issue_state, labels, repository_url, created_at
+       FROM task_pack_github_created_issue_links
+       WHERE task_pack_id = ?;`,
+      [taskPackId],
+    );
+    if (!row) return null;
+    const link: TaskPackGitHubCreatedIssueLinkRecord = {
+      taskPackId: Number(row.task_pack_id),
+      owner: row.owner,
+      repo: row.repo,
+      fullName: row.full_name,
+      issueNumber: Number(row.issue_number),
+      issueTitle: row.issue_title,
+      issueUrl: row.issue_url,
+      issueState: row.issue_state,
+      labels: parseJsonValue<unknown>(row.labels, null) as string[],
+      repositoryUrl: row.repository_url,
+      createdAt: row.created_at,
+    };
+    assertTaskPackGitHubCreatedIssueLinkInput(link);
+    return link;
+  }
+
+  async createTaskPackGitHubCreatedIssueLink(
+    input: CreateTaskPackGitHubCreatedIssueLinkInput,
+  ): Promise<TaskPackGitHubCreatedIssueLinkRecord> {
+    assertTaskPackGitHubCreatedIssueLinkInput(input);
+    await this.withTransaction(async () => {
+      const taskPack = await this.getOne<{ id: number }>(
+        "SELECT id FROM task_packs WHERE id = ?;",
+        [input.taskPackId],
+      );
+      if (!taskPack) {
+        throw new TaskPackGitHubCreatedIssueLinkStorageError(
+          "TASK_PACK_NOT_FOUND",
+        );
+      }
+      const existing = await this.getOne<{ task_pack_id: number }>(
+        "SELECT task_pack_id FROM task_pack_github_created_issue_links WHERE task_pack_id = ?;",
+        [input.taskPackId],
+      );
+      if (existing) {
+        throw new TaskPackGitHubCreatedIssueLinkStorageError(
+          "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_EXISTS",
+        );
+      }
+      try {
+        await this.run(
+          `INSERT INTO task_pack_github_created_issue_links (
+            task_pack_id, owner, repo, full_name, issue_number, issue_title,
+            issue_url, issue_state, labels, repository_url, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+          [
+            input.taskPackId,
+            input.owner,
+            input.repo,
+            input.fullName,
+            input.issueNumber,
+            input.issueTitle,
+            input.issueUrl,
+            input.issueState,
+            stringifyJsonValue(input.labels),
+            input.repositoryUrl,
+            input.createdAt,
+          ],
+        );
+      } catch (error) {
+        if (String(error).includes("UNIQUE constraint failed")) {
+          throw new TaskPackGitHubCreatedIssueLinkStorageError(
+            "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_EXISTS",
+          );
+        }
+        throw error;
+      }
+    });
+    const created = await this.getTaskPackGitHubCreatedIssueLink(input.taskPackId);
+    if (!created) {
+      throw new Error("Failed to read created Task Pack GitHub issue linkage.");
+    }
+    return created;
   }
 
 

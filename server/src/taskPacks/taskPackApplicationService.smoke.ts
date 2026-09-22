@@ -204,6 +204,8 @@ function storageFixture(
     }),
     getTaskPackRevisionById: async () => revision,
     createTaskPackWithInitialRevision: async () => taskPack,
+    getTaskPackGitHubCreatedIssueLink: async () => null,
+    createTaskPackGitHubCreatedIssueLink: async (input) => input,
     ...overrides,
   };
 }

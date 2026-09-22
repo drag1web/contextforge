@@ -119,6 +119,210 @@ export interface CreateTaskPackWithInitialRevisionInput {
   readonly compatibilityGenerationRecipe: TaskPackJsonObject;
 }
 
+export type TaskPackGitHubIssueState = "open" | "closed";
+
+export interface TaskPackGitHubCreatedIssueLinkRecord {
+  readonly taskPackId: number;
+  readonly owner: string;
+  readonly repo: string;
+  readonly fullName: string;
+  readonly issueNumber: number;
+  readonly issueTitle: string;
+  readonly issueUrl: string;
+  readonly issueState: TaskPackGitHubIssueState;
+  readonly labels: string[];
+  readonly repositoryUrl: string;
+  readonly createdAt: string;
+}
+
+export type CreateTaskPackGitHubCreatedIssueLinkInput =
+  TaskPackGitHubCreatedIssueLinkRecord;
+
+export type TaskPackGitHubCreatedIssueLinkStorageErrorCode =
+  | "TASK_PACK_NOT_FOUND"
+  | "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_EXISTS"
+  | "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_INVALID";
+
+export class TaskPackGitHubCreatedIssueLinkStorageError extends Error {
+  constructor(readonly code: TaskPackGitHubCreatedIssueLinkStorageErrorCode) {
+    super(code);
+    this.name = "TaskPackGitHubCreatedIssueLinkStorageError";
+  }
+}
+
+export interface TaskPackGitHubCreatedIssueCompatibilityLink {
+  readonly type: "github-created-issue";
+  readonly owner: string;
+  readonly repo: string;
+  readonly fullName: string;
+  readonly issueNumber: number;
+  readonly issueTitle: string;
+  readonly issueUrl: string;
+  readonly issueState: TaskPackGitHubIssueState;
+  readonly labels: string[];
+  readonly repositoryUrl: string;
+  readonly createdAt: string;
+  readonly createdFromTaskPackId: number;
+}
+
+const GITHUB_CREATED_ISSUE_COMPATIBILITY_FIELDS = new Set([
+  "type",
+  "owner",
+  "repo",
+  "fullName",
+  "issueNumber",
+  "issueTitle",
+  "issueUrl",
+  "issueState",
+  "labels",
+  "repositoryUrl",
+  "createdAt",
+  "createdFromTaskPackId",
+]);
+
+export function assertTaskPackGitHubCreatedIssueLinkInput(
+  input: CreateTaskPackGitHubCreatedIssueLinkInput,
+): void {
+  if (!Number.isSafeInteger(input.taskPackId) || input.taskPackId <= 0) {
+    throw new TaskPackGitHubCreatedIssueLinkStorageError(
+      "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_INVALID",
+    );
+  }
+  if (!Number.isSafeInteger(input.issueNumber) || input.issueNumber <= 0) {
+    throw new TaskPackGitHubCreatedIssueLinkStorageError(
+      "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_INVALID",
+    );
+  }
+  for (const value of [
+    input.owner,
+    input.repo,
+    input.fullName,
+    input.issueTitle,
+  ]) {
+    if (typeof value !== "string" || value.trim().length === 0) {
+      throw new TaskPackGitHubCreatedIssueLinkStorageError(
+        "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_INVALID",
+      );
+    }
+  }
+  if (
+    input.issueState !== "open" &&
+    input.issueState !== "closed"
+  ) {
+    throw new TaskPackGitHubCreatedIssueLinkStorageError(
+      "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_INVALID",
+    );
+  }
+  if (
+    !Array.isArray(input.labels) ||
+    input.labels.some(
+      (label) => typeof label !== "string" || label.trim().length === 0,
+    )
+  ) {
+    throw new TaskPackGitHubCreatedIssueLinkStorageError(
+      "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_INVALID",
+    );
+  }
+  for (const url of [input.issueUrl, input.repositoryUrl]) {
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        throw new Error("unsupported protocol");
+      }
+    } catch {
+      throw new TaskPackGitHubCreatedIssueLinkStorageError(
+        "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_INVALID",
+      );
+    }
+  }
+  if (
+    typeof input.createdAt !== "string" ||
+    input.createdAt.length === 0 ||
+    !Number.isFinite(Date.parse(input.createdAt))
+  ) {
+    throw new TaskPackGitHubCreatedIssueLinkStorageError(
+      "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_INVALID",
+    );
+  }
+}
+
+export function parseTaskPackGitHubCreatedIssueCompatibilityLink(
+  value: unknown,
+  taskPackId: number,
+): TaskPackGitHubCreatedIssueLinkRecord | null {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as Record<string, unknown>;
+  if (
+    Reflect.ownKeys(record).some(
+      (key) =>
+        typeof key !== "string" ||
+        !GITHUB_CREATED_ISSUE_COMPATIBILITY_FIELDS.has(key),
+    ) ||
+    record.type !== "github-created-issue" ||
+    record.createdFromTaskPackId !== taskPackId
+  ) {
+    return null;
+  }
+  const parsed: TaskPackGitHubCreatedIssueLinkRecord = {
+    taskPackId,
+    owner: record.owner as string,
+    repo: record.repo as string,
+    fullName: record.fullName as string,
+    issueNumber: record.issueNumber as number,
+    issueTitle: record.issueTitle as string,
+    issueUrl: record.issueUrl as string,
+    issueState: record.issueState as TaskPackGitHubIssueState,
+    labels: record.labels as string[],
+    repositoryUrl: record.repositoryUrl as string,
+    createdAt: record.createdAt as string,
+  };
+  try {
+    assertTaskPackGitHubCreatedIssueLinkInput(parsed);
+    return parsed;
+  } catch {
+    return null;
+  }
+}
+
+export function buildTaskPackGitHubCreatedIssueCompatibilityLink(
+  link: TaskPackGitHubCreatedIssueLinkRecord,
+): TaskPackGitHubCreatedIssueCompatibilityLink {
+  return {
+    type: "github-created-issue",
+    owner: link.owner,
+    repo: link.repo,
+    fullName: link.fullName,
+    issueNumber: link.issueNumber,
+    issueTitle: link.issueTitle,
+    issueUrl: link.issueUrl,
+    issueState: link.issueState,
+    labels: [...link.labels],
+    repositoryUrl: link.repositoryUrl,
+    createdAt: link.createdAt,
+    createdFromTaskPackId: link.taskPackId,
+  };
+}
+
+export function projectTaskPackGenerationRecipeWithGitHubCreatedIssue(
+  generationRecipe: unknown | null,
+  link: TaskPackGitHubCreatedIssueLinkRecord | null,
+): unknown | null {
+  if (!link) return generationRecipe;
+  const recipe =
+    generationRecipe !== null &&
+    typeof generationRecipe === "object" &&
+    !Array.isArray(generationRecipe)
+      ? { ...(generationRecipe as Record<string, unknown>) }
+      : {};
+  return {
+    ...recipe,
+    githubCreatedIssue:
+      buildTaskPackGitHubCreatedIssueCompatibilityLink(link),
+  };
+}
+
 
 export interface UpdateTaskPackContentInput {
   rawTask?: string;
@@ -206,6 +410,12 @@ export interface StorageAdapter {
   createTaskPackWithInitialRevision(
     input: CreateTaskPackWithInitialRevisionInput
   ): Promise<TaskPackRecord>;
+  getTaskPackGitHubCreatedIssueLink(
+    taskPackId: number
+  ): Promise<TaskPackGitHubCreatedIssueLinkRecord | null>;
+  createTaskPackGitHubCreatedIssueLink(
+    input: CreateTaskPackGitHubCreatedIssueLinkInput
+  ): Promise<TaskPackGitHubCreatedIssueLinkRecord>;
   updateTaskPackGenerationRecipe(
     taskPackId: number,
     generationRecipe: unknown | null

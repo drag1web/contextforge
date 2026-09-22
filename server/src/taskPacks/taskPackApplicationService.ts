@@ -1,5 +1,10 @@
-import { TaskPackCurrentStateStorageError } from "../storage/types.js";
+import {
+  buildTaskPackGitHubCreatedIssueCompatibilityLink,
+  TaskPackCurrentStateStorageError,
+  TaskPackGitHubCreatedIssueLinkStorageError,
+} from "../storage/types.js";
 import type {
+  CreateTaskPackGitHubCreatedIssueLinkInput,
   CreateTaskPackWithInitialRevisionInput,
   StorageAdapter,
   TaskPackAggregateRecord,
@@ -7,6 +12,7 @@ import type {
   TaskPackRecord,
   TaskPackRevisionRecord,
 } from "../storage/types.js";
+import type { GitHubCreatedIssueLink } from "../github/githubTypes.js";
 import type {
   TaskPackJsonObject,
   TaskPackJsonValue,
@@ -32,6 +38,8 @@ export type TaskPackApplicationServiceStorage = Pick<
   | "getTaskPackAggregate"
   | "getTaskPackRevisionById"
   | "createTaskPackWithInitialRevision"
+  | "getTaskPackGitHubCreatedIssueLink"
+  | "createTaskPackGitHubCreatedIssueLink"
 >;
 
 type GeneratedRevisionContentInput = Omit<
@@ -60,6 +68,10 @@ export interface TaskPackApplicationService {
   getTaskPackAggregate(taskPackId: number): Promise<TaskPackAggregateRecord | null>;
   getCurrentTaskPackRevision(taskPackId: number): Promise<TaskPackRevisionRecord | null>;
   createGeneratedTaskPack(input: CreateGeneratedTaskPackInput): Promise<TaskPackRecord>;
+  getGitHubCreatedIssueLink(taskPackId: number): Promise<GitHubCreatedIssueLink | null>;
+  linkCreatedGitHubIssue(
+    input: CreateTaskPackGitHubCreatedIssueLinkInput,
+  ): Promise<GitHubCreatedIssueLink>;
 }
 
 export class TaskPackGeneratedCreateInputError extends Error {
@@ -71,10 +83,20 @@ export class TaskPackGeneratedCreateInputError extends Error {
   }
 }
 
+export class TaskPackGitHubCreatedIssueAlreadyLinkedError extends Error {
+  readonly code = "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_EXISTS" as const;
+
+  constructor() {
+    super("This Task Pack is already linked to a created GitHub issue.");
+    this.name = "TaskPackGitHubCreatedIssueAlreadyLinkedError";
+  }
+}
+
 const RECIPE_DIAGNOSTIC_FIELDS = [
   "selectorDiagnostics",
   "generationDiagnostics",
   "performanceDiagnostics",
+  "githubCreatedIssue",
 ] as const;
 
 function normalizeJsonObject(value: unknown, label: string): TaskPackJsonObject {
@@ -304,6 +326,28 @@ export function createTaskPackApplicationService(
         compatibilityGenerationRecipe,
       };
       return storage.createTaskPackWithInitialRevision(storageInput);
+    },
+
+    async getGitHubCreatedIssueLink(taskPackId) {
+      const link = await storage.getTaskPackGitHubCreatedIssueLink(taskPackId);
+      return link
+        ? buildTaskPackGitHubCreatedIssueCompatibilityLink(link)
+        : null;
+    },
+
+    async linkCreatedGitHubIssue(input) {
+      try {
+        const link = await storage.createTaskPackGitHubCreatedIssueLink(input);
+        return buildTaskPackGitHubCreatedIssueCompatibilityLink(link);
+      } catch (error) {
+        if (
+          error instanceof TaskPackGitHubCreatedIssueLinkStorageError &&
+          error.code === "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_EXISTS"
+        ) {
+          throw new TaskPackGitHubCreatedIssueAlreadyLinkedError();
+        }
+        throw error;
+      }
     },
   };
 }

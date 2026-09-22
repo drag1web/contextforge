@@ -82,6 +82,7 @@ import { resolveTaskUnderstandingInteraction } from "../taskPacks/taskUnderstand
 import {
   createTaskPackApplicationService,
   TaskPackCurrentStateError,
+  TaskPackGitHubCreatedIssueAlreadyLinkedError,
   type TaskPackApplicationService,
 } from "../taskPacks/taskPackApplicationService.js";
 import { groundTaskCurrentState } from "../taskPacks/taskCurrentStateGrounding.js";
@@ -2475,6 +2476,17 @@ taskPacksRouter.post("/:id/github/issue", async (req, res) => {
       return;
     }
 
+    const existingCreatedIssue =
+      await taskPackApplicationService.getGitHubCreatedIssueLink(taskPackId);
+    if (existingCreatedIssue) {
+      res.status(409).json({
+        ok: false,
+        message: "This Task Pack is already linked to a created GitHub issue.",
+        githubCreatedIssue: existingCreatedIssue,
+      });
+      return;
+    }
+
     const project = await getProjectById(taskPack.projectId);
 
     if (!project) {
@@ -2485,51 +2497,42 @@ taskPacksRouter.post("/:id/github/issue", async (req, res) => {
       return;
     }
 
-    const existingRecipe = isPlainObject(taskPack.generationRecipe)
-      ? taskPack.generationRecipe
-      : {};
-
-    const existingCreatedIssue = existingRecipe.githubCreatedIssue;
-
-    if (isPlainObject(existingCreatedIssue)) {
-      res.status(409).json({
-        ok: false,
-        message: "This Task Pack is already linked to a created GitHub issue.",
-        githubCreatedIssue: existingCreatedIssue,
-      });
-      return;
-    }
-
     const { repository, issue } = await createGitHubIssueForProject(project, {
       title: parsed.data.title,
       body: parsed.data.body,
       labels: normalizeGitHubIssueLabels(parsed.data.labels),
     });
 
-    const githubCreatedIssue: GitHubCreatedIssueLink = {
-      type: "github-created-issue",
-      owner: repository.owner,
-      repo: repository.repo,
-      fullName: repository.fullName,
-      issueNumber: issue.number,
-      issueTitle: issue.title,
-      issueUrl: issue.htmlUrl,
-      issueState: issue.state,
-      labels: issue.labels.map((label) => label.name),
-      repositoryUrl: repository.htmlUrl,
-      createdAt: new Date().toISOString(),
-      createdFromTaskPackId: taskPack.id,
-    };
+    let githubCreatedIssue: GitHubCreatedIssueLink;
+    try {
+      githubCreatedIssue = await taskPackApplicationService.linkCreatedGitHubIssue({
+        taskPackId: taskPack.id,
+        owner: repository.owner,
+        repo: repository.repo,
+        fullName: repository.fullName,
+        issueNumber: issue.number,
+        issueTitle: issue.title,
+        issueUrl: issue.htmlUrl,
+        issueState: issue.state,
+        labels: issue.labels.map((label) => label.name),
+        repositoryUrl: repository.htmlUrl,
+        createdAt: new Date().toISOString(),
+      });
+    } catch (error) {
+      if (error instanceof TaskPackGitHubCreatedIssueAlreadyLinkedError) {
+        const racedLink =
+          await taskPackApplicationService.getGitHubCreatedIssueLink(taskPack.id);
+        res.status(409).json({
+          ok: false,
+          message: error.message,
+          githubCreatedIssue: racedLink,
+        });
+        return;
+      }
+      throw error;
+    }
 
-    const nextRecipe = {
-      ...existingRecipe,
-      githubCreatedIssue,
-    };
-
-    const updatedTaskPack = await storage.updateTaskPackGenerationRecipe(
-      taskPack.id,
-      nextRecipe,
-    );
+    const updatedTaskPack = await storage.getTaskPackById(taskPack.id);
 
     res.json({
       ok: true,

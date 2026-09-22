@@ -5,10 +5,16 @@ import {
   contentHashForRevision,
   type LegacyTaskPackPersistenceRow,
 } from "./taskPackLifecyclePersistence.js";
+import {
+  parseTaskPackGitHubCreatedIssueCompatibilityLink,
+  type TaskPackGitHubCreatedIssueLinkRecord,
+} from "./types.js";
 
-export const SQLITE_SCHEMA_VERSION = 3;
+export const SQLITE_SCHEMA_VERSION = 4;
 export const TASK_PACK_LIFECYCLE_MIGRATION_ID =
   "0003_task_pack_lifecycle_revisions" as const;
+export const TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID =
+  "0004_task_pack_github_created_issue_link" as const;
 
 export interface SqliteMigrationDefinition {
   id: string;
@@ -255,6 +261,91 @@ function runSqliteTaskPackLifecycleMigration(db: Database): void {
   validateSqliteTaskPackLifecycleMigration(db);
 }
 
+const SQLITE_TASK_PACK_GITHUB_CREATED_ISSUE_LINK_DDL = `
+  CREATE TABLE task_pack_github_created_issue_links (
+    task_pack_id INTEGER PRIMARY KEY,
+    owner TEXT NOT NULL,
+    repo TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    issue_number INTEGER NOT NULL CHECK (issue_number > 0),
+    issue_title TEXT NOT NULL,
+    issue_url TEXT NOT NULL,
+    issue_state TEXT NOT NULL CHECK (issue_state IN ('open', 'closed')),
+    labels TEXT NOT NULL,
+    repository_url TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (task_pack_id) REFERENCES task_packs(id) ON DELETE CASCADE
+  );
+`;
+
+interface LegacyTaskPackGitHubLinkRow {
+  readonly id: number;
+  readonly generation_recipe: unknown;
+}
+
+function parseLegacyGenerationRecipe(value: unknown): Record<string, unknown> | null {
+  let parsed = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value) as unknown;
+    } catch {
+      return null;
+    }
+  }
+  return parsed !== null && typeof parsed === "object" && !Array.isArray(parsed)
+    ? (parsed as Record<string, unknown>)
+    : null;
+}
+
+function insertSqliteTaskPackGitHubCreatedIssueLink(
+  db: Database,
+  link: TaskPackGitHubCreatedIssueLinkRecord,
+): void {
+  db.run(
+    `INSERT INTO task_pack_github_created_issue_links (
+      task_pack_id, owner, repo, full_name, issue_number, issue_title,
+      issue_url, issue_state, labels, repository_url, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+    [
+      link.taskPackId,
+      link.owner,
+      link.repo,
+      link.fullName,
+      link.issueNumber,
+      link.issueTitle,
+      link.issueUrl,
+      link.issueState,
+      JSON.stringify(link.labels),
+      link.repositoryUrl,
+      link.createdAt,
+    ],
+  );
+}
+
+function runSqliteTaskPackGitHubCreatedIssueLinkMigration(db: Database): void {
+  db.run(SQLITE_TASK_PACK_GITHUB_CREATED_ISSUE_LINK_DDL);
+  const rows = readSqliteRows<LegacyTaskPackGitHubLinkRow>(
+    db,
+    "SELECT id, generation_recipe FROM task_packs ORDER BY id ASC;",
+  );
+  for (const row of rows) {
+    const recipe = parseLegacyGenerationRecipe(row.generation_recipe);
+    if (!recipe || !Object.hasOwn(recipe, "githubCreatedIssue")) continue;
+    const link = parseTaskPackGitHubCreatedIssueCompatibilityLink(
+      recipe.githubCreatedIssue,
+      Number(row.id),
+    );
+    if (!link) continue;
+    insertSqliteTaskPackGitHubCreatedIssueLink(db, link);
+    const cleanedRecipe = { ...recipe };
+    delete cleanedRecipe.githubCreatedIssue;
+    db.run("UPDATE task_packs SET generation_recipe = ? WHERE id = ?;", [
+      JSON.stringify(cleanedRecipe),
+      row.id,
+    ]);
+  }
+}
+
 export const SQLITE_MIGRATIONS: SqliteMigrationDefinition[] = [
   {
     id: "0001_sqlite_baseline",
@@ -296,6 +387,15 @@ export const SQLITE_MIGRATIONS: SqliteMigrationDefinition[] = [
       "Adds aggregate lifecycle projection, immutable revisions, append-only lifecycle/review events, and legacy revision backfill.",
     checksum: "task-pack-lifecycle-revisions-v1",
     run: runSqliteTaskPackLifecycleMigration,
+  },
+  {
+    id: TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID,
+    version: 4,
+    name: "Task Pack created GitHub issue linkage",
+    description:
+      "Moves valid aggregate-owned created GitHub issue linkage out of the flat generation recipe.",
+    checksum: "task-pack-github-created-issue-link-v1",
+    run: runSqliteTaskPackGitHubCreatedIssueLinkMigration,
   },
 ];
 
@@ -462,6 +562,22 @@ export const POSTGRES_TASK_PACK_LIFECYCLE_CONSTRAINTS = `
     FOR EACH ROW EXECUTE FUNCTION reject_task_pack_event_update();
 `;
 
+export const POSTGRES_TASK_PACK_GITHUB_CREATED_ISSUE_LINK_DDL = `
+  CREATE TABLE task_pack_github_created_issue_links (
+    task_pack_id INTEGER PRIMARY KEY REFERENCES task_packs(id) ON DELETE CASCADE,
+    owner TEXT NOT NULL,
+    repo TEXT NOT NULL,
+    full_name TEXT NOT NULL,
+    issue_number INTEGER NOT NULL CHECK (issue_number > 0),
+    issue_title TEXT NOT NULL,
+    issue_url TEXT NOT NULL,
+    issue_state TEXT NOT NULL CHECK (issue_state IN ('open', 'closed')),
+    labels JSONB NOT NULL,
+    repository_url TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL
+  );
+`;
+
 export async function applyPostgresTaskPackLifecycleMigration(
   client: PostgresMigrationClient,
   appliedAt: string,
@@ -529,6 +645,72 @@ export async function applyPostgresTaskPackLifecycleMigration(
         "Task Pack lifecycle and immutable revisions",
         "Adds aggregate lifecycle projection, immutable revisions, append-only lifecycle/review events, and legacy revision backfill.",
         "task-pack-lifecycle-revisions-v1",
+        appliedAt,
+      ],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // Preserve the original migration error.
+    }
+    throw error;
+  }
+}
+
+export async function applyPostgresTaskPackGitHubCreatedIssueLinkMigration(
+  client: PostgresMigrationClient,
+  appliedAt: string,
+): Promise<void> {
+  await client.query("BEGIN");
+  try {
+    await client.query(POSTGRES_TASK_PACK_GITHUB_CREATED_ISSUE_LINK_DDL);
+    const legacy = await client.query<LegacyTaskPackGitHubLinkRow>(`
+      SELECT id, generation_recipe FROM task_packs ORDER BY id ASC;
+    `);
+    for (const row of legacy.rows) {
+      const recipe = parseLegacyGenerationRecipe(row.generation_recipe);
+      if (!recipe || !Object.hasOwn(recipe, "githubCreatedIssue")) continue;
+      const link = parseTaskPackGitHubCreatedIssueCompatibilityLink(
+        recipe.githubCreatedIssue,
+        Number(row.id),
+      );
+      if (!link) continue;
+      await client.query(
+        `INSERT INTO task_pack_github_created_issue_links (
+          task_pack_id, owner, repo, full_name, issue_number, issue_title,
+          issue_url, issue_state, labels, repository_url, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11);`,
+        [
+          link.taskPackId,
+          link.owner,
+          link.repo,
+          link.fullName,
+          link.issueNumber,
+          link.issueTitle,
+          link.issueUrl,
+          link.issueState,
+          JSON.stringify(link.labels),
+          link.repositoryUrl,
+          link.createdAt,
+        ],
+      );
+      await client.query(
+        `UPDATE task_packs
+         SET generation_recipe = generation_recipe - 'githubCreatedIssue'
+         WHERE id = $1;`,
+        [link.taskPackId],
+      );
+    }
+    await client.query(
+      `INSERT INTO schema_migrations (id, version, name, description, checksum, applied_at)
+       VALUES ($1, 4, $2, $3, $4, $5);`,
+      [
+        TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID,
+        "Task Pack created GitHub issue linkage",
+        "Moves valid aggregate-owned created GitHub issue linkage out of the flat generation recipe.",
+        "task-pack-github-created-issue-link-v1",
         appliedAt,
       ],
     );

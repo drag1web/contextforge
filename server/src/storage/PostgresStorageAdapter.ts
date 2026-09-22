@@ -1,6 +1,11 @@
 import { pool } from "../db/pool.js";
 import type { ScannedProject } from "../scanner/projectScanner.js";
-import { TaskPackCurrentStateStorageError } from "./types.js";
+import {
+  assertTaskPackGitHubCreatedIssueLinkInput,
+  projectTaskPackGenerationRecipeWithGitHubCreatedIssue,
+  TaskPackCurrentStateStorageError,
+  TaskPackGitHubCreatedIssueLinkStorageError,
+} from "./types.js";
 import {
   assertTaskPackAggregateLifecycleEvent,
   assertTaskPackRevision,
@@ -10,6 +15,8 @@ import {
 } from "../taskPacks/taskPackLifecycle.js";
 import {
   applyPostgresTaskPackLifecycleMigration,
+  applyPostgresTaskPackGitHubCreatedIssueLinkMigration,
+  TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID,
   TASK_PACK_LIFECYCLE_MIGRATION_ID,
 } from "./migrations.js";
 import {
@@ -25,6 +32,7 @@ import {
 } from "./taskPackLifecyclePersistence.js";
 import type {
   AppendTaskPackRevisionInput,
+  CreateTaskPackGitHubCreatedIssueLinkInput,
   CreateProjectMemoryInput,
   CreateTaskPackInput,
   CreateTaskPackWithInitialRevisionInput,
@@ -36,6 +44,7 @@ import type {
   TaskPackAggregateLifecycleEventRecord,
   TaskPackAggregateRecord,
   TaskPackCurrentRecord,
+  TaskPackGitHubCreatedIssueLinkRecord,
   TaskPackRecord,
   TaskPackRevisionRecord,
   TaskPackRevisionReviewEventRecord,
@@ -59,6 +68,32 @@ function mapProjectRow(row: any): ProjectRecord {
   };
 }
 
+function mapTaskPackGitHubCreatedIssueLinkRow(
+  row: any,
+): TaskPackGitHubCreatedIssueLinkRecord | null {
+  if (row.githubLinkTaskPackId === null || row.githubLinkTaskPackId === undefined) {
+    return null;
+  }
+  const link: TaskPackGitHubCreatedIssueLinkRecord = {
+    taskPackId: Number(row.githubLinkTaskPackId),
+    owner: row.githubLinkOwner,
+    repo: row.githubLinkRepo,
+    fullName: row.githubLinkFullName,
+    issueNumber: Number(row.githubLinkIssueNumber),
+    issueTitle: row.githubLinkIssueTitle,
+    issueUrl: row.githubLinkIssueUrl,
+    issueState: row.githubLinkIssueState,
+    labels: row.githubLinkLabels,
+    repositoryUrl: row.githubLinkRepositoryUrl,
+    createdAt:
+      row.githubLinkCreatedAt instanceof Date
+        ? row.githubLinkCreatedAt.toISOString()
+        : String(row.githubLinkCreatedAt),
+  };
+  assertTaskPackGitHubCreatedIssueLinkInput(link);
+  return link;
+}
+
 function mapTaskPackRow(row: any): TaskPackRecord {
   return {
     id: row.id,
@@ -74,7 +109,10 @@ function mapTaskPackRow(row: any): TaskPackRecord {
     generationMessage: row.generationMessage ?? null,
     generationUsedFallback: Boolean(row.generationUsedFallback),
     generationDurationMs: row.generationDurationMs ?? null,
-    generationRecipe: row.generationRecipe ?? null,
+    generationRecipe: projectTaskPackGenerationRecipeWithGitHubCreatedIssue(
+      row.generationRecipe ?? null,
+      mapTaskPackGitHubCreatedIssueLinkRow(row),
+    ),
     createdAt: row.createdAt,
     updatedAt: row.updatedAt
   };
@@ -298,6 +336,27 @@ export class PostgresStorageAdapter implements StorageAdapter {
         client.release();
       }
     }
+
+    const githubLinkMigration = await pool.query(
+      "SELECT id FROM schema_migrations WHERE id = $1;",
+      [TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID],
+    );
+    if (githubLinkMigration.rowCount === 0) {
+      const client = await pool.connect();
+      try {
+        await applyPostgresTaskPackGitHubCreatedIssueLinkMigration(
+          {
+            query: async <T>(text: string, values?: readonly unknown[]) => {
+              const result = await client.query(text, values ? [...values] : undefined);
+              return { rows: result.rows as T[], rowCount: result.rowCount };
+            },
+          },
+          new Date().toISOString(),
+        );
+      } finally {
+        client.release();
+      }
+    }
   }
 
   async getSchemaInfo(): Promise<StorageSchemaInfo> {
@@ -319,26 +378,41 @@ export class PostgresStorageAdapter implements StorageAdapter {
           ? row.appliedAt.toISOString()
           : String(row.appliedAt),
     }));
-    const applied = appliedMigrations.some(
+    const lifecycleApplied = appliedMigrations.some(
       (migration) => migration.id === TASK_PACK_LIFECYCLE_MIGRATION_ID,
     );
+    const githubLinkApplied = appliedMigrations.some(
+      (migration) =>
+        migration.id === TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID,
+    );
+    const currentVersion = githubLinkApplied ? 4 : lifecycleApplied ? 3 : 0;
+    const pendingMigrations = [
+      ...(!lifecycleApplied
+        ? [{
+            id: TASK_PACK_LIFECYCLE_MIGRATION_ID,
+            version: 3,
+            name: "Task Pack lifecycle and immutable revisions",
+            description:
+              "Adds aggregate lifecycle projection, immutable revisions, append-only lifecycle/review events, and legacy revision backfill.",
+          }]
+        : []),
+      ...(!githubLinkApplied
+        ? [{
+            id: TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID,
+            version: 4,
+            name: "Task Pack created GitHub issue linkage",
+            description:
+              "Moves valid aggregate-owned created GitHub issue linkage out of the flat generation recipe.",
+          }]
+        : []),
+    ];
     return {
-      currentVersion: applied ? 3 : 0,
-      latestVersion: 3,
-      status: applied ? "ready" : "needs_migration",
-      pendingCount: applied ? 0 : 1,
+      currentVersion,
+      latestVersion: 4,
+      status: pendingMigrations.length === 0 ? "ready" : "needs_migration",
+      pendingCount: pendingMigrations.length,
       appliedMigrations,
-      pendingMigrations: applied
-        ? []
-        : [
-            {
-              id: TASK_PACK_LIFECYCLE_MIGRATION_ID,
-              version: 3,
-              name: "Task Pack lifecycle and immutable revisions",
-              description:
-                "Adds aggregate lifecycle projection, immutable revisions, append-only lifecycle/review events, and legacy revision backfill.",
-            },
-          ],
+      pendingMigrations,
     };
   }
 
@@ -441,10 +515,23 @@ export class PostgresStorageAdapter implements StorageAdapter {
         tp.generation_used_fallback AS "generationUsedFallback",
         tp.generation_duration_ms AS "generationDurationMs",
         tp.generation_recipe AS "generationRecipe",
+        github_link.task_pack_id AS "githubLinkTaskPackId",
+        github_link.owner AS "githubLinkOwner",
+        github_link.repo AS "githubLinkRepo",
+        github_link.full_name AS "githubLinkFullName",
+        github_link.issue_number AS "githubLinkIssueNumber",
+        github_link.issue_title AS "githubLinkIssueTitle",
+        github_link.issue_url AS "githubLinkIssueUrl",
+        github_link.issue_state AS "githubLinkIssueState",
+        github_link.labels AS "githubLinkLabels",
+        github_link.repository_url AS "githubLinkRepositoryUrl",
+        github_link.created_at AS "githubLinkCreatedAt",
         tp.created_at AS "createdAt",
         tp.updated_at AS "updatedAt"
       FROM task_packs tp
       JOIN projects p ON p.id = tp.project_id
+      LEFT JOIN task_pack_github_created_issue_links github_link
+        ON github_link.task_pack_id = tp.id
       ORDER BY tp.created_at DESC;
     `);
 
@@ -470,10 +557,23 @@ export class PostgresStorageAdapter implements StorageAdapter {
         tp.generation_used_fallback AS "generationUsedFallback",
         tp.generation_duration_ms AS "generationDurationMs",
         tp.generation_recipe AS "generationRecipe",
+        github_link.task_pack_id AS "githubLinkTaskPackId",
+        github_link.owner AS "githubLinkOwner",
+        github_link.repo AS "githubLinkRepo",
+        github_link.full_name AS "githubLinkFullName",
+        github_link.issue_number AS "githubLinkIssueNumber",
+        github_link.issue_title AS "githubLinkIssueTitle",
+        github_link.issue_url AS "githubLinkIssueUrl",
+        github_link.issue_state AS "githubLinkIssueState",
+        github_link.labels AS "githubLinkLabels",
+        github_link.repository_url AS "githubLinkRepositoryUrl",
+        github_link.created_at AS "githubLinkCreatedAt",
         tp.created_at AS "createdAt",
         tp.updated_at AS "updatedAt"
       FROM task_packs tp
       JOIN projects p ON p.id = tp.project_id
+      LEFT JOIN task_pack_github_created_issue_links github_link
+        ON github_link.task_pack_id = tp.id
       WHERE tp.id = $1;
       `,
       [taskPackId]
@@ -499,6 +599,17 @@ export class PostgresStorageAdapter implements StorageAdapter {
         tp.generation_used_fallback AS "generationUsedFallback",
         tp.generation_duration_ms AS "generationDurationMs",
         tp.generation_recipe AS "generationRecipe",
+        github_link.task_pack_id AS "githubLinkTaskPackId",
+        github_link.owner AS "githubLinkOwner",
+        github_link.repo AS "githubLinkRepo",
+        github_link.full_name AS "githubLinkFullName",
+        github_link.issue_number AS "githubLinkIssueNumber",
+        github_link.issue_title AS "githubLinkIssueTitle",
+        github_link.issue_url AS "githubLinkIssueUrl",
+        github_link.issue_state AS "githubLinkIssueState",
+        github_link.labels AS "githubLinkLabels",
+        github_link.repository_url AS "githubLinkRepositoryUrl",
+        github_link.created_at AS "githubLinkCreatedAt",
         tp.created_at AS "createdAt",
         tp.updated_at AS "updatedAt",
         tp.current_revision_id AS "currentRevisionId",
@@ -508,6 +619,8 @@ export class PostgresStorageAdapter implements StorageAdapter {
       JOIN projects p ON p.id = tp.project_id
       LEFT JOIN task_pack_revisions current_revision
         ON current_revision.id = tp.current_revision_id
+      LEFT JOIN task_pack_github_created_issue_links github_link
+        ON github_link.task_pack_id = tp.id
       ORDER BY tp.created_at DESC;
     `);
 
@@ -534,6 +647,17 @@ export class PostgresStorageAdapter implements StorageAdapter {
         tp.generation_used_fallback AS "generationUsedFallback",
         tp.generation_duration_ms AS "generationDurationMs",
         tp.generation_recipe AS "generationRecipe",
+        github_link.task_pack_id AS "githubLinkTaskPackId",
+        github_link.owner AS "githubLinkOwner",
+        github_link.repo AS "githubLinkRepo",
+        github_link.full_name AS "githubLinkFullName",
+        github_link.issue_number AS "githubLinkIssueNumber",
+        github_link.issue_title AS "githubLinkIssueTitle",
+        github_link.issue_url AS "githubLinkIssueUrl",
+        github_link.issue_state AS "githubLinkIssueState",
+        github_link.labels AS "githubLinkLabels",
+        github_link.repository_url AS "githubLinkRepositoryUrl",
+        github_link.created_at AS "githubLinkCreatedAt",
         tp.created_at AS "createdAt",
         tp.updated_at AS "updatedAt",
         tp.current_revision_id AS "currentRevisionId",
@@ -543,6 +667,8 @@ export class PostgresStorageAdapter implements StorageAdapter {
       JOIN projects p ON p.id = tp.project_id
       LEFT JOIN task_pack_revisions current_revision
         ON current_revision.id = tp.current_revision_id
+      LEFT JOIN task_pack_github_created_issue_links github_link
+        ON github_link.task_pack_id = tp.id
       WHERE tp.id = $1;
       `,
       [taskPackId],
@@ -741,6 +867,86 @@ export class PostgresStorageAdapter implements StorageAdapter {
       throw error;
     } finally {
       client.release();
+    }
+  }
+
+  async getTaskPackGitHubCreatedIssueLink(
+    taskPackId: number,
+  ): Promise<TaskPackGitHubCreatedIssueLinkRecord | null> {
+    const result = await pool.query(
+      `SELECT task_pack_id AS "githubLinkTaskPackId",
+              owner AS "githubLinkOwner",
+              repo AS "githubLinkRepo",
+              full_name AS "githubLinkFullName",
+              issue_number AS "githubLinkIssueNumber",
+              issue_title AS "githubLinkIssueTitle",
+              issue_url AS "githubLinkIssueUrl",
+              issue_state AS "githubLinkIssueState",
+              labels AS "githubLinkLabels",
+              repository_url AS "githubLinkRepositoryUrl",
+              created_at AS "githubLinkCreatedAt"
+       FROM task_pack_github_created_issue_links
+       WHERE task_pack_id = $1;`,
+      [taskPackId],
+    );
+    return result.rows[0]
+      ? mapTaskPackGitHubCreatedIssueLinkRow(result.rows[0])
+      : null;
+  }
+
+  async createTaskPackGitHubCreatedIssueLink(
+    input: CreateTaskPackGitHubCreatedIssueLinkInput,
+  ): Promise<TaskPackGitHubCreatedIssueLinkRecord> {
+    assertTaskPackGitHubCreatedIssueLinkInput(input);
+    try {
+      const result = await pool.query(
+        `INSERT INTO task_pack_github_created_issue_links (
+          task_pack_id, owner, repo, full_name, issue_number, issue_title,
+          issue_url, issue_state, labels, repository_url, created_at
+        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10, $11)
+        RETURNING task_pack_id AS "githubLinkTaskPackId",
+                  owner AS "githubLinkOwner",
+                  repo AS "githubLinkRepo",
+                  full_name AS "githubLinkFullName",
+                  issue_number AS "githubLinkIssueNumber",
+                  issue_title AS "githubLinkIssueTitle",
+                  issue_url AS "githubLinkIssueUrl",
+                  issue_state AS "githubLinkIssueState",
+                  labels AS "githubLinkLabels",
+                  repository_url AS "githubLinkRepositoryUrl",
+                  created_at AS "githubLinkCreatedAt";`,
+        [
+          input.taskPackId,
+          input.owner,
+          input.repo,
+          input.fullName,
+          input.issueNumber,
+          input.issueTitle,
+          input.issueUrl,
+          input.issueState,
+          JSON.stringify(input.labels),
+          input.repositoryUrl,
+          input.createdAt,
+        ],
+      );
+      const created = mapTaskPackGitHubCreatedIssueLinkRow(result.rows[0]);
+      if (!created) {
+        throw new Error("Failed to read created Task Pack GitHub issue linkage.");
+      }
+      return created;
+    } catch (error) {
+      const code = (error as { code?: unknown }).code;
+      if (code === "23505") {
+        throw new TaskPackGitHubCreatedIssueLinkStorageError(
+          "TASK_PACK_GITHUB_CREATED_ISSUE_LINK_EXISTS",
+        );
+      }
+      if (code === "23503") {
+        throw new TaskPackGitHubCreatedIssueLinkStorageError(
+          "TASK_PACK_NOT_FOUND",
+        );
+      }
+      throw error;
     }
   }
 
