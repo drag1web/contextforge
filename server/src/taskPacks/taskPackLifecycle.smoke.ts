@@ -15,6 +15,7 @@ import {
   transitionTaskPackReview,
   type PersistedTaskPackDraft,
   type TaskPackAggregate,
+  type TaskPackDraftContent,
   type TaskPackDraftLifecycle,
   type TaskPackDraftTransitionEvent,
   type TaskPackLifecycle,
@@ -51,6 +52,7 @@ const fingerprintA = `sha256:${"a".repeat(64)}`;
 const fingerprintB = `sha256:${"b".repeat(64)}`;
 const revisionContentHasTitle: "title" extends keyof TaskPackRevisionContent ? true : false = false;
 const revisionHasProjectId: "projectId" extends keyof TaskPackRevision ? true : false = false;
+const draftContentHasDraftVersion: "draftVersion" extends keyof TaskPackDraftContent ? true : false = false;
 
 function baseRevisionContent(): TaskPackRevisionContent {
   return {
@@ -169,6 +171,7 @@ function draft(overrides: Partial<PersistedTaskPackDraft> = {}): PersistedTaskPa
       reviewedUnderstandingSnapshotId: null,
     },
     lifecycle: { state: "active", materializedRevisionId: null },
+    draftVersion: 1,
     createdAt: "2026-09-18T08:00:00.000Z",
     updatedAt: "2026-09-18T08:00:00.000Z",
     expiresAt: null,
@@ -467,6 +470,83 @@ scenario("review event rejects a revision from another aggregate", () => {
 
 scenario("active persisted draft validates", () => {
   assert.doesNotThrow(() => assertPersistedTaskPackDraft(draft()));
+});
+
+scenario("materialized persisted draft with a positive version validates", () => {
+  assert.doesNotThrow(() =>
+    assertPersistedTaskPackDraft(
+      draft({
+        taskPackId: 17,
+        baseRevisionId: 101,
+        lifecycle: { state: "materialized", materializedRevisionId: 102 },
+        draftVersion: 2,
+      }),
+    ),
+  );
+});
+
+scenario("discarded persisted draft with a positive version validates", () => {
+  assert.doesNotThrow(() =>
+    assertPersistedTaskPackDraft(
+      draft({ lifecycle: { state: "discarded", materializedRevisionId: null }, draftVersion: 100 }),
+    ),
+  );
+});
+
+scenario("persisted draft accepts the maximum safe draft version", () => {
+  assert.doesNotThrow(() =>
+    assertPersistedTaskPackDraft(draft({ draftVersion: Number.MAX_SAFE_INTEGER })),
+  );
+});
+
+scenario("persisted draft requires draft version", () => {
+  const { draftVersion: _draftVersion, ...withoutDraftVersion } = draft();
+  expectDomainError(() => assertPersistedTaskPackDraft(withoutDraftVersion), "invalid_contract");
+});
+
+for (const [label, draftVersion] of [
+  ["zero", 0],
+  ["negative", -1],
+  ["fractional", 1.5],
+  ["NaN", Number.NaN],
+  ["infinite", Number.POSITIVE_INFINITY],
+  ["unsafe integer", Number.MAX_SAFE_INTEGER + 1],
+  ["string", "1"],
+  ["null", null],
+  ["undefined", undefined],
+] as const) {
+  scenario(`persisted draft rejects ${label} draft version`, () => {
+    expectDomainError(
+      () => assertPersistedTaskPackDraft(draft({ draftVersion } as unknown as Partial<PersistedTaskPackDraft>)),
+      "invalid_identity",
+    );
+  });
+}
+
+scenario("persisted draft contract rejects unknown outer fields", () => {
+  expectDomainError(
+    () => assertPersistedTaskPackDraft({ ...draft(), unexpectedField: "x" }),
+    "invalid_contract",
+  );
+});
+
+scenario("persisted draft rejects blank raw task", () => {
+  expectDomainError(
+    () => assertPersistedTaskPackDraft(draft({ content: { ...draft().content, rawTask: "" } })),
+    "invalid_contract",
+  );
+});
+
+scenario("persisted draft rejects whitespace-only raw task", () => {
+  expectDomainError(
+    () => assertPersistedTaskPackDraft(draft({ content: { ...draft().content, rawTask: " \t\r\n" } })),
+    "invalid_contract",
+  );
+});
+
+scenario("draft version remains outer persisted metadata", () => {
+  assert.equal(draftContentHasDraftVersion, false);
+  assert.equal(Object.prototype.hasOwnProperty.call(draft().content, "draftVersion"), false);
 });
 
 scenario("materialized draft requires resulting revision", () => {

@@ -189,6 +189,11 @@ export interface PersistedTaskPackDraft {
   readonly baseRevisionId: TaskPackRevisionId | null;
   readonly content: TaskPackDraftContent;
   readonly lifecycle: TaskPackDraftLifecycle;
+  /**
+   * Optimistic-concurrency token for a mutable persisted draft. Storage initializes it to 1,
+   * increments it after a successful state/content mutation, and retains it for semantic no-ops.
+   */
+  readonly draftVersion: number;
   readonly createdAt: string;
   readonly updatedAt: string;
   readonly expiresAt: string | null;
@@ -551,6 +556,7 @@ export function assertPersistedTaskPackDraft(
     "baseRevisionId",
     "content",
     "lifecycle",
+    "draftVersion",
     "createdAt",
     "updatedAt",
     "expiresAt",
@@ -561,6 +567,7 @@ export function assertPersistedTaskPackDraft(
   assertNullablePositiveInteger(draft.baseRevisionId, "draft base revision identity");
   assertTaskPackDraftContent(draft.content);
   assertTaskPackDraftLifecycle(draft.lifecycle);
+  assertPositiveInteger(draft.draftVersion, "draft version");
   assertIsoTimestamp(draft.createdAt, "draft createdAt");
   assertIsoTimestamp(draft.updatedAt, "draft updatedAt");
   assertNullableIsoTimestamp(draft.expiresAt, "draft expiresAt");
