@@ -14,6 +14,7 @@ import {
   type TaskPackRevisionContent,
 } from "../taskPacks/taskPackLifecycle.js";
 import { parseJsonValue, stringifyJsonValue } from "./json.js";
+import { TaskPackCurrentStateStorageError } from "./types.js";
 import {
   applySqliteMigrationTransaction,
   SQLITE_MIGRATIONS,
@@ -49,6 +50,7 @@ import type {
   StorageSchemaInfo,
   TaskPackAggregateLifecycleEventRecord,
   TaskPackAggregateRecord,
+  TaskPackCurrentRecord,
   TaskPackRecord,
   TaskPackRevisionRecord,
   TaskPackRevisionReviewEventRecord,
@@ -89,6 +91,12 @@ type TaskPackRow = {
   generation_recipe: string | null;
   created_at: string;
   updated_at: string;
+};
+
+type TaskPackCurrentRow = TaskPackRow & {
+  current_revision_id: number | null;
+  resolved_current_revision_id: number | null;
+  current_revision_task_pack_id: number | null;
 };
 
 
@@ -178,6 +186,22 @@ function revisionContentFromAppendInput(
     diagnostics: input.diagnostics,
     groundedContextSnapshot: input.groundedContextSnapshot,
     freshnessBasis: input.freshnessBasis,
+  };
+}
+
+function mapTaskPackCurrentRow(row: TaskPackCurrentRow): TaskPackCurrentRecord {
+  const currentRevisionId = Number(row.current_revision_id);
+  if (
+    !Number.isSafeInteger(currentRevisionId) ||
+    currentRevisionId <= 0 ||
+    Number(row.resolved_current_revision_id) !== currentRevisionId ||
+    Number(row.current_revision_task_pack_id) !== row.id
+  ) {
+    throw new TaskPackCurrentStateStorageError();
+  }
+  return {
+    ...mapTaskPackRow(row),
+    currentRevisionId,
   };
 }
 
@@ -588,6 +612,45 @@ export class SqliteStorageAdapter implements StorageAdapter {
     );
 
     return row ? mapTaskPackRow(row) : null;
+  }
+
+  async listTaskPackCurrentRecords(): Promise<TaskPackCurrentRecord[]> {
+    const rows = await this.getAll<TaskPackCurrentRow>(`
+      SELECT
+        tp.*,
+        p.name AS project_name,
+        current_revision.id AS resolved_current_revision_id,
+        current_revision.task_pack_id AS current_revision_task_pack_id
+      FROM task_packs tp
+      JOIN projects p ON p.id = tp.project_id
+      LEFT JOIN task_pack_revisions current_revision
+        ON current_revision.id = tp.current_revision_id
+      ORDER BY tp.created_at DESC;
+    `);
+
+    return rows.map(mapTaskPackCurrentRow);
+  }
+
+  async getTaskPackCurrentRecordById(
+    taskPackId: number,
+  ): Promise<TaskPackCurrentRecord | null> {
+    const row = await this.getOne<TaskPackCurrentRow>(
+      `
+      SELECT
+        tp.*,
+        p.name AS project_name,
+        current_revision.id AS resolved_current_revision_id,
+        current_revision.task_pack_id AS current_revision_task_pack_id
+      FROM task_packs tp
+      JOIN projects p ON p.id = tp.project_id
+      LEFT JOIN task_pack_revisions current_revision
+        ON current_revision.id = tp.current_revision_id
+      WHERE tp.id = ?;
+      `,
+      [taskPackId],
+    );
+
+    return row ? mapTaskPackCurrentRow(row) : null;
   }
 
   async createTaskPack(input: CreateTaskPackInput): Promise<TaskPackRecord> {

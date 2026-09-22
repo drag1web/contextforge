@@ -78,6 +78,23 @@ export interface TaskPackRecord {
   updatedAt: string;
 }
 
+/**
+ * Transitional current-read projection. The legacy TaskPackRecord remains
+ * unchanged for MCP, backup, and existing storage consumers.
+ */
+export interface TaskPackCurrentRecord extends TaskPackRecord {
+  readonly currentRevisionId: number;
+}
+
+export class TaskPackCurrentStateStorageError extends Error {
+  readonly code = "TASK_PACK_CURRENT_STATE_INVALID" as const;
+
+  constructor() {
+    super("Task Pack current state is invalid.");
+    this.name = "TaskPackCurrentStateStorageError";
+  }
+}
+
 export interface CreateTaskPackInput {
   projectId: number;
   title: string;
@@ -172,6 +189,10 @@ export interface StorageAdapter {
 
   listTaskPacks(): Promise<TaskPackRecord[]>;
   getTaskPackById(taskPackId: number): Promise<TaskPackRecord | null>;
+  listTaskPackCurrentRecords(): Promise<TaskPackCurrentRecord[]>;
+  getTaskPackCurrentRecordById(
+    taskPackId: number
+  ): Promise<TaskPackCurrentRecord | null>;
   createTaskPack(input: CreateTaskPackInput): Promise<TaskPackRecord>;
   updateTaskPackGenerationRecipe(
     taskPackId: number,

@@ -79,6 +79,11 @@ import { isSecretLikePath } from "../selection/safetyPolicy.js";
 import type { FileSelectionEvidence } from "../selection/repositorySemanticIndex.js";
 import { buildExportSafeProjectMetadata } from "../taskPacks/taskPackPrivacy.js";
 import { resolveTaskUnderstandingInteraction } from "../taskPacks/taskUnderstandingInteraction.js";
+import {
+  createTaskPackApplicationService,
+  TaskPackCurrentStateError,
+  type TaskPackApplicationService,
+} from "../taskPacks/taskPackApplicationService.js";
 import { groundTaskCurrentState } from "../taskPacks/taskCurrentStateGrounding.js";
 import { applyTaskUnderstandingReviewAcceptance } from "../ollama/taskUnderstanding.js";
 import {
@@ -2248,14 +2253,71 @@ function buildGenerationRecipeMetadata(
   };
 }
 
-taskPacksRouter.get("/", async (_req, res) => {
-  const taskPacks = await storage.listTaskPacks();
+export type TaskPackCurrentReadService = Pick<
+  TaskPackApplicationService,
+  "listCurrentTaskPacks" | "getCurrentTaskPack"
+>;
 
-  res.json({
-    ok: true,
-    taskPacks,
+export function registerTaskPackCurrentReadRoutes(
+  router: ReturnType<typeof Router>,
+  service: TaskPackCurrentReadService,
+): void {
+  router.get("/", async (_req, res) => {
+    try {
+      const taskPacks = await service.listCurrentTaskPacks();
+      res.json({ ok: true, taskPacks });
+    } catch (error) {
+      if (error instanceof TaskPackCurrentStateError) {
+        res.status(500).json({
+          ok: false,
+          code: error.code,
+          message: "Task Pack current state is invalid.",
+        });
+        return;
+      }
+      console.error("Failed to read Task Packs:", error);
+      res.status(500).json({ ok: false, message: "Failed to read Task Packs" });
+    }
   });
-});
+
+  router.get("/:id", async (req, res) => {
+    const rawTaskPackId = req.params.id;
+    if (!/^[1-9]\d*$/.test(rawTaskPackId)) {
+      res.status(400).json({ ok: false, message: "Invalid Task Pack id" });
+      return;
+    }
+    const taskPackId = Number(rawTaskPackId);
+    if (!Number.isSafeInteger(taskPackId) || taskPackId <= 0) {
+      res.status(400).json({ ok: false, message: "Invalid Task Pack id" });
+      return;
+    }
+
+    try {
+      const taskPack = await service.getCurrentTaskPack(taskPackId);
+      if (!taskPack) {
+        res.status(404).json({ ok: false, message: "Task Pack not found" });
+        return;
+      }
+      res.json({ ok: true, taskPack });
+    } catch (error) {
+      if (error instanceof TaskPackCurrentStateError) {
+        res.status(500).json({
+          ok: false,
+          code: error.code,
+          message: "Task Pack current state is invalid.",
+        });
+        return;
+      }
+      console.error("Failed to read Task Pack:", error);
+      res.status(500).json({ ok: false, message: "Failed to read Task Pack" });
+    }
+  });
+}
+
+registerTaskPackCurrentReadRoutes(
+  taskPacksRouter,
+  createTaskPackApplicationService(storage),
+);
 
 
 taskPacksRouter.patch("/:id/content", async (req, res) => {

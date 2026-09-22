@@ -1,5 +1,6 @@
 import { pool } from "../db/pool.js";
 import type { ScannedProject } from "../scanner/projectScanner.js";
+import { TaskPackCurrentStateStorageError } from "./types.js";
 import {
   assertTaskPackAggregateLifecycleEvent,
   assertTaskPackRevision,
@@ -33,6 +34,7 @@ import type {
   StorageSchemaInfo,
   TaskPackAggregateLifecycleEventRecord,
   TaskPackAggregateRecord,
+  TaskPackCurrentRecord,
   TaskPackRecord,
   TaskPackRevisionRecord,
   TaskPackRevisionReviewEventRecord,
@@ -95,6 +97,22 @@ function revisionContentFromAppendInput(
     diagnostics: input.diagnostics,
     groundedContextSnapshot: input.groundedContextSnapshot,
     freshnessBasis: input.freshnessBasis,
+  };
+}
+
+function mapTaskPackCurrentRow(row: any): TaskPackCurrentRecord {
+  const currentRevisionId = Number(row.currentRevisionId);
+  if (
+    !Number.isSafeInteger(currentRevisionId) ||
+    currentRevisionId <= 0 ||
+    Number(row.resolvedCurrentRevisionId) !== currentRevisionId ||
+    Number(row.currentRevisionTaskPackId) !== Number(row.id)
+  ) {
+    throw new TaskPackCurrentStateStorageError();
+  }
+  return {
+    ...mapTaskPackRow(row),
+    currentRevisionId,
   };
 }
 
@@ -461,6 +479,75 @@ export class PostgresStorageAdapter implements StorageAdapter {
     );
 
     return result.rows[0] ? mapTaskPackRow(result.rows[0]) : null;
+  }
+
+  async listTaskPackCurrentRecords(): Promise<TaskPackCurrentRecord[]> {
+    const result = await pool.query(`
+      SELECT
+        tp.id,
+        tp.project_id AS "projectId",
+        p.name AS "projectName",
+        tp.title,
+        tp.raw_task AS "rawTask",
+        tp.task_type AS "taskType",
+        tp.target_tool AS "targetTool",
+        tp.generated_prompt AS "generatedPrompt",
+        tp.generation_mode AS "generationMode",
+        tp.generation_model AS "generationModel",
+        tp.generation_message AS "generationMessage",
+        tp.generation_used_fallback AS "generationUsedFallback",
+        tp.generation_duration_ms AS "generationDurationMs",
+        tp.generation_recipe AS "generationRecipe",
+        tp.created_at AS "createdAt",
+        tp.updated_at AS "updatedAt",
+        tp.current_revision_id AS "currentRevisionId",
+        current_revision.id AS "resolvedCurrentRevisionId",
+        current_revision.task_pack_id AS "currentRevisionTaskPackId"
+      FROM task_packs tp
+      JOIN projects p ON p.id = tp.project_id
+      LEFT JOIN task_pack_revisions current_revision
+        ON current_revision.id = tp.current_revision_id
+      ORDER BY tp.created_at DESC;
+    `);
+
+    return result.rows.map(mapTaskPackCurrentRow);
+  }
+
+  async getTaskPackCurrentRecordById(
+    taskPackId: number,
+  ): Promise<TaskPackCurrentRecord | null> {
+    const result = await pool.query(
+      `
+      SELECT
+        tp.id,
+        tp.project_id AS "projectId",
+        p.name AS "projectName",
+        tp.title,
+        tp.raw_task AS "rawTask",
+        tp.task_type AS "taskType",
+        tp.target_tool AS "targetTool",
+        tp.generated_prompt AS "generatedPrompt",
+        tp.generation_mode AS "generationMode",
+        tp.generation_model AS "generationModel",
+        tp.generation_message AS "generationMessage",
+        tp.generation_used_fallback AS "generationUsedFallback",
+        tp.generation_duration_ms AS "generationDurationMs",
+        tp.generation_recipe AS "generationRecipe",
+        tp.created_at AS "createdAt",
+        tp.updated_at AS "updatedAt",
+        tp.current_revision_id AS "currentRevisionId",
+        current_revision.id AS "resolvedCurrentRevisionId",
+        current_revision.task_pack_id AS "currentRevisionTaskPackId"
+      FROM task_packs tp
+      JOIN projects p ON p.id = tp.project_id
+      LEFT JOIN task_pack_revisions current_revision
+        ON current_revision.id = tp.current_revision_id
+      WHERE tp.id = $1;
+      `,
+      [taskPackId],
+    );
+
+    return result.rows[0] ? mapTaskPackCurrentRow(result.rows[0]) : null;
   }
 
   async createTaskPack(input: CreateTaskPackInput): Promise<TaskPackRecord> {
