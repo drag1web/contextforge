@@ -5,6 +5,7 @@ import {
   projectTaskPackGenerationRecipeWithGitHubCreatedIssue,
   TaskPackCurrentStateStorageError,
   TaskPackGitHubCreatedIssueLinkStorageError,
+  TaskPackRevisionAppendStorageError,
 } from "./types.js";
 import {
   assertTaskPackAggregateLifecycleEvent,
@@ -1078,22 +1079,40 @@ export class PostgresStorageAdapter implements StorageAdapter {
          FROM task_packs WHERE id = $1 FOR UPDATE;`,
         [input.taskPackId],
       );
-      if (!aggregateResult.rows[0]) throw new Error("Task Pack aggregate not found.");
+      if (!aggregateResult.rows[0]) {
+        throw new TaskPackRevisionAppendStorageError(
+          "TASK_PACK_NOT_FOUND",
+          input.taskPackId,
+        );
+      }
       const aggregate = mapTaskPackAggregatePersistenceRow(
         aggregateResult.rows[0] as TaskPackAggregatePersistenceRow,
       );
       if (aggregate.lifecycle.state !== "active") {
-        throw new Error("Only an active Task Pack can receive a revision.");
+        throw new TaskPackRevisionAppendStorageError(
+          "TASK_PACK_NOT_ACTIVE",
+          input.taskPackId,
+        );
       }
       if (aggregate.currentRevisionId !== input.baseRevisionId) {
-        throw new Error("Task Pack base revision is stale.");
+        throw new TaskPackRevisionAppendStorageError(
+          "TASK_PACK_REVISION_CONFLICT",
+          input.taskPackId,
+          input.baseRevisionId,
+          aggregate.currentRevisionId,
+        );
       }
       const baseResult = await client.query(
         "SELECT * FROM task_pack_revisions WHERE task_pack_id = $1 AND id = $2;",
         [input.taskPackId, input.baseRevisionId],
       );
       if (!baseResult.rows[0]) {
-        throw new Error("Task Pack base revision does not belong to the aggregate.");
+        throw new TaskPackRevisionAppendStorageError(
+          "TASK_PACK_BASE_REVISION_INVALID",
+          input.taskPackId,
+          input.baseRevisionId,
+          aggregate.currentRevisionId,
+        );
       }
       const base = mapTaskPackRevisionPersistenceRow(
         baseResult.rows[0] as TaskPackRevisionPersistenceRow,
@@ -1144,7 +1163,7 @@ export class PostgresStorageAdapter implements StorageAdapter {
         inserted.rows[0] as TaskPackRevisionPersistenceRow,
       );
       assertTaskPackRevision(revision, { aggregate, baseRevision: base });
-      await client.query(
+      const pointerUpdate = await client.query(
         `UPDATE task_packs
          SET current_revision_id = $1, lifecycle_version = lifecycle_version + 1,
              raw_task = $2, task_type = $3, target_tool = $4, generated_prompt = $5,
@@ -1169,6 +1188,9 @@ export class PostgresStorageAdapter implements StorageAdapter {
           input.baseRevisionId,
         ],
       );
+      if (pointerUpdate.rowCount !== 1) {
+        throw new TaskPackCurrentStateStorageError();
+      }
       await client.query("COMMIT");
       return revision;
     } catch (error) {

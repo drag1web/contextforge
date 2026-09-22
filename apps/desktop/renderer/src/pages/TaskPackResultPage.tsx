@@ -37,6 +37,7 @@ import {
 import type { TaskPack } from "../types";
 import {
   createGitHubIssueFromTaskPack,
+  getTaskPack,
   updateTaskPackContent,
 } from "../api/client";
 import { AiToolLogo } from "../components/ai/AiToolLogo";
@@ -52,6 +53,12 @@ import { SelectorDiagnosticsModal } from "../components/selector/SelectorDiagnos
 import { GenerationDiagnosticsModal } from "../components/generation/GenerationDiagnosticsModal";
 import { PerformanceDiagnosticsModal } from "../components/performance/PerformanceDiagnosticsModal";
 import type { TaskPackFreshness } from "../utils/taskPackFreshness";
+import {
+  buildTaskPackEditorUpdate,
+  createTaskPackEditorSession,
+  type TaskPackEditorKind,
+  type TaskPackEditorSession,
+} from "../utils/taskPackEditorSession";
 
 interface TaskPackResultPageProps {
   taskPack: TaskPack;
@@ -1173,38 +1180,29 @@ function PromptPanel({
 }
 
 
-type TaskPackEditorKind = "task" | "prompt";
 type TaskPackEditorView = "edit" | "preview";
 
 function TaskPackEditorDrawer({
-  kind,
-  taskPack,
+  session,
   onClose,
   onSave,
   onOpenInBuilder,
 }: {
-  kind: TaskPackEditorKind;
-  taskPack: TaskPack;
+  session: TaskPackEditorSession;
   onClose: () => void;
   onSave: (input: {
+    expectedCurrentRevisionId: number;
     rawTask?: string;
     generatedPrompt?: string;
   }) => Promise<TaskPack>;
   onOpenInBuilder?: (taskPack: TaskPack) => void;
 }) {
   const { t } = useTranslation();
-  const sourceValue =
-    kind === "task" ? taskPack.rawTask : taskPack.generatedPrompt;
+  const { kind, sourceValue, taskPack } = session;
   const [value, setValue] = useState(sourceValue);
   const [editorView, setEditorView] = useState<TaskPackEditorView>("edit");
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState("");
-
-  useEffect(() => {
-    setValue(sourceValue);
-    setEditorView("edit");
-    setError("");
-  }, [kind, sourceValue]);
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -1242,9 +1240,7 @@ function TaskPackEditorDrawer({
 
     try {
       return await onSave(
-        kind === "task"
-          ? { rawTask: trimmedValue }
-          : { generatedPrompt: trimmedValue },
+        buildTaskPackEditorUpdate(session, trimmedValue),
       );
     } catch (saveError) {
       setError(
@@ -1534,7 +1530,8 @@ export function TaskPackResultPage({
   const [isSelectorDiagnosticsOpen, setIsSelectorDiagnosticsOpen] = useState(false);
   const [isGenerationDiagnosticsOpen, setIsGenerationDiagnosticsOpen] = useState(false);
   const [isPerformanceDiagnosticsOpen, setIsPerformanceDiagnosticsOpen] = useState(false);
-  const [editorKind, setEditorKind] = useState<TaskPackEditorKind | null>(null);
+  const [editorSession, setEditorSession] = useState<TaskPackEditorSession | null>(null);
+  const [editorOpenError, setEditorOpenError] = useState("");
 
   useEffect(() => {
     setCurrentTaskPack(taskPack);
@@ -1623,11 +1620,39 @@ export function TaskPackResultPage({
     onTaskPackUpdated?.(nextTaskPack);
   }
 
-  async function handleSaveEditor(input: {
-    rawTask?: string;
-    generatedPrompt?: string;
-  }) {
-    const nextTaskPack = await updateTaskPackContent(currentTaskPack.id, input);
+  async function handleOpenEditor(kind: TaskPackEditorKind) {
+    setEditorOpenError("");
+    try {
+      let taskPackForSession = currentTaskPack;
+      if (
+        !Number.isSafeInteger(taskPackForSession.currentRevisionId) ||
+        (taskPackForSession.currentRevisionId ?? 0) <= 0
+      ) {
+        taskPackForSession = await getTaskPack(currentTaskPack.id);
+        handleTaskPackUpdated(taskPackForSession);
+      }
+      setEditorSession(createTaskPackEditorSession(taskPackForSession, kind));
+    } catch (error) {
+      setEditorOpenError(
+        error instanceof Error
+          ? error.message
+          : t("taskPackResult.editorSaveFailed"),
+      );
+    }
+  }
+
+  async function handleSaveEditor(
+    session: TaskPackEditorSession,
+    input: {
+      expectedCurrentRevisionId: number;
+      rawTask?: string;
+      generatedPrompt?: string;
+    },
+  ) {
+    if (input.expectedCurrentRevisionId !== session.expectedCurrentRevisionId) {
+      throw new Error("Task Pack editor revision token changed unexpectedly.");
+    }
+    const nextTaskPack = await updateTaskPackContent(session.taskPackId, input);
     handleTaskPackUpdated(nextTaskPack);
     return nextTaskPack;
   }
@@ -1712,6 +1737,11 @@ export function TaskPackResultPage({
             />
           </div>
         ) : null}
+        {editorOpenError ? (
+          <div className="border-t border-red-400/15 bg-red-400/[0.055] px-4 py-3 text-xs text-red-200">
+            {editorOpenError}
+          </div>
+        ) : null}
       </header>
 
       <div className="grid min-h-0 gap-4 overflow-hidden xl:grid-cols-[340px_minmax(0,1fr)]">
@@ -1719,7 +1749,7 @@ export function TaskPackResultPage({
           <GenerationSummaryCard taskPack={currentTaskPack} />
           <OriginalTaskCard
             taskPack={currentTaskPack}
-            onEdit={() => setEditorKind("task")}
+            onEdit={() => void handleOpenEditor("task")}
           />
           <GenerationContractCard taskPack={currentTaskPack} />
         </aside>
@@ -1748,7 +1778,7 @@ export function TaskPackResultPage({
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => setEditorKind("prompt")}
+                onClick={() => void handleOpenEditor("prompt")}
                 className="inline-flex h-9 items-center gap-2 rounded-full border border-neutral-800 bg-neutral-950 px-3 text-xs font-medium text-neutral-300 transition hover:border-white/20 hover:text-white"
               >
                 <Edit3 size={13} />
@@ -1806,12 +1836,12 @@ export function TaskPackResultPage({
         />
       )}
       <AnimatePresence>
-        {editorKind ? (
+        {editorSession ? (
           <TaskPackEditorDrawer
-            kind={editorKind}
-            taskPack={currentTaskPack}
-            onClose={() => setEditorKind(null)}
-            onSave={handleSaveEditor}
+            key={`${editorSession.taskPackId}:${editorSession.expectedCurrentRevisionId}:${editorSession.kind}`}
+            session={editorSession}
+            onClose={() => setEditorSession(null)}
+            onSave={(input) => handleSaveEditor(editorSession, input)}
             onOpenInBuilder={onOpenInBuilder}
           />
         ) : null}

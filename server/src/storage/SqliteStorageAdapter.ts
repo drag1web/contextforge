@@ -19,6 +19,7 @@ import {
   projectTaskPackGenerationRecipeWithGitHubCreatedIssue,
   TaskPackCurrentStateStorageError,
   TaskPackGitHubCreatedIssueLinkStorageError,
+  TaskPackRevisionAppendStorageError,
 } from "./types.js";
 import {
   applySqliteMigrationTransaction,
@@ -1093,15 +1094,35 @@ export class SqliteStorageAdapter implements StorageAdapter {
   ): Promise<TaskPackRevisionRecord> {
     return this.withTransaction(async () => {
       const aggregate = await this.getTaskPackAggregate(input.taskPackId);
-      if (!aggregate) throw new Error("Task Pack aggregate not found.");
+      if (!aggregate) {
+        throw new TaskPackRevisionAppendStorageError(
+          "TASK_PACK_NOT_FOUND",
+          input.taskPackId,
+        );
+      }
       if (aggregate.lifecycle.state !== "active") {
-        throw new Error("Only an active Task Pack can receive a revision.");
+        throw new TaskPackRevisionAppendStorageError(
+          "TASK_PACK_NOT_ACTIVE",
+          input.taskPackId,
+        );
       }
       if (aggregate.currentRevisionId !== input.baseRevisionId) {
-        throw new Error("Task Pack base revision is stale.");
+        throw new TaskPackRevisionAppendStorageError(
+          "TASK_PACK_REVISION_CONFLICT",
+          input.taskPackId,
+          input.baseRevisionId,
+          aggregate.currentRevisionId,
+        );
       }
       const base = await this.getTaskPackRevisionById(input.taskPackId, input.baseRevisionId);
-      if (!base) throw new Error("Task Pack base revision does not belong to the aggregate.");
+      if (!base) {
+        throw new TaskPackRevisionAppendStorageError(
+          "TASK_PACK_BASE_REVISION_INVALID",
+          input.taskPackId,
+          input.baseRevisionId,
+          aggregate.currentRevisionId,
+        );
+      }
 
       const content = revisionContentFromAppendInput(input);
       const nextRevisionRow = await this.getOne<{ revision_number: number }>(
@@ -1148,6 +1169,12 @@ export class SqliteStorageAdapter implements StorageAdapter {
           input.baseRevisionId,
         ],
       );
+      const changed = await this.getOne<{ changed: number }>(
+        "SELECT changes() AS changed;",
+      );
+      if (Number(changed?.changed ?? 0) !== 1) {
+        throw new TaskPackCurrentStateStorageError();
+      }
       return revision;
     });
   }

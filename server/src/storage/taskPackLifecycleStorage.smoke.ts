@@ -19,6 +19,7 @@ import {
 } from "./migrations.js";
 import { SqliteStorageAdapter } from "./SqliteStorageAdapter.js";
 import { createSqlitePreMigrationBackup } from "./storageBackupPaths.js";
+import { TaskPackRevisionAppendStorageError } from "./types.js";
 
 interface SmokeScenario {
   readonly name: string;
@@ -518,27 +519,37 @@ scenario("append revision allocates monotonic number and advances current pointe
 scenario("stale base revision is rejected without another row", async () => {
   const revisions = await adapter.listTaskPackRevisions(firstTaskPackId);
   const stale = revisions[0]!;
-  await assert.rejects(() =>
-    adapter.appendTaskPackRevision({
-      taskPackId: firstTaskPackId,
-      baseRevisionId: stale.id,
-      sourceKind: "manual_edit",
-      rawTask: "Stale",
-      taskType: stale.taskType,
-      targetTool: stale.targetTool,
-      generatedPrompt: "Stale",
-      generationMode: stale.generationMode,
-      generationModel: null,
-      generationMessage: null,
-      generationUsedFallback: false,
-      generationDurationMs: null,
-      generationRecipe: null,
-      diagnostics: null,
-      groundedContextSnapshot: null,
-      freshnessBasis: null,
-      createdAt: "2026-09-18T10:01:00.000Z",
-      generatedAt: null,
-    }),
+  const actualCurrent = revisions[1]!;
+  await assert.rejects(
+    () =>
+      adapter.appendTaskPackRevision({
+        taskPackId: firstTaskPackId,
+        baseRevisionId: stale.id,
+        sourceKind: "manual_edit",
+        rawTask: "Stale",
+        taskType: stale.taskType,
+        targetTool: stale.targetTool,
+        generatedPrompt: "Stale",
+        generationMode: stale.generationMode,
+        generationModel: null,
+        generationMessage: null,
+        generationUsedFallback: false,
+        generationDurationMs: null,
+        generationRecipe: null,
+        diagnostics: null,
+        groundedContextSnapshot: null,
+        freshnessBasis: null,
+        createdAt: "2026-09-18T10:01:00.000Z",
+        generatedAt: null,
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof TaskPackRevisionAppendStorageError);
+      assert.equal(error.code, "TASK_PACK_REVISION_CONFLICT");
+      assert.equal(error.taskPackId, firstTaskPackId);
+      assert.equal(error.expectedCurrentRevisionId, stale.id);
+      assert.equal(error.actualCurrentRevisionId, actualCurrent.id);
+      return true;
+    },
   );
   assert.equal((await adapter.listTaskPackRevisions(firstTaskPackId)).length, 2);
 });

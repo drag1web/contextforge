@@ -486,6 +486,13 @@ export async function getTaskPacks(): Promise<TaskPack[]> {
   return data.taskPacks;
 }
 
+export async function getTaskPack(taskPackId: number): Promise<TaskPack> {
+  const data = await request<{ ok: true; taskPack: TaskPack }>(
+    `/task-packs/${taskPackId}`,
+  );
+  return data.taskPack;
+}
+
 export async function importCloudTaskPack(input: {
   projectId: number;
   deliveryId: string;
@@ -584,6 +591,7 @@ export async function createTaskPack(input: {
 export async function updateTaskPackContent(
   taskPackId: number,
   input: {
+    expectedCurrentRevisionId: number;
     rawTask?: string;
     generatedPrompt?: string;
   },

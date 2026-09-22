@@ -96,6 +96,24 @@ export class TaskPackCurrentStateStorageError extends Error {
   }
 }
 
+export type TaskPackRevisionAppendStorageErrorCode =
+  | "TASK_PACK_NOT_FOUND"
+  | "TASK_PACK_NOT_ACTIVE"
+  | "TASK_PACK_REVISION_CONFLICT"
+  | "TASK_PACK_BASE_REVISION_INVALID";
+
+export class TaskPackRevisionAppendStorageError extends Error {
+  constructor(
+    readonly code: TaskPackRevisionAppendStorageErrorCode,
+    readonly taskPackId: number,
+    readonly expectedCurrentRevisionId?: number,
+    readonly actualCurrentRevisionId?: number,
+  ) {
+    super(code);
+    this.name = "TaskPackRevisionAppendStorageError";
+  }
+}
+
 export interface CreateTaskPackInput {
   projectId: number;
   title: string;

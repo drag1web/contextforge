@@ -9,10 +9,14 @@ import type {
   TaskPackRecord,
   TaskPackRevisionRecord,
 } from "../storage/types.js";
-import { TaskPackCurrentStateStorageError } from "../storage/types.js";
+import {
+  TaskPackCurrentStateStorageError,
+  TaskPackRevisionAppendStorageError,
+} from "../storage/types.js";
 import {
   createTaskPackApplicationService,
   TaskPackCurrentStateError,
+  TaskPackRevisionConflictError,
   type TaskPackApplicationServiceStorage,
 } from "./taskPackApplicationService.js";
 
@@ -203,6 +207,7 @@ function storageFixture(
       archivedAt: null,
     }),
     getTaskPackRevisionById: async () => revision,
+    appendTaskPackRevision: async () => revision,
     createTaskPackWithInitialRevision: async () => taskPack,
     getTaskPackGitHubCreatedIssueLink: async () => null,
     createTaskPackGitHubCreatedIssueLink: async (input) => input,
@@ -273,6 +278,38 @@ scenario("mismatched current revision identity fails closed", async () => {
   await assert.rejects(
     () => service.getCurrentTaskPackRevision(taskPack.id),
     TaskPackCurrentStateError,
+  );
+});
+
+scenario("transaction-level stale append becomes a typed service conflict", async () => {
+  const expected = currentRecord.currentRevisionId;
+  const actual = expected + 1;
+  const service = createTaskPackApplicationService(
+    storageFixture({
+      appendTaskPackRevision: async () => {
+        throw new TaskPackRevisionAppendStorageError(
+          "TASK_PACK_REVISION_CONFLICT",
+          taskPack.id,
+          expected,
+          actual,
+        );
+      },
+    }),
+  );
+  await assert.rejects(
+    () =>
+      service.editTaskPackContent({
+        taskPackId: taskPack.id,
+        expectedCurrentRevisionId: expected,
+        rawTask: "Concurrent edit",
+      }),
+    (error: unknown) => {
+      assert.ok(error instanceof TaskPackRevisionConflictError);
+      assert.equal(error.taskPackId, taskPack.id);
+      assert.equal(error.expectedCurrentRevisionId, expected);
+      assert.equal(error.actualCurrentRevisionId, actual);
+      return true;
+    },
   );
 });
 

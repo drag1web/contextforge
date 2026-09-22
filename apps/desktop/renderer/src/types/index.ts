@@ -648,6 +648,7 @@ export interface SelectorPipelineDiagnostics {
 
 export interface TaskPack {
   id: number;
+  currentRevisionId?: number;
   projectId: number;
   projectName?: string;
   title: string;

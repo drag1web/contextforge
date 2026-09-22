@@ -2,6 +2,7 @@ import {
   buildTaskPackGitHubCreatedIssueCompatibilityLink,
   TaskPackCurrentStateStorageError,
   TaskPackGitHubCreatedIssueLinkStorageError,
+  TaskPackRevisionAppendStorageError,
 } from "../storage/types.js";
 import type {
   CreateTaskPackGitHubCreatedIssueLinkInput,
@@ -38,6 +39,7 @@ export type TaskPackApplicationServiceStorage = Pick<
   | "getTaskPackAggregate"
   | "getTaskPackRevisionById"
   | "createTaskPackWithInitialRevision"
+  | "appendTaskPackRevision"
   | "getTaskPackGitHubCreatedIssueLink"
   | "createTaskPackGitHubCreatedIssueLink"
 >;
@@ -62,16 +64,66 @@ export interface CreateGeneratedTaskPackInput {
   readonly performanceDiagnostics: unknown | null;
 }
 
+export interface EditTaskPackContentInput {
+  readonly taskPackId: number;
+  readonly expectedCurrentRevisionId: number;
+  readonly rawTask?: string;
+  readonly generatedPrompt?: string;
+}
+
 export interface TaskPackApplicationService {
   listCurrentTaskPacks(): Promise<TaskPackCurrentRecord[]>;
   getCurrentTaskPack(taskPackId: number): Promise<TaskPackCurrentRecord | null>;
   getTaskPackAggregate(taskPackId: number): Promise<TaskPackAggregateRecord | null>;
   getCurrentTaskPackRevision(taskPackId: number): Promise<TaskPackRevisionRecord | null>;
   createGeneratedTaskPack(input: CreateGeneratedTaskPackInput): Promise<TaskPackRecord>;
+  editTaskPackContent(input: EditTaskPackContentInput): Promise<TaskPackCurrentRecord>;
   getGitHubCreatedIssueLink(taskPackId: number): Promise<GitHubCreatedIssueLink | null>;
   linkCreatedGitHubIssue(
     input: CreateTaskPackGitHubCreatedIssueLinkInput,
   ): Promise<GitHubCreatedIssueLink>;
+}
+
+export class TaskPackNotFoundError extends Error {
+  readonly code = "TASK_PACK_NOT_FOUND" as const;
+
+  constructor(readonly taskPackId: number) {
+    super("Task Pack not found.");
+    this.name = "TaskPackNotFoundError";
+  }
+}
+
+export class TaskPackRevisionConflictError extends Error {
+  readonly code = "TASK_PACK_REVISION_CONFLICT" as const;
+
+  constructor(
+    readonly taskPackId: number,
+    readonly expectedCurrentRevisionId: number,
+    readonly actualCurrentRevisionId: number,
+  ) {
+    super(
+      "Task Pack changed after this editor was opened. Close and reopen the editor to edit the latest revision.",
+    );
+    this.name = "TaskPackRevisionConflictError";
+  }
+}
+
+export class TaskPackNotEditableError extends Error {
+  readonly code = "TASK_PACK_NOT_EDITABLE" as const;
+
+  constructor(readonly taskPackId: number) {
+    super("Only an active Task Pack can be edited.");
+    this.name = "TaskPackNotEditableError";
+  }
+}
+
+export class TaskPackEditInputError extends Error {
+  readonly code = "TASK_PACK_EDIT_INVALID" as const;
+
+  constructor(message: string) {
+    super(message);
+    this.name = "TaskPackEditInputError";
+  }
 }
 
 export class TaskPackGeneratedCreateInputError extends Error {
@@ -98,6 +150,39 @@ const RECIPE_DIAGNOSTIC_FIELDS = [
   "performanceDiagnostics",
   "githubCreatedIssue",
 ] as const;
+
+const MANUAL_EDIT_RECIPE_FIELDS = [
+  "template",
+  "ruleProfile",
+  "enabledRules",
+  "customRules",
+  "acceptanceCriteriaPreset",
+  "acceptanceCriteria",
+  "counts",
+] as const;
+
+function cloneJsonValue(value: TaskPackJsonValue): TaskPackJsonValue {
+  if (Array.isArray(value)) return value.map(cloneJsonValue);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [key, cloneJsonValue(item)]),
+    );
+  }
+  return value;
+}
+
+function buildManualEditGenerationRecipe(
+  recipe: TaskPackJsonObject | null,
+): TaskPackJsonObject | null {
+  if (recipe === null) return null;
+  const retained: Record<string, TaskPackJsonValue> = {};
+  for (const field of MANUAL_EDIT_RECIPE_FIELDS) {
+    if (Object.hasOwn(recipe, field)) {
+      retained[field] = cloneJsonValue(recipe[field]!);
+    }
+  }
+  return Object.keys(retained).length > 0 ? retained : null;
+}
 
 function normalizeJsonObject(value: unknown, label: string): TaskPackJsonObject {
   const normalized = normalizeJsonValue(value, label, new WeakSet<object>());
@@ -326,6 +411,117 @@ export function createTaskPackApplicationService(
         compatibilityGenerationRecipe,
       };
       return storage.createTaskPackWithInitialRevision(storageInput);
+    },
+
+    async editTaskPackContent(input) {
+      if (
+        !Number.isSafeInteger(input.taskPackId) ||
+        input.taskPackId <= 0 ||
+        !Number.isSafeInteger(input.expectedCurrentRevisionId) ||
+        input.expectedCurrentRevisionId <= 0 ||
+        (input.rawTask === undefined && input.generatedPrompt === undefined)
+      ) {
+        throw new TaskPackEditInputError("Task Pack edit input is invalid.");
+      }
+
+      const current = await readCurrentTaskPack(input.taskPackId);
+      if (!current) throw new TaskPackNotFoundError(input.taskPackId);
+      if (current.currentRevisionId !== input.expectedCurrentRevisionId) {
+        throw new TaskPackRevisionConflictError(
+          input.taskPackId,
+          input.expectedCurrentRevisionId,
+          current.currentRevisionId,
+        );
+      }
+
+      const aggregate = await storage.getTaskPackAggregate(input.taskPackId);
+      if (!aggregate) throw new TaskPackNotFoundError(input.taskPackId);
+      if (aggregate.currentRevisionId !== input.expectedCurrentRevisionId) {
+        throw new TaskPackRevisionConflictError(
+          input.taskPackId,
+          input.expectedCurrentRevisionId,
+          aggregate.currentRevisionId,
+        );
+      }
+      if (aggregate.lifecycle.state !== "active") {
+        throw new TaskPackNotEditableError(input.taskPackId);
+      }
+
+      const base = await storage.getTaskPackRevisionById(
+        input.taskPackId,
+        input.expectedCurrentRevisionId,
+      );
+      if (
+        !base ||
+        base.id !== input.expectedCurrentRevisionId ||
+        base.taskPackId !== input.taskPackId
+      ) {
+        throw new TaskPackCurrentStateError();
+      }
+
+      const rawTask = input.rawTask ?? base.rawTask;
+      const generatedPrompt = input.generatedPrompt ?? base.generatedPrompt;
+      if (rawTask === base.rawTask && generatedPrompt === base.generatedPrompt) {
+        return current;
+      }
+
+      try {
+        await storage.appendTaskPackRevision({
+          taskPackId: input.taskPackId,
+          baseRevisionId: input.expectedCurrentRevisionId,
+          sourceKind: "manual_edit",
+          rawTask,
+          taskType: base.taskType,
+          targetTool: base.targetTool,
+          generatedPrompt,
+          generationMode: base.generationMode,
+          generationModel: null,
+          generationMessage: null,
+          generationUsedFallback: false,
+          generationDurationMs: null,
+          generationRecipe: buildManualEditGenerationRecipe(
+            base.generationRecipe,
+          ),
+          diagnostics: null,
+          groundedContextSnapshot: null,
+          freshnessBasis: null,
+          createdAt: new Date().toISOString(),
+          generatedAt: null,
+        });
+      } catch (error) {
+        if (error instanceof TaskPackCurrentStateStorageError) {
+          throw new TaskPackCurrentStateError();
+        }
+        if (error instanceof TaskPackRevisionAppendStorageError) {
+          if (error.code === "TASK_PACK_NOT_FOUND") {
+            throw new TaskPackNotFoundError(input.taskPackId);
+          }
+          if (error.code === "TASK_PACK_NOT_ACTIVE") {
+            throw new TaskPackNotEditableError(input.taskPackId);
+          }
+          if (error.code === "TASK_PACK_REVISION_CONFLICT") {
+            if (
+              !Number.isSafeInteger(error.expectedCurrentRevisionId) ||
+              !Number.isSafeInteger(error.actualCurrentRevisionId) ||
+              (error.expectedCurrentRevisionId ?? 0) <= 0 ||
+              (error.actualCurrentRevisionId ?? 0) <= 0
+            ) {
+              throw new TaskPackCurrentStateError();
+            }
+            throw new TaskPackRevisionConflictError(
+              input.taskPackId,
+              error.expectedCurrentRevisionId!,
+              error.actualCurrentRevisionId!,
+            );
+          }
+          throw new TaskPackCurrentStateError();
+        }
+        throw error;
+      }
+
+      const latest = await readCurrentTaskPack(input.taskPackId);
+      if (!latest) throw new TaskPackCurrentStateError();
+      return latest;
     },
 
     async getGitHubCreatedIssueLink(taskPackId) {

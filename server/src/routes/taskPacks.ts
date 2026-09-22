@@ -81,8 +81,12 @@ import { buildExportSafeProjectMetadata } from "../taskPacks/taskPackPrivacy.js"
 import { resolveTaskUnderstandingInteraction } from "../taskPacks/taskUnderstandingInteraction.js";
 import {
   createTaskPackApplicationService,
+  TaskPackEditInputError,
   TaskPackCurrentStateError,
   TaskPackGitHubCreatedIssueAlreadyLinkedError,
+  TaskPackNotEditableError,
+  TaskPackNotFoundError,
+  TaskPackRevisionConflictError,
   type TaskPackApplicationService,
 } from "../taskPacks/taskPackApplicationService.js";
 import { groundTaskCurrentState } from "../taskPacks/taskCurrentStateGrounding.js";
@@ -283,6 +287,11 @@ const createGitHubIssueFromTaskPackSchema = z.object({
 
 const updateTaskPackContentSchema = z
   .object({
+    expectedCurrentRevisionId: z
+      .number()
+      .int()
+      .positive()
+      .refine(Number.isSafeInteger),
     rawTask: z.string().trim().min(3).max(24_000).optional(),
     generatedPrompt: z.string().trim().min(3).max(160_000).optional(),
   })
@@ -2259,6 +2268,11 @@ export type TaskPackCurrentReadService = Pick<
   "listCurrentTaskPacks" | "getCurrentTaskPack"
 >;
 
+export type TaskPackContentEditService = Pick<
+  TaskPackApplicationService,
+  "editTaskPackContent"
+>;
+
 export function registerTaskPackCurrentReadRoutes(
   router: ReturnType<typeof Router>,
   service: TaskPackCurrentReadService,
@@ -2315,51 +2329,96 @@ export function registerTaskPackCurrentReadRoutes(
   });
 }
 
-const taskPackApplicationService = createTaskPackApplicationService(storage);
-registerTaskPackCurrentReadRoutes(taskPacksRouter, taskPackApplicationService);
-
-
-taskPacksRouter.patch("/:id/content", async (req, res) => {
-  const taskPackId = Number(req.params.id);
-  const parsed = updateTaskPackContentSchema.safeParse(req.body ?? {});
-
-  if (!Number.isInteger(taskPackId) || taskPackId <= 0) {
-    res.status(400).json({ ok: false, message: "Invalid Task Pack id" });
-    return;
-  }
-
-  if (!parsed.success) {
-    res.status(400).json({
-      ok: false,
-      message: "Invalid Task Pack content update",
-      issues: parsed.error.issues,
-    });
-    return;
-  }
-
-  try {
-    const updatedTaskPack = await storage.updateTaskPackContent(
-      taskPackId,
-      parsed.data,
-    );
-
-    if (!updatedTaskPack) {
-      res.status(404).json({ ok: false, message: "Task Pack not found" });
+export function registerTaskPackContentEditRoute(
+  router: ReturnType<typeof Router>,
+  service: TaskPackContentEditService,
+): void {
+  router.patch("/:id/content", async (req, res) => {
+    const taskPackId = Number(req.params.id);
+    if (!Number.isSafeInteger(taskPackId) || taskPackId <= 0) {
+      res.status(400).json({ ok: false, message: "Invalid Task Pack id" });
       return;
     }
 
-    res.json({ ok: true, taskPack: updatedTaskPack });
-  } catch (error) {
-    console.error("Failed to update Task Pack content:", error);
-    res.status(500).json({
-      ok: false,
-      message:
-        error instanceof Error
-          ? error.message
-          : "Failed to update Task Pack content",
-    });
-  }
-});
+    const body = req.body;
+    if (
+      body === null ||
+      typeof body !== "object" ||
+      Array.isArray(body) ||
+      !Object.hasOwn(body, "expectedCurrentRevisionId")
+    ) {
+      res.status(428).json({
+        ok: false,
+        code: "TASK_PACK_REVISION_REQUIRED",
+        message: "The current Task Pack revision is required before editing.",
+      });
+      return;
+    }
+
+    const parsed = updateTaskPackContentSchema.safeParse(body);
+    if (!parsed.success) {
+      res.status(400).json({
+        ok: false,
+        message: "Invalid Task Pack content update",
+        issues: parsed.error.issues,
+      });
+      return;
+    }
+
+    try {
+      const taskPack = await service.editTaskPackContent({
+        taskPackId,
+        ...parsed.data,
+      });
+      res.json({ ok: true, taskPack });
+    } catch (error) {
+      if (error instanceof TaskPackNotFoundError) {
+        res.status(404).json({ ok: false, message: "Task Pack not found" });
+        return;
+      }
+      if (error instanceof TaskPackRevisionConflictError) {
+        res.status(409).json({
+          ok: false,
+          code: error.code,
+          message: error.message,
+          taskPackId: error.taskPackId,
+          expectedCurrentRevisionId: error.expectedCurrentRevisionId,
+          actualCurrentRevisionId: error.actualCurrentRevisionId,
+        });
+        return;
+      }
+      if (error instanceof TaskPackNotEditableError) {
+        res.status(409).json({
+          ok: false,
+          code: error.code,
+          message: error.message,
+        });
+        return;
+      }
+      if (error instanceof TaskPackEditInputError) {
+        res.status(400).json({ ok: false, message: error.message });
+        return;
+      }
+      if (error instanceof TaskPackCurrentStateError) {
+        res.status(500).json({
+          ok: false,
+          code: error.code,
+          message: "Task Pack current state is invalid.",
+        });
+        return;
+      }
+      console.error("Failed to update Task Pack content:", error);
+      res.status(500).json({
+        ok: false,
+        message: "Failed to update Task Pack content",
+      });
+    }
+  });
+}
+
+const taskPackApplicationService = createTaskPackApplicationService(storage);
+registerTaskPackCurrentReadRoutes(taskPacksRouter, taskPackApplicationService);
+registerTaskPackContentEditRoute(taskPacksRouter, taskPackApplicationService);
 
 const cloudTaskPackImportSchema = z.object({
   projectId: z.number().int().positive(),
