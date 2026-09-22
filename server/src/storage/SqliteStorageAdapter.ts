@@ -42,6 +42,7 @@ import type {
   AppendTaskPackRevisionInput,
   CreateProjectMemoryInput,
   CreateTaskPackInput,
+  CreateTaskPackWithInitialRevisionInput,
   ProjectMemoryRecord,
   ProjectRecord,
   StorageAdapter,
@@ -719,6 +720,79 @@ export class SqliteStorageAdapter implements StorageAdapter {
       throw new Error("Failed to read created task pack from SQLite.");
     }
 
+    return mapTaskPackRow(row);
+  }
+
+  async createTaskPackWithInitialRevision(
+    input: CreateTaskPackWithInitialRevisionInput,
+  ): Promise<TaskPackRecord> {
+    const timestamp = nowIso();
+    const content = input.revisionContent;
+    const createdTaskPackId = await this.withTransaction(async () => {
+      await this.run(
+        `INSERT INTO task_packs (
+          project_id, title, raw_task, task_type, target_tool, generated_prompt,
+          generation_mode, generation_model, generation_message,
+          generation_used_fallback, generation_duration_ms, generation_recipe,
+          lifecycle_state, lifecycle_version, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', 1, ?, ?);`,
+        [
+          input.projectId,
+          input.title,
+          content.rawTask,
+          content.taskType,
+          content.targetTool,
+          content.generatedPrompt,
+          content.generationMode,
+          content.generationModel,
+          content.generationMessage,
+          content.generationUsedFallback ? 1 : 0,
+          content.generationDurationMs,
+          stringifyJsonValue(input.compatibilityGenerationRecipe),
+          timestamp,
+          timestamp,
+        ],
+      );
+
+      const taskPackId = await this.getLastInsertRowId();
+      await this.insertTaskPackRevision({
+        taskPackId,
+        revisionNumber: 1,
+        baseRevisionId: null,
+        content,
+        createdAt: timestamp,
+        generatedAt: input.generatedAt,
+      });
+      const revisionId = await this.getLastInsertRowId();
+      await this.run(
+        `UPDATE task_packs
+         SET current_revision_id = ?
+         WHERE id = ? AND current_revision_id IS NULL;`,
+        [revisionId, taskPackId],
+      );
+
+      const aggregate = await this.getTaskPackAggregate(taskPackId);
+      const revision = await this.getCurrentTaskPackRevision(taskPackId);
+      if (!aggregate || !revision) {
+        throw new Error("Failed to validate the initial Task Pack revision.");
+      }
+      assertTaskPackRevision(revision, {
+        aggregate,
+        verifyContentHash: true,
+      });
+      return taskPackId;
+    });
+
+    const row = await this.getOne<TaskPackRow>(
+      `SELECT tp.*, p.name AS project_name
+       FROM task_packs tp
+       JOIN projects p ON p.id = tp.project_id
+       WHERE tp.id = ?;`,
+      [createdTaskPackId],
+    );
+    if (!row) {
+      throw new Error("Failed to read the created Task Pack.");
+    }
     return mapTaskPackRow(row);
   }
 

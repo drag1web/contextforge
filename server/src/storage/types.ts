@@ -3,6 +3,7 @@ import type { RulesAndTemplatesStore } from "../rules/types.js";
 import type {
   TaskPackAggregate,
   TaskPackAggregateLifecycleEvent,
+  TaskPackJsonObject,
   TaskPackRevision,
   TaskPackRevisionContent,
   TaskPackRevisionReviewEvent,
@@ -110,6 +111,14 @@ export interface CreateTaskPackInput {
   generationRecipe?: unknown | null;
 }
 
+export interface CreateTaskPackWithInitialRevisionInput {
+  readonly projectId: number;
+  readonly title: string;
+  readonly revisionContent: TaskPackRevisionContent;
+  readonly generatedAt: string;
+  readonly compatibilityGenerationRecipe: TaskPackJsonObject;
+}
+
 
 export interface UpdateTaskPackContentInput {
   rawTask?: string;
@@ -194,6 +203,9 @@ export interface StorageAdapter {
     taskPackId: number
   ): Promise<TaskPackCurrentRecord | null>;
   createTaskPack(input: CreateTaskPackInput): Promise<TaskPackRecord>;
+  createTaskPackWithInitialRevision(
+    input: CreateTaskPackWithInitialRevisionInput
+  ): Promise<TaskPackRecord>;
   updateTaskPackGenerationRecipe(
     taskPackId: number,
     generationRecipe: unknown | null

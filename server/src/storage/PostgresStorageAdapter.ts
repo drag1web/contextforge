@@ -27,6 +27,7 @@ import type {
   AppendTaskPackRevisionInput,
   CreateProjectMemoryInput,
   CreateTaskPackInput,
+  CreateTaskPackWithInitialRevisionInput,
   ProjectMemoryRecord,
   ProjectRecord,
   StorageAdapter,
@@ -621,6 +622,118 @@ export class PostgresStorageAdapter implements StorageAdapter {
         "UPDATE task_packs SET current_revision_id = $1 WHERE id = $2;",
         [revision.rows[0]!.id, taskPack.id],
       );
+      await client.query("COMMIT");
+      return taskPack;
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async createTaskPackWithInitialRevision(
+    input: CreateTaskPackWithInitialRevisionInput,
+  ): Promise<TaskPackRecord> {
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const content = input.revisionContent;
+      const taskPackResult = await client.query(
+        `INSERT INTO task_packs (
+          project_id, title, raw_task, task_type, target_tool, generated_prompt,
+          generation_mode, generation_model, generation_message,
+          generation_used_fallback, generation_duration_ms, generation_recipe,
+          lifecycle_state, lifecycle_version
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb,
+          'active', 1
+        ) RETURNING
+          id, project_id AS "projectId", title, raw_task AS "rawTask",
+          task_type AS "taskType", target_tool AS "targetTool",
+          generated_prompt AS "generatedPrompt", generation_mode AS "generationMode",
+          generation_model AS "generationModel", generation_message AS "generationMessage",
+          generation_used_fallback AS "generationUsedFallback",
+          generation_duration_ms AS "generationDurationMs",
+          generation_recipe AS "generationRecipe", created_at AS "createdAt",
+          updated_at AS "updatedAt";`,
+        [
+          input.projectId,
+          input.title,
+          content.rawTask,
+          content.taskType,
+          content.targetTool,
+          content.generatedPrompt,
+          content.generationMode,
+          content.generationModel,
+          content.generationMessage,
+          content.generationUsedFallback,
+          content.generationDurationMs,
+          JSON.stringify(input.compatibilityGenerationRecipe),
+        ],
+      );
+      const taskPack = mapTaskPackRow(taskPackResult.rows[0]);
+      const createdAtValue = taskPackResult.rows[0]!.createdAt as string | Date;
+      const createdAt =
+        createdAtValue instanceof Date
+          ? createdAtValue.toISOString()
+          : createdAtValue;
+      const revisionResult = await client.query(
+        `INSERT INTO task_pack_revisions (
+          task_pack_id, revision_number, base_revision_id, source_kind,
+          raw_task, task_type, target_tool, generated_prompt,
+          generation_mode, generation_model, generation_message,
+          generation_used_fallback, generation_duration_ms, generation_recipe,
+          diagnostics, grounded_context_snapshot, freshness_basis,
+          content_hash, created_at, generated_at
+        ) VALUES (
+          $1, 1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+          $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17, $18
+        ) RETURNING *;`,
+        [
+          taskPack.id,
+          content.sourceKind,
+          content.rawTask,
+          content.taskType,
+          content.targetTool,
+          content.generatedPrompt,
+          content.generationMode,
+          content.generationModel,
+          content.generationMessage,
+          content.generationUsedFallback,
+          content.generationDurationMs,
+          jsonParameter(content.generationRecipe),
+          jsonParameter(content.diagnostics),
+          jsonParameter(content.groundedContextSnapshot),
+          jsonParameter(content.freshnessBasis),
+          computeTaskPackRevisionContentHash(content),
+          createdAt,
+          input.generatedAt,
+        ],
+      );
+      const revision = mapTaskPackRevisionPersistenceRow(
+        revisionResult.rows[0] as TaskPackRevisionPersistenceRow,
+      );
+      await client.query(
+        `UPDATE task_packs
+         SET current_revision_id = $1
+         WHERE id = $2 AND current_revision_id IS NULL;`,
+        [revision.id, taskPack.id],
+      );
+      const aggregateResult = await client.query(
+        `SELECT id, project_id, title, lifecycle_state, archived_from_state,
+                current_revision_id, accepted_revision_id, lifecycle_version,
+                created_at, updated_at, completed_at, archived_at
+         FROM task_packs WHERE id = $1;`,
+        [taskPack.id],
+      );
+      const aggregate = mapTaskPackAggregatePersistenceRow(
+        aggregateResult.rows[0] as TaskPackAggregatePersistenceRow,
+      );
+      assertTaskPackRevision(revision, {
+        aggregate,
+        verifyContentHash: true,
+      });
       await client.query("COMMIT");
       return taskPack;
     } catch (error) {

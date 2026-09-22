@@ -2314,10 +2314,8 @@ export function registerTaskPackCurrentReadRoutes(
   });
 }
 
-registerTaskPackCurrentReadRoutes(
-  taskPacksRouter,
-  createTaskPackApplicationService(storage),
-);
+const taskPackApplicationService = createTaskPackApplicationService(storage);
+registerTaskPackCurrentReadRoutes(taskPacksRouter, taskPackApplicationService);
 
 
 taskPacksRouter.patch("/:id/content", async (req, res) => {
@@ -3505,11 +3503,11 @@ export async function createTaskPackWithPipeline(
             },
           });
 
-        const generation = await measurePerformanceStage(
+        const generated = await measurePerformanceStage(
           "task_pack_refinement",
           "Generate validated Task Pack refinement",
-          () =>
-            generateReliableTaskPack({
+          async () => {
+            const generation = await generateReliableTaskPack({
               fallbackContent: contextAwareTemplatePrompt,
               cacheIdentity: refinementCacheIdentity,
               project: {
@@ -3534,19 +3532,19 @@ export async function createTaskPackWithPipeline(
               selectionQuality: universalContext.selectionQuality,
               executionContract: universalContext.executionContract,
               templatePrompt: contextAwareTemplatePrompt,
-            }),
+            });
+            const generatedAt = new Date().toISOString();
+            return { generation, generatedAt };
+          },
           { finalPromptChars: contextAwareTemplatePrompt.length },
         );
+        const { generation, generatedAt } = generated;
 
-        const generationRecipe: TaskPackGenerationRecipe = {
-          ...buildGenerationRecipeMetadata(
-            taskPackTemplate.recipe,
-            parsed.data.githubIssueSource,
-            clarifications,
-          ),
-          selectorDiagnostics,
-          generationDiagnostics: generation.diagnostics,
-        };
+        const generationRecipe = buildGenerationRecipeMetadata(
+          taskPackTemplate.recipe,
+          parsed.data.githubIssueSource,
+          clarifications,
+        );
 
         const generatedPrompt = generation.content;
 
@@ -3555,26 +3553,6 @@ export async function createTaskPackWithPipeline(
               `Issue #${parsed.data.githubIssueSource.issueNumber}: ${parsed.data.githubIssueSource.issueTitle}`,
             )
           : createTitle(parsed.data.rawTask);
-
-        const taskPack = await measurePerformanceStage(
-          "task_pack_storage",
-          "Store generated Task Pack",
-          () =>
-            storage.createTaskPack({
-              projectId: project.id,
-              title,
-              rawTask: parsed.data.rawTask,
-              taskType: effectiveTaskType,
-              targetTool: parsed.data.targetTool,
-              generatedPrompt,
-              generationMode: generation.mode,
-              generationModel: generation.model,
-              generationMessage: generation.message,
-              generationUsedFallback: generation.usedFallback,
-              generationDurationMs: generation.durationMs,
-              generationRecipe,
-            }),
-        );
 
         await measurePerformanceStage(
           "selector_history",
@@ -3593,8 +3571,20 @@ export async function createTaskPackWithPipeline(
 
         return {
           kind: "created" as const,
-          taskPack,
+          title,
+          generatedAt,
+          rawTask: parsed.data.rawTask,
+          taskType: effectiveTaskType,
+          targetTool: parsed.data.targetTool,
+          generatedPrompt,
+          generationMode: generation.mode,
+          generationModel: generation.model,
+          generationMessage: generation.message,
+          generationUsedFallback: generation.usedFallback,
+          generationDurationMs: generation.durationMs,
           generationRecipe,
+          selectorDiagnostics,
+          generationDiagnostics: generation.diagnostics,
         };
       },
     );
@@ -3611,21 +3601,31 @@ export async function createTaskPackWithPipeline(
       };
     }
 
-    const finalGenerationRecipe: TaskPackGenerationRecipe = {
-      ...traced.value.generationRecipe,
+    const taskPack = await taskPackApplicationService.createGeneratedTaskPack({
+      projectId: project.id,
+      title: traced.value.title,
+      generatedAt: traced.value.generatedAt,
+      revisionContent: {
+        rawTask: traced.value.rawTask,
+        taskType: traced.value.taskType,
+        targetTool: traced.value.targetTool,
+        generatedPrompt: traced.value.generatedPrompt,
+        generationMode: traced.value.generationMode,
+        generationModel: traced.value.generationModel,
+        generationMessage: traced.value.generationMessage,
+        generationUsedFallback: traced.value.generationUsedFallback,
+        generationDurationMs: traced.value.generationDurationMs,
+      },
+      generationRecipe: traced.value.generationRecipe,
+      selectorDiagnostics: traced.value.selectorDiagnostics,
+      generationDiagnostics: traced.value.generationDiagnostics,
       performanceDiagnostics: traced.sessionDiagnostics,
-    };
-    const updatedTaskPack = await storage.updateTaskPackGenerationRecipe(
-      traced.value.taskPack.id,
-      finalGenerationRecipe,
-    );
-    const taskPack = updatedTaskPack ?? traced.value.taskPack;
+    });
 
     return {
       kind: "created" as const,
       taskPack: {
         ...taskPack,
-        generationRecipe: finalGenerationRecipe,
         projectName: project.name,
       },
     };

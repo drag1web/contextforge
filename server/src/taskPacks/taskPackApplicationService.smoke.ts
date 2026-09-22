@@ -203,6 +203,7 @@ function storageFixture(
       archivedAt: null,
     }),
     getTaskPackRevisionById: async () => revision,
+    createTaskPackWithInitialRevision: async () => taskPack,
     ...overrides,
   };
 }
