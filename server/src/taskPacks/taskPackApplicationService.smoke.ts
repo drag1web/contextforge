@@ -5,6 +5,7 @@ import path from "node:path";
 
 import { SqliteStorageAdapter } from "../storage/SqliteStorageAdapter.js";
 import type {
+  CreateTaskPackWithInitialRevisionInput,
   TaskPackCurrentRecord,
   TaskPackRecord,
   TaskPackRevisionRecord,
@@ -16,7 +17,9 @@ import {
 import {
   createTaskPackApplicationService,
   TaskPackCurrentStateError,
+  TaskPackGeneratedCreateInputError,
   TaskPackRevisionConflictError,
+  type CreateGeneratedTaskPackInput,
   type TaskPackApplicationServiceStorage,
 } from "./taskPackApplicationService.js";
 
@@ -214,6 +217,136 @@ function storageFixture(
     ...overrides,
   };
 }
+
+function generatedCreateInput(
+  overrides: Partial<CreateGeneratedTaskPackInput> = {},
+): CreateGeneratedTaskPackInput {
+  return {
+    projectId: taskPack.projectId,
+    title: "Generated material parity",
+    generatedAt: "2026-09-24T09:00:00.000Z",
+    revisionContent: {
+      rawTask: "Prepare generated material once.",
+      taskType: "tests",
+      targetTool: "codex",
+      generatedPrompt: "Preserve generated-create behavior.",
+      generationMode: "template",
+      generationModel: null,
+      generationMessage: null,
+      generationUsedFallback: false,
+      generationDurationMs: 12,
+    },
+    generationRecipe: {
+      template: { id: "default" },
+      enabledRules: ["bounded"],
+      omitted: undefined,
+    },
+    selectorDiagnostics: { selectedPathCount: 1, omitted: undefined },
+    generationDiagnostics: { attempts: 1, omitted: undefined },
+    performanceDiagnostics: { operationCount: 3, omitted: undefined },
+    ...overrides,
+  };
+}
+
+scenario("ordinary generated create preserves semantic and compatibility material", async () => {
+  const captured: { value: CreateTaskPackWithInitialRevisionInput | null } = {
+    value: null,
+  };
+  const service = createTaskPackApplicationService(
+    storageFixture({
+      createTaskPackWithInitialRevision: async (input) => {
+        captured.value = input;
+        return taskPack;
+      },
+    }),
+  );
+  assert.deepEqual(await service.createGeneratedTaskPack(generatedCreateInput()), taskPack);
+  assert.ok(captured.value);
+  assert.equal(captured.value.projectId, taskPack.projectId);
+  assert.equal(captured.value.title, "Generated material parity");
+  assert.equal(captured.value.generatedAt, "2026-09-24T09:00:00.000Z");
+  assert.equal(captured.value.revisionContent.sourceKind, "generated");
+  assert.deepEqual(captured.value.revisionContent.generationRecipe, {
+    template: { id: "default" },
+    enabledRules: ["bounded"],
+  });
+  assert.deepEqual(captured.value.revisionContent.diagnostics, {
+    selector: { selectedPathCount: 1 },
+    generation: { attempts: 1 },
+    performance: { operationCount: 3 },
+  });
+  assert.equal(captured.value.revisionContent.groundedContextSnapshot, null);
+  assert.equal(captured.value.revisionContent.freshnessBasis, null);
+  assert.deepEqual(captured.value.compatibilityGenerationRecipe, {
+    template: { id: "default" },
+    enabledRules: ["bounded"],
+    selectorDiagnostics: { selectedPathCount: 1 },
+    generationDiagnostics: { attempts: 1 },
+    performanceDiagnostics: { operationCount: 3 },
+  });
+});
+
+scenario("ordinary generated create rejects non-JSON-safe material before storage", async () => {
+  let writes = 0;
+  const service = createTaskPackApplicationService(
+    storageFixture({
+      createTaskPackWithInitialRevision: async () => {
+        writes += 1;
+        return taskPack;
+      },
+    }),
+  );
+  await assert.rejects(
+    () =>
+      service.createGeneratedTaskPack(
+        generatedCreateInput({ generationRecipe: { invalid: Number.NaN } }),
+      ),
+    (error: unknown) => {
+      assert.ok(error instanceof TaskPackGeneratedCreateInputError);
+      assert.equal(error.code, "TASK_PACK_GENERATED_CREATE_INVALID");
+      assert.equal(
+        error.message,
+        "Task Pack generation recipe cannot contain non-finite numbers.",
+      );
+      return true;
+    },
+  );
+  assert.equal(writes, 0);
+});
+
+scenario("ordinary generated create rejects workflow and diagnostic recipe fields", async () => {
+  let writes = 0;
+  const service = createTaskPackApplicationService(
+    storageFixture({
+      createTaskPackWithInitialRevision: async () => {
+        writes += 1;
+        return taskPack;
+      },
+    }),
+  );
+  for (const field of [
+    "selectorDiagnostics",
+    "generationDiagnostics",
+    "performanceDiagnostics",
+    "githubCreatedIssue",
+  ] as const) {
+    await assert.rejects(
+      () =>
+        service.createGeneratedTaskPack(
+          generatedCreateInput({ generationRecipe: { [field]: {} } }),
+        ),
+      (error: unknown) => {
+        assert.ok(error instanceof TaskPackGeneratedCreateInputError);
+        assert.equal(
+          error.message,
+          `Task Pack generation recipe cannot contain ${field}.`,
+        );
+        return true;
+      },
+    );
+  }
+  assert.equal(writes, 0);
+});
 
 scenario("malformed current pointers fail closed", async () => {
   const service = createTaskPackApplicationService(

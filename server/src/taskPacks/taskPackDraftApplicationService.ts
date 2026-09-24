@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import {
   TaskPackDraftStorageError,
   type StorageAdapter,
+  type TaskPackCurrentRecord,
+  type TaskPackRevisionRecord,
 } from "../storage/types.js";
 import type {
   PersistedTaskPackDraft,
@@ -10,6 +12,10 @@ import type {
   TaskPackDraftLifecycle,
   TaskPackDraftState,
 } from "./taskPackLifecycle.js";
+import {
+  prepareGeneratedTaskPackMaterial,
+  type GeneratedRevisionContentInput,
+} from "./taskPackGeneratedMaterial.js";
 
 export type TaskPackDraftApplicationServiceStorage = Pick<
   StorageAdapter,
@@ -18,6 +24,7 @@ export type TaskPackDraftApplicationServiceStorage = Pick<
   | "createTaskPackDraft"
   | "updateTaskPackDraft"
   | "discardTaskPackDraft"
+  | "materializeTaskPackDraft"
   | "getProjectById"
 >;
 
@@ -56,12 +63,37 @@ export interface DiscardTaskPackDraftApplicationInput {
   readonly expectedDraftVersion: number;
 }
 
+export interface MaterializeGeneratedTaskPackDraftApplicationInput {
+  readonly draftId: string;
+  readonly expectedDraftVersion: number;
+  readonly title: string;
+  readonly generatedAt: string;
+  readonly revisionContent: GeneratedRevisionContentInput;
+  readonly generationRecipe: unknown;
+  readonly selectorDiagnostics: unknown | null;
+  readonly generationDiagnostics: unknown | null;
+  readonly performanceDiagnostics: unknown | null;
+}
+
+export interface MaterializeGeneratedTaskPackDraftApplicationResult {
+  readonly taskPack: TaskPackCurrentRecord;
+  readonly revision: TaskPackRevisionRecord;
+  readonly draft: TaskPackDraftView;
+}
+
 export interface TaskPackDraftApplicationService {
   listActiveDrafts(projectId?: number): Promise<TaskPackDraftSummary[]>;
   getDraft(draftId: string): Promise<TaskPackDraftView | null>;
   createDraft(input: CreateTaskPackDraftApplicationInput): Promise<TaskPackDraftView>;
   updateDraft(input: UpdateTaskPackDraftApplicationInput): Promise<TaskPackDraftView>;
   discardDraft(input: DiscardTaskPackDraftApplicationInput): Promise<TaskPackDraftView>;
+}
+
+export interface TaskPackDraftApplicationServiceWithMaterialization
+  extends TaskPackDraftApplicationService {
+  materializeDraft(
+    input: MaterializeGeneratedTaskPackDraftApplicationInput,
+  ): Promise<MaterializeGeneratedTaskPackDraftApplicationResult>;
 }
 
 export type TaskPackDraftApplicationErrorCode =
@@ -74,11 +106,20 @@ export type TaskPackDraftApplicationErrorCode =
   | "TASK_PACK_DRAFT_TASK_PACK_NOT_FOUND"
   | "TASK_PACK_DRAFT_OWNERSHIP_INVALID"
   | "TASK_PACK_DRAFT_BASE_REVISION_INVALID"
+  | "TASK_PACK_DRAFT_ALREADY_BOUND"
   | "TASK_PACK_DRAFT_STATE_INVALID";
 
-export class TaskPackDraftApplicationError extends Error {
+type TaskPackDraftCrudApplicationErrorCode = Exclude<
+  TaskPackDraftApplicationErrorCode,
+  "TASK_PACK_DRAFT_ALREADY_BOUND"
+>;
+
+export class TaskPackDraftApplicationError<
+  Code extends
+    TaskPackDraftApplicationErrorCode = TaskPackDraftCrudApplicationErrorCode,
+> extends Error {
   constructor(
-    readonly code: TaskPackDraftApplicationErrorCode,
+    readonly code: Code,
     readonly draftId?: string,
     readonly expectedDraftVersion?: number,
     readonly actualDraftVersion?: number,
@@ -91,7 +132,7 @@ export class TaskPackDraftApplicationError extends Error {
 
 export function createTaskPackDraftApplicationService(
   storage: TaskPackDraftApplicationServiceStorage,
-): TaskPackDraftApplicationService {
+): TaskPackDraftApplicationServiceWithMaterialization {
   async function resolveProjectName(
     draft: PersistedTaskPackDraft,
     cache?: Map<number, string>,
@@ -196,6 +237,52 @@ export function createTaskPackDraftApplicationService(
         return translateStorageError(error);
       }
     },
+
+    async materializeDraft(input) {
+      assertDraftId(input.draftId);
+      assertPositiveIdentity(input.expectedDraftVersion);
+      const prepared = prepareGeneratedTaskPackMaterial(input);
+      try {
+        const result = await storage.materializeTaskPackDraft({
+          draftId: input.draftId,
+          expectedDraftVersion: input.expectedDraftVersion,
+          title: input.title,
+          revisionContent: prepared.revisionContent,
+          generatedAt: input.generatedAt,
+          compatibilityGenerationRecipe:
+            prepared.compatibilityGenerationRecipe,
+        });
+        if (
+          !Number.isSafeInteger(result.taskPack.id) ||
+          result.taskPack.id <= 0 ||
+          !Number.isSafeInteger(result.revision.id) ||
+          result.revision.id <= 0 ||
+          result.revision.taskPackId !== result.taskPack.id ||
+          result.revision.revisionNumber !== 1 ||
+          result.draft.projectId !== result.taskPack.projectId ||
+          result.draft.taskPackId !== result.taskPack.id ||
+          result.draft.lifecycle.state !== "materialized" ||
+          result.draft.lifecycle.materializedRevisionId !== result.revision.id ||
+          !Number.isSafeInteger(result.draft.draftVersion) ||
+          result.draft.draftVersion !== input.expectedDraftVersion + 1
+        ) {
+          throw new TaskPackDraftApplicationError(
+            "TASK_PACK_DRAFT_STATE_INVALID",
+            input.draftId,
+          );
+        }
+        return {
+          taskPack: {
+            ...result.taskPack,
+            currentRevisionId: result.revision.id,
+          },
+          revision: result.revision,
+          draft: await toView(result.draft),
+        };
+      } catch (error) {
+        return translateStorageError(error);
+      }
+    },
   };
 }
 
@@ -270,6 +357,8 @@ function applicationErrorMessage(code: TaskPackDraftApplicationErrorCode): strin
       return "Task Pack draft ownership is invalid.";
     case "TASK_PACK_DRAFT_BASE_REVISION_INVALID":
       return "Task Pack draft base revision is invalid.";
+    case "TASK_PACK_DRAFT_ALREADY_BOUND":
+      return "Task Pack draft is already bound to a Task Pack.";
     case "TASK_PACK_DRAFT_STATE_INVALID":
       return "Task Pack draft state is invalid.";
   }

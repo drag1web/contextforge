@@ -7,14 +7,18 @@ import { SqliteStorageAdapter } from "../storage/SqliteStorageAdapter.js";
 import {
   TaskPackDraftStorageError,
   type CreateTaskPackDraftInput,
+  type MaterializeTaskPackDraftInput,
+  type MaterializeTaskPackDraftResult,
   type ProjectRecord,
+  type TaskPackRecord,
+  type TaskPackRevisionRecord,
 } from "../storage/types.js";
 import {
   createTaskPackDraftApplicationService,
   TaskPackDraftApplicationError,
   type CreateTaskPackDraftApplicationInput,
-  type TaskPackDraftApplicationService,
   type TaskPackDraftApplicationServiceStorage,
+  type MaterializeGeneratedTaskPackDraftApplicationInput,
 } from "./taskPackDraftApplicationService.js";
 import type {
   PersistedTaskPackDraft,
@@ -80,6 +84,90 @@ const draftFixture: PersistedTaskPackDraft = {
   expiresAt: null,
 };
 
+const taskPackFixture: TaskPackRecord = {
+  id: 71,
+  projectId: projectFixture.id,
+  title: "Materialized draft",
+  rawTask: draftFixture.content.rawTask,
+  taskType: draftFixture.content.taskType,
+  targetTool: draftFixture.content.targetTool,
+  generatedPrompt: "Prepared immutable prompt.",
+  generationMode: "template",
+  generationModel: null,
+  generationMessage: null,
+  generationUsedFallback: false,
+  generationDurationMs: 18,
+  generationRecipe: { template: null },
+  createdAt: "2026-09-24T08:05:00.000Z",
+  updatedAt: "2026-09-24T08:05:00.000Z",
+};
+
+const revisionFixture: TaskPackRevisionRecord = {
+  id: 81,
+  taskPackId: taskPackFixture.id,
+  revisionNumber: 1,
+  baseRevisionId: null,
+  sourceKind: "generated",
+  rawTask: taskPackFixture.rawTask,
+  taskType: taskPackFixture.taskType,
+  targetTool: taskPackFixture.targetTool,
+  generatedPrompt: taskPackFixture.generatedPrompt,
+  generationMode: taskPackFixture.generationMode,
+  generationModel: taskPackFixture.generationModel,
+  generationMessage: taskPackFixture.generationMessage,
+  generationUsedFallback: taskPackFixture.generationUsedFallback,
+  generationDurationMs: taskPackFixture.generationDurationMs,
+  generationRecipe: { template: null },
+  diagnostics: {
+    selector: { selectedPathCount: 1 },
+    generation: { attempts: 1 },
+    performance: { operationCount: 3 },
+  },
+  groundedContextSnapshot: null,
+  freshnessBasis: null,
+  contentHash: `sha256:${"a".repeat(64)}`,
+  createdAt: taskPackFixture.createdAt,
+  generatedAt: "2026-09-24T08:04:59.000Z",
+};
+
+const materializedDraftFixture: PersistedTaskPackDraft = {
+  ...draftFixture,
+  taskPackId: taskPackFixture.id,
+  lifecycle: {
+    state: "materialized",
+    materializedRevisionId: revisionFixture.id,
+  },
+  draftVersion: 2,
+  updatedAt: taskPackFixture.createdAt,
+};
+
+function materializeInput(
+  overrides: Partial<MaterializeGeneratedTaskPackDraftApplicationInput> = {},
+): MaterializeGeneratedTaskPackDraftApplicationInput {
+  return {
+    draftId: draftFixture.id,
+    expectedDraftVersion: draftFixture.draftVersion,
+    title: taskPackFixture.title,
+    generatedAt: revisionFixture.generatedAt!,
+    revisionContent: {
+      rawTask: taskPackFixture.rawTask,
+      taskType: taskPackFixture.taskType,
+      targetTool: taskPackFixture.targetTool,
+      generatedPrompt: taskPackFixture.generatedPrompt,
+      generationMode: taskPackFixture.generationMode,
+      generationModel: taskPackFixture.generationModel,
+      generationMessage: taskPackFixture.generationMessage,
+      generationUsedFallback: taskPackFixture.generationUsedFallback,
+      generationDurationMs: taskPackFixture.generationDurationMs,
+    },
+    generationRecipe: { template: null, optional: undefined },
+    selectorDiagnostics: { selectedPathCount: 1 },
+    generationDiagnostics: { attempts: 1 },
+    performanceDiagnostics: { operationCount: 3 },
+    ...overrides,
+  };
+}
+
 function fakeStorage(
   overrides: Partial<TaskPackDraftApplicationServiceStorage> = {},
 ): TaskPackDraftApplicationServiceStorage {
@@ -95,6 +183,13 @@ function fakeStorage(
         draftVersion: 2,
       };
     },
+    async materializeTaskPackDraft() {
+      return {
+        taskPack: taskPackFixture,
+        revision: revisionFixture,
+        draft: materializedDraftFixture,
+      };
+    },
     async getProjectById(projectId) { return projectId === projectFixture.id ? projectFixture : null; },
     ...overrides,
   };
@@ -102,8 +197,8 @@ function fakeStorage(
 
 async function expectApplicationError(
   run: Promise<unknown>,
-  code: TaskPackDraftApplicationError["code"],
-  check?: (error: TaskPackDraftApplicationError) => void,
+  code: TaskPackDraftApplicationError["code"] | "TASK_PACK_DRAFT_ALREADY_BOUND",
+  check?: (error: TaskPackDraftApplicationError<TaskPackDraftApplicationError["code"] | "TASK_PACK_DRAFT_ALREADY_BOUND">) => void,
 ): Promise<void> {
   await assert.rejects(run, (error: unknown) => {
     assert.ok(error instanceof TaskPackDraftApplicationError);
@@ -146,12 +241,10 @@ scenario("create owns opaque identity, expiresAt null, and reconstructs projectN
   assert.equal(created.content.rawTask, "Persist this author text.\r\nExactly.");
 });
 
-scenario("create input has no caller-owned id and service exposes no materialize operation", () => {
+scenario("create input has no caller-owned id and service exposes materialization", () => {
   const createInputHasId: "id" extends keyof CreateTaskPackDraftApplicationInput ? true : false = false;
-  const serviceHasMaterialize: "materializeDraft" extends keyof TaskPackDraftApplicationService ? true : false = false;
   assert.equal(createInputHasId, false);
-  assert.equal(serviceHasMaterialize, false);
-  assert.equal("materializeDraft" in service, false);
+  assert.equal(typeof service.materializeDraft, "function");
 });
 
 scenario("create always forwards a generated id and expiresAt null", async () => {
@@ -332,6 +425,254 @@ scenario("missing project projection for an existing draft fails closed", async 
     missingProject.listActiveDrafts(),
     "TASK_PACK_DRAFT_STATE_INVALID",
   );
+});
+
+scenario("materialize forwards one prepared atomic mutation and projects current state", async () => {
+  let atomicMutations = 0;
+  let unrelatedMutations = 0;
+  const captured: { value: MaterializeTaskPackDraftInput | null } = {
+    value: null,
+  };
+  const materializer = createTaskPackDraftApplicationService(fakeStorage({
+    async createTaskPackDraft(input) {
+      unrelatedMutations += 1;
+      return { ...draftFixture, id: input.id };
+    },
+    async updateTaskPackDraft() {
+      unrelatedMutations += 1;
+      return draftFixture;
+    },
+    async discardTaskPackDraft() {
+      unrelatedMutations += 1;
+      return draftFixture;
+    },
+    async materializeTaskPackDraft(input) {
+      atomicMutations += 1;
+      captured.value = input;
+      return {
+        taskPack: taskPackFixture,
+        revision: revisionFixture,
+        draft: materializedDraftFixture,
+      };
+    },
+  }));
+  const result = await materializer.materializeDraft(materializeInput());
+  assert.equal(atomicMutations, 1);
+  assert.equal(unrelatedMutations, 0);
+  assert.ok(captured.value);
+  assert.equal(captured.value.draftId, draftFixture.id);
+  assert.equal(captured.value.expectedDraftVersion, draftFixture.draftVersion);
+  assert.equal(captured.value.title, taskPackFixture.title);
+  assert.equal(captured.value.generatedAt, revisionFixture.generatedAt);
+  assert.equal("projectId" in captured.value, false);
+  assert.equal(captured.value.revisionContent.sourceKind, "generated");
+  assert.deepEqual(captured.value.revisionContent.generationRecipe, {
+    template: null,
+  });
+  assert.deepEqual(captured.value.revisionContent.diagnostics, {
+    selector: { selectedPathCount: 1 },
+    generation: { attempts: 1 },
+    performance: { operationCount: 3 },
+  });
+  assert.deepEqual(captured.value.compatibilityGenerationRecipe, {
+    template: null,
+    selectorDiagnostics: { selectedPathCount: 1 },
+    generationDiagnostics: { attempts: 1 },
+    performanceDiagnostics: { operationCount: 3 },
+  });
+  assert.equal(result.taskPack.currentRevisionId, revisionFixture.id);
+  assert.deepEqual(result.revision, revisionFixture);
+  assert.equal(result.draft.projectName, projectFixture.name);
+  assert.deepEqual(result.draft.lifecycle, materializedDraftFixture.lifecycle);
+
+  const storageInputHasProjectId:
+    "projectId" extends keyof MaterializeTaskPackDraftInput ? true : false = false;
+  const storageHasSeparateCreate:
+    "createTaskPackWithInitialRevision" extends keyof TaskPackDraftApplicationServiceStorage
+      ? true
+      : false = false;
+  const storageHasAppend:
+    "appendTaskPackRevision" extends keyof TaskPackDraftApplicationServiceStorage
+      ? true
+      : false = false;
+  assert.equal(storageInputHasProjectId, false);
+  assert.equal(storageHasSeparateCreate, false);
+  assert.equal(storageHasAppend, false);
+});
+
+scenario("already-bound materialization translates without collapsing the code", async () => {
+  const bound = createTaskPackDraftApplicationService(fakeStorage({
+    async materializeTaskPackDraft(input) {
+      throw new TaskPackDraftStorageError(
+        "TASK_PACK_DRAFT_ALREADY_BOUND",
+        input.draftId,
+      );
+    },
+  }));
+  await expectApplicationError(
+    bound.materializeDraft(materializeInput()),
+    "TASK_PACK_DRAFT_ALREADY_BOUND",
+    (error) => {
+      assert.equal(error.draftId, draftFixture.id);
+      assert.equal(
+        error.message,
+        "Task Pack draft is already bound to a Task Pack.",
+      );
+    },
+  );
+});
+
+scenario("materialization conflict retains expected and actual versions", async () => {
+  const conflict = createTaskPackDraftApplicationService(fakeStorage({
+    async materializeTaskPackDraft(input) {
+      throw new TaskPackDraftStorageError(
+        "TASK_PACK_DRAFT_CONFLICT",
+        input.draftId,
+        input.expectedDraftVersion,
+        input.expectedDraftVersion + 1,
+      );
+    },
+  }));
+  await expectApplicationError(
+    conflict.materializeDraft(materializeInput()),
+    "TASK_PACK_DRAFT_CONFLICT",
+    (error) => {
+      assert.equal(error.draftId, draftFixture.id);
+      assert.equal(error.expectedDraftVersion, 1);
+      assert.equal(error.actualDraftVersion, 2);
+    },
+  );
+});
+
+scenario("malformed materialization success results fail closed", async () => {
+  const malformedResults: readonly MaterializeTaskPackDraftResult[] = [
+    {
+      taskPack: { ...taskPackFixture, id: 0 },
+      revision: revisionFixture,
+      draft: materializedDraftFixture,
+    },
+    {
+      taskPack: taskPackFixture,
+      revision: { ...revisionFixture, id: 0 },
+      draft: materializedDraftFixture,
+    },
+    {
+      taskPack: taskPackFixture,
+      revision: { ...revisionFixture, taskPackId: taskPackFixture.id + 1 },
+      draft: materializedDraftFixture,
+    },
+    {
+      taskPack: taskPackFixture,
+      revision: { ...revisionFixture, revisionNumber: 2 },
+      draft: materializedDraftFixture,
+    },
+    {
+      taskPack: taskPackFixture,
+      revision: revisionFixture,
+      draft: { ...materializedDraftFixture, lifecycle: draftFixture.lifecycle },
+    },
+    {
+      taskPack: taskPackFixture,
+      revision: revisionFixture,
+      draft: { ...materializedDraftFixture, taskPackId: taskPackFixture.id + 1 },
+    },
+    {
+      taskPack: taskPackFixture,
+      revision: revisionFixture,
+      draft: {
+        ...materializedDraftFixture,
+        lifecycle: {
+          state: "materialized",
+          materializedRevisionId: revisionFixture.id + 1,
+        },
+      },
+    },
+    {
+      taskPack: taskPackFixture,
+      revision: revisionFixture,
+      draft: { ...materializedDraftFixture, draftVersion: 1 },
+    },
+  ];
+  for (const result of malformedResults) {
+    const malformed = createTaskPackDraftApplicationService(fakeStorage({
+      async materializeTaskPackDraft() {
+        return result;
+      },
+    }));
+    await expectApplicationError(
+      malformed.materializeDraft(materializeInput()),
+      "TASK_PACK_DRAFT_STATE_INVALID",
+    );
+  }
+});
+
+scenario("missing project after committed materialization fails closed", async () => {
+  let materializations = 0;
+  const missingProject = createTaskPackDraftApplicationService(fakeStorage({
+    async materializeTaskPackDraft() {
+      materializations += 1;
+      return {
+        taskPack: taskPackFixture,
+        revision: revisionFixture,
+        draft: materializedDraftFixture,
+      };
+    },
+    async getProjectById() {
+      return null;
+    },
+  }));
+  await expectApplicationError(
+    missingProject.materializeDraft(materializeInput()),
+    "TASK_PACK_DRAFT_STATE_INVALID",
+  );
+  assert.equal(materializations, 1);
+});
+
+scenario("invalid materialization identity and version fail before mutation", async () => {
+  let materializations = 0;
+  const guarded = createTaskPackDraftApplicationService(fakeStorage({
+    async materializeTaskPackDraft() {
+      materializations += 1;
+      return {
+        taskPack: taskPackFixture,
+        revision: revisionFixture,
+        draft: materializedDraftFixture,
+      };
+    },
+  }));
+  await expectApplicationError(
+    guarded.materializeDraft(materializeInput({ draftId: " " })),
+    "TASK_PACK_DRAFT_INVALID",
+  );
+  await expectApplicationError(
+    guarded.materializeDraft(materializeInput({ expectedDraftVersion: 0 })),
+    "TASK_PACK_DRAFT_INVALID",
+  );
+  assert.equal(materializations, 0);
+});
+
+scenario("generated-material JSON safety failure performs no mutation", async () => {
+  let materializations = 0;
+  const guarded = createTaskPackDraftApplicationService(fakeStorage({
+    async materializeTaskPackDraft() {
+      materializations += 1;
+      return {
+        taskPack: taskPackFixture,
+        revision: revisionFixture,
+        draft: materializedDraftFixture,
+      };
+    },
+  }));
+  await assert.rejects(
+    guarded.materializeDraft(
+      materializeInput({ generationRecipe: { invalid: Number.NaN } }),
+    ),
+    (error: unknown) =>
+      error instanceof Error &&
+      (error as Error & { code?: string }).code ===
+        "TASK_PACK_GENERATED_CREATE_INVALID",
+  );
+  assert.equal(materializations, 0);
 });
 
 scenario("invalid identities and versions are rejected before storage writes", async () => {

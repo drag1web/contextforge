@@ -167,13 +167,8 @@ export type TaskPackDraftStorageErrorCode =
   | "TASK_PACK_DRAFT_ALREADY_BOUND"
   | "TASK_PACK_DRAFT_STATE_INVALID";
 
-type ExistingTaskPackDraftStorageErrorCode = Exclude<
-  TaskPackDraftStorageErrorCode,
-  "TASK_PACK_DRAFT_ALREADY_BOUND"
->;
-
 export class TaskPackDraftStorageError<
-  Code extends TaskPackDraftStorageErrorCode = ExistingTaskPackDraftStorageErrorCode,
+  Code extends TaskPackDraftStorageErrorCode = TaskPackDraftStorageErrorCode,
 > extends Error {
   constructor(
     readonly code: Code,
