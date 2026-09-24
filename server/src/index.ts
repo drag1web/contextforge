@@ -5,6 +5,7 @@ import { ensureDatabaseSchema } from "./db/schema.js";
 import { storage } from "./storage/index.js";
 import { projectsRouter } from "./routes/projects.js";
 import { taskPacksRouter } from "./routes/taskPacks.js";
+import { taskPackDraftsRouter } from "./routes/taskPackDrafts.js";
 import { ollamaRouter } from "./routes/ollama.js";
 import { settingsRouter } from "./routes/settings.js";
 import { searchRouter } from "./routes/search.js";
@@ -58,6 +59,7 @@ app.get("/api/db/health", async (_req, res) => {
 
 app.use("/api/projects", projectsRouter);
 app.use("/api/task-packs", taskPacksRouter);
+app.use("/api/task-pack-drafts", taskPackDraftsRouter);
 app.use("/api/ollama", ollamaRouter);
 app.use("/api/settings", settingsRouter);
 app.use("/api/search", searchRouter);
