@@ -139,6 +139,21 @@ export interface DiscardTaskPackDraftInput {
   readonly expectedDraftVersion: number;
 }
 
+export interface MaterializeTaskPackDraftInput {
+  readonly draftId: string;
+  readonly expectedDraftVersion: number;
+  readonly title: string;
+  readonly revisionContent: TaskPackRevisionContent;
+  readonly generatedAt: string;
+  readonly compatibilityGenerationRecipe: TaskPackJsonObject;
+}
+
+export interface MaterializeTaskPackDraftResult {
+  readonly taskPack: TaskPackRecord;
+  readonly revision: TaskPackRevisionRecord;
+  readonly draft: TaskPackDraftRecord;
+}
+
 export type TaskPackDraftStorageErrorCode =
   | "TASK_PACK_DRAFT_NOT_FOUND"
   | "TASK_PACK_DRAFT_ALREADY_EXISTS"
@@ -149,11 +164,19 @@ export type TaskPackDraftStorageErrorCode =
   | "TASK_PACK_DRAFT_TASK_PACK_NOT_FOUND"
   | "TASK_PACK_DRAFT_OWNERSHIP_INVALID"
   | "TASK_PACK_DRAFT_BASE_REVISION_INVALID"
+  | "TASK_PACK_DRAFT_ALREADY_BOUND"
   | "TASK_PACK_DRAFT_STATE_INVALID";
 
-export class TaskPackDraftStorageError extends Error {
+type ExistingTaskPackDraftStorageErrorCode = Exclude<
+  TaskPackDraftStorageErrorCode,
+  "TASK_PACK_DRAFT_ALREADY_BOUND"
+>;
+
+export class TaskPackDraftStorageError<
+  Code extends TaskPackDraftStorageErrorCode = ExistingTaskPackDraftStorageErrorCode,
+> extends Error {
   constructor(
-    readonly code: TaskPackDraftStorageErrorCode,
+    readonly code: Code,
     readonly draftId?: string,
     readonly expectedDraftVersion?: number,
     readonly actualDraftVersion?: number,
@@ -473,6 +496,9 @@ export interface StorageAdapter {
   createTaskPackDraft(input: CreateTaskPackDraftInput): Promise<TaskPackDraftRecord>;
   updateTaskPackDraft(input: UpdateTaskPackDraftInput): Promise<TaskPackDraftRecord>;
   discardTaskPackDraft(input: DiscardTaskPackDraftInput): Promise<TaskPackDraftRecord>;
+  materializeTaskPackDraft(
+    input: MaterializeTaskPackDraftInput
+  ): Promise<MaterializeTaskPackDraftResult>;
 
   listTaskPacks(): Promise<TaskPackRecord[]>;
   getTaskPackById(taskPackId: number): Promise<TaskPackRecord | null>;

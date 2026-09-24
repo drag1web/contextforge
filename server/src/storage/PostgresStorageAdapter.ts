@@ -52,6 +52,8 @@ import type {
   CreateTaskPackInput,
   CreateTaskPackWithInitialRevisionInput,
   DiscardTaskPackDraftInput,
+  MaterializeTaskPackDraftInput,
+  MaterializeTaskPackDraftResult,
   ProjectMemoryRecord,
   ProjectRecord,
   StorageAdapter,
@@ -175,6 +177,30 @@ function mapTaskPackCurrentRow(row: any): TaskPackCurrentRecord {
 
 function jsonParameter(value: unknown | null): string | null {
   return value === null ? null : JSON.stringify(value);
+}
+
+const ISO_UTC_TIMESTAMP_PATTERN =
+  /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/u;
+
+function validateMaterializeTaskPackDraftInput(
+  input: MaterializeTaskPackDraftInput,
+): string {
+  assertTaskPackDraftVersionToken(input.draftId, input.expectedDraftVersion);
+  if (typeof input.title !== "string" || input.title.trim().length === 0) {
+    throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_STATE_INVALID", input.draftId);
+  }
+  if (
+    typeof input.generatedAt !== "string" ||
+    !ISO_UTC_TIMESTAMP_PATTERN.test(input.generatedAt) ||
+    Number.isNaN(Date.parse(input.generatedAt))
+  ) {
+    throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_STATE_INVALID", input.draftId);
+  }
+  const contentHash = computeTaskPackRevisionContentHash(input.revisionContent);
+  if (input.revisionContent.sourceKind !== "generated") {
+    throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_STATE_INVALID", input.draftId);
+  }
+  return contentHash;
 }
 
 function mapProjectMemoryRow(row: any): ProjectMemoryRecord {
@@ -813,6 +839,259 @@ export class PostgresStorageAdapter implements StorageAdapter {
       );
       await client.query("COMMIT");
       return result;
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // Preserve the original storage error.
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async materializeTaskPackDraft(
+    input: MaterializeTaskPackDraftInput,
+  ): Promise<MaterializeTaskPackDraftResult> {
+    const expectedContentHash = validateMaterializeTaskPackDraftInput(input);
+    const content = input.revisionContent;
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const selected = await client.query(
+        "SELECT * FROM task_pack_drafts WHERE id = $1 FOR UPDATE;",
+        [input.draftId],
+      );
+      if (selected.rowCount !== 1 || !selected.rows[0]) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_NOT_FOUND", input.draftId);
+      }
+      const current = mapTaskPackDraftPersistenceRow(
+        selected.rows[0] as TaskPackDraftPersistenceRow,
+      );
+      if (current.draftVersion !== input.expectedDraftVersion) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_CONFLICT",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+        );
+      }
+      if (current.lifecycle.state !== "active") {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_NOT_EDITABLE",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+          current.lifecycle.state,
+        );
+      }
+      if (current.draftVersion === Number.MAX_SAFE_INTEGER) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_VERSION_EXHAUSTED",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+        );
+      }
+      if (current.taskPackId !== null || current.baseRevisionId !== null) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_ALREADY_BOUND",
+          input.draftId,
+        );
+      }
+
+      const project = await client.query(
+        "SELECT id FROM projects WHERE id = $1 FOR KEY SHARE;",
+        [current.projectId],
+      );
+      if (project.rowCount !== 1 || !project.rows[0]) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_PROJECT_NOT_FOUND",
+          input.draftId,
+        );
+      }
+
+      const taskPackResult = await client.query(
+        `INSERT INTO task_packs (
+          project_id, title, raw_task, task_type, target_tool, generated_prompt,
+          generation_mode, generation_model, generation_message,
+          generation_used_fallback, generation_duration_ms, generation_recipe,
+          lifecycle_state, lifecycle_version
+        ) VALUES (
+          $1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12::jsonb,
+          'active', 1
+        ) RETURNING
+          id, project_id AS "projectId", title, raw_task AS "rawTask",
+          task_type AS "taskType", target_tool AS "targetTool",
+          generated_prompt AS "generatedPrompt", generation_mode AS "generationMode",
+          generation_model AS "generationModel", generation_message AS "generationMessage",
+          generation_used_fallback AS "generationUsedFallback",
+          generation_duration_ms AS "generationDurationMs",
+          generation_recipe AS "generationRecipe", created_at AS "createdAt",
+          updated_at AS "updatedAt";`,
+        [
+          current.projectId,
+          input.title,
+          content.rawTask,
+          content.taskType,
+          content.targetTool,
+          content.generatedPrompt,
+          content.generationMode,
+          content.generationModel,
+          content.generationMessage,
+          content.generationUsedFallback,
+          content.generationDurationMs,
+          JSON.stringify(input.compatibilityGenerationRecipe),
+        ],
+      );
+      if (taskPackResult.rowCount !== 1 || !taskPackResult.rows[0]) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_STATE_INVALID",
+          input.draftId,
+        );
+      }
+      const taskPack = mapTaskPackRow(taskPackResult.rows[0]);
+      const createdAtValue = taskPackResult.rows[0].createdAt as string | Date;
+      const persistenceCreatedAt = createdAtValue instanceof Date
+        ? createdAtValue.toISOString()
+        : createdAtValue;
+
+      const revisionResult = await client.query(
+        `INSERT INTO task_pack_revisions (
+          task_pack_id, revision_number, base_revision_id, source_kind,
+          raw_task, task_type, target_tool, generated_prompt,
+          generation_mode, generation_model, generation_message,
+          generation_used_fallback, generation_duration_ms, generation_recipe,
+          diagnostics, grounded_context_snapshot, freshness_basis,
+          content_hash, created_at, generated_at
+        ) VALUES (
+          $1, 1, NULL, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11,
+          $12::jsonb, $13::jsonb, $14::jsonb, $15::jsonb, $16, $17, $18
+        ) RETURNING *;`,
+        [
+          taskPack.id,
+          content.sourceKind,
+          content.rawTask,
+          content.taskType,
+          content.targetTool,
+          content.generatedPrompt,
+          content.generationMode,
+          content.generationModel,
+          content.generationMessage,
+          content.generationUsedFallback,
+          content.generationDurationMs,
+          jsonParameter(content.generationRecipe),
+          jsonParameter(content.diagnostics),
+          jsonParameter(content.groundedContextSnapshot),
+          jsonParameter(content.freshnessBasis),
+          expectedContentHash,
+          persistenceCreatedAt,
+          input.generatedAt,
+        ],
+      );
+      if (revisionResult.rowCount !== 1 || !revisionResult.rows[0]) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_STATE_INVALID",
+          input.draftId,
+        );
+      }
+      const revision = mapTaskPackRevisionPersistenceRow(
+        revisionResult.rows[0] as TaskPackRevisionPersistenceRow,
+      );
+
+      const pointerUpdate = await client.query(
+        `UPDATE task_packs
+         SET current_revision_id = $1
+         WHERE id = $2 AND current_revision_id IS NULL;`,
+        [revision.id, taskPack.id],
+      );
+      if (pointerUpdate.rowCount !== 1) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_STATE_INVALID",
+          input.draftId,
+        );
+      }
+
+      const updatedAt = nextTaskPackDraftUpdatedAt(current.updatedAt);
+      const draftUpdate = await client.query(
+        `UPDATE task_pack_drafts
+         SET task_pack_id = $1, lifecycle_state = 'materialized',
+             materialized_revision_id = $2, draft_version = draft_version + 1,
+             updated_at = $3
+         WHERE id = $4 AND lifecycle_state = 'active' AND draft_version = $5
+           AND task_pack_id IS NULL AND base_revision_id IS NULL
+           AND materialized_revision_id IS NULL
+         RETURNING *;`,
+        [
+          taskPack.id,
+          revision.id,
+          updatedAt,
+          input.draftId,
+          input.expectedDraftVersion,
+        ],
+      );
+      if (draftUpdate.rowCount !== 1 || !draftUpdate.rows[0]) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_STATE_INVALID",
+          input.draftId,
+        );
+      }
+      const draft = mapTaskPackDraftPersistenceRow(
+        draftUpdate.rows[0] as TaskPackDraftPersistenceRow,
+      );
+
+      const aggregateResult = await client.query(
+        `SELECT id, project_id, title, lifecycle_state, archived_from_state,
+                current_revision_id, accepted_revision_id, lifecycle_version,
+                created_at, updated_at, completed_at, archived_at
+         FROM task_packs WHERE id = $1;`,
+        [taskPack.id],
+      );
+      if (aggregateResult.rowCount !== 1 || !aggregateResult.rows[0]) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_STATE_INVALID",
+          input.draftId,
+        );
+      }
+      const aggregate = mapTaskPackAggregatePersistenceRow(
+        aggregateResult.rows[0] as TaskPackAggregatePersistenceRow,
+      );
+      if (
+        aggregate.id !== taskPack.id ||
+        aggregate.projectId !== current.projectId ||
+        aggregate.lifecycle.state !== "active" ||
+        aggregate.lifecycleVersion !== 1 ||
+        aggregate.currentRevisionId !== revision.id ||
+        aggregate.acceptedRevisionId !== null ||
+        revision.taskPackId !== aggregate.id ||
+        revision.revisionNumber !== 1 ||
+        revision.baseRevisionId !== null ||
+        revision.sourceKind !== "generated" ||
+        revision.generatedAt !== input.generatedAt ||
+        revision.contentHash !== expectedContentHash ||
+        draft.taskPackId !== aggregate.id ||
+        draft.baseRevisionId !== null ||
+        draft.lifecycle.state !== "materialized" ||
+        draft.lifecycle.materializedRevisionId !== revision.id ||
+        draft.draftVersion !== current.draftVersion + 1 ||
+        draft.createdAt !== current.createdAt ||
+        draft.expiresAt !== current.expiresAt ||
+        !taskPackDraftContentsEqual(draft.content, current.content)
+      ) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_STATE_INVALID",
+          input.draftId,
+        );
+      }
+      assertTaskPackRevision(revision, {
+        aggregate,
+        verifyContentHash: true,
+      });
+      assertTaskPackDraftRecordForStorage(draft);
+
+      await client.query("COMMIT");
+      return { taskPack, revision, draft };
     } catch (error) {
       try {
         await client.query("ROLLBACK");
