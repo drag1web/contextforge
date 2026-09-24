@@ -11,6 +11,7 @@ import {
   assertTaskPackRevision,
   assertTaskPackRevisionReviewEvent,
   computeTaskPackRevisionContentHash,
+  transitionTaskPackDraft,
   type TaskPackRevisionContent,
 } from "../taskPacks/taskPackLifecycle.js";
 import { parseJsonValue, stringifyJsonValue } from "./json.js";
@@ -19,6 +20,7 @@ import {
   projectTaskPackGenerationRecipeWithGitHubCreatedIssue,
   TaskPackCurrentStateStorageError,
   TaskPackGitHubCreatedIssueLinkStorageError,
+  TaskPackDraftStorageError,
   TaskPackRevisionAppendStorageError,
 } from "./types.js";
 import {
@@ -44,12 +46,23 @@ import {
   type TaskPackReviewEventPersistenceRow,
   type TaskPackRevisionPersistenceRow,
 } from "./taskPackLifecyclePersistence.js";
+import {
+  assertTaskPackDraftRecordForStorage,
+  assertTaskPackDraftVersionToken,
+  mapTaskPackDraftPersistenceRow,
+  nextTaskPackDraftUpdatedAt,
+  serializeTaskPackDraftContent,
+  taskPackDraftContentsEqual,
+  type TaskPackDraftPersistenceRow,
+} from "./taskPackDraftPersistence.js";
 import type {
   AppendTaskPackRevisionInput,
+  CreateTaskPackDraftInput,
   CreateTaskPackGitHubCreatedIssueLinkInput,
   CreateProjectMemoryInput,
   CreateTaskPackInput,
   CreateTaskPackWithInitialRevisionInput,
+  DiscardTaskPackDraftInput,
   ProjectMemoryRecord,
   ProjectRecord,
   StorageAdapter,
@@ -59,11 +72,13 @@ import type {
   TaskPackAggregateLifecycleEventRecord,
   TaskPackAggregateRecord,
   TaskPackCurrentRecord,
+  TaskPackDraftRecord,
   TaskPackGitHubCreatedIssueLinkRecord,
   TaskPackRecord,
   TaskPackRevisionRecord,
   TaskPackRevisionReviewEventRecord,
   UpdateProjectMemoryInput,
+  UpdateTaskPackDraftInput,
   UpdateTaskPackContentInput
 } from "./types.js";
 
@@ -629,6 +644,220 @@ export class SqliteStorageAdapter implements StorageAdapter {
     }
 
     return mapProjectRow(createdRow);
+  }
+
+  async listActiveTaskPackDrafts(projectId?: number): Promise<TaskPackDraftRecord[]> {
+    const rows = await this.getAll<TaskPackDraftPersistenceRow>(
+      projectId === undefined
+        ? `SELECT * FROM task_pack_drafts
+           WHERE lifecycle_state = 'active'
+           ORDER BY updated_at DESC, id ASC;`
+        : `SELECT * FROM task_pack_drafts
+           WHERE lifecycle_state = 'active' AND project_id = ?
+           ORDER BY updated_at DESC, id ASC;`,
+      projectId === undefined ? [] : [projectId],
+    );
+    return rows.map(mapTaskPackDraftPersistenceRow);
+  }
+
+  async getTaskPackDraftById(draftId: string): Promise<TaskPackDraftRecord | null> {
+    const row = await this.getOne<TaskPackDraftPersistenceRow>(
+      "SELECT * FROM task_pack_drafts WHERE id = ?;",
+      [draftId],
+    );
+    return row ? mapTaskPackDraftPersistenceRow(row) : null;
+  }
+
+  async createTaskPackDraft(input: CreateTaskPackDraftInput): Promise<TaskPackDraftRecord> {
+    const timestamp = nowIso();
+    const candidate: TaskPackDraftRecord = {
+      id: input.id,
+      projectId: input.projectId,
+      taskPackId: input.taskPackId,
+      baseRevisionId: input.baseRevisionId,
+      content: input.content,
+      lifecycle: { state: "active", materializedRevisionId: null },
+      draftVersion: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      expiresAt: input.expiresAt,
+    };
+    assertTaskPackDraftRecordForStorage(candidate);
+
+    return this.withTransaction(async () => {
+      const project = await this.getOne<{ id: number }>(
+        "SELECT id FROM projects WHERE id = ?;",
+        [input.projectId],
+      );
+      if (!project) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_PROJECT_NOT_FOUND", input.id);
+      }
+      if (input.taskPackId !== null) {
+        const taskPack = await this.getOne<{ id: number; project_id: number }>(
+          "SELECT id, project_id FROM task_packs WHERE id = ?;",
+          [input.taskPackId],
+        );
+        if (!taskPack) {
+          throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_TASK_PACK_NOT_FOUND", input.id);
+        }
+        if (Number(taskPack.project_id) !== input.projectId) {
+          throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_OWNERSHIP_INVALID", input.id);
+        }
+      }
+      if (input.baseRevisionId !== null) {
+        const revision = await this.getOne<{ id: number }>(
+          "SELECT id FROM task_pack_revisions WHERE id = ? AND task_pack_id = ?;",
+          [input.baseRevisionId, input.taskPackId],
+        );
+        if (!revision) {
+          throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_BASE_REVISION_INVALID", input.id);
+        }
+      }
+      if (await this.getOne<{ id: string }>("SELECT id FROM task_pack_drafts WHERE id = ?;", [input.id])) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_ALREADY_EXISTS", input.id);
+      }
+
+      try {
+        await this.run(
+          `INSERT INTO task_pack_drafts (
+            id, project_id, task_pack_id, base_revision_id, content,
+            lifecycle_state, materialized_revision_id, draft_version,
+            created_at, updated_at, expires_at
+          ) VALUES (?, ?, ?, ?, ?, 'active', NULL, 1, ?, ?, ?);`,
+          [
+            candidate.id,
+            candidate.projectId,
+            candidate.taskPackId,
+            candidate.baseRevisionId,
+            serializeTaskPackDraftContent(candidate.content),
+            candidate.createdAt,
+            candidate.updatedAt,
+            candidate.expiresAt,
+          ],
+        );
+      } catch (error) {
+        if (String(error).includes("UNIQUE constraint failed: task_pack_drafts.id")) {
+          throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_ALREADY_EXISTS", input.id);
+        }
+        throw error;
+      }
+      const created = await this.getTaskPackDraftById(input.id);
+      if (!created) throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_STATE_INVALID", input.id);
+      return created;
+    });
+  }
+
+  async updateTaskPackDraft(input: UpdateTaskPackDraftInput): Promise<TaskPackDraftRecord> {
+    assertTaskPackDraftVersionToken(input.draftId, input.expectedDraftVersion);
+    return this.withTransaction(async () => {
+      const current = await this.getTaskPackDraftById(input.draftId);
+      if (!current) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_NOT_FOUND", input.draftId);
+      }
+      if (current.draftVersion !== input.expectedDraftVersion) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_CONFLICT",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+        );
+      }
+      if (current.lifecycle.state !== "active") {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_NOT_EDITABLE",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+          current.lifecycle.state,
+        );
+      }
+      const proposed: TaskPackDraftRecord = { ...current, content: input.content };
+      assertTaskPackDraftRecordForStorage(proposed);
+      if (taskPackDraftContentsEqual(current.content, proposed.content)) return current;
+      if (current.draftVersion === Number.MAX_SAFE_INTEGER) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_VERSION_EXHAUSTED",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+        );
+      }
+      const updatedAt = nextTaskPackDraftUpdatedAt(current.updatedAt);
+      await this.run(
+        `UPDATE task_pack_drafts
+         SET content = ?, draft_version = draft_version + 1, updated_at = ?
+         WHERE id = ? AND lifecycle_state = 'active' AND draft_version = ?;`,
+        [
+          serializeTaskPackDraftContent(proposed.content),
+          updatedAt,
+          input.draftId,
+          input.expectedDraftVersion,
+        ],
+      );
+      const changed = await this.getOne<{ changed: number }>("SELECT changes() AS changed;");
+      if (Number(changed?.changed ?? 0) !== 1) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_STATE_INVALID", input.draftId);
+      }
+      const updated = await this.getTaskPackDraftById(input.draftId);
+      if (!updated) throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_STATE_INVALID", input.draftId);
+      return updated;
+    });
+  }
+
+  async discardTaskPackDraft(input: DiscardTaskPackDraftInput): Promise<TaskPackDraftRecord> {
+    assertTaskPackDraftVersionToken(input.draftId, input.expectedDraftVersion);
+    return this.withTransaction(async () => {
+      const current = await this.getTaskPackDraftById(input.draftId);
+      if (!current) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_NOT_FOUND", input.draftId);
+      }
+      if (current.draftVersion !== input.expectedDraftVersion) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_CONFLICT",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+        );
+      }
+      if (current.lifecycle.state !== "active") {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_NOT_EDITABLE",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+          current.lifecycle.state,
+        );
+      }
+      if (current.draftVersion === Number.MAX_SAFE_INTEGER) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_VERSION_EXHAUSTED",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+        );
+      }
+      const proposed: TaskPackDraftRecord = {
+        ...current,
+        lifecycle: transitionTaskPackDraft(current.lifecycle, { type: "discard" }),
+        draftVersion: current.draftVersion + 1,
+        updatedAt: nextTaskPackDraftUpdatedAt(current.updatedAt),
+      };
+      assertTaskPackDraftRecordForStorage(proposed);
+      await this.run(
+        `UPDATE task_pack_drafts
+         SET lifecycle_state = 'discarded', materialized_revision_id = NULL,
+             draft_version = draft_version + 1, updated_at = ?
+         WHERE id = ? AND lifecycle_state = 'active' AND draft_version = ?;`,
+        [proposed.updatedAt, input.draftId, input.expectedDraftVersion],
+      );
+      const changed = await this.getOne<{ changed: number }>("SELECT changes() AS changed;");
+      if (Number(changed?.changed ?? 0) !== 1) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_STATE_INVALID", input.draftId);
+      }
+      const discarded = await this.getTaskPackDraftById(input.draftId);
+      if (!discarded) throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_STATE_INVALID", input.draftId);
+      return discarded;
+    });
   }
 
   async listTaskPacks(): Promise<TaskPackRecord[]> {
@@ -1901,6 +2130,9 @@ export class SqliteStorageAdapter implements StorageAdapter {
     }
 
     fs.mkdirSync(path.dirname(this.databasePath), { recursive: true });
-    fs.writeFileSync(this.databasePath, Buffer.from(this.db.export()));
+    const exported = Buffer.from(this.db.export());
+    // sql.js export resets connection-local PRAGMA state; keep ownership/cascade enforcement active.
+    this.db.run("PRAGMA foreign_keys = ON;");
+    fs.writeFileSync(this.databasePath, exported);
   }
 }

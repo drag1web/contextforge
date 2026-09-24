@@ -1,8 +1,11 @@
 import type { ReadinessReport, ScannedProject } from "../scanner/projectScanner.js";
 import type { RulesAndTemplatesStore } from "../rules/types.js";
 import type {
+  PersistedTaskPackDraft,
   TaskPackAggregate,
   TaskPackAggregateLifecycleEvent,
+  TaskPackDraftContent,
+  TaskPackDraftState,
   TaskPackJsonObject,
   TaskPackRevision,
   TaskPackRevisionContent,
@@ -111,6 +114,53 @@ export class TaskPackRevisionAppendStorageError extends Error {
   ) {
     super(code);
     this.name = "TaskPackRevisionAppendStorageError";
+  }
+}
+
+export type TaskPackDraftRecord = PersistedTaskPackDraft;
+
+export interface CreateTaskPackDraftInput {
+  readonly id: string;
+  readonly projectId: number;
+  readonly taskPackId: number | null;
+  readonly baseRevisionId: number | null;
+  readonly content: TaskPackDraftContent;
+  readonly expiresAt: string | null;
+}
+
+export interface UpdateTaskPackDraftInput {
+  readonly draftId: string;
+  readonly expectedDraftVersion: number;
+  readonly content: TaskPackDraftContent;
+}
+
+export interface DiscardTaskPackDraftInput {
+  readonly draftId: string;
+  readonly expectedDraftVersion: number;
+}
+
+export type TaskPackDraftStorageErrorCode =
+  | "TASK_PACK_DRAFT_NOT_FOUND"
+  | "TASK_PACK_DRAFT_ALREADY_EXISTS"
+  | "TASK_PACK_DRAFT_CONFLICT"
+  | "TASK_PACK_DRAFT_NOT_EDITABLE"
+  | "TASK_PACK_DRAFT_VERSION_EXHAUSTED"
+  | "TASK_PACK_DRAFT_PROJECT_NOT_FOUND"
+  | "TASK_PACK_DRAFT_TASK_PACK_NOT_FOUND"
+  | "TASK_PACK_DRAFT_OWNERSHIP_INVALID"
+  | "TASK_PACK_DRAFT_BASE_REVISION_INVALID"
+  | "TASK_PACK_DRAFT_STATE_INVALID";
+
+export class TaskPackDraftStorageError extends Error {
+  constructor(
+    readonly code: TaskPackDraftStorageErrorCode,
+    readonly draftId?: string,
+    readonly expectedDraftVersion?: number,
+    readonly actualDraftVersion?: number,
+    readonly lifecycleState?: TaskPackDraftState,
+  ) {
+    super(code);
+    this.name = "TaskPackDraftStorageError";
   }
 }
 
@@ -417,6 +467,12 @@ export interface StorageAdapter {
   listProjects(): Promise<ProjectRecord[]>;
   getProjectById(projectId: number): Promise<ProjectRecord | null>;
   upsertScannedProject(project: ScannedProject): Promise<ProjectRecord>;
+
+  listActiveTaskPackDrafts(projectId?: number): Promise<TaskPackDraftRecord[]>;
+  getTaskPackDraftById(draftId: string): Promise<TaskPackDraftRecord | null>;
+  createTaskPackDraft(input: CreateTaskPackDraftInput): Promise<TaskPackDraftRecord>;
+  updateTaskPackDraft(input: UpdateTaskPackDraftInput): Promise<TaskPackDraftRecord>;
+  discardTaskPackDraft(input: DiscardTaskPackDraftInput): Promise<TaskPackDraftRecord>;
 
   listTaskPacks(): Promise<TaskPackRecord[]>;
   getTaskPackById(taskPackId: number): Promise<TaskPackRecord | null>;

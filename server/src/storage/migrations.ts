@@ -10,11 +10,12 @@ import {
   type TaskPackGitHubCreatedIssueLinkRecord,
 } from "./types.js";
 
-export const SQLITE_SCHEMA_VERSION = 4;
+export const SQLITE_SCHEMA_VERSION = 5;
 export const TASK_PACK_LIFECYCLE_MIGRATION_ID =
   "0003_task_pack_lifecycle_revisions" as const;
 export const TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID =
   "0004_task_pack_github_created_issue_link" as const;
+export const TASK_PACK_DRAFTS_MIGRATION_ID = "0005_task_pack_drafts" as const;
 
 export interface SqliteMigrationDefinition {
   id: string;
@@ -346,6 +347,49 @@ function runSqliteTaskPackGitHubCreatedIssueLinkMigration(db: Database): void {
   }
 }
 
+const SQLITE_TASK_PACK_DRAFTS_DDL = `
+  CREATE TABLE task_pack_drafts (
+    id TEXT PRIMARY KEY,
+    project_id INTEGER NOT NULL,
+    task_pack_id INTEGER,
+    base_revision_id INTEGER,
+    content TEXT NOT NULL,
+    lifecycle_state TEXT NOT NULL
+      CHECK (lifecycle_state IN ('active', 'materialized', 'discarded')),
+    materialized_revision_id INTEGER,
+    draft_version INTEGER NOT NULL CHECK (
+      draft_version >= 1 AND draft_version <= 9007199254740991
+    ),
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    expires_at TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
+    FOREIGN KEY (task_pack_id) REFERENCES task_packs(id) ON DELETE CASCADE,
+    FOREIGN KEY (task_pack_id, base_revision_id)
+      REFERENCES task_pack_revisions(task_pack_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (task_pack_id, materialized_revision_id)
+      REFERENCES task_pack_revisions(task_pack_id, id) ON DELETE CASCADE,
+    CHECK (base_revision_id IS NULL OR task_pack_id IS NOT NULL),
+    CHECK (
+      (lifecycle_state = 'active' AND materialized_revision_id IS NULL)
+      OR
+      (lifecycle_state = 'materialized'
+        AND task_pack_id IS NOT NULL
+        AND materialized_revision_id IS NOT NULL)
+      OR
+      (lifecycle_state = 'discarded' AND materialized_revision_id IS NULL)
+    )
+  );
+
+  CREATE INDEX idx_task_pack_drafts_active_updated
+    ON task_pack_drafts(updated_at DESC, id)
+    WHERE lifecycle_state = 'active';
+
+  CREATE INDEX idx_task_pack_drafts_project_active_updated
+    ON task_pack_drafts(project_id, updated_at DESC, id)
+    WHERE lifecycle_state = 'active';
+`;
+
 export const SQLITE_MIGRATIONS: SqliteMigrationDefinition[] = [
   {
     id: "0001_sqlite_baseline",
@@ -396,6 +440,17 @@ export const SQLITE_MIGRATIONS: SqliteMigrationDefinition[] = [
       "Moves valid aggregate-owned created GitHub issue linkage out of the flat generation recipe.",
     checksum: "task-pack-github-created-issue-link-v1",
     run: runSqliteTaskPackGitHubCreatedIssueLinkMigration,
+  },
+  {
+    id: TASK_PACK_DRAFTS_MIGRATION_ID,
+    version: 5,
+    name: "Persisted Task Pack drafts",
+    description:
+      "Adds local persisted Task Pack drafts with optimistic concurrency and terminal draft lifecycle state.",
+    checksum: "task-pack-drafts-v1",
+    run(db) {
+      db.run(SQLITE_TASK_PACK_DRAFTS_DDL);
+    },
   },
 ];
 
@@ -578,6 +633,48 @@ export const POSTGRES_TASK_PACK_GITHUB_CREATED_ISSUE_LINK_DDL = `
   );
 `;
 
+export const POSTGRES_TASK_PACK_DRAFTS_DDL = `
+  CREATE TABLE task_pack_drafts (
+    id TEXT PRIMARY KEY,
+    project_id INTEGER NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+    task_pack_id INTEGER REFERENCES task_packs(id) ON DELETE CASCADE,
+    base_revision_id INTEGER,
+    content JSONB NOT NULL CHECK (jsonb_typeof(content) = 'object'),
+    lifecycle_state TEXT NOT NULL
+      CHECK (lifecycle_state IN ('active', 'materialized', 'discarded')),
+    materialized_revision_id INTEGER,
+    draft_version BIGINT NOT NULL CHECK (
+      draft_version >= 1
+      AND draft_version <= 9007199254740991
+    ),
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL,
+    expires_at TIMESTAMPTZ,
+    FOREIGN KEY (task_pack_id, base_revision_id)
+      REFERENCES task_pack_revisions(task_pack_id, id) ON DELETE CASCADE,
+    FOREIGN KEY (task_pack_id, materialized_revision_id)
+      REFERENCES task_pack_revisions(task_pack_id, id) ON DELETE CASCADE,
+    CHECK (base_revision_id IS NULL OR task_pack_id IS NOT NULL),
+    CHECK (
+      (lifecycle_state = 'active' AND materialized_revision_id IS NULL)
+      OR
+      (lifecycle_state = 'materialized'
+        AND task_pack_id IS NOT NULL
+        AND materialized_revision_id IS NOT NULL)
+      OR
+      (lifecycle_state = 'discarded' AND materialized_revision_id IS NULL)
+    )
+  );
+
+  CREATE INDEX idx_task_pack_drafts_active_updated
+    ON task_pack_drafts(updated_at DESC, id)
+    WHERE lifecycle_state = 'active';
+
+  CREATE INDEX idx_task_pack_drafts_project_active_updated
+    ON task_pack_drafts(project_id, updated_at DESC, id)
+    WHERE lifecycle_state = 'active';
+`;
+
 export async function applyPostgresTaskPackLifecycleMigration(
   client: PostgresMigrationClient,
   appliedAt: string,
@@ -711,6 +808,35 @@ export async function applyPostgresTaskPackGitHubCreatedIssueLinkMigration(
         "Task Pack created GitHub issue linkage",
         "Moves valid aggregate-owned created GitHub issue linkage out of the flat generation recipe.",
         "task-pack-github-created-issue-link-v1",
+        appliedAt,
+      ],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // Preserve the original migration error.
+    }
+    throw error;
+  }
+}
+
+export async function applyPostgresTaskPackDraftsMigration(
+  client: PostgresMigrationClient,
+  appliedAt: string,
+): Promise<void> {
+  await client.query("BEGIN");
+  try {
+    await client.query(POSTGRES_TASK_PACK_DRAFTS_DDL);
+    await client.query(
+      `INSERT INTO schema_migrations (id, version, name, description, checksum, applied_at)
+       VALUES ($1, 5, $2, $3, $4, $5);`,
+      [
+        TASK_PACK_DRAFTS_MIGRATION_ID,
+        "Persisted Task Pack drafts",
+        "Adds local persisted Task Pack drafts with optimistic concurrency and terminal draft lifecycle state.",
+        "task-pack-drafts-v1",
         appliedAt,
       ],
     );

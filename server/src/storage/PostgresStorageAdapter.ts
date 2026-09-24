@@ -4,6 +4,7 @@ import {
   assertTaskPackGitHubCreatedIssueLinkInput,
   projectTaskPackGenerationRecipeWithGitHubCreatedIssue,
   TaskPackCurrentStateStorageError,
+  TaskPackDraftStorageError,
   TaskPackGitHubCreatedIssueLinkStorageError,
   TaskPackRevisionAppendStorageError,
 } from "./types.js";
@@ -12,11 +13,14 @@ import {
   assertTaskPackRevision,
   assertTaskPackRevisionReviewEvent,
   computeTaskPackRevisionContentHash,
+  transitionTaskPackDraft,
   type TaskPackRevisionContent,
 } from "../taskPacks/taskPackLifecycle.js";
 import {
   applyPostgresTaskPackLifecycleMigration,
   applyPostgresTaskPackGitHubCreatedIssueLinkMigration,
+  applyPostgresTaskPackDraftsMigration,
+  TASK_PACK_DRAFTS_MIGRATION_ID,
   TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID,
   TASK_PACK_LIFECYCLE_MIGRATION_ID,
 } from "./migrations.js";
@@ -31,12 +35,23 @@ import {
   type TaskPackReviewEventPersistenceRow,
   type TaskPackRevisionPersistenceRow,
 } from "./taskPackLifecyclePersistence.js";
+import {
+  assertTaskPackDraftRecordForStorage,
+  assertTaskPackDraftVersionToken,
+  mapTaskPackDraftPersistenceRow,
+  nextTaskPackDraftUpdatedAt,
+  serializeTaskPackDraftContent,
+  taskPackDraftContentsEqual,
+  type TaskPackDraftPersistenceRow,
+} from "./taskPackDraftPersistence.js";
 import type {
   AppendTaskPackRevisionInput,
+  CreateTaskPackDraftInput,
   CreateTaskPackGitHubCreatedIssueLinkInput,
   CreateProjectMemoryInput,
   CreateTaskPackInput,
   CreateTaskPackWithInitialRevisionInput,
+  DiscardTaskPackDraftInput,
   ProjectMemoryRecord,
   ProjectRecord,
   StorageAdapter,
@@ -45,11 +60,13 @@ import type {
   TaskPackAggregateLifecycleEventRecord,
   TaskPackAggregateRecord,
   TaskPackCurrentRecord,
+  TaskPackDraftRecord,
   TaskPackGitHubCreatedIssueLinkRecord,
   TaskPackRecord,
   TaskPackRevisionRecord,
   TaskPackRevisionReviewEventRecord,
   UpdateProjectMemoryInput,
+  UpdateTaskPackDraftInput,
   UpdateTaskPackContentInput
 } from "./types.js";
 
@@ -358,6 +375,27 @@ export class PostgresStorageAdapter implements StorageAdapter {
         client.release();
       }
     }
+
+    const draftsMigration = await pool.query(
+      "SELECT id FROM schema_migrations WHERE id = $1;",
+      [TASK_PACK_DRAFTS_MIGRATION_ID],
+    );
+    if (draftsMigration.rowCount === 0) {
+      const client = await pool.connect();
+      try {
+        await applyPostgresTaskPackDraftsMigration(
+          {
+            query: async <T>(text: string, values?: readonly unknown[]) => {
+              const result = await client.query(text, values ? [...values] : undefined);
+              return { rows: result.rows as T[], rowCount: result.rowCount };
+            },
+          },
+          new Date().toISOString(),
+        );
+      } finally {
+        client.release();
+      }
+    }
   }
 
   async getSchemaInfo(): Promise<StorageSchemaInfo> {
@@ -386,7 +424,10 @@ export class PostgresStorageAdapter implements StorageAdapter {
       (migration) =>
         migration.id === TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID,
     );
-    const currentVersion = githubLinkApplied ? 4 : lifecycleApplied ? 3 : 0;
+    const draftsApplied = appliedMigrations.some(
+      (migration) => migration.id === TASK_PACK_DRAFTS_MIGRATION_ID,
+    );
+    const currentVersion = draftsApplied ? 5 : githubLinkApplied ? 4 : lifecycleApplied ? 3 : 0;
     const pendingMigrations = [
       ...(!lifecycleApplied
         ? [{
@@ -406,10 +447,19 @@ export class PostgresStorageAdapter implements StorageAdapter {
               "Moves valid aggregate-owned created GitHub issue linkage out of the flat generation recipe.",
           }]
         : []),
+      ...(!draftsApplied
+        ? [{
+            id: TASK_PACK_DRAFTS_MIGRATION_ID,
+            version: 5,
+            name: "Persisted Task Pack drafts",
+            description:
+              "Adds local persisted Task Pack drafts with optimistic concurrency and terminal draft lifecycle state.",
+          }]
+        : []),
     ];
     return {
       currentVersion,
-      latestVersion: 4,
+      latestVersion: 5,
       status: pendingMigrations.length === 0 ? "ready" : "needs_migration",
       pendingCount: pendingMigrations.length,
       appliedMigrations,
@@ -497,6 +547,282 @@ export class PostgresStorageAdapter implements StorageAdapter {
     );
 
     return mapProjectRow(result.rows[0]);
+  }
+
+  async listActiveTaskPackDrafts(projectId?: number): Promise<TaskPackDraftRecord[]> {
+    const result = await pool.query(
+      projectId === undefined
+        ? `SELECT * FROM task_pack_drafts
+           WHERE lifecycle_state = 'active'
+           ORDER BY updated_at DESC, id ASC;`
+        : `SELECT * FROM task_pack_drafts
+           WHERE lifecycle_state = 'active' AND project_id = $1
+           ORDER BY updated_at DESC, id ASC;`,
+      projectId === undefined ? undefined : [projectId],
+    );
+    return result.rows.map((row) =>
+      mapTaskPackDraftPersistenceRow(row as TaskPackDraftPersistenceRow),
+    );
+  }
+
+  async getTaskPackDraftById(draftId: string): Promise<TaskPackDraftRecord | null> {
+    const result = await pool.query("SELECT * FROM task_pack_drafts WHERE id = $1;", [draftId]);
+    return result.rows[0]
+      ? mapTaskPackDraftPersistenceRow(result.rows[0] as TaskPackDraftPersistenceRow)
+      : null;
+  }
+
+  async createTaskPackDraft(input: CreateTaskPackDraftInput): Promise<TaskPackDraftRecord> {
+    const timestamp = new Date().toISOString();
+    const candidate: TaskPackDraftRecord = {
+      id: input.id,
+      projectId: input.projectId,
+      taskPackId: input.taskPackId,
+      baseRevisionId: input.baseRevisionId,
+      content: input.content,
+      lifecycle: { state: "active", materializedRevisionId: null },
+      draftVersion: 1,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      expiresAt: input.expiresAt,
+    };
+    assertTaskPackDraftRecordForStorage(candidate);
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const project = await client.query("SELECT id FROM projects WHERE id = $1;", [input.projectId]);
+      if (project.rowCount !== 1) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_PROJECT_NOT_FOUND", input.id);
+      }
+      if (input.taskPackId !== null) {
+        const taskPack = await client.query(
+          "SELECT id, project_id FROM task_packs WHERE id = $1;",
+          [input.taskPackId],
+        );
+        if (taskPack.rowCount !== 1) {
+          throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_TASK_PACK_NOT_FOUND", input.id);
+        }
+        if (Number(taskPack.rows[0]!.project_id) !== input.projectId) {
+          throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_OWNERSHIP_INVALID", input.id);
+        }
+      }
+      if (input.baseRevisionId !== null) {
+        const revision = await client.query(
+          "SELECT id FROM task_pack_revisions WHERE id = $1 AND task_pack_id = $2;",
+          [input.baseRevisionId, input.taskPackId],
+        );
+        if (revision.rowCount !== 1) {
+          throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_BASE_REVISION_INVALID", input.id);
+        }
+      }
+      const existing = await client.query("SELECT id FROM task_pack_drafts WHERE id = $1;", [input.id]);
+      if (existing.rowCount !== 0) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_ALREADY_EXISTS", input.id);
+      }
+      const inserted = await client.query(
+        `INSERT INTO task_pack_drafts (
+          id, project_id, task_pack_id, base_revision_id, content,
+          lifecycle_state, materialized_revision_id, draft_version,
+          created_at, updated_at, expires_at
+        ) VALUES ($1, $2, $3, $4, $5::jsonb, 'active', NULL, 1, $6, $7, $8)
+        RETURNING *;`,
+        [
+          candidate.id,
+          candidate.projectId,
+          candidate.taskPackId,
+          candidate.baseRevisionId,
+          serializeTaskPackDraftContent(candidate.content),
+          candidate.createdAt,
+          candidate.updatedAt,
+          candidate.expiresAt,
+        ],
+      );
+      if (inserted.rowCount !== 1 || !inserted.rows[0]) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_STATE_INVALID", input.id);
+      }
+      const created = mapTaskPackDraftPersistenceRow(
+        inserted.rows[0] as TaskPackDraftPersistenceRow,
+      );
+      await client.query("COMMIT");
+      return created;
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // Preserve the original storage error.
+      }
+      if ((error as { code?: unknown })?.code === "23505") {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_ALREADY_EXISTS", input.id);
+      }
+      if ((error as { code?: unknown })?.code === "23503") {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_OWNERSHIP_INVALID", input.id);
+      }
+      if ((error as { code?: unknown })?.code === "23514") {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_STATE_INVALID", input.id);
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async updateTaskPackDraft(input: UpdateTaskPackDraftInput): Promise<TaskPackDraftRecord> {
+    assertTaskPackDraftVersionToken(input.draftId, input.expectedDraftVersion);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const selected = await client.query(
+        "SELECT * FROM task_pack_drafts WHERE id = $1 FOR UPDATE;",
+        [input.draftId],
+      );
+      if (selected.rowCount !== 1 || !selected.rows[0]) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_NOT_FOUND", input.draftId);
+      }
+      const current = mapTaskPackDraftPersistenceRow(
+        selected.rows[0] as TaskPackDraftPersistenceRow,
+      );
+      if (current.draftVersion !== input.expectedDraftVersion) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_CONFLICT",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+        );
+      }
+      if (current.lifecycle.state !== "active") {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_NOT_EDITABLE",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+          current.lifecycle.state,
+        );
+      }
+      const proposed: TaskPackDraftRecord = { ...current, content: input.content };
+      assertTaskPackDraftRecordForStorage(proposed);
+      if (taskPackDraftContentsEqual(current.content, proposed.content)) {
+        await client.query("COMMIT");
+        return current;
+      }
+      if (current.draftVersion === Number.MAX_SAFE_INTEGER) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_VERSION_EXHAUSTED",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+        );
+      }
+      const updatedAt = nextTaskPackDraftUpdatedAt(current.updatedAt);
+      const updated = await client.query(
+        `UPDATE task_pack_drafts
+         SET content = $1::jsonb, draft_version = draft_version + 1, updated_at = $2
+         WHERE id = $3 AND lifecycle_state = 'active' AND draft_version = $4
+         RETURNING *;`,
+        [
+          serializeTaskPackDraftContent(proposed.content),
+          updatedAt,
+          input.draftId,
+          input.expectedDraftVersion,
+        ],
+      );
+      if (updated.rowCount !== 1 || !updated.rows[0]) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_STATE_INVALID", input.draftId);
+      }
+      const result = mapTaskPackDraftPersistenceRow(
+        updated.rows[0] as TaskPackDraftPersistenceRow,
+      );
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // Preserve the original storage error.
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async discardTaskPackDraft(input: DiscardTaskPackDraftInput): Promise<TaskPackDraftRecord> {
+    assertTaskPackDraftVersionToken(input.draftId, input.expectedDraftVersion);
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const selected = await client.query(
+        "SELECT * FROM task_pack_drafts WHERE id = $1 FOR UPDATE;",
+        [input.draftId],
+      );
+      if (selected.rowCount !== 1 || !selected.rows[0]) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_NOT_FOUND", input.draftId);
+      }
+      const current = mapTaskPackDraftPersistenceRow(
+        selected.rows[0] as TaskPackDraftPersistenceRow,
+      );
+      if (current.draftVersion !== input.expectedDraftVersion) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_CONFLICT",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+        );
+      }
+      if (current.lifecycle.state !== "active") {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_NOT_EDITABLE",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+          current.lifecycle.state,
+        );
+      }
+      if (current.draftVersion === Number.MAX_SAFE_INTEGER) {
+        throw new TaskPackDraftStorageError(
+          "TASK_PACK_DRAFT_VERSION_EXHAUSTED",
+          input.draftId,
+          input.expectedDraftVersion,
+          current.draftVersion,
+        );
+      }
+      const proposed: TaskPackDraftRecord = {
+        ...current,
+        lifecycle: transitionTaskPackDraft(current.lifecycle, { type: "discard" }),
+        draftVersion: current.draftVersion + 1,
+        updatedAt: nextTaskPackDraftUpdatedAt(current.updatedAt),
+      };
+      assertTaskPackDraftRecordForStorage(proposed);
+      const updated = await client.query(
+        `UPDATE task_pack_drafts
+         SET lifecycle_state = 'discarded', materialized_revision_id = NULL,
+             draft_version = draft_version + 1, updated_at = $1
+         WHERE id = $2 AND lifecycle_state = 'active' AND draft_version = $3
+         RETURNING *;`,
+        [
+          proposed.updatedAt,
+          input.draftId,
+          input.expectedDraftVersion,
+        ],
+      );
+      if (updated.rowCount !== 1 || !updated.rows[0]) {
+        throw new TaskPackDraftStorageError("TASK_PACK_DRAFT_STATE_INVALID", input.draftId);
+      }
+      const result = mapTaskPackDraftPersistenceRow(
+        updated.rows[0] as TaskPackDraftPersistenceRow,
+      );
+      await client.query("COMMIT");
+      return result;
+    } catch (error) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        // Preserve the original storage error.
+      }
+      throw error;
+    } finally {
+      client.release();
+    }
   }
 
   async listTaskPacks(): Promise<TaskPackRecord[]> {

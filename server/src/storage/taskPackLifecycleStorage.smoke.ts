@@ -12,6 +12,7 @@ import {
   POSTGRES_TASK_PACK_LIFECYCLE_CONSTRAINTS,
   POSTGRES_TASK_PACK_LIFECYCLE_DDL,
   SQLITE_MIGRATIONS,
+  TASK_PACK_DRAFTS_MIGRATION_ID,
   TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID,
   TASK_PACK_LIFECYCLE_MIGRATION_ID,
   applyPostgresTaskPackLifecycleMigration,
@@ -244,15 +245,15 @@ function sqliteBackupFiles(directory: string): string[] {
     .map((fileName) => path.join(directory, fileName));
 }
 
-scenario("empty SQLite database migrates to logical schema version 4", async () => {
+scenario("empty SQLite database migrates to logical schema version 5", async () => {
   const empty = new SqliteStorageAdapter(emptyDatabasePath);
   await empty.ensureSchema();
   const info = await empty.getSchemaInfo();
-  assert.equal(info.currentVersion, 4);
+  assert.equal(info.currentVersion, 5);
   assert.equal(info.pendingCount, 0);
   assert.equal(
     info.appliedMigrations.at(-1)?.id,
-    TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID,
+    TASK_PACK_DRAFTS_MIGRATION_ID,
   );
 });
 
