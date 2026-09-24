@@ -87,10 +87,6 @@ export interface TaskPackDraftApplicationService {
   createDraft(input: CreateTaskPackDraftApplicationInput): Promise<TaskPackDraftView>;
   updateDraft(input: UpdateTaskPackDraftApplicationInput): Promise<TaskPackDraftView>;
   discardDraft(input: DiscardTaskPackDraftApplicationInput): Promise<TaskPackDraftView>;
-}
-
-export interface TaskPackDraftApplicationServiceWithMaterialization
-  extends TaskPackDraftApplicationService {
   materializeDraft(
     input: MaterializeGeneratedTaskPackDraftApplicationInput,
   ): Promise<MaterializeGeneratedTaskPackDraftApplicationResult>;
@@ -109,14 +105,9 @@ export type TaskPackDraftApplicationErrorCode =
   | "TASK_PACK_DRAFT_ALREADY_BOUND"
   | "TASK_PACK_DRAFT_STATE_INVALID";
 
-type TaskPackDraftCrudApplicationErrorCode = Exclude<
-  TaskPackDraftApplicationErrorCode,
-  "TASK_PACK_DRAFT_ALREADY_BOUND"
->;
-
 export class TaskPackDraftApplicationError<
   Code extends
-    TaskPackDraftApplicationErrorCode = TaskPackDraftCrudApplicationErrorCode,
+    TaskPackDraftApplicationErrorCode = TaskPackDraftApplicationErrorCode,
 > extends Error {
   constructor(
     readonly code: Code,
@@ -132,7 +123,7 @@ export class TaskPackDraftApplicationError<
 
 export function createTaskPackDraftApplicationService(
   storage: TaskPackDraftApplicationServiceStorage,
-): TaskPackDraftApplicationServiceWithMaterialization {
+): TaskPackDraftApplicationService {
   async function resolveProjectName(
     draft: PersistedTaskPackDraft,
     cache?: Map<number, string>,

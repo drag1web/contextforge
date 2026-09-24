@@ -5,17 +5,31 @@ import type { AddressInfo } from "node:net";
 
 import express, { Router } from "express";
 
+import { RulesServiceError } from "../rules/rulesService.js";
+import type {
+  TaskPackCurrentRecord,
+  TaskPackRevisionRecord,
+} from "../storage/types.js";
 import {
   TaskPackDraftApplicationError,
   type CreateTaskPackDraftApplicationInput,
   type DiscardTaskPackDraftApplicationInput,
+  type MaterializeGeneratedTaskPackDraftApplicationInput,
   type TaskPackDraftApplicationService,
   type TaskPackDraftSummary,
   type TaskPackDraftView,
   type UpdateTaskPackDraftApplicationInput,
 } from "../taskPacks/taskPackDraftApplicationService.js";
 import type { TaskPackDraftContent } from "../taskPacks/taskPackLifecycle.js";
-import { registerTaskPackDraftRoutes } from "./taskPackDrafts.js";
+import type {
+  CreateTaskPackRequest,
+  PrepareTaskPackPipelineResult,
+} from "./taskPacks.js";
+import {
+  registerTaskPackDraftRoutes,
+  type PrepareTaskPackForDraft,
+  type ValidateCreateTaskPackRequest,
+} from "./taskPackDrafts.js";
 
 interface SmokeScenario {
   readonly name: string;
@@ -73,10 +87,108 @@ const summary: TaskPackDraftSummary = {
   expiresAt: view.expiresAt,
 };
 
+const taskPack: TaskPackCurrentRecord = {
+  id: 71,
+  projectId: view.projectId,
+  title: "Materialized persisted draft",
+  rawTask: view.content.rawTask,
+  taskType: view.content.taskType,
+  targetTool: view.content.targetTool,
+  generatedPrompt: "Prepared immutable prompt.",
+  generationMode: "template",
+  generationModel: null,
+  generationMessage: null,
+  generationUsedFallback: false,
+  generationDurationMs: 12,
+  generationRecipe: { template: null },
+  createdAt: "2026-09-24T09:00:00.000Z",
+  updatedAt: "2026-09-24T09:00:00.000Z",
+  currentRevisionId: 81,
+};
+
+const revision: TaskPackRevisionRecord = {
+  id: taskPack.currentRevisionId,
+  taskPackId: taskPack.id,
+  revisionNumber: 1,
+  baseRevisionId: null,
+  sourceKind: "generated",
+  rawTask: taskPack.rawTask,
+  taskType: taskPack.taskType,
+  targetTool: taskPack.targetTool,
+  generatedPrompt: taskPack.generatedPrompt,
+  generationMode: taskPack.generationMode,
+  generationModel: taskPack.generationModel,
+  generationMessage: taskPack.generationMessage,
+  generationUsedFallback: taskPack.generationUsedFallback,
+  generationDurationMs: taskPack.generationDurationMs,
+  generationRecipe: { template: null },
+  diagnostics: { selector: {}, generation: {}, performance: {} },
+  groundedContextSnapshot: null,
+  freshnessBasis: null,
+  contentHash: `sha256:${"a".repeat(64)}`,
+  createdAt: taskPack.createdAt,
+  generatedAt: "2026-09-24T08:59:59.000Z",
+};
+
+const materializedView: TaskPackDraftView = {
+  ...view,
+  taskPackId: taskPack.id,
+  lifecycle: {
+    state: "materialized",
+    materializedRevisionId: revision.id,
+  },
+  draftVersion: view.draftVersion + 1,
+  updatedAt: taskPack.createdAt,
+};
+
+const preparedFixture: Extract<
+  PrepareTaskPackPipelineResult,
+  { readonly kind: "prepared" }
+> = {
+  kind: "prepared",
+  projectId: view.projectId,
+  projectName: view.projectName,
+  title: taskPack.title,
+  generatedAt: revision.generatedAt!,
+  revisionContent: {
+    rawTask: taskPack.rawTask,
+    taskType: taskPack.taskType,
+    targetTool: taskPack.targetTool,
+    generatedPrompt: taskPack.generatedPrompt,
+    generationMode: taskPack.generationMode,
+    generationModel: taskPack.generationModel,
+    generationMessage: taskPack.generationMessage,
+    generationUsedFallback: taskPack.generationUsedFallback,
+    generationDurationMs: taskPack.generationDurationMs,
+  },
+  generationRecipe: {
+    template: null,
+    ruleProfile: null,
+    enabledRules: [],
+    customRules: [],
+    acceptanceCriteriaPreset: null,
+    acceptanceCriteria: [],
+    counts: {
+      enabledRules: 0,
+      customRules: 0,
+      acceptanceCriteria: 0,
+    },
+  },
+  selectorDiagnostics: {} as never,
+  generationDiagnostics: {} as never,
+  performanceDiagnostics: {} as never,
+};
+
 let listProjectId: number | undefined;
 let lastCreate: CreateTaskPackDraftApplicationInput | null = null;
 let lastUpdate: UpdateTaskPackDraftApplicationInput | null = null;
 let lastDiscard: DiscardTaskPackDraftApplicationInput | null = null;
+let lastMaterialize: MaterializeGeneratedTaskPackDraftApplicationInput | null = null;
+let materializeCalls = 0;
+let prepareCalls = 0;
+let validationCalls = 0;
+let getDraftCalls = 0;
+let lastGenerationCandidate: Record<string, unknown> | null = null;
 
 const service: TaskPackDraftApplicationService = {
   async listActiveDrafts(projectId) {
@@ -84,11 +196,73 @@ const service: TaskPackDraftApplicationService = {
     return [summary];
   },
   async getDraft(draftId) {
+    getDraftCalls += 1;
     if (draftId === "missing") return null;
     if (draftId === "state-invalid") {
       throw new TaskPackDraftApplicationError("TASK_PACK_DRAFT_STATE_INVALID", draftId);
     }
-    return { ...view, id: draftId };
+    if (draftId === "preflight-conflict") {
+      return { ...materializedView, id: draftId, draftVersion: 2 };
+    }
+    if (draftId === "preflight-discarded") {
+      return {
+        ...view,
+        id: draftId,
+        lifecycle: { state: "discarded", materializedRevisionId: null },
+      };
+    }
+    if (draftId === "preflight-materialized") {
+      return { ...materializedView, id: draftId, draftVersion: 1 };
+    }
+    if (draftId === "preflight-exhausted") {
+      return { ...view, id: draftId, draftVersion: Number.MAX_SAFE_INTEGER };
+    }
+    if (draftId === "preflight-bound") {
+      return { ...view, id: draftId, taskPackId: taskPack.id };
+    }
+    if (draftId === "invalid-generation") {
+      return { ...view, id: draftId, content: content({ rawTask: "x" }) };
+    }
+    if (draftId === "mapping") {
+      return {
+        ...view,
+        id: draftId,
+        projectId: 41,
+        content: content({
+          rawTask: "Generate from persisted draft content.",
+          taskType: "implementation",
+          targetTool: "claude",
+          templateId: null,
+          ruleProfileId: "  profile-original  ",
+          enabledRuleIds: ["rule-b", "rule-a", "rule-b"],
+          customRulesText: " first \r\nsecond\nfirst\n  \n THIRD ",
+          acceptanceCriteriaPresetId: " ",
+          acceptanceCriteriaText: " pass \npass\r\n verify ",
+          clarifications: [
+            { question: " Scope? ", answer: "" },
+            { question: " Target? ", answer: " api " },
+            { question: "Target?", answer: "api" },
+          ],
+          performanceSessionId: null,
+          understandingSnapshotId: " ",
+          reviewedUnderstandingSnapshotId: null,
+        }),
+      };
+    }
+    const generationRawTask: Record<string, string> = {
+      "project-race": "project missing during preparation",
+      blocked: "blocked during preparation",
+      clarification: "clarification required during preparation",
+      "rules-error": "rules service failure",
+      "prepare-unexpected": "unexpected preparation failure",
+    };
+    return {
+      ...view,
+      id: draftId,
+      ...(generationRawTask[draftId]
+        ? { content: content({ rawTask: generationRawTask[draftId] }) }
+        : {}),
+    };
   },
   async createDraft(input) {
     lastCreate = input;
@@ -176,12 +350,104 @@ const service: TaskPackDraftApplicationService = {
       draftVersion: input.expectedDraftVersion + 1,
     };
   },
+  async materializeDraft(input) {
+    materializeCalls += 1;
+    lastMaterialize = input;
+    if (input.draftId === "post-conflict") {
+      throw new TaskPackDraftApplicationError(
+        "TASK_PACK_DRAFT_CONFLICT",
+        input.draftId,
+        input.expectedDraftVersion,
+        input.expectedDraftVersion + 1,
+      );
+    }
+    if (input.draftId === "post-terminal") {
+      throw new TaskPackDraftApplicationError(
+        "TASK_PACK_DRAFT_NOT_EDITABLE",
+        input.draftId,
+      );
+    }
+    if (input.draftId === "post-bound") {
+      throw new TaskPackDraftApplicationError(
+        "TASK_PACK_DRAFT_ALREADY_BOUND",
+        input.draftId,
+      );
+    }
+    if (input.draftId === "materialize-unexpected") {
+      throw new Error("private materialization database detail");
+    }
+    return {
+      taskPack,
+      revision,
+      draft: { ...materializedView, id: input.draftId },
+    };
+  },
+};
+
+const prepareTaskPack: PrepareTaskPackForDraft = async (input) => {
+  prepareCalls += 1;
+  if (input.rawTask === "project missing during preparation") {
+    return { kind: "project_not_found", projectId: input.projectId };
+  }
+  if (input.rawTask === "blocked during preparation") {
+    return {
+      kind: "blocked",
+      message: "Selection is blocked.",
+      selectionQuality: { status: "blocked" } as never,
+      selectorDiagnostics: { outcome: "abstained" } as never,
+      performanceDiagnostics: { sessionId: "blocked" } as never,
+    };
+  }
+  if (input.rawTask === "clarification required during preparation") {
+    return {
+      kind: "clarification_required",
+      message: "One decision is required.",
+      selectionQuality: { status: "blocked" } as never,
+      selectorDiagnostics: { outcome: "clarification_required" } as never,
+      performanceDiagnostics: { sessionId: "clarification" } as never,
+    };
+  }
+  if (input.rawTask === "unexpected preparation failure") {
+    throw new Error("private generation provider detail");
+  }
+  if (input.rawTask === "rules service failure") {
+    throw new RulesServiceError("Rule profile is unavailable.", 404);
+  }
+  return {
+    ...preparedFixture,
+    projectId: input.projectId,
+    revisionContent: {
+      ...preparedFixture.revisionContent,
+      rawTask: input.rawTask,
+      taskType: input.taskType,
+      targetTool: input.targetTool,
+    },
+  };
+};
+
+const validateTaskPackRequest: ValidateCreateTaskPackRequest = (input) => {
+  validationCalls += 1;
+  lastGenerationCandidate = input as Record<string, unknown>;
+  if (
+    !input ||
+    typeof input !== "object" ||
+    typeof (input as Record<string, unknown>).rawTask !== "string" ||
+    ((input as Record<string, unknown>).rawTask as string).length < 3
+  ) {
+    return { success: false };
+  }
+  return { success: true, data: input as CreateTaskPackRequest };
 };
 
 const app = express();
 app.use(express.json());
 const router = Router();
-registerTaskPackDraftRoutes(router, service);
+registerTaskPackDraftRoutes(
+  router,
+  service,
+  prepareTaskPack,
+  validateTaskPackRequest,
+);
 app.use("/api/task-pack-drafts", router);
 
 const server = app.listen(0, "127.0.0.1");
@@ -219,6 +485,15 @@ function createBody(overrides: Record<string, unknown> = {}): Record<string, unk
 
 function updateBody(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return { expectedDraftVersion: 1, content: content(), ...overrides };
+}
+
+function resetMaterializationTracking(): void {
+  lastMaterialize = null;
+  materializeCalls = 0;
+  prepareCalls = 0;
+  validationCalls = 0;
+  getDraftCalls = 0;
+  lastGenerationCandidate = null;
 }
 
 scenario("POST creates a normalized draft and preserves authored text", async () => {
@@ -447,17 +722,309 @@ scenario("POST discard maps conflict terminal and exhaustion to 409", async () =
   }
 });
 
-scenario("production registration is isolated and has no materialization route or direct draft storage calls", () => {
+scenario("POST materialize requires a valid strict optimistic version", async () => {
+  resetMaterializationTracking();
+  const missing = await request("/draft-route/materialize", {
+    method: "POST",
+    body: {},
+  });
+  assert.equal(missing.status, 428);
+  assert.equal(missing.body.code, "TASK_PACK_DRAFT_VERSION_REQUIRED");
+  assert.equal(getDraftCalls, 0);
+  assert.equal(prepareCalls, 0);
+  assert.equal(materializeCalls, 0);
+
+  for (const body of [
+    { expectedDraftVersion: 0 },
+    { expectedDraftVersion: 1.5 },
+    { expectedDraftVersion: "1" },
+    { expectedDraftVersion: 1, extra: true },
+  ]) {
+    assert.equal(
+      (await request("/draft-route/materialize", { method: "POST", body }))
+        .status,
+      400,
+    );
+  }
+  assert.equal(getDraftCalls, 0);
+});
+
+scenario("POST materialize missing draft stops before generation", async () => {
+  resetMaterializationTracking();
+  const response = await request("/missing/materialize", {
+    method: "POST",
+    body: { expectedDraftVersion: 1 },
+  });
+  assert.equal(response.status, 404);
+  assert.equal(response.body.code, "TASK_PACK_DRAFT_NOT_FOUND");
+  assert.equal(getDraftCalls, 1);
+  assert.equal(prepareCalls, 0);
+  assert.equal(materializeCalls, 0);
+});
+
+scenario("POST materialize stale preflight preserves expected and actual versions", async () => {
+  resetMaterializationTracking();
+  const response = await request("/preflight-conflict/materialize", {
+    method: "POST",
+    body: { expectedDraftVersion: 1 },
+  });
+  assert.equal(response.status, 409);
+  assert.equal(response.body.code, "TASK_PACK_DRAFT_CONFLICT");
+  assert.equal(response.body.draftId, "preflight-conflict");
+  assert.equal(response.body.expectedDraftVersion, 1);
+  assert.equal(response.body.actualDraftVersion, 2);
+  assert.equal(prepareCalls, 0);
+  assert.equal(materializeCalls, 0);
+});
+
+scenario("POST materialize fast-fails terminal exhausted and already-bound drafts", async () => {
+  for (const [draftId, version, code] of [
+    ["preflight-discarded", 1, "TASK_PACK_DRAFT_NOT_EDITABLE"],
+    ["preflight-materialized", 1, "TASK_PACK_DRAFT_NOT_EDITABLE"],
+    [
+      "preflight-exhausted",
+      Number.MAX_SAFE_INTEGER,
+      "TASK_PACK_DRAFT_VERSION_EXHAUSTED",
+    ],
+    ["preflight-bound", 1, "TASK_PACK_DRAFT_ALREADY_BOUND"],
+  ] as const) {
+    resetMaterializationTracking();
+    const response = await request(`/${draftId}/materialize`, {
+      method: "POST",
+      body: { expectedDraftVersion: version },
+    });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.code, code);
+    assert.equal(prepareCalls, 0);
+    assert.equal(materializeCalls, 0);
+  }
+});
+
+scenario("POST materialize applies the normal create schema before generation", async () => {
+  resetMaterializationTracking();
+  const response = await request("/invalid-generation/materialize", {
+    method: "POST",
+    body: { expectedDraftVersion: 1 },
+  });
+  assert.equal(response.status, 400);
+  assert.equal(response.body.code, "TASK_PACK_DRAFT_INVALID");
+  assert.equal(validationCalls, 1);
+  assert.equal(prepareCalls, 0);
+  assert.equal(materializeCalls, 0);
+});
+
+scenario("persisted draft content maps to the normal generation request", async () => {
+  resetMaterializationTracking();
+  const response = await request("/mapping/materialize", {
+    method: "POST",
+    body: { expectedDraftVersion: 1 },
+  });
+  assert.equal(response.status, 200);
+  assert.ok(lastGenerationCandidate);
+  assert.equal(lastGenerationCandidate.projectId, 41);
+  assert.equal(
+    lastGenerationCandidate.rawTask,
+    "Generate from persisted draft content.",
+  );
+  assert.equal(lastGenerationCandidate.taskType, "implementation");
+  assert.equal(lastGenerationCandidate.targetTool, "claude");
+  assert.equal(Object.hasOwn(lastGenerationCandidate, "selectedFilePaths"), false);
+  assert.equal(Object.hasOwn(lastGenerationCandidate, "githubIssueSource"), false);
+  assert.deepEqual(lastGenerationCandidate.clarifications, [
+    { question: "Target?", answer: "api" },
+  ]);
+  assert.deepEqual(lastGenerationCandidate.customRules, [
+    "first",
+    "second",
+    "THIRD",
+  ]);
+  assert.deepEqual(lastGenerationCandidate.acceptanceCriteria, [
+    "pass",
+    "verify",
+  ]);
+  assert.deepEqual(lastGenerationCandidate.enabledRuleIds, [
+    "rule-b",
+    "rule-a",
+    "rule-b",
+  ]);
+  assert.equal(Object.hasOwn(lastGenerationCandidate, "templateId"), false);
+  assert.equal(
+    Object.hasOwn(lastGenerationCandidate, "acceptanceCriteriaPresetId"),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(lastGenerationCandidate, "understandingSnapshotId"),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(lastGenerationCandidate, "performanceSessionId"),
+    false,
+  );
+  assert.equal(
+    Object.hasOwn(lastGenerationCandidate, "reviewedUnderstandingSnapshotId"),
+    false,
+  );
+  assert.equal(lastGenerationCandidate.ruleProfileId, "  profile-original  ");
+});
+
+scenario("POST materialize maps preparation non-success without mutation", async () => {
+  for (const [draftId, status, code] of [
+    ["project-race", 404, "TASK_PACK_DRAFT_PROJECT_NOT_FOUND"],
+    ["blocked", 422, "CONTEXT_SELECTION_BLOCKED"],
+    ["clarification", 422, "CONTEXT_SELECTION_BLOCKED"],
+  ] as const) {
+    resetMaterializationTracking();
+    const response = await request(`/${draftId}/materialize`, {
+      method: "POST",
+      body: { expectedDraftVersion: 1 },
+    });
+    assert.equal(response.status, status);
+    assert.equal(response.body.code, code);
+    assert.equal(prepareCalls, 1);
+    assert.equal(materializeCalls, 0);
+    if (status === 422) {
+      assert.ok(response.body.selectionQuality);
+      assert.ok(response.body.selectorDiagnostics);
+      assert.ok(response.body.performanceDiagnostics);
+    }
+  }
+});
+
+scenario("POST materialize forwards prepared material once and returns bounded identities", async () => {
+  resetMaterializationTracking();
+  const response = await request("/draft-route/materialize", {
+    method: "POST",
+    body: { expectedDraftVersion: 1 },
+  });
+  assert.equal(response.status, 200);
+  assert.equal(prepareCalls, 1);
+  assert.equal(materializeCalls, 1);
+  assert.ok(lastMaterialize);
+  assert.equal(lastMaterialize.draftId, "draft-route");
+  assert.equal(lastMaterialize.expectedDraftVersion, 1);
+  assert.equal(lastMaterialize.title, preparedFixture.title);
+  assert.equal(lastMaterialize.generatedAt, preparedFixture.generatedAt);
+  assert.deepEqual(lastMaterialize.revisionContent, preparedFixture.revisionContent);
+  assert.deepEqual(lastMaterialize.generationRecipe, preparedFixture.generationRecipe);
+  assert.deepEqual(
+    lastMaterialize.selectorDiagnostics,
+    preparedFixture.selectorDiagnostics,
+  );
+  assert.deepEqual(
+    lastMaterialize.generationDiagnostics,
+    preparedFixture.generationDiagnostics,
+  );
+  assert.deepEqual(
+    lastMaterialize.performanceDiagnostics,
+    preparedFixture.performanceDiagnostics,
+  );
+  assert.equal(
+    (response.body.taskPack as Record<string, unknown>).currentRevisionId,
+    revision.id,
+  );
+  assert.equal(
+    (response.body.taskPack as Record<string, unknown>).projectName,
+    view.projectName,
+  );
+  assert.deepEqual(response.body.revision, {
+    id: revision.id,
+    taskPackId: revision.taskPackId,
+    revisionNumber: revision.revisionNumber,
+    contentHash: revision.contentHash,
+    createdAt: revision.createdAt,
+    generatedAt: revision.generatedAt,
+  });
+  assert.equal(
+    (response.body.draft as { lifecycle: { state: string } }).lifecycle.state,
+    "materialized",
+  );
+  assert.equal(
+    Object.hasOwn(response.body.revision as Record<string, unknown>, "rawTask"),
+    false,
+  );
+});
+
+scenario("authoritative post-generation races are not retried", async () => {
+  for (const [draftId, code] of [
+    ["post-conflict", "TASK_PACK_DRAFT_CONFLICT"],
+    ["post-terminal", "TASK_PACK_DRAFT_NOT_EDITABLE"],
+    ["post-bound", "TASK_PACK_DRAFT_ALREADY_BOUND"],
+  ] as const) {
+    resetMaterializationTracking();
+    const response = await request(`/${draftId}/materialize`, {
+      method: "POST",
+      body: { expectedDraftVersion: 1 },
+    });
+    assert.equal(response.status, 409);
+    assert.equal(response.body.code, code);
+    assert.equal(prepareCalls, 1);
+    assert.equal(materializeCalls, 1);
+    assert.equal(lastMaterialize?.expectedDraftVersion, 1);
+  }
+});
+
+scenario("RulesServiceError preserves its established status and message", async () => {
+  resetMaterializationTracking();
+  const response = await request("/rules-error/materialize", {
+    method: "POST",
+    body: { expectedDraftVersion: 1 },
+  });
+  assert.equal(response.status, 404);
+  assert.deepEqual(response.body, {
+    ok: false,
+    message: "Rule profile is unavailable.",
+  });
+  assert.equal(prepareCalls, 1);
+  assert.equal(materializeCalls, 0);
+});
+
+scenario("unexpected preparation and materialization failures are privacy-safe", async () => {
+  const originalConsoleError = console.error;
+  console.error = () => undefined;
+  try {
+    resetMaterializationTracking();
+    const preparation = await request("/prepare-unexpected/materialize", {
+      method: "POST",
+      body: { expectedDraftVersion: 1 },
+    });
+    assert.equal(preparation.status, 500);
+    assert.equal(JSON.stringify(preparation.body).includes("provider"), false);
+    assert.equal(materializeCalls, 0);
+
+    resetMaterializationTracking();
+    const materialization = await request("/materialize-unexpected/materialize", {
+      method: "POST",
+      body: { expectedDraftVersion: 1 },
+    });
+    assert.equal(materialization.status, 500);
+    assert.equal(JSON.stringify(materialization.body).includes("database"), false);
+    assert.equal(prepareCalls, 1);
+    assert.equal(materializeCalls, 1);
+  } finally {
+    console.error = originalConsoleError;
+  }
+});
+
+scenario("production registration is composed in index without direct draft storage calls", () => {
   const indexSource = fs.readFileSync(path.join(process.cwd(), "src", "index.ts"), "utf8");
   const routeSource = fs.readFileSync(path.join(process.cwd(), "src", "routes", "taskPackDrafts.ts"), "utf8");
   assert.ok(indexSource.includes('app.use("/api/task-pack-drafts", taskPackDraftsRouter)'));
-  assert.equal(routeSource.includes("materialize"), false);
+  assert.ok(indexSource.includes("prepareTaskPackWithPipeline"));
+  assert.ok(indexSource.includes("createTaskPackSchema.safeParse(input)"));
+  assert.ok(indexSource.includes("registerTaskPackDraftRoutes("));
+  assert.ok(routeSource.includes('router.post("/:draftId/materialize"'));
+  assert.equal(routeSource.includes("createTaskPackDraftApplicationService(storage)"), false);
+  assert.equal(
+    /import\s+\{[^}]*\}\s+from\s+"\.\/taskPacks\.js"/su.test(routeSource),
+    false,
+  );
   for (const directCall of [
     "storage.listActiveTaskPackDrafts",
     "storage.getTaskPackDraftById",
     "storage.createTaskPackDraft",
     "storage.updateTaskPackDraft",
     "storage.discardTaskPackDraft",
+    "storage.materializeTaskPackDraft",
     "createTaskPackWithInitialRevision",
     "appendTaskPackRevision",
     "generateReliableTaskPack",

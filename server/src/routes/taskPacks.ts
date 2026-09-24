@@ -89,6 +89,9 @@ import {
   TaskPackRevisionConflictError,
   type TaskPackApplicationService,
 } from "../taskPacks/taskPackApplicationService.js";
+import type {
+  GeneratedRevisionContentInput,
+} from "../taskPacks/taskPackGeneratedMaterial.js";
 import { groundTaskCurrentState } from "../taskPacks/taskCurrentStateGrounding.js";
 import { applyTaskUnderstandingReviewAcceptance } from "../ollama/taskUnderstanding.js";
 import {
@@ -337,6 +340,38 @@ export const createTaskPackSchema = z.object({
 });
 
 export type CreateTaskPackRequest = z.infer<typeof createTaskPackSchema>;
+
+export type PrepareTaskPackPipelineResult =
+  | {
+      readonly kind: "project_not_found";
+      readonly projectId: number;
+    }
+  | {
+      readonly kind: "blocked";
+      readonly message: string;
+      readonly selectionQuality: ContextSelectionQuality;
+      readonly selectorDiagnostics: SelectorPipelineDiagnostics;
+      readonly performanceDiagnostics: PerformanceSessionDiagnostics;
+    }
+  | {
+      readonly kind: "clarification_required";
+      readonly message: string;
+      readonly selectionQuality: ContextSelectionQuality;
+      readonly selectorDiagnostics: SelectorPipelineDiagnostics;
+      readonly performanceDiagnostics: PerformanceSessionDiagnostics;
+    }
+  | {
+      readonly kind: "prepared";
+      readonly projectId: number;
+      readonly projectName: string;
+      readonly title: string;
+      readonly generatedAt: string;
+      readonly revisionContent: GeneratedRevisionContentInput;
+      readonly generationRecipe: TaskPackGenerationRecipe;
+      readonly selectorDiagnostics: SelectorPipelineDiagnostics;
+      readonly generationDiagnostics: TaskPackGenerationDiagnostics;
+      readonly performanceDiagnostics: PerformanceSessionDiagnostics;
+    };
 
 interface ProjectReadinessReport {
   issues: string[];
@@ -2833,9 +2868,9 @@ taskPacksRouter.post("/understand", async (req, res) => {
   }
 });
 
-export async function createTaskPackWithPipeline(
+export async function prepareTaskPackWithPipeline(
   input: CreateTaskPackRequest,
-) {
+): Promise<PrepareTaskPackPipelineResult> {
     const parsed = { data: createTaskPackSchema.parse(input) };
     const project = await getProjectById(parsed.data.projectId);
 
@@ -3663,8 +3698,10 @@ export async function createTaskPackWithPipeline(
       };
     }
 
-    const taskPack = await taskPackApplicationService.createGeneratedTaskPack({
+    return {
+      kind: "prepared" as const,
       projectId: project.id,
+      projectName: project.name,
       title: traced.value.title,
       generatedAt: traced.value.generatedAt,
       revisionContent: {
@@ -3682,13 +3719,34 @@ export async function createTaskPackWithPipeline(
       selectorDiagnostics: traced.value.selectorDiagnostics,
       generationDiagnostics: traced.value.generationDiagnostics,
       performanceDiagnostics: traced.sessionDiagnostics,
+    };
+}
+
+export async function createTaskPackWithPipeline(
+  input: CreateTaskPackRequest,
+) {
+    const prepared = await prepareTaskPackWithPipeline(input);
+
+    if (prepared.kind !== "prepared") {
+      return prepared;
+    }
+
+    const taskPack = await taskPackApplicationService.createGeneratedTaskPack({
+      projectId: prepared.projectId,
+      title: prepared.title,
+      generatedAt: prepared.generatedAt,
+      revisionContent: prepared.revisionContent,
+      generationRecipe: prepared.generationRecipe,
+      selectorDiagnostics: prepared.selectorDiagnostics,
+      generationDiagnostics: prepared.generationDiagnostics,
+      performanceDiagnostics: prepared.performanceDiagnostics,
     });
 
     return {
       kind: "created" as const,
       taskPack: {
         ...taskPack,
-        projectName: project.name,
+        projectName: prepared.projectName,
       },
     };
 }

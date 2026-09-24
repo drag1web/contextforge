@@ -17,6 +17,7 @@ import {
   createTaskPackDraftApplicationService,
   TaskPackDraftApplicationError,
   type CreateTaskPackDraftApplicationInput,
+  type TaskPackDraftApplicationService,
   type TaskPackDraftApplicationServiceStorage,
   type MaterializeGeneratedTaskPackDraftApplicationInput,
 } from "./taskPackDraftApplicationService.js";
@@ -243,8 +244,22 @@ scenario("create owns opaque identity, expiresAt null, and reconstructs projectN
 
 scenario("create input has no caller-owned id and service exposes materialization", () => {
   const createInputHasId: "id" extends keyof CreateTaskPackDraftApplicationInput ? true : false = false;
+  const serviceHasMaterialize:
+    "materializeDraft" extends keyof TaskPackDraftApplicationService
+      ? true
+      : false = true;
+  const alreadyBoundCode: TaskPackDraftApplicationError["code"] =
+    "TASK_PACK_DRAFT_ALREADY_BOUND";
+  const source = fs.readFileSync(
+    path.join(process.cwd(), "src", "taskPacks", "taskPackDraftApplicationService.ts"),
+    "utf8",
+  );
   assert.equal(createInputHasId, false);
+  assert.equal(serviceHasMaterialize, true);
+  assert.equal(alreadyBoundCode, "TASK_PACK_DRAFT_ALREADY_BOUND");
   assert.equal(typeof service.materializeDraft, "function");
+  assert.equal(source.includes("TaskPackDraftApplicationServiceWithMaterialization"), false);
+  assert.equal(source.includes("TaskPackDraftCrudApplicationErrorCode"), false);
 });
 
 scenario("create always forwards a generated id and expiresAt null", async () => {

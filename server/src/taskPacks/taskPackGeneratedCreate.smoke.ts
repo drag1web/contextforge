@@ -345,27 +345,44 @@ scenario("generated Revision 1 retains GitHub source-issue provenance", async ()
   );
 });
 
-scenario("generated pipeline persists once after performance trace completion", () => {
+scenario("generated pipeline separates preparation from one ordinary-create persistence", () => {
   const source = fs.readFileSync(
     path.join(process.cwd(), "src", "routes", "taskPacks.ts"),
     "utf8",
   );
-  const pipeline = source
+  const preparation = source
+    .split("export async function prepareTaskPackWithPipeline")[1]!
+    .split("export async function createTaskPackWithPipeline")[0]!;
+  const wrapper = source
     .split("export async function createTaskPackWithPipeline")[1]!
     .split('taskPacksRouter.post("/"')[0]!;
-  assert.ok(pipeline.includes("const generatedAt = new Date().toISOString()"));
-  assert.ok(
-    pipeline.includes("taskPackApplicationService.createGeneratedTaskPack"),
-  );
-  assert.equal(pipeline.includes("storage.createTaskPack({"), false);
+  assert.ok(preparation.includes("const generatedAt = new Date().toISOString()"));
   assert.equal(
-    pipeline.includes("storage.updateTaskPackGenerationRecipe"),
+    preparation.includes("taskPackApplicationService.createGeneratedTaskPack"),
     false,
   );
-  assert.equal(pipeline.includes('"task_pack_storage"'), false);
   assert.ok(
-    pipeline.indexOf("taskPackApplicationService.createGeneratedTaskPack") >
-      pipeline.indexOf("if (traced.value.kind === \"blocked\")"),
+    wrapper.includes("await prepareTaskPackWithPipeline(input)"),
+  );
+  assert.ok(
+    wrapper.includes("taskPackApplicationService.createGeneratedTaskPack"),
+  );
+  assert.equal(
+    source.match(/taskPackApplicationService\.createGeneratedTaskPack/gu)?.length,
+    1,
+  );
+  assert.equal(preparation.includes("storage.createTaskPack({"), false);
+  assert.equal(wrapper.includes("storage.createTaskPack({"), false);
+  assert.equal(
+    preparation.includes("storage.updateTaskPackGenerationRecipe"),
+    false,
+  );
+  assert.equal(wrapper.includes("storage.updateTaskPackGenerationRecipe"), false);
+  assert.equal(preparation.includes('"task_pack_storage"'), false);
+  assert.equal(wrapper.includes('"task_pack_storage"'), false);
+  assert.ok(
+    wrapper.indexOf("taskPackApplicationService.createGeneratedTaskPack") >
+      wrapper.indexOf("await prepareTaskPackWithPipeline(input)"),
   );
 });
 

@@ -4,8 +4,18 @@ import { config } from "./config/index.js";
 import { ensureDatabaseSchema } from "./db/schema.js";
 import { storage } from "./storage/index.js";
 import { projectsRouter } from "./routes/projects.js";
-import { taskPacksRouter } from "./routes/taskPacks.js";
-import { taskPackDraftsRouter } from "./routes/taskPackDrafts.js";
+import {
+  createTaskPackSchema,
+  prepareTaskPackWithPipeline,
+  taskPacksRouter,
+} from "./routes/taskPacks.js";
+import {
+  registerTaskPackDraftRoutes,
+  taskPackDraftsRouter,
+} from "./routes/taskPackDrafts.js";
+import {
+  createTaskPackDraftApplicationService,
+} from "./taskPacks/taskPackDraftApplicationService.js";
 import { ollamaRouter } from "./routes/ollama.js";
 import { settingsRouter } from "./routes/settings.js";
 import { searchRouter } from "./routes/search.js";
@@ -28,6 +38,15 @@ app.use(cors({
 }));
 
 app.use(express.json());
+
+const taskPackDraftApplicationService =
+  createTaskPackDraftApplicationService(storage);
+registerTaskPackDraftRoutes(
+  taskPackDraftsRouter,
+  taskPackDraftApplicationService,
+  prepareTaskPackWithPipeline,
+  (input) => createTaskPackSchema.safeParse(input),
+);
 
 app.get("/api/health", (_req, res) => {
   res.json({
