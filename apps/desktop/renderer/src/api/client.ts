@@ -30,6 +30,13 @@ import type {
   StorageAuditResult,
   WorkspaceBackupExportResult,
   TaskPack,
+  CreateTaskPackDraftRequest,
+  UpdateTaskPackDraftRequest,
+  DiscardTaskPackDraftRequest,
+  MaterializeTaskPackDraftRequest,
+  MaterializeTaskPackDraftResponse,
+  TaskPackPersistedDraftSummary,
+  TaskPackPersistedDraftView,
   WorkspaceSearchResponse,
   ContextComposerPreview,
   ContextComposerFileSearchResponse,
@@ -491,6 +498,78 @@ export async function getTaskPack(taskPackId: number): Promise<TaskPack> {
     `/task-packs/${taskPackId}`,
   );
   return data.taskPack;
+}
+
+export async function listActiveTaskPackDrafts(
+  projectId?: number,
+): Promise<TaskPackPersistedDraftSummary[]> {
+  const query = new URLSearchParams({ state: "active" });
+  if (projectId !== undefined) query.set("projectId", String(projectId));
+  const data = await request<{ ok: true; drafts: TaskPackPersistedDraftSummary[] }>(
+    `/task-pack-drafts?${query.toString()}`,
+  );
+  return data.drafts;
+}
+
+export async function getTaskPackDraft(draftId: string): Promise<TaskPackPersistedDraftView> {
+  const data = await request<{ ok: true; draft: TaskPackPersistedDraftView }>(
+    `/task-pack-drafts/${encodeURIComponent(draftId)}`,
+  );
+  return data.draft;
+}
+
+export async function createTaskPackDraft(
+  input: CreateTaskPackDraftRequest,
+): Promise<TaskPackPersistedDraftView> {
+  const body: CreateTaskPackDraftRequest = {
+    projectId: input.projectId,
+    taskPackId: input.taskPackId,
+    baseRevisionId: input.baseRevisionId,
+    content: input.content,
+  };
+  const data = await request<{ ok: true; draft: TaskPackPersistedDraftView }>(
+    "/task-pack-drafts",
+    { method: "POST", body: JSON.stringify(body) },
+  );
+  return data.draft;
+}
+
+export async function updateTaskPackDraft(
+  draftId: string,
+  input: UpdateTaskPackDraftRequest,
+): Promise<TaskPackPersistedDraftView> {
+  const body: UpdateTaskPackDraftRequest = {
+    expectedDraftVersion: input.expectedDraftVersion,
+    content: input.content,
+  };
+  const data = await request<{ ok: true; draft: TaskPackPersistedDraftView }>(
+    `/task-pack-drafts/${encodeURIComponent(draftId)}`,
+    { method: "PATCH", body: JSON.stringify(body) },
+  );
+  return data.draft;
+}
+
+export async function discardTaskPackDraft(
+  draftId: string,
+  expectedDraftVersion: number,
+): Promise<TaskPackPersistedDraftView> {
+  const body: DiscardTaskPackDraftRequest = { expectedDraftVersion };
+  const data = await request<{ ok: true; draft: TaskPackPersistedDraftView }>(
+    `/task-pack-drafts/${encodeURIComponent(draftId)}/discard`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
+  return data.draft;
+}
+
+export async function materializeTaskPackDraft(
+  draftId: string,
+  expectedDraftVersion: number,
+): Promise<MaterializeTaskPackDraftResponse> {
+  const body: MaterializeTaskPackDraftRequest = { expectedDraftVersion };
+  return request<MaterializeTaskPackDraftResponse>(
+    `/task-pack-drafts/${encodeURIComponent(draftId)}/materialize`,
+    { method: "POST", body: JSON.stringify(body) },
+  );
 }
 
 export async function importCloudTaskPack(input: {
