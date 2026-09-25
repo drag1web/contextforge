@@ -1,9 +1,13 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   ApiRequestError,
   addProject,
   createContextComposerPreview,
   createTaskPack,
+  createTaskPackDraft,
+  updateTaskPackDraft,
+  discardTaskPackDraft,
+  getTaskPackDraft,
   getAgentsPreview,
   getAppSettings,
   getProjectContextFile,
@@ -21,9 +25,31 @@ import type {
   ProjectContextFile,
   TaskPack,
   TaskPackDraft,
+  TaskPackDraftSession,
+  TaskPackPersistedDraftView,
 } from "../types";
 import i18n from "../i18n";
 import { buildChangesDraftTask } from "../utils/localChangesNote";
+import {
+  applyTaskPackDraftOperationResult,
+  canOrdinaryGenerateTaskPackDraft,
+  captureTaskPackDraftOperation,
+  createTransientTaskPackDraftSession,
+  editTaskPackDraftSession,
+  executeTaskPackDraftOperation,
+  taskPackDraftPersistenceIssue,
+  type TaskPackDraftOperation,
+  type TaskPackDraftPersistenceIssue,
+} from "../utils/taskPackDraftSession";
+
+const draftPersistenceApi = {
+  createTaskPackDraft, updateTaskPackDraft, discardTaskPackDraft, getTaskPackDraft,
+};
+
+interface DraftSessionCallbacks {
+  onSessionChange?: (session: TaskPackDraftSession) => void;
+  onPersistenceResult?: (operation: TaskPackDraftOperation, view: TaskPackPersistedDraftView) => void;
+}
 
 function parseMultilineRules(value?: string) {
   return Array.from(
@@ -83,7 +109,7 @@ function getBlockedContextMessage(error: ApiRequestError) {
     : error.message;
 }
 
-export function useDashboardController() {
+export function useDashboardController(draftCallbacks: DraftSessionCallbacks = {}) {
   const [projects, setProjects] = useState<Project[]>([]);
   const [taskPacks, setTaskPacks] = useState<TaskPack[]>([]);
   const [expandedProjectId, setExpandedProjectId] = useState<number | null>(
@@ -95,9 +121,15 @@ export function useDashboardController() {
   const [agentsPreview, setAgentsPreview] = useState<AgentsPreview | null>(
     null,
   );
-  const [taskPackDraft, setTaskPackDraftState] = useState<TaskPackDraft | null>(
+  const [taskPackDraftSession, setTaskPackDraftSessionState] = useState<TaskPackDraftSession | null>(
     null,
   );
+  // Synchronous mirror of the single session state, only written by commitDraftSession.
+  const draftSessionRef = useRef<TaskPackDraftSession | null>(null);
+  const taskPackDraft = taskPackDraftSession?.draft ?? null;
+  const [draftPersistenceOperation, setDraftPersistenceOperation] = useState<TaskPackDraftOperation | null>(null);
+  const draftOperationRef = useRef<TaskPackDraftOperation | null>(null);
+  const [draftPersistenceIssue, setDraftPersistenceIssue] = useState<TaskPackDraftPersistenceIssue | null>(null);
   const [generatedTaskPack, setGeneratedTaskPack] = useState<TaskPack | null>(
     null,
   );
@@ -111,28 +143,100 @@ export function useDashboardController() {
     projects.map((project) => project.readinessScore),
   );
 
-  function setTaskPackDraft(nextDraft: TaskPackDraft | null) {
-    setTaskPackDraftState(() => {
-      const next = nextDraft;
+  function commitDraftSession(next: TaskPackDraftSession | null) {
+    if (next?.sessionId !== draftSessionRef.current?.sessionId) setDraftPersistenceIssue(null);
+    draftSessionRef.current = next;
+    setTaskPackDraftSessionState(next);
+    if (next) draftCallbacks.onSessionChange?.(next);
+  }
 
-      setTaskPackContextPreview((previousPreview) => {
-        if (!next || !previousPreview) {
-          return null;
-        }
+  function setTaskPackDraftSession(nextSession: TaskPackDraftSession | null) {
+    const next = nextSession?.draft ?? null;
+    const sameSession = nextSession?.sessionId === draftSessionRef.current?.sessionId;
+    setTaskPackContextPreview((previousPreview) => {
+      if (!sameSession || !next || !previousPreview) {
+        return null;
+      }
 
-        const sameDraftContext =
-          previousPreview.project.id === next.projectId &&
-          previousPreview.task.originalRawTask === next.rawTask &&
-          JSON.stringify(previousPreview.task.clarifications ?? []) ===
-            getClarificationSignature(next) &&
-          previousPreview.task.requestedTaskType === next.taskType &&
-          previousPreview.task.targetTool === next.targetTool;
+      const sameDraftContext =
+        previousPreview.project.id === next.projectId &&
+        previousPreview.task.originalRawTask === next.rawTask &&
+        JSON.stringify(previousPreview.task.clarifications ?? []) ===
+          getClarificationSignature(next) &&
+        previousPreview.task.requestedTaskType === next.taskType &&
+        previousPreview.task.targetTool === next.targetTool;
 
-        return sameDraftContext ? previousPreview : null;
-      });
-
-      return next;
+      return sameDraftContext ? previousPreview : null;
     });
+    commitDraftSession(nextSession);
+  }
+
+  function setTaskPackDraft(nextDraft: TaskPackDraft | null, expectedSessionId?: string) {
+    const current = draftSessionRef.current;
+    if (expectedSessionId !== undefined && current?.sessionId !== expectedSessionId) return;
+    if (!nextDraft) return setTaskPackDraftSession(null);
+    if (!current) return;
+    if (current.persistence && current.persistence.lifecycle.state !== "active") return;
+    const operation = draftOperationRef.current;
+    if (operation?.sessionId === current.sessionId && operation.kind !== "saving") return;
+    setTaskPackDraftSession(editTaskPackDraftSession(current, nextDraft));
+  }
+
+  function startTransientDraft(draft: TaskPackDraft) {
+    const session = createTransientTaskPackDraftSession(crypto.randomUUID(), draft);
+    setTaskPackDraftSession(session);
+    return session;
+  }
+
+  async function handleDraftPersistence(
+    kind: TaskPackDraftOperation["kind"],
+    expectedSessionId: string,
+  ): Promise<boolean> {
+    const current = draftSessionRef.current;
+    if (!current || current.sessionId !== expectedSessionId || draftOperationRef.current || isLoading) return false;
+    const operation = captureTaskPackDraftOperation(current, kind);
+    if (!operation) return false;
+    draftOperationRef.current = operation;
+    setDraftPersistenceOperation(operation);
+    setDraftPersistenceIssue(null);
+    try {
+      const view = await executeTaskPackDraftOperation(operation, draftPersistenceApi);
+      const active = draftSessionRef.current;
+      const next = applyTaskPackDraftOperationResult(active, operation, view);
+      // Also seal history if the originating session is no longer the active surface.
+      draftCallbacks.onPersistenceResult?.(operation, view);
+      if (active?.sessionId !== operation.sessionId) return false;
+      if (kind === "saving") {
+        commitDraftSession(next); // Persistence only: do not invalidate analysis or author text.
+        setStatusMessage(i18n.t("taskPackDraftPersistence.saveSuccess"));
+      } else {
+        setTaskPackContextPreview(null);
+        setContextComposerPreview(null);
+        setGeneratedTaskPack(null);
+        setTaskPackDraftSession(next);
+        setStatusMessage(i18n.t(kind === "discarding"
+          ? "taskPackDraftPersistence.discardSuccess" : "taskPackDraftPersistence.reloadSuccess"));
+      }
+      setDraftPersistenceIssue(null);
+      return true;
+    } catch (error) {
+      if (draftSessionRef.current?.sessionId !== operation.sessionId) return false;
+      setDraftPersistenceIssue(taskPackDraftPersistenceIssue(
+        operation,
+        error instanceof ApiRequestError ? error.code : undefined,
+        error instanceof ApiRequestError ? error.data : undefined,
+      ));
+      return false;
+    } finally {
+      if (draftOperationRef.current === operation) {
+        draftOperationRef.current = null;
+        setDraftPersistenceOperation(null);
+      }
+    }
+  }
+
+  function dismissDraftPersistenceIssue(sessionId: string) {
+    if (draftSessionRef.current?.sessionId === sessionId) setDraftPersistenceIssue(null);
   }
 
   async function loadProjects() {
@@ -390,8 +494,15 @@ export function useDashboardController() {
   async function generateTaskPackFromDraft(
     selectedFilePaths?: string[],
     draftOverride?: TaskPackDraft,
+    expectedSessionId = taskPackDraftSession?.sessionId,
   ) {
-    const activeDraft = draftOverride ?? taskPackDraft;
+    const generationSession = draftSessionRef.current;
+    if (generationSession?.sessionId !== expectedSessionId) return null;
+    if (!canOrdinaryGenerateTaskPackDraft(generationSession) || draftOperationRef.current) {
+      if (generationSession?.persistence) setStatusMessage(i18n.t("taskPackDraftPersistence.generationUnavailable"));
+      return null;
+    }
+    const activeDraft = draftOverride ?? generationSession?.draft;
 
     if (!activeDraft) {
       return null;
@@ -400,6 +511,9 @@ export function useDashboardController() {
     try {
       setIsLoading(true);
       const settings = await getAppSettings();
+
+      if (draftSessionRef.current?.sessionId !== generationSession?.sessionId ||
+        !canOrdinaryGenerateTaskPackDraft(draftSessionRef.current) || draftOperationRef.current) return null;
 
       const selectedCount = selectedFilePaths?.length ?? 0;
 
@@ -447,12 +561,14 @@ export function useDashboardController() {
       });
 
       await loadTaskPacks();
+      if (draftSessionRef.current?.sessionId !== generationSession?.sessionId) return null;
       setGeneratedTaskPack(taskPack);
       setTaskPackDraft(null);
       setContextComposerPreview(null);
       setStatusMessage(i18n.t("common.statusTaskPackGenerated"));
       return { kind: "generated" as const, taskPack };
     } catch (error) {
+      if (draftSessionRef.current?.sessionId !== generationSession?.sessionId) return null;
       if (
         error instanceof ApiRequestError &&
         error.code === "CONTEXT_SELECTION_BLOCKED" &&
@@ -470,9 +586,10 @@ export function useDashboardController() {
               activeDraft.reviewedUnderstandingSnapshotId,
           });
 
+          if (draftSessionRef.current?.sessionId !== generationSession?.sessionId) return null;
           setContextComposerPreview(preview);
           setStatusMessage(getBlockedContextMessage(error));
-          return { kind: "context-review" as const, preview };
+          return { kind: "context-review" as const, preview, session: draftSessionRef.current! };
         } catch (previewError) {
           setStatusMessage(
             previewError instanceof Error
@@ -511,11 +628,11 @@ export function useDashboardController() {
         acceptanceCriteriaText: "",
       };
 
-      setTaskPackDraft(nextDraft);
+      const session = startTransientDraft(nextDraft);
       setStatusMessage(
         i18n.t("common.statusTaskDraftOpened", { name: project.name }),
       );
-      return nextDraft;
+      return session;
     } catch (error) {
       const nextDraft: TaskPackDraft = {
         projectId: project.id,
@@ -528,13 +645,13 @@ export function useDashboardController() {
         acceptanceCriteriaText: "",
       };
 
-      setTaskPackDraft(nextDraft);
+      const session = startTransientDraft(nextDraft);
       setStatusMessage(
         error instanceof Error
           ? `${i18n.t("common.statusSettingsUnavailable")} ${error.message}`
           : i18n.t("common.statusSettingsUnavailable"),
       );
-      return nextDraft;
+      return session;
     } finally {
       setIsLoading(false);
     }
@@ -564,7 +681,7 @@ export function useDashboardController() {
         acceptanceCriteriaText: "",
       };
 
-      setTaskPackDraft(nextDraft);
+      const session = startTransientDraft(nextDraft);
       setStatusMessage(
         rawTask
           ? i18n.t("common.statusTaskDraftOpenedFromChanges", {
@@ -574,7 +691,7 @@ export function useDashboardController() {
               name: project.name,
             }),
       );
-      return nextDraft;
+      return session;
     } catch (error) {
       const nextDraft: TaskPackDraft = {
         projectId: project.id,
@@ -587,7 +704,7 @@ export function useDashboardController() {
         acceptanceCriteriaText: "",
       };
 
-      setTaskPackDraft(nextDraft);
+      const session = startTransientDraft(nextDraft);
 
       const fallbackMessage = i18n.t(
         "common.statusLocalChangesReadFailed",
@@ -597,13 +714,15 @@ export function useDashboardController() {
           ? `${fallbackMessage} ${error.message}`
           : fallbackMessage,
       );
-      return nextDraft;
+      return session;
     } finally {
       setIsLoading(false);
     }
   }
 
   async function createTaskContextPreview(draftOverride?: TaskPackDraft) {
+    const expectedSessionId = taskPackDraftSession?.sessionId;
+    if (draftSessionRef.current?.sessionId !== expectedSessionId) return null;
     const activeDraft = draftOverride ?? taskPackDraft;
 
     if (!activeDraft) {
@@ -621,6 +740,7 @@ export function useDashboardController() {
         activeDraft.reviewedUnderstandingSnapshotId,
     });
 
+    if (draftSessionRef.current?.sessionId !== expectedSessionId) return null;
     setTaskPackContextPreview(preview);
     return preview;
   }
@@ -641,6 +761,7 @@ export function useDashboardController() {
       );
 
       const preview = await createTaskContextPreview(activeDraft);
+      if (!preview) return null;
 
       setStatusMessage(
         i18n.t("common.statusContextReady", {
@@ -659,7 +780,7 @@ export function useDashboardController() {
   }
 
   async function handleOpenTaskContextComposer() {
-    if (!taskPackDraft) {
+    if (!taskPackDraft || draftSessionRef.current?.sessionId !== taskPackDraftSession?.sessionId) {
       return;
     }
 
@@ -674,14 +795,14 @@ export function useDashboardController() {
       const preview =
         taskPackContextPreview ?? (await createTaskContextPreview());
 
-      if (preview) {
+      if (preview && draftSessionRef.current?.sessionId === taskPackDraftSession?.sessionId) {
         setContextComposerPreview(preview);
         setStatusMessage(
           i18n.t("common.statusContextReady", {
             name: taskPackDraft.projectName,
           }),
         );
-        return preview;
+        return { preview, session: draftSessionRef.current! };
       }
     } catch (error) {
       setStatusMessage(
@@ -751,9 +872,9 @@ export function useDashboardController() {
     setGeneratedTaskPack(null);
     setContextComposerPreview(null);
     setTaskPackContextPreview(null);
-    setTaskPackDraft(nextDraft);
+    const session = startTransientDraft(nextDraft);
     setStatusMessage(i18n.t("common.statusTaskPackReopened"));
-    return nextDraft;
+    return session;
   }
 
   function handleToggleProject(projectId: number) {
@@ -777,12 +898,18 @@ export function useDashboardController() {
     readinessScore,
     agentsPreview,
     taskPackDraft,
+    taskPackDraftSession,
+    draftPersistenceOperation,
+    draftPersistenceIssue,
+    handleDraftPersistence,
+    dismissDraftPersistenceIssue,
     generatedTaskPack,
     contextComposerPreview,
     taskPackContextPreview,
 
     setAgentsPreview,
     setTaskPackDraft,
+    setTaskPackDraftSession,
     setGeneratedTaskPack,
     setContextComposerPreview,
 

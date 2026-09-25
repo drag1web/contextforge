@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { MoreHorizontal } from "lucide-react";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import { useTranslation } from "react-i18next";
 
@@ -9,33 +9,61 @@ interface DropdownAction {
   onClick: () => void;
   disabled?: boolean;
   icon?: ReactNode;
+  tone?: "default" | "danger";
 }
 
 interface DropdownMenuProps {
   actions: DropdownAction[];
   ariaLabel?: string;
+  size?: "default" | "wide";
 }
 
 interface MenuPosition {
   top: number;
   left: number;
   openUp: boolean;
+  width: number;
 }
 
 const MENU_WIDTH = 220;
+const WIDE_MENU_WIDTH = 320;
 const MENU_ITEM_HEIGHT = 38;
 const MENU_VERTICAL_OFFSET = 8;
+const VIEWPORT_PADDING = 12;
 
-export function DropdownMenu({ actions, ariaLabel }: DropdownMenuProps) {
+/** Match the rendered width to positioning, including narrow/zoomed viewports. */
+export function getDropdownMenuPosition(
+  trigger: Pick<DOMRect, "top" | "bottom" | "right">,
+  actionCount: number,
+  viewport: { width: number; height: number },
+  size: NonNullable<DropdownMenuProps["size"]> = "default",
+  measuredHeight?: number,
+): MenuPosition {
+  const width = Math.min(size === "wide" ? WIDE_MENU_WIDTH : MENU_WIDTH,
+    Math.max(0, viewport.width - VIEWPORT_PADDING * 2));
+  const menuHeight = measuredHeight ?? actionCount * MENU_ITEM_HEIGHT + 8;
+  const openUp = trigger.bottom + MENU_VERTICAL_OFFSET + menuHeight > viewport.height;
+  return {
+    width,
+    left: Math.max(VIEWPORT_PADDING, Math.min(viewport.width - width - VIEWPORT_PADDING, trigger.right - width)),
+    top: openUp ? Math.max(VIEWPORT_PADDING, trigger.top - menuHeight - MENU_VERTICAL_OFFSET)
+      : trigger.bottom + MENU_VERTICAL_OFFSET,
+    openUp,
+  };
+}
+
+export function DropdownMenu({ actions, ariaLabel, size = "default" }: DropdownMenuProps) {
   const { t } = useTranslation();
   const resolvedAriaLabel = ariaLabel ?? t("common.moreActions");
   const buttonRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
 
   const [isOpen, setIsOpen] = useState(false);
   const [position, setPosition] = useState<MenuPosition>({
     top: 0,
     left: 0,
-    openUp: false
+    openUp: false,
+    width: size === "wide" ? WIDE_MENU_WIDTH : MENU_WIDTH,
   });
 
   function updatePosition() {
@@ -45,26 +73,11 @@ export function DropdownMenu({ actions, ariaLabel }: DropdownMenuProps) {
       return;
     }
 
-    const rect = button.getBoundingClientRect();
-    const estimatedMenuHeight = actions.length * MENU_ITEM_HEIGHT + 8;
-
-    const shouldOpenUp =
-      rect.bottom + MENU_VERTICAL_OFFSET + estimatedMenuHeight > window.innerHeight;
-
-    const top = shouldOpenUp
-      ? Math.max(12, rect.top - estimatedMenuHeight - MENU_VERTICAL_OFFSET)
-      : rect.bottom + MENU_VERTICAL_OFFSET;
-
-    const left = Math.min(
-      window.innerWidth - MENU_WIDTH - 12,
-      Math.max(12, rect.right - MENU_WIDTH)
-    );
-
-    setPosition({
-      top,
-      left,
-      openUp: shouldOpenUp
-    });
+    setPosition(getDropdownMenuPosition(
+      button.getBoundingClientRect(), actions.length,
+      { width: window.innerWidth, height: window.innerHeight }, size,
+      menuRef.current?.offsetHeight || undefined,
+    ));
   }
 
   function openMenu() {
@@ -83,6 +96,11 @@ export function DropdownMenu({ actions, ariaLabel }: DropdownMenuProps) {
       openMenu();
     }
   }
+
+  // Wide labels can wrap when zoomed: position using the actual layout height.
+  useLayoutEffect(() => {
+    if (isOpen) updatePosition();
+  }, [isOpen, size, position.width, actions.length]);
 
   useEffect(() => {
     if (!isOpen) {
@@ -108,7 +126,7 @@ export function DropdownMenu({ actions, ariaLabel }: DropdownMenuProps) {
       window.removeEventListener("resize", handleWindowChange);
       window.removeEventListener("scroll", handleWindowChange, true);
     };
-  }, [isOpen, actions.length]);
+  }, [isOpen, actions.length, size]);
 
   return (
     <>
@@ -146,11 +164,14 @@ export function DropdownMenu({ actions, ariaLabel }: DropdownMenuProps) {
               />
 
               <motion.div
+                ref={menuRef}
                 className="cf-floating-popover fixed z-[9999] overflow-hidden rounded-xl p-1"
                 style={{
                   top: position.top,
                   left: position.left,
-                  width: MENU_WIDTH
+                  width: position.width,
+                  maxHeight: "calc(100vh - 24px)",
+                  overflowY: "auto",
                 }}
                 initial={{
                   opacity: 0,
@@ -182,21 +203,28 @@ export function DropdownMenu({ actions, ariaLabel }: DropdownMenuProps) {
                         return;
                       }
 
+                      // A dialog opened by this action must restore focus to a surviving trigger.
+                      buttonRef.current?.focus();
                       action.onClick();
                       closeMenu();
                     }}
                     className={[
                       "cf-menu-item group",
+                      action.tone === "danger"
+                        ? "!text-red-200 hover:!bg-red-500/10 hover:!text-red-100 focus-visible:!bg-red-500/10 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-red-300/30"
+                        : "",
                       action.disabled ? "cf-menu-item-disabled" : ""
                     ].join(" ")}
                   >
                     <span className="flex min-w-0 items-center gap-2.5">
                       {action.icon && (
-                        <span className="shrink-0 text-neutral-500 transition-colors group-hover:text-white">
+                        <span className={action.tone === "danger"
+                          ? "shrink-0 text-red-300/80 transition-colors group-hover:text-red-200"
+                          : "shrink-0 text-neutral-500 transition-colors group-hover:text-white"}>
                           {action.icon}
                         </span>
                       )}
-                      <span className="truncate">{action.label}</span>
+                      <span className={size === "wide" ? "min-w-0 whitespace-normal break-words leading-5" : "truncate"}>{action.label}</span>
                     </span>
                   </button>
                 ))}

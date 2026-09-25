@@ -4,6 +4,8 @@ import type {
   TaskPackDraftSession,
   TaskPackPersistedDraftContent,
   TaskPackPersistedDraftView,
+  CreateTaskPackDraftRequest,
+  UpdateTaskPackDraftRequest,
 } from "../types";
 
 /** Fixed-field projection: no generation normalization, identity or display metadata. */
@@ -147,4 +149,134 @@ export function isTaskPackDraftSessionDirty(session: TaskPackDraftSession): bool
 
 export function canPersistTaskPackDraft(draft: TaskPackDraft): boolean {
   return draft.rawTask.trim().length > 0;
+}
+
+export interface TaskPackDraftOperation {
+  readonly kind: "saving" | "discarding" | "reloading";
+  readonly sessionId: string;
+  readonly projectId: number;
+  readonly draftId: string | null;
+  readonly expectedDraftVersion: number | null;
+  readonly content: TaskPackPersistedDraftContent;
+}
+
+export interface TaskPackDraftPersistenceIssue {
+  readonly sessionId: string;
+  readonly code: string;
+  readonly conflict?: {
+    readonly draftId: string;
+    readonly expectedDraftVersion: number;
+    readonly actualDraftVersion?: number;
+  };
+}
+
+export interface TaskPackDraftPersistenceApi {
+  createTaskPackDraft(input: CreateTaskPackDraftRequest): Promise<TaskPackPersistedDraftView>;
+  updateTaskPackDraft(id: string, input: UpdateTaskPackDraftRequest): Promise<TaskPackPersistedDraftView>;
+  discardTaskPackDraft(id: string, version: number): Promise<TaskPackPersistedDraftView>;
+  getTaskPackDraft(id: string): Promise<TaskPackPersistedDraftView>;
+}
+
+export function editTaskPackDraftSession(
+  session: TaskPackDraftSession,
+  draft: TaskPackDraft,
+): TaskPackDraftSession {
+  if (session.draft.projectId !== draft.projectId) {
+    throw new Error("Cannot move a draft editing session to another project.");
+  }
+  return { ...session, draft: copyEditableDraft(draft) };
+}
+
+/** Capture content and CAS token before the first await. No automatic persistence. */
+export function captureTaskPackDraftOperation(
+  session: TaskPackDraftSession,
+  kind: TaskPackDraftOperation["kind"],
+): TaskPackDraftOperation | null {
+  if (kind !== "saving" && !session.persistence) return null;
+  if (kind !== "reloading" && session.persistence &&
+    session.persistence.lifecycle.state !== "active") return null;
+  if (kind === "saving" && !canPersistTaskPackDraft(session.draft)) return null;
+  return {
+    kind,
+    sessionId: session.sessionId,
+    projectId: session.draft.projectId,
+    draftId: session.persistence?.id ?? null,
+    expectedDraftVersion: session.persistence?.draftVersion ?? null,
+    content: serializeTaskPackDraftContent(session.draft),
+  };
+}
+
+export async function executeTaskPackDraftOperation(
+  operation: TaskPackDraftOperation,
+  api: TaskPackDraftPersistenceApi,
+): Promise<TaskPackPersistedDraftView> {
+  let view: TaskPackPersistedDraftView;
+  if (operation.kind === "saving") {
+    view = operation.draftId === null
+      ? await api.createTaskPackDraft({
+          projectId: operation.projectId, taskPackId: null, baseRevisionId: null,
+          content: operation.content,
+        })
+      : await api.updateTaskPackDraft(operation.draftId, {
+          expectedDraftVersion: operation.expectedDraftVersion!, content: operation.content,
+        });
+  } else if (operation.kind === "discarding") {
+    view = await api.discardTaskPackDraft(operation.draftId!, operation.expectedDraftVersion!);
+  } else {
+    view = await api.getTaskPackDraft(operation.draftId!);
+  }
+  if (view.projectId !== operation.projectId ||
+    (operation.draftId !== null && view.id !== operation.draftId) ||
+    (operation.kind === "discarding" && view.lifecycle.state !== "discarded")) {
+    throw new Error("Invalid draft operation response.");
+  }
+  return view;
+}
+
+/** A late response can update only its originating session, never the current replacement. */
+export function applyTaskPackDraftOperationResult(
+  current: TaskPackDraftSession | null,
+  operation: TaskPackDraftOperation,
+  view: TaskPackPersistedDraftView,
+): TaskPackDraftSession | null {
+  if (!current || current.sessionId !== operation.sessionId) return current;
+  if (operation.kind === "discarding") return null;
+  if (operation.kind === "reloading") {
+    if (current.persistence?.id !== view.id || current.draft.projectId !== view.projectId) {
+      throw new Error("Reload response does not match the draft session.");
+    }
+    return createTaskPackDraftSessionFromPersisted(current.sessionId, view);
+  }
+  return updateTaskPackDraftSavedBaseline(current, view);
+}
+
+/** Never copy server messages (which may contain internals) or adopt its conflict token. */
+export function taskPackDraftPersistenceIssue(
+  operation: TaskPackDraftOperation,
+  code: string | undefined,
+  data: unknown,
+): TaskPackDraftPersistenceIssue {
+  const actual = data && typeof data === "object" && "actualDraftVersion" in data
+    ? data.actualDraftVersion : undefined;
+  return {
+    sessionId: operation.sessionId,
+    code: code ?? "TASK_PACK_DRAFT_REQUEST_FAILED",
+    ...(code === "TASK_PACK_DRAFT_CONFLICT" && operation.draftId !== null ? {
+      conflict: {
+        draftId: operation.draftId,
+        expectedDraftVersion: operation.expectedDraftVersion!,
+        ...(typeof actual === "number" && Number.isSafeInteger(actual) && actual > 0
+          ? { actualDraftVersion: actual } : {}),
+      },
+    } : {}),
+  };
+}
+
+/** Intermediate workflow: persisted drafts must never ordinary-create, including Composer. */
+export function canOrdinaryGenerateTaskPackDraft(session: TaskPackDraftSession | null): boolean {
+  return session !== null && session.persistence === null;
+}
+
+export function taskPackDraftSessionKey(session: TaskPackDraftSession): string {
+  return `task-pack-draft-${session.sessionId}`;
 }

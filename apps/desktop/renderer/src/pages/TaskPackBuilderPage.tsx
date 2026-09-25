@@ -36,6 +36,7 @@ import {
   SlidersHorizontal,
   Sparkles,
   TestTube2,
+  Trash2,
   WandSparkles
 } from "lucide-react";
 
@@ -55,10 +56,13 @@ import type {
   RuleProfile,
   TaskClarification,
   TaskPackDraft,
+  TaskPackDraftSession,
   TaskUnderstandingResponse,
   TemplateTaskType
 } from "../types";
 import { Button } from "../components/ui/Button";
+import { DropdownMenu } from "../components/ui/DropdownMenu";
+import { ConfirmDialog } from "../components/ui/ConfirmDialog";
 import { Modal } from "../components/ui/Modal";
 import { CustomSelect } from "../components/ui/CustomSelect";
 import { TaskUnderstandingModal } from "../components/modals/TaskUnderstandingModal";
@@ -90,6 +94,27 @@ import {
   mergeLocalChangesNote
 } from "../utils/localChangesNote";
 import { formatContextFileKind } from "../utils/contextFileLabels";
+import {
+  canPersistTaskPackDraft,
+  isTaskPackDraftSessionDirty,
+  type TaskPackDraftOperation,
+  type TaskPackDraftPersistenceIssue,
+} from "../utils/taskPackDraftSession";
+
+const DRAFT_ERROR_KEYS: Record<string, string> = {
+  TASK_PACK_DRAFT_CONFLICT: "conflictMessage",
+  TASK_PACK_DRAFT_NOT_FOUND: "notFound",
+  TASK_PACK_DRAFT_NOT_EDITABLE: "notEditable",
+  TASK_PACK_DRAFT_VERSION_EXHAUSTED: "versionExhausted",
+  TASK_PACK_DRAFT_ALREADY_BOUND: "invalidBinding",
+  TASK_PACK_DRAFT_OWNERSHIP_INVALID: "invalidBinding",
+  TASK_PACK_DRAFT_BASE_REVISION_INVALID: "invalidBinding",
+  TASK_PACK_DRAFT_STATE_INVALID: "invalidState",
+  TASK_PACK_DRAFT_PROJECT_NOT_FOUND: "projectMissing",
+  TASK_PACK_DRAFT_TASK_PACK_NOT_FOUND: "invalidBinding",
+  TASK_PACK_DRAFT_INVALID: "invalidInput",
+  TASK_PACK_DRAFT_VERSION_REQUIRED: "versionRequired",
+};
 
 function workspaceText(key: string, values?: Record<string, unknown>) {
   return String(i18n.t(`taskPackBuilder.workspace.${key}`, values));
@@ -137,6 +162,11 @@ function createPerformanceSessionId() {
 
 interface TaskPackBuilderPageProps {
   draft: TaskPackDraft;
+  session: TaskPackDraftSession;
+  persistenceOperation: TaskPackDraftOperation | null;
+  persistenceIssue: TaskPackDraftPersistenceIssue | null;
+  onPersistenceAction: (kind: TaskPackDraftOperation["kind"], sessionId: string) => Promise<boolean>;
+  onDismissPersistenceIssue: (sessionId: string) => void;
   isLoading: boolean;
   onChange: (draft: TaskPackDraft) => void;
   onClose: () => void;
@@ -2888,6 +2918,11 @@ function RulesManagerModal({
 
 export function TaskPackBuilderPage({
   draft,
+  session,
+  persistenceOperation,
+  persistenceIssue,
+  onPersistenceAction,
+  onDismissPersistenceIssue,
   isLoading,
   contextPreview = null,
   reviewedContextSelection = null,
@@ -2897,6 +2932,10 @@ export function TaskPackBuilderPage({
   onOpenContextComposer,
   onGenerate
 }: TaskPackBuilderPageProps) {
+  const [persistenceConfirmation, setPersistenceConfirmation] = useState<{
+    kind: "discarding" | "reloading";
+    sessionId: string;
+  } | null>(null);
   const { t } = useTranslation();
 
   const [templates, setTemplates] = useState<PromptTemplate[]>([]);
@@ -2932,7 +2971,18 @@ export function TaskPackBuilderPage({
 
   const taskLength = draft.rawTask.trim().length;
   const taskQuality = useMemo(() => getTaskQuality(draft.rawTask, t), [draft.rawTask, t]);
-  const canGenerate = taskLength >= 3 && !isLoading && !isUnderstanding;
+  const persistenceBusy = persistenceOperation !== null;
+  const persisted = session.persistence !== null;
+  const editable = !persisted || session.persistence?.lifecycle.state === "active";
+  const persistenceDirty = isTaskPackDraftSessionDirty(session);
+  const currentIssue = persistenceIssue?.sessionId === session.sessionId ? persistenceIssue : null;
+  const currentOperation = persistenceOperation?.sessionId === session.sessionId ? persistenceOperation : null;
+  const canAnalyze = taskLength >= 3 && !isLoading && !isUnderstanding && !persistenceBusy && editable;
+  const canGenerate = canAnalyze && !persisted;
+  const canSave = editable && canPersistTaskPackDraft(draft) && persistenceDirty &&
+    !isLoading && !isUnderstanding && !persistenceBusy;
+  const persistenceStatus = currentIssue?.conflict ? "conflict"
+    : currentOperation?.kind ?? (!editable ? "terminal" : !persisted ? "notSaved" : persistenceDirty ? "unsaved" : "saved");
 
   const selectedTemplate = templates.find((template) => template.id === draft.templateId);
   const selectedProfile = ruleProfiles.find((profile) => profile.id === draft.ruleProfileId);
@@ -3405,8 +3455,9 @@ export function TaskPackBuilderPage({
   }, [runUnderstandingPreflight]);
 
   const handleGenerateTaskPack = useCallback(async () => {
+    if (!canGenerate) return;
     await runUnderstandingPreflight("generate");
-  }, [runUnderstandingPreflight]);
+  }, [canGenerate, runUnderstandingPreflight]);
 
   const handleSubmitClarification = useCallback(async () => {
     if (!understandingResponse || !pendingUnderstandingAction) {
@@ -3799,6 +3850,7 @@ export function TaskPackBuilderPage({
   }, []);
 
   useEffect(() => {
+    if (session.persistence !== null) return;
     if (templates.length === 0 || ruleProfiles.length === 0) {
       return;
     }
@@ -3823,7 +3875,7 @@ export function TaskPackBuilderPage({
         profile?.acceptanceCriteriaPresetId ??
         ""
     });
-  }, [templates, ruleProfiles]);
+  }, [templates, ruleProfiles, session.persistence]);
 
   return (
     <section className="h-[calc(100vh-96px)] min-h-0 overflow-hidden pr-1">
@@ -3847,6 +3899,9 @@ export function TaskPackBuilderPage({
               </p>
 
               <div className="mt-3 flex flex-wrap gap-2">
+                <span role="status" aria-live="polite">
+                  <Pill>{t(`taskPackDraftPersistence.${persistenceStatus}`)}</Pill>
+                </span>
                 <Pill>
                   {getTaskTypeLabel(draft.taskType)} · {getTargetToolLabel(draft.targetTool)}
                 </Pill>
@@ -3862,7 +3917,7 @@ export function TaskPackBuilderPage({
               </div>
             </div>
 
-            <div className="flex shrink-0 flex-wrap gap-2">
+            <div className="flex shrink-0 flex-wrap items-center gap-2">
               <Button variant="secondary" onClick={onClose}>
                 <ArrowLeft size={15} />
                 {t("taskPackBuilder.back")}
@@ -3870,8 +3925,28 @@ export function TaskPackBuilderPage({
 
               <Button
                 variant="secondary"
+                onClick={() => void onPersistenceAction("saving", session.sessionId)}
+                disabled={!canSave}
+              >
+                {currentOperation?.kind === "saving" && <Loader2 size={15} className="animate-spin" />}
+                {t(currentOperation?.kind === "saving" ? "taskPackDraftPersistence.saving"
+                  : persisted ? "taskPackDraftPersistence.saveChanges" : "taskPackDraftPersistence.saveDraft")}
+              </Button>
+
+              {persisted && editable && (
+                <DropdownMenu size="wide" actions={[{
+                  label: t("taskPackDraftPersistence.discard"),
+                  icon: <Trash2 size={15} aria-hidden="true" />,
+                  tone: "danger",
+                  disabled: persistenceBusy || isLoading || isUnderstanding,
+                  onClick: () => setPersistenceConfirmation({ kind: "discarding", sessionId: session.sessionId }),
+                }]} />
+              )}
+
+              <Button
+                variant="secondary"
                 onClick={handleAnalyzeContext}
-                disabled={!canGenerate}
+                disabled={!canAnalyze}
               >
                 <Sparkles size={15} />
                 {t("taskPackBuilder.analyzeContext")}
@@ -3881,6 +3956,7 @@ export function TaskPackBuilderPage({
                 variant="primary"
                 onClick={handleGenerateTaskPack}
                 disabled={!canGenerate}
+                title={persisted ? t("taskPackDraftPersistence.generationUnavailable") : undefined}
               >
                 {isLoading || isUnderstanding ? (
                   <Loader2 size={15} className="animate-spin" />
@@ -3895,9 +3971,56 @@ export function TaskPackBuilderPage({
               </Button>
             </div>
           </div>
+          {persisted && (
+            <p className="mt-3 text-xs text-neutral-400">{t("taskPackDraftPersistence.generationUnavailable")}</p>
+          )}
+          {currentIssue && (
+            <div role="alert" className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-sm text-amber-100">
+              <p>{t(`taskPackDraftPersistence.${DRAFT_ERROR_KEYS[currentIssue.code] ?? "requestFailed"}`)}</p>
+              <div className="mt-2 flex flex-wrap gap-2">
+                {persisted && currentIssue.code !== "TASK_PACK_DRAFT_NOT_FOUND" && (
+                  <Button variant="secondary" disabled={persistenceBusy || isUnderstanding || isLoading}
+                    onClick={() => setPersistenceConfirmation({ kind: "reloading", sessionId: session.sessionId })}>
+                    {t("taskPackDraftPersistence.reload")}
+                  </Button>
+                )}
+                <Button variant="ghost" disabled={persistenceBusy}
+                  onClick={() => onDismissPersistenceIssue(session.sessionId)}>
+                  {t("taskPackDraftPersistence.dismiss")}
+                </Button>
+              </div>
+            </div>
+          )}
         </header>
 
-        <div className="grid min-h-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_310px]">
+        {persistenceConfirmation?.sessionId === session.sessionId && (
+          <ConfirmDialog
+            title={t(persistenceConfirmation.kind === "discarding"
+              ? "taskPackDraftPersistence.discardTitle" : "taskPackDraftPersistence.reloadTitle")}
+            description={t(persistenceConfirmation.kind === "discarding"
+              ? "taskPackDraftPersistence.discardDescription" : "taskPackDraftPersistence.reloadDescription")}
+            intent={persistenceConfirmation.kind === "discarding" ? "danger" : "warning"}
+            cancelLabel={t("taskPackDraftPersistence.cancel")}
+            confirmLabel={t(persistenceConfirmation.kind === "discarding"
+              ? "taskPackDraftPersistence.discard" : "taskPackDraftPersistence.reload")}
+            confirmDisabled={persistenceBusy}
+            onClose={() => setPersistenceConfirmation(null)}
+            onConfirm={() => {
+              const confirmation = persistenceConfirmation;
+              setPersistenceConfirmation(null);
+              if (confirmation.sessionId === session.sessionId) {
+                void onPersistenceAction(confirmation.kind, confirmation.sessionId).then((applied) => {
+                  if (applied && confirmation.kind === "reloading") clearUnderstandingState();
+                });
+              }
+            }}
+          />
+        )}
+
+        <fieldset
+          disabled={!editable || currentOperation?.kind === "discarding" || currentOperation?.kind === "reloading"}
+          className="grid min-h-0 min-w-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_310px]"
+        >
           <main className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
             <div className="shrink-0 border-b border-neutral-900/80 p-3">
               <HorizontalSlidingSelector
@@ -4471,7 +4594,7 @@ export function TaskPackBuilderPage({
                       </div>
 
                       <div className="flex shrink-0 flex-wrap gap-2">
-                        <Button variant="secondary" onClick={handleAnalyzeContext} disabled={!canGenerate}>
+                        <Button variant="secondary" onClick={handleAnalyzeContext} disabled={!canAnalyze}>
                           {isLoading ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
                           {contextSummary.isAnalyzed ? workspaceText("context.refresh") : workspaceText("context.analyze")}
                         </Button>
@@ -4769,7 +4892,7 @@ export function TaskPackBuilderPage({
               />
             </div>
           </aside>
-        </div>
+        </fieldset>
       </div>
 
       {isUnderstandingModalOpen && understandingResponse && (

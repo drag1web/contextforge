@@ -15,8 +15,10 @@ import contextforgeLogoWhite from "../assets/brand/contextforge-logo-white.png";
 import { getAppSettings, updateAppSettings } from "../api/client";
 import type {
   AppSettings,
+  ContextComposerPreview,
   TaskPack,
   TaskPackDraft,
+  TaskPackDraftSession,
 } from "../types";
 import type { QuickPeekTarget } from "../types/quickPeek";
 import type { InspectorTarget } from "../types/inspector";
@@ -81,6 +83,7 @@ import {
   buildContextComposerReviewedSelection,
   taskContextDraftsMatch,
 } from "../utils/contextComposerReviewedDraft";
+import { canOrdinaryGenerateTaskPackDraft, taskPackDraftSessionKey } from "../utils/taskPackDraftSession";
 import {
   getWorkspaceDensityPadding,
   resolveWorkspaceDensity,
@@ -798,7 +801,18 @@ function WelcomeSplashOverlay({
 
 export function DashboardPage() {
   const { t } = useTranslation();
-  const dashboard = useDashboardController();
+  const navigation = useWorkspaceNavigationHistory("dashboard");
+  const contextDiffSessionOwner = useRef<string | null>(null);
+  const dashboard = useDashboardController({
+    onSessionChange: navigation.synchronizeTaskPackDraftSession,
+    onPersistenceResult: (operation, view) => {
+      navigation.applyTaskPackDraftPersistenceResult(operation, view);
+      if (operation.kind !== "saving" && contextDiffSessionOwner.current === operation.sessionId) {
+        contextDiffSessionOwner.current = null;
+        setContextDiffSession(null);
+      }
+    },
+  });
   const workspaceZoom = useWorkspaceZoom();
   const taskPackFreshnessById = useMemo(
     () =>
@@ -829,7 +843,7 @@ export function DashboardPage() {
     discardForwardHistory,
     goBack,
     goForward,
-  } = useWorkspaceNavigationHistory("dashboard");
+  } = navigation;
   const [reportsPresenceActivity, setReportsPresenceActivity] =
     useState<"reports" | "validation_lab">("reports");
   const [operationPresenceActivity, setOperationPresenceActivity] =
@@ -886,6 +900,11 @@ export function DashboardPage() {
   );
   const [contextDiffSession, setContextDiffSession] =
     useState<ContextDiffSessionState | null>(null);
+  const updateContextDiffSession = useCallback((sessionId: string, preview: ContextComposerPreview) => {
+    const sameSession = contextDiffSessionOwner.current === sessionId;
+    contextDiffSessionOwner.current = sessionId;
+    setContextDiffSession((current) => advanceContextDiffSession(sameSession ? current : null, preview));
+  }, []);
   const [onboardingDismissedThisSession, setOnboardingDismissedThisSession] =
     useState(false);
   const selectedProjectDetailsId =
@@ -975,12 +994,12 @@ export function DashboardPage() {
   }, [dashboard.generatedTaskPack, operationPresenceActivity]);
 
   const openTaskPackBuilderLocation = useCallback(
-    (draft: TaskPackDraft) => {
+    (session: TaskPackDraftSession) => {
       setPageDirection(1);
       navigateToLocation({
         page: activePage,
         surface: "task-pack-builder",
-        draft,
+        session,
       });
     },
     [activePage, navigateToLocation],
@@ -1014,59 +1033,54 @@ export function DashboardPage() {
 
   const handleTaskPackDraftChange = useCallback(
     (draft: TaskPackDraft) => {
-      dashboard.setTaskPackDraft(draft);
-
-      if (activeLocation.surface === "task-pack-builder") {
-        replaceCurrentLocation({
-          ...activeLocation,
-          draft,
-        });
-      }
+      const sessionId = dashboard.taskPackDraftSession?.sessionId;
+      if (sessionId) dashboard.setTaskPackDraft(draft, sessionId);
     },
     [
-      activeLocation,
       dashboard.setTaskPackDraft,
-      replaceCurrentLocation,
+      dashboard.taskPackDraftSession?.sessionId,
     ],
   );
 
   const handleOpenTaskContextComposerWithNavigation = useCallback(async () => {
-    const draft = dashboard.taskPackDraft;
-    if (!draft) return;
+    const session = dashboard.taskPackDraftSession;
+    if (!session) return;
+    const draft = session.draft;
 
     if (
       forwardLocation?.surface === "context-composer" &&
-      taskContextDraftsMatch(draft, forwardLocation.draft)
+      forwardLocation.session.sessionId === session.sessionId &&
+      taskContextDraftsMatch(draft, forwardLocation.session.draft)
     ) {
-      dashboard.setTaskPackDraft(forwardLocation.draft);
+      dashboard.setTaskPackDraftSession(forwardLocation.session);
       dashboard.setContextComposerPreview(forwardLocation.preview);
       setPageDirection(1);
       goForward();
       return;
     }
 
-    const preview = await dashboard.handleOpenTaskContextComposer();
-    if (!preview) return;
+    const result = await dashboard.handleOpenTaskContextComposer();
+    if (!result) return;
+    const { preview, session: currentSession } = result;
 
-    setContextDiffSession((current) =>
-      advanceContextDiffSession(current, preview),
-    );
+    updateContextDiffSession(currentSession.sessionId, preview);
     setPageDirection(1);
     navigateToLocation({
       page: activePage,
       surface: "context-composer",
-      draft,
+      session: currentSession,
       preview,
     });
   }, [
     activePage,
     dashboard.handleOpenTaskContextComposer,
     dashboard.setContextComposerPreview,
-    dashboard.setTaskPackDraft,
-    dashboard.taskPackDraft,
+    dashboard.setTaskPackDraftSession,
+    dashboard.taskPackDraftSession,
     forwardLocation,
     goForward,
     navigateToLocation,
+    updateContextDiffSession,
   ]);
 
   const handleOpenTaskPackResult = useCallback(
@@ -1159,7 +1173,7 @@ export function DashboardPage() {
 
   const handleCreateTaskPackWithPresence = useCallback(
     async (...args: Parameters<typeof dashboard.handleCreateTaskPack>) => {
-      const draft = args[0] ?? dashboard.taskPackDraft;
+      const session = dashboard.taskPackDraftSession;
       setOperationPresenceActivity("generating_task_pack");
 
       try {
@@ -1174,15 +1188,13 @@ export function DashboardPage() {
           return;
         }
 
-        if (outcome.kind === "context-review" && draft) {
-          setContextDiffSession((current) =>
-            advanceContextDiffSession(current, outcome.preview),
-          );
+        if (outcome.kind === "context-review" && session) {
+          updateContextDiffSession(outcome.session.sessionId, outcome.preview);
           setPageDirection(1);
           navigateToLocation({
             page: activePage,
             surface: "context-composer",
-            draft,
+            session: outcome.session,
             preview: outcome.preview,
           });
         }
@@ -1193,9 +1205,10 @@ export function DashboardPage() {
     [
       activePage,
       dashboard.handleCreateTaskPack,
-      dashboard.taskPackDraft,
+      dashboard.taskPackDraftSession,
       handleOpenTaskPackResult,
       navigateToLocation,
+      updateContextDiffSession,
     ],
   );
 
@@ -1247,13 +1260,13 @@ export function DashboardPage() {
       if (location.surface === "task-pack-builder") {
         dashboard.setGeneratedTaskPack(null);
         dashboard.setContextComposerPreview(null);
-        dashboard.setTaskPackDraft(location.draft);
+        dashboard.setTaskPackDraftSession(location.session);
         return;
       }
 
       if (location.surface === "context-composer") {
         dashboard.setGeneratedTaskPack(null);
-        dashboard.setTaskPackDraft(location.draft);
+        dashboard.setTaskPackDraftSession(location.session);
         dashboard.setContextComposerPreview(location.preview);
         return;
       }
@@ -1272,6 +1285,7 @@ export function DashboardPage() {
       dashboard.setContextComposerPreview,
       dashboard.setGeneratedTaskPack,
       dashboard.setTaskPackDraft,
+      dashboard.setTaskPackDraftSession,
     ],
   );
 
@@ -1426,7 +1440,7 @@ export function DashboardPage() {
       return activeLocation.projectId;
     }
     if (activeLocation.surface === "task-pack-builder") {
-      return activeLocation.draft.projectId;
+      return activeLocation.session.draft.projectId;
     }
     if (activeLocation.surface === "context-composer") {
       return activeLocation.preview.project.id;
@@ -1728,7 +1742,8 @@ export function DashboardPage() {
     if (
       activeLocation.surface !== "task-pack-builder" ||
       forwardLocation?.surface !== "context-composer" ||
-      !taskContextDraftsMatch(activeLocation.draft, forwardLocation.draft)
+      activeLocation.session.sessionId !== forwardLocation.session.sessionId ||
+      !taskContextDraftsMatch(activeLocation.session.draft, forwardLocation.session.draft)
     ) {
       return null;
     }
@@ -1769,6 +1784,7 @@ export function DashboardPage() {
       return (
         <ContextComposerPage
           preview={dashboard.contextComposerPreview}
+          generationDisabled={!canOrdinaryGenerateTaskPackDraft(dashboard.taskPackDraftSession) || dashboard.draftPersistenceOperation !== null}
           isLoading={dashboard.isLoading}
           navigationState={
             activeLocation.surface === "context-composer"
@@ -1816,6 +1832,11 @@ export function DashboardPage() {
       return (
         <TaskPackBuilderPage
           draft={dashboard.taskPackDraft}
+          session={dashboard.taskPackDraftSession!}
+          persistenceOperation={dashboard.draftPersistenceOperation}
+          persistenceIssue={dashboard.draftPersistenceIssue}
+          onPersistenceAction={dashboard.handleDraftPersistence}
+          onDismissPersistenceIssue={dashboard.dismissDraftPersistenceIssue}
           isLoading={dashboard.isLoading}
           contextPreview={dashboard.taskPackContextPreview}
           reviewedContextSelection={reviewedContextSelection}
@@ -1856,6 +1877,11 @@ export function DashboardPage() {
       return (
         <TaskPackBuilderPage
           draft={dashboard.taskPackDraft}
+          session={dashboard.taskPackDraftSession!}
+          persistenceOperation={dashboard.draftPersistenceOperation}
+          persistenceIssue={dashboard.draftPersistenceIssue}
+          onPersistenceAction={dashboard.handleDraftPersistence}
+          onDismissPersistenceIssue={dashboard.dismissDraftPersistenceIssue}
           isLoading={dashboard.isLoading}
           contextPreview={dashboard.taskPackContextPreview}
           reviewedContextSelection={reviewedContextSelection}
@@ -2078,11 +2104,11 @@ export function DashboardPage() {
     }
 
     if (dashboard.contextComposerPreview) {
-      return `context-composer-${dashboard.contextComposerPreview.project.id}-${dashboard.contextComposerPreview.task.rawTask}`;
+      return `context-composer-${dashboard.taskPackDraftSession?.sessionId}-${dashboard.contextComposerPreview.task.rawTask}`;
     }
 
-    if (dashboard.taskPackDraft) {
-      return `task-pack-draft-${dashboard.taskPackDraft.projectId}`;
+    if (dashboard.taskPackDraftSession) {
+      return taskPackDraftSessionKey(dashboard.taskPackDraftSession);
     }
 
     if (selectedProjectDetailsId !== null) {
@@ -2094,7 +2120,7 @@ export function DashboardPage() {
     activePage,
     dashboard.contextComposerPreview,
     dashboard.generatedTaskPack,
-    dashboard.taskPackDraft,
+    dashboard.taskPackDraftSession,
     selectedProjectDetailsId,
   ]);
 

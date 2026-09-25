@@ -63,6 +63,7 @@ type BasketDropFeedback = {
 
 interface ContextComposerPageProps {
   preview: ContextComposerPreview;
+  generationDisabled?: boolean;
   isLoading?: boolean;
   navigationState?: ContextComposerNavigationState | null;
   onNavigationStateChange?: (state: ContextComposerNavigationState) => void;
@@ -181,6 +182,7 @@ function mergeSnippetsByPath(snippets: ContextComposerSnippet[]) {
 
 export function ContextComposerPage({
   preview,
+  generationDisabled = false,
   isLoading = false,
   navigationState = null,
   onNavigationStateChange,
@@ -584,6 +586,7 @@ export function ContextComposerPage({
   ]);
 
   const canGenerate =
+    !generationDisabled &&
     !isLoading &&
     selectedPaths.length > 0 &&
     (!isBlockedReview || selectedManualFiles.length > 0);
@@ -2095,8 +2098,9 @@ export function ContextComposerPage({
                   </Button>
                   <Button
                     variant="primary"
-                    onClick={() => onGenerate(selectedPaths)}
+                    onClick={() => { if (canGenerate) onGenerate(selectedPaths); }}
                     disabled={!canGenerate}
+                    title={generationDisabled ? t("taskPackDraftPersistence.generationUnavailable") : undefined}
                   >
                     <WandSparkles size={14} />
                     {isLoading
@@ -2105,6 +2109,9 @@ export function ContextComposerPage({
                         ? t("contextComposerPage.header.generateReviewed")
                         : t("contextComposerPage.header.generateSelected")}
                   </Button>
+                  {generationDisabled && (
+                    <p className="text-xs text-neutral-400">{t("taskPackDraftPersistence.generationUnavailable")}</p>
+                  )}
                 </>
               )}
             </div>

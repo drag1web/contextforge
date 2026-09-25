@@ -4,9 +4,12 @@ import type { AppPageId } from "../components/layout/Sidebar";
 import type {
   ContextComposerPreview,
   TaskPack,
-  TaskPackDraft,
+  TaskPackDraftSession,
+  TaskPackPersistedDraftView,
 } from "../types";
 import type { ContextComposerNavigationState } from "../types/navigation";
+import { taskContextDraftsMatch } from "../utils/contextComposerReviewedDraft";
+import { applyTaskPackDraftOperationResult, type TaskPackDraftOperation } from "../utils/taskPackDraftSession";
 
 export type WorkspaceNavigationLocation =
   | {
@@ -21,12 +24,12 @@ export type WorkspaceNavigationLocation =
   | {
       page: AppPageId;
       surface: "task-pack-builder";
-      draft: TaskPackDraft;
+      session: TaskPackDraftSession;
     }
   | {
       page: AppPageId;
       surface: "context-composer";
-      draft: TaskPackDraft;
+      session: TaskPackDraftSession;
       preview: ContextComposerPreview;
       state?: ContextComposerNavigationState;
     }
@@ -36,9 +39,61 @@ export type WorkspaceNavigationLocation =
       taskPack: TaskPack;
     };
 
-interface WorkspaceNavigationHistoryState {
+export interface WorkspaceNavigationHistoryState {
   entries: WorkspaceNavigationLocation[];
   index: number;
+}
+
+/** Keep every snapshot of a logical session on the same content/baseline/token. */
+export function synchronizeDraftSessionHistory(
+  history: WorkspaceNavigationHistoryState,
+  session: TaskPackDraftSession,
+): WorkspaceNavigationHistoryState {
+  let changed = false;
+  const entries = history.entries.map((entry): WorkspaceNavigationLocation => {
+    if (!("session" in entry) || entry.session.sessionId !== session.sessionId || entry.session === session) return entry;
+    changed = true;
+    if (entry.surface === "context-composer" && !taskContextDraftsMatch(entry.session.draft, session.draft)) {
+      return { page: entry.page, surface: "task-pack-builder", session };
+    }
+    return { ...entry, session };
+  });
+  return changed ? { ...history, entries } : history;
+}
+
+export function invalidateDraftSessionHistory(
+  history: WorkspaceNavigationHistoryState,
+  sessionId: string,
+  projectId: number,
+): WorkspaceNavigationHistoryState {
+  const entries: WorkspaceNavigationLocation[] = [];
+  let index = history.index;
+  history.entries.forEach((entry, entryIndex) => {
+    const matches = "session" in entry && entry.session.sessionId === sessionId;
+    if (entryIndex === history.index) {
+      index = entries.length;
+      entries.push(matches ? { page: "projects", surface: "project-details", projectId } : entry);
+    } else if (!matches) entries.push(entry);
+  });
+  return { entries, index };
+}
+
+export function applyDraftOperationToHistory(
+  history: WorkspaceNavigationHistoryState,
+  operation: TaskPackDraftOperation,
+  view: TaskPackPersistedDraftView,
+): WorkspaceNavigationHistoryState {
+  if (operation.kind === "discarding") {
+    return invalidateDraftSessionHistory(history, operation.sessionId, operation.projectId);
+  }
+  return { ...history, entries: history.entries.map((entry): WorkspaceNavigationLocation => {
+    if (!("session" in entry) || entry.session.sessionId !== operation.sessionId) return entry;
+    const session = applyTaskPackDraftOperationResult(entry.session, operation, view)!;
+    // Explicit reload invalidates any old analysis/navigation preview, even for equal text.
+    return operation.kind === "reloading"
+      ? { page: entry.page, surface: "task-pack-builder", session }
+      : { ...entry, session };
+  }) };
 }
 
 const MAX_HISTORY_ENTRIES = 32;
@@ -76,14 +131,14 @@ function isSameLocation(
     left.surface === "task-pack-builder" &&
     right.surface === "task-pack-builder"
   ) {
-    return left.draft === right.draft;
+    return left.session === right.session;
   }
 
   if (
     left.surface === "context-composer" &&
     right.surface === "context-composer"
   ) {
-    return left.preview === right.preview;
+    return left.session.sessionId === right.session.sessionId && left.preview === right.preview;
   }
 
   return left.surface === "page" && right.surface === "page";
@@ -149,6 +204,14 @@ export function useWorkspaceNavigationHistory(initialPage: AppPageId) {
     },
     [],
   );
+
+  const synchronizeTaskPackDraftSession = useCallback((session: TaskPackDraftSession) => {
+    setHistory((current) => synchronizeDraftSessionHistory(current, session));
+  }, []);
+
+  const applyTaskPackDraftPersistenceResult = useCallback((operation: TaskPackDraftOperation, view: TaskPackPersistedDraftView) => {
+    setHistory((current) => applyDraftOperationToHistory(current, operation, view));
+  }, []);
 
   const updateCurrentContextComposerState = useCallback(
     (state: ContextComposerNavigationState) => {
@@ -230,6 +293,8 @@ export function useWorkspaceNavigationHistory(initialPage: AppPageId) {
     navigate,
     navigateToLocation,
     replaceCurrentLocation,
+    synchronizeTaskPackDraftSession,
+    applyTaskPackDraftPersistenceResult,
     updateCurrentContextComposerState,
     discardForwardHistory,
     goBack,
