@@ -1407,9 +1407,10 @@ scenario("Composer reviewed draft handoff preserves analyzed preview and stays r
 
   assert.ok(restoreStart >= 0 && restoreEnd > restoreStart);
   assert.ok(builderBranchStart >= 0 && composerBranchStart > builderBranchStart);
+  assert.match(builderBranch, /setGeneratedTaskPack\(null\)/u);
   assert.match(builderBranch, /setContextComposerPreview\(null\)/u);
-  assert.match(builderBranch, /setTaskPackDraft\(location\.draft\)/u);
-  assert.doesNotMatch(builderBranch, /setTaskPackDraft\(null\)/u);
+  assert.match(builderBranch, /setTaskPackDraftSession\(location\.session\)/u);
+  assert.doesNotMatch(builderBranch, /setTaskPackDraft(?:Session)?\(null\)/u);
 
   assert.match(dashboard, /buildContextComposerReviewedSelection/u);
   assert.match(dashboard, /reviewedContextSelection=\{reviewedContextSelection\}/u);
@@ -1753,8 +1754,21 @@ scenario("Context Diff lifecycle is independent from navigation restore and lang
   const restoreEnd = dashboard.indexOf("const handleNavigateBack", restoreStart);
   const restoreBody = dashboard.slice(restoreStart, restoreEnd);
   assert.ok(restoreStart >= 0 && restoreEnd > restoreStart);
-  assert.doesNotMatch(restoreBody, /advanceContextDiffSession/u);
-  assert.match(dashboard, /handleOpenTaskContextComposerWithNavigation[\s\S]*advanceContextDiffSession/u);
+  assert.doesNotMatch(restoreBody, /(?:advance|update)ContextDiffSession/u);
+  const openStart = dashboard.indexOf("const handleOpenTaskContextComposerWithNavigation");
+  const openEnd = dashboard.indexOf("const handleOpenTaskPackResult", openStart);
+  assert.ok(openStart >= 0 && openEnd > openStart);
+  assert.match(
+    dashboard.slice(openStart, openEnd),
+    /updateContextDiffSession\(currentSession\.sessionId, preview\)/u,
+  );
+  const updateStart = dashboard.indexOf("const updateContextDiffSession");
+  const updateEnd = dashboard.indexOf("const [onboardingDismissedThisSession", updateStart);
+  assert.ok(updateStart >= 0 && updateEnd > updateStart);
+  const updateBody = dashboard.slice(updateStart, updateEnd);
+  assert.match(updateBody, /const sameSession = contextDiffSessionOwner\.current === sessionId/u);
+  assert.match(updateBody, /contextDiffSessionOwner\.current = sessionId/u);
+  assert.match(updateBody, /advanceContextDiffSession\(sameSession \? current : null, preview\)/u);
   const semantics = fs.readFileSync(
     path.join(repositoryRoot, "apps/desktop/renderer/src/components/workspace/contextDiff.ts"),
     "utf8",
