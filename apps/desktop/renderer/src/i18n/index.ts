@@ -7,6 +7,16 @@ export type AppLanguage = "system" | "en" | "ru";
 const resources = {
   en: {
     translation: {
+      taskPackDraftMaterialization: {
+        saveAndCreate: "Save & Create Task Pack",
+        savingFinal: "Saving final draft…",
+        creating: "Creating Task Pack…",
+        helper: "The final reviewed draft is saved when needed, then becomes a Task Pack. After creation, this saved draft is no longer editable.",
+        conflict: "This draft changed elsewhere. Creation stopped and your local text is kept. Reload the saved draft to review the latest state before trying again.",
+        blocked: "Context needs review before creation. Your saved draft remains available. Review the context, then return to the Builder to adjust and try again.",
+        failed: "Could not create a Task Pack from this saved draft. Your local text and any successfully saved changes are kept. Review the saved draft before trying again.",
+        success: "Task Pack created from saved draft.",
+      },
       taskPackDraftDiscovery: {
         title: "Saved Drafts",
         globalDescription: "Choose a saved draft to continue editing.",
@@ -76,7 +86,7 @@ const resources = {
         invalidInput: "The draft could not be saved. Check its content and try again.",
         versionRequired: "The saved draft version is required. Reload the saved draft before trying again.",
         requestFailed: "The draft action failed. Your local edits are kept. You can try again manually.",
-        generationUnavailable: "Generation from saved drafts is not available yet. You can keep editing, save changes, and review context.",
+        generationUnavailable: "Create this saved draft's Task Pack from the Builder. Manual file selection in Context Composer is not supported for saved drafts.",
       },
       common: {
         addProject: "Add project",
@@ -5788,6 +5798,16 @@ const resources = {
   },
   ru: {
     translation: {
+      taskPackDraftMaterialization: {
+        saveAndCreate: "Сохранить и создать пакет задач",
+        savingFinal: "Сохраняем итоговый черновик…",
+        creating: "Создаём пакет задач…",
+        helper: "Проверенный итоговый черновик при необходимости сохранится, а затем станет пакетом задач. После создания этот сохранённый черновик больше нельзя редактировать.",
+        conflict: "Черновик изменился в другом окне. Создание остановлено, ваш локальный текст сохранён. Загрузите сохранённый черновик и проверьте актуальное состояние перед повтором.",
+        blocked: "Перед созданием нужно проверить контекст. Сохранённый черновик остаётся доступным. Проверьте контекст, затем вернитесь в конструктор для изменений и повторной попытки.",
+        failed: "Не удалось создать пакет задач из сохранённого черновика. Локальный текст и успешно сохранённые изменения остались на месте. Проверьте сохранённый черновик перед повтором.",
+        success: "Пакет задач создан из сохранённого черновика.",
+      },
       taskPackDraftDiscovery: {
         title: "Сохранённые черновики",
         globalDescription: "Выберите сохранённый черновик, чтобы продолжить редактирование.",
@@ -5857,7 +5877,7 @@ const resources = {
         invalidInput: "Не удалось сохранить черновик. Проверьте его содержимое и повторите попытку.",
         versionRequired: "Нужна версия сохранённого черновика. Загрузите её перед повторной попыткой.",
         requestFailed: "Не удалось выполнить действие с черновиком. Локальные правки оставлены в редакторе. Можно повторить попытку вручную.",
-        generationUnavailable: "Генерация из сохранённых черновиков пока недоступна. Можно продолжать редактирование, сохранять изменения и проверять контекст.",
+        generationUnavailable: "Создавайте пакет задач из сохранённого черновика в конструкторе. Ручной выбор файлов в Context Composer для сохранённых черновиков не поддерживается.",
       },
       common: {
         addProject: "Добавить проект",

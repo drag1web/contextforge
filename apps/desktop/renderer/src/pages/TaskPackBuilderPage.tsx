@@ -100,6 +100,11 @@ import {
   type TaskPackDraftOperation,
   type TaskPackDraftPersistenceIssue,
 } from "../utils/taskPackDraftSession";
+import {
+  canMaterializeTaskPackDraft,
+  type TaskPackDraftMaterializationOperation, type TaskPackDraftMaterializationPhase,
+  type TaskPackDraftMaterializationIssue,
+} from "../utils/taskPackDraftMaterialization";
 
 const DRAFT_ERROR_KEYS: Record<string, string> = {
   TASK_PACK_DRAFT_CONFLICT: "conflictMessage",
@@ -165,6 +170,8 @@ interface TaskPackBuilderPageProps {
   session: TaskPackDraftSession;
   persistenceOperation: TaskPackDraftOperation | null;
   persistenceIssue: TaskPackDraftPersistenceIssue | null;
+  materializationOperation?: { operation: TaskPackDraftMaterializationOperation; phase: TaskPackDraftMaterializationPhase } | null;
+  materializationIssue?: TaskPackDraftMaterializationIssue | null;
   onPersistenceAction: (kind: TaskPackDraftOperation["kind"], sessionId: string) => Promise<boolean>;
   onDismissPersistenceIssue: (sessionId: string) => void;
   isLoading: boolean;
@@ -2921,6 +2928,8 @@ export function TaskPackBuilderPage({
   session,
   persistenceOperation,
   persistenceIssue,
+  materializationOperation = null,
+  materializationIssue = null,
   onPersistenceAction,
   onDismissPersistenceIssue,
   isLoading,
@@ -2971,14 +2980,16 @@ export function TaskPackBuilderPage({
 
   const taskLength = draft.rawTask.trim().length;
   const taskQuality = useMemo(() => getTaskQuality(draft.rawTask, t), [draft.rawTask, t]);
-  const persistenceBusy = persistenceOperation !== null;
+  const persistenceBusy = persistenceOperation !== null || materializationOperation !== null;
   const persisted = session.persistence !== null;
   const editable = !persisted || session.persistence?.lifecycle.state === "active";
   const persistenceDirty = isTaskPackDraftSessionDirty(session);
-  const currentIssue = persistenceIssue?.sessionId === session.sessionId ? persistenceIssue : null;
+  const currentMaterialization = materializationOperation?.operation.sessionId === session.sessionId ? materializationOperation : null;
+  const currentMaterializationIssue = materializationIssue?.sessionId === session.sessionId ? materializationIssue : null;
+  const currentIssue = currentMaterializationIssue ?? (persistenceIssue?.sessionId === session.sessionId ? persistenceIssue : null);
   const currentOperation = persistenceOperation?.sessionId === session.sessionId ? persistenceOperation : null;
   const canAnalyze = taskLength >= 3 && !isLoading && !isUnderstanding && !persistenceBusy && editable;
-  const canGenerate = canAnalyze && !persisted;
+  const canGenerate = canAnalyze && (!persisted || canMaterializeTaskPackDraft(session));
   const canSave = editable && canPersistTaskPackDraft(draft) && persistenceDirty &&
     !isLoading && !isUnderstanding && !persistenceBusy;
   const persistenceStatus = currentIssue?.conflict ? "conflict"
@@ -3900,7 +3911,9 @@ export function TaskPackBuilderPage({
 
               <div className="mt-3 flex flex-wrap gap-2">
                 <span role="status" aria-live="polite">
-                  <Pill>{t(`taskPackDraftPersistence.${persistenceStatus}`)}</Pill>
+                  <Pill>{currentMaterialization
+                    ? t(`taskPackDraftMaterialization.${currentMaterialization.phase}`)
+                    : t(`taskPackDraftPersistence.${persistenceStatus}`)}</Pill>
                 </span>
                 <Pill>
                   {getTaskTypeLabel(draft.taskType)} · {getTargetToolLabel(draft.targetTool)}
@@ -3956,27 +3969,37 @@ export function TaskPackBuilderPage({
                 variant="primary"
                 onClick={handleGenerateTaskPack}
                 disabled={!canGenerate}
-                title={persisted ? t("taskPackDraftPersistence.generationUnavailable") : undefined}
+                title={persisted ? t("taskPackDraftMaterialization.helper") : undefined}
               >
                 {isLoading || isUnderstanding ? (
                   <Loader2 size={15} className="animate-spin" />
                 ) : (
                   <WandSparkles size={15} />
                 )}
-                {isUnderstanding
+                {currentMaterialization
+                  ? t(`taskPackDraftMaterialization.${currentMaterialization.phase}`)
+                  : isUnderstanding
                   ? t("taskUnderstanding.analyzing")
                   : isLoading
                     ? t("taskPackBuilder.generating")
-                    : t("taskPackBuilder.generateTaskPack")}
+                    : persisted && persistenceDirty
+                      ? t("taskPackDraftMaterialization.saveAndCreate")
+                      : t("taskPackBuilder.generateTaskPack")}
               </Button>
             </div>
           </div>
           {persisted && (
-            <p className="mt-3 text-xs text-neutral-400">{t("taskPackDraftPersistence.generationUnavailable")}</p>
+            <p className="mt-3 max-w-3xl text-xs leading-5 text-neutral-400">{t("taskPackDraftMaterialization.helper")}</p>
           )}
           {currentIssue && (
             <div role="alert" className="mt-3 rounded-xl border border-amber-400/25 bg-amber-400/5 p-3 text-sm text-amber-100">
-              <p>{t(`taskPackDraftPersistence.${DRAFT_ERROR_KEYS[currentIssue.code] ?? "requestFailed"}`)}</p>
+              <p>{currentMaterializationIssue && currentIssue.code === "TASK_PACK_DRAFT_CONFLICT"
+                ? t("taskPackDraftMaterialization.conflict")
+                : currentMaterializationIssue && currentIssue.code === "CONTEXT_SELECTION_BLOCKED"
+                  ? t("taskPackDraftMaterialization.blocked")
+                  : currentMaterializationIssue && !DRAFT_ERROR_KEYS[currentIssue.code]
+                    ? t("taskPackDraftMaterialization.failed")
+                    : t(`taskPackDraftPersistence.${DRAFT_ERROR_KEYS[currentIssue.code] ?? "requestFailed"}`)}</p>
               <div className="mt-2 flex flex-wrap gap-2">
                 {persisted && currentIssue.code !== "TASK_PACK_DRAFT_NOT_FOUND" && (
                   <Button variant="secondary" disabled={persistenceBusy || isUnderstanding || isLoading}
@@ -4018,7 +4041,7 @@ export function TaskPackBuilderPage({
         )}
 
         <fieldset
-          disabled={!editable || currentOperation?.kind === "discarding" || currentOperation?.kind === "reloading"}
+          disabled={!editable || currentMaterialization !== null || currentOperation?.kind === "discarding" || currentOperation?.kind === "reloading"}
           className="grid min-h-0 min-w-0 flex-1 gap-4 xl:grid-cols-[minmax(0,1fr)_310px]"
         >
           <main className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">

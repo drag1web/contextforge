@@ -209,6 +209,10 @@ export function useWorkspaceNavigationHistory(initialPage: AppPageId) {
     setHistory((current) => synchronizeDraftSessionHistory(current, session));
   }, []);
 
+  const invalidateTaskPackDraftSession = useCallback((sessionId: string, projectId: number) => {
+    setHistory(current => invalidateDraftSessionHistory(current, sessionId, projectId));
+  }, []);
+
   const applyTaskPackDraftPersistenceResult = useCallback((operation: TaskPackDraftOperation, view: TaskPackPersistedDraftView) => {
     setHistory((current) => applyDraftOperationToHistory(current, operation, view));
   }, []);
@@ -294,6 +298,7 @@ export function useWorkspaceNavigationHistory(initialPage: AppPageId) {
     navigateToLocation,
     replaceCurrentLocation,
     synchronizeTaskPackDraftSession,
+    invalidateTaskPackDraftSession,
     applyTaskPackDraftPersistenceResult,
     updateCurrentContextComposerState,
     discardForwardHistory,

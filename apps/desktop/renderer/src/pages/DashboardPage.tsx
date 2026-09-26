@@ -805,16 +805,28 @@ function WelcomeSplashOverlay({
 export function DashboardPage() {
   const { t } = useTranslation();
   const navigation = useWorkspaceNavigationHistory("dashboard");
+  const activeDraftSurfaceRef = useRef(navigation.activeLocation);
+  activeDraftSurfaceRef.current = navigation.activeLocation;
   const contextDiffSessionOwner = useRef<string | null>(null);
   const discoveryOwnerRef = useRef<ReturnType<typeof createTaskPackDraftDiscovery> | null>(null);
   const specialStartupNavigation = useRef(false);
   const [desktopLaunchReady, setDesktopLaunchReady] = useState({ sync: false, navigation: false });
   const dashboard = useDashboardController({
+    isDraftBuilderActive: (sessionId) => activeDraftSurfaceRef.current.surface === "task-pack-builder" &&
+      activeDraftSurfaceRef.current.session.sessionId === sessionId,
     onSessionChange: navigation.synchronizeTaskPackDraftSession,
     onPersistenceResult: (operation, view) => {
       navigation.applyTaskPackDraftPersistenceResult(operation, view);
       discoveryOwnerRef.current?.reconcile(view);
       if (operation.kind !== "saving" && contextDiffSessionOwner.current === operation.sessionId) {
+        contextDiffSessionOwner.current = null;
+        setContextDiffSession(null);
+      }
+    },
+    onMaterializationResult: (operation, result) => {
+      navigation.invalidateTaskPackDraftSession(operation.sessionId, operation.projectId);
+      discoveryOwnerRef.current?.reconcile(result.draft);
+      if (contextDiffSessionOwner.current === operation.sessionId) {
         contextDiffSessionOwner.current = null;
         setContextDiffSession(null);
       }
@@ -1883,6 +1895,8 @@ export function DashboardPage() {
           session={dashboard.taskPackDraftSession!}
           persistenceOperation={dashboard.draftPersistenceOperation}
           persistenceIssue={dashboard.draftPersistenceIssue}
+          materializationOperation={dashboard.draftMaterializationOperation}
+          materializationIssue={dashboard.draftMaterializationIssue}
           onPersistenceAction={dashboard.handleDraftPersistence}
           onDismissPersistenceIssue={dashboard.dismissDraftPersistenceIssue}
           isLoading={dashboard.isLoading}
@@ -1928,6 +1942,8 @@ export function DashboardPage() {
           session={dashboard.taskPackDraftSession!}
           persistenceOperation={dashboard.draftPersistenceOperation}
           persistenceIssue={dashboard.draftPersistenceIssue}
+          materializationOperation={dashboard.draftMaterializationOperation}
+          materializationIssue={dashboard.draftMaterializationIssue}
           onPersistenceAction={dashboard.handleDraftPersistence}
           onDismissPersistenceIssue={dashboard.dismissDraftPersistenceIssue}
           isLoading={dashboard.isLoading}

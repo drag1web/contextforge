@@ -8,6 +8,7 @@ import {
   updateTaskPackDraft,
   discardTaskPackDraft,
   getTaskPackDraft,
+  materializeTaskPackDraft,
   getAgentsPreview,
   getAppSettings,
   getProjectContextFile,
@@ -27,6 +28,7 @@ import type {
   TaskPackDraft,
   TaskPackDraftSession,
   TaskPackPersistedDraftView,
+  MaterializeTaskPackDraftResponse,
 } from "../types";
 import i18n from "../i18n";
 import { buildChangesDraftTask } from "../utils/localChangesNote";
@@ -43,14 +45,23 @@ import {
   type TaskPackDraftPersistenceIssue,
 } from "../utils/taskPackDraftSession";
 import { restorableDraftIssue } from "../utils/taskPackDraftDiscovery";
+import {
+  captureTaskPackDraftMaterialization, executeTaskPackDraftMaterialization,
+  TaskPackDraftMaterializationError, taskPackDraftMaterializationIssue, upsertMaterializedTaskPack,
+  ownsTaskPackDraftMaterialization,
+  type TaskPackDraftMaterializationOperation, type TaskPackDraftMaterializationPhase,
+  type TaskPackDraftMaterializationIssue,
+} from "../utils/taskPackDraftMaterialization";
 
 const draftPersistenceApi = {
   createTaskPackDraft, updateTaskPackDraft, discardTaskPackDraft, getTaskPackDraft,
 };
 
 interface DraftSessionCallbacks {
+  isDraftBuilderActive?: (sessionId: string) => boolean;
   onSessionChange?: (session: TaskPackDraftSession) => void;
   onPersistenceResult?: (operation: TaskPackDraftOperation, view: TaskPackPersistedDraftView) => void;
+  onMaterializationResult?: (operation: TaskPackDraftMaterializationOperation, result: MaterializeTaskPackDraftResponse) => void;
 }
 
 function parseMultilineRules(value?: string) {
@@ -132,6 +143,12 @@ export function useDashboardController(draftCallbacks: DraftSessionCallbacks = {
   const [draftPersistenceOperation, setDraftPersistenceOperation] = useState<TaskPackDraftOperation | null>(null);
   const draftOperationRef = useRef<TaskPackDraftOperation | null>(null);
   const [draftPersistenceIssue, setDraftPersistenceIssue] = useState<TaskPackDraftPersistenceIssue | null>(null);
+  const materializationRef = useRef<TaskPackDraftMaterializationOperation | null>(null);
+  const [draftMaterializationOperation, setDraftMaterializationOperation] = useState<{
+    operation: TaskPackDraftMaterializationOperation;
+    phase: TaskPackDraftMaterializationPhase;
+  } | null>(null);
+  const [draftMaterializationIssue, setDraftMaterializationIssue] = useState<TaskPackDraftMaterializationIssue | null>(null);
   const [generatedTaskPack, setGeneratedTaskPack] = useState<TaskPack | null>(
     null,
   );
@@ -147,6 +164,7 @@ export function useDashboardController(draftCallbacks: DraftSessionCallbacks = {
 
   function commitDraftSession(next: TaskPackDraftSession | null) {
     if (next?.sessionId !== draftSessionRef.current?.sessionId) setDraftPersistenceIssue(null);
+    if (next?.sessionId !== draftSessionRef.current?.sessionId) setDraftMaterializationIssue(null);
     draftSessionRef.current = next;
     setTaskPackDraftSessionState(next);
     if (next) draftCallbacks.onSessionChange?.(next);
@@ -178,6 +196,7 @@ export function useDashboardController(draftCallbacks: DraftSessionCallbacks = {
     if (expectedSessionId !== undefined && current?.sessionId !== expectedSessionId) return;
     if (!nextDraft) return setTaskPackDraftSession(null);
     if (!current) return;
+    if (materializationRef.current?.sessionId === current.sessionId) return;
     if (current.persistence && current.persistence.lifecycle.state !== "active") return;
     const operation = draftOperationRef.current;
     if (operation?.sessionId === current.sessionId && operation.kind !== "saving") return;
@@ -191,7 +210,7 @@ export function useDashboardController(draftCallbacks: DraftSessionCallbacks = {
   }
 
   function restorePersistedTaskPackDraft(view: TaskPackPersistedDraftView) {
-    if (draftSessionRef.current !== taskPackDraftSession || isLoading || draftOperationRef.current ||
+    if (draftSessionRef.current !== taskPackDraftSession || isLoading || draftOperationRef.current || materializationRef.current ||
       restorableDraftIssue(view, view, projects.map(project => project.id))) return null;
     const session = createRestoredTaskPackDraftSession(crypto.randomUUID(), view);
     setDraftPersistenceIssue(null);
@@ -208,12 +227,13 @@ export function useDashboardController(draftCallbacks: DraftSessionCallbacks = {
     expectedSessionId: string,
   ): Promise<boolean> {
     const current = draftSessionRef.current;
-    if (!current || current.sessionId !== expectedSessionId || draftOperationRef.current || isLoading) return false;
+    if (!current || current.sessionId !== expectedSessionId || draftOperationRef.current || materializationRef.current || isLoading) return false;
     const operation = captureTaskPackDraftOperation(current, kind);
     if (!operation) return false;
     draftOperationRef.current = operation;
     setDraftPersistenceOperation(operation);
     setDraftPersistenceIssue(null);
+    setDraftMaterializationIssue(null);
     try {
       const view = await executeTaskPackDraftOperation(operation, draftPersistenceApi);
       const active = draftSessionRef.current;
@@ -251,7 +271,10 @@ export function useDashboardController(draftCallbacks: DraftSessionCallbacks = {
   }
 
   function dismissDraftPersistenceIssue(sessionId: string) {
-    if (draftSessionRef.current?.sessionId === sessionId) setDraftPersistenceIssue(null);
+    if (draftSessionRef.current?.sessionId === sessionId) {
+      setDraftPersistenceIssue(null);
+      setDraftMaterializationIssue(null);
+    }
   }
 
   async function loadProjects() {
@@ -513,7 +536,7 @@ export function useDashboardController(draftCallbacks: DraftSessionCallbacks = {
   ) {
     const generationSession = draftSessionRef.current;
     if (generationSession?.sessionId !== expectedSessionId) return null;
-    if (!canOrdinaryGenerateTaskPackDraft(generationSession) || draftOperationRef.current) {
+    if (!canOrdinaryGenerateTaskPackDraft(generationSession) || draftOperationRef.current || materializationRef.current) {
       if (generationSession?.persistence) setStatusMessage(i18n.t("taskPackDraftPersistence.generationUnavailable"));
       return null;
     }
@@ -828,8 +851,95 @@ export function useDashboardController(draftCallbacks: DraftSessionCallbacks = {
     }
   }
 
+  async function materializePersistedDraft(finalDraft: TaskPackDraft, expectedSessionId: string) {
+    if (materializationRef.current || draftOperationRef.current || isLoading) return null;
+    const operation = captureTaskPackDraftMaterialization(draftSessionRef.current, expectedSessionId, finalDraft);
+    if (!operation) return null;
+    materializationRef.current = operation; // Synchronous duplicate-click and authoring guard.
+    commitDraftSession(operation.session);
+    setDraftPersistenceIssue(null);
+    setDraftMaterializationIssue(null);
+    setIsLoading(true);
+    let phase: TaskPackDraftMaterializationPhase = operation.needSave ? "savingFinal" : "creating";
+    let version = operation.expectedDraftVersion;
+    try {
+      const result = await executeTaskPackDraftMaterialization(operation, { updateTaskPackDraft, materializeTaskPackDraft }, {
+        onPhase(next) {
+          phase = next;
+          setDraftMaterializationOperation({ operation, phase });
+          if (ownsTaskPackDraftMaterialization(draftSessionRef.current, operation)) {
+            setStatusMessage(i18n.t(`taskPackDraftMaterialization.${phase}`));
+          }
+        },
+        onSaved(view) {
+          version = view.draftVersion;
+          const active = draftSessionRef.current;
+          const next = applyTaskPackDraftOperationResult(active, operation.saveOperation, view);
+          // Save is real, even if creation fails or the originating surface has been left.
+          draftCallbacks.onPersistenceResult?.(operation.saveOperation, view);
+          if (ownsTaskPackDraftMaterialization(active, operation)) commitDraftSession(next);
+        },
+      });
+      setTaskPacks(current => upsertMaterializedTaskPack(current, result.taskPack));
+      draftCallbacks.onMaterializationResult?.(operation, result);
+      if (!ownsTaskPackDraftMaterialization(draftSessionRef.current, operation)) return null;
+      setTaskPackDraftSession(null);
+      setTaskPackContextPreview(null);
+      setContextComposerPreview(null);
+      if (draftCallbacks.isDraftBuilderActive?.(operation.sessionId) === false) {
+        setGeneratedTaskPack(null);
+        return null;
+      }
+      setGeneratedTaskPack(result.taskPack);
+      setDraftMaterializationIssue(null);
+      setDraftPersistenceIssue(null);
+      setStatusMessage(i18n.t("taskPackDraftMaterialization.success"));
+      return { kind: "generated" as const, taskPack: result.taskPack };
+    } catch (error) {
+      if (!ownsTaskPackDraftMaterialization(draftSessionRef.current, operation)) return null;
+      const code = error instanceof ApiRequestError || error instanceof TaskPackDraftMaterializationError ? error.code : undefined;
+      setDraftMaterializationIssue(taskPackDraftMaterializationIssue(
+        operation, phase, version, code, error instanceof ApiRequestError ? error.data : undefined,
+      ));
+      setStatusMessage(i18n.t(code === "CONTEXT_SELECTION_BLOCKED"
+        ? "taskPackDraftMaterialization.blocked" : "taskPackDraftMaterialization.failed"));
+      if (code === "CONTEXT_SELECTION_BLOCKED") {
+        try {
+          const preview = await createContextComposerPreview({
+            projectId: operation.projectId, rawTask: operation.session.draft.rawTask,
+            taskType: operation.session.draft.taskType, targetTool: operation.session.draft.targetTool,
+            clarifications: operation.session.draft.clarifications,
+            understandingSnapshotId: operation.session.draft.understandingSnapshotId,
+            reviewedUnderstandingSnapshotId: operation.session.draft.reviewedUnderstandingSnapshotId,
+          });
+          if (!ownsTaskPackDraftMaterialization(draftSessionRef.current, operation) ||
+            draftCallbacks.isDraftBuilderActive?.(operation.sessionId) === false) return null;
+          setContextComposerPreview(preview);
+          return { kind: "context-review" as const, preview, session: draftSessionRef.current! };
+        } catch {
+          // Keep the localized blocked issue and successfully saved baseline. No raw errors.
+        }
+      }
+      return null;
+    } finally {
+      if (materializationRef.current === operation) {
+        materializationRef.current = null;
+        setDraftMaterializationOperation(null);
+        setIsLoading(false);
+      }
+    }
+  }
+
   async function handleCreateTaskPack(draftOverride?: TaskPackDraft) {
-    return generateTaskPackFromDraft(undefined, draftOverride);
+    // This closure belongs to the Builder session that started understanding, not a later B.
+    const expectedSessionId = taskPackDraftSession?.sessionId;
+    const current = draftSessionRef.current;
+    if (!current || current.sessionId !== expectedSessionId ||
+      (draftOverride && draftOverride.projectId !== current.draft.projectId)) return null;
+    if (current.persistence !== null) {
+      return materializePersistedDraft(draftOverride ?? current.draft, current.sessionId);
+    }
+    return generateTaskPackFromDraft(undefined, draftOverride, expectedSessionId);
   }
 
   async function handleCreateTaskPackFromComposer(selectedFilePaths: string[]) {
@@ -916,6 +1026,8 @@ export function useDashboardController(draftCallbacks: DraftSessionCallbacks = {
     taskPackDraftSession,
     draftPersistenceOperation,
     draftPersistenceIssue,
+    draftMaterializationOperation,
+    draftMaterializationIssue,
     handleDraftPersistence,
     restorePersistedTaskPackDraft,
     dismissDraftPersistenceIssue,

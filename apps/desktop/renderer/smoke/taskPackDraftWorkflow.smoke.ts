@@ -353,10 +353,10 @@ await scenario("controller guards persisted and stale sessions BEFORE ordinary c
   assert.ok(body.indexOf("generationSession?.sessionId !== expectedSessionId") < body.indexOf("await createTaskPack({"));
   assert.match(body, /!canOrdinaryGenerateTaskPackDraft\(draftSessionRef.current\)/);
   assert.match(body, /selectedFilePaths,/); // Existing transient manual-basket path remains.
-  assert.doesNotMatch(controller, /materializeTaskPackDraft|listActiveTaskPackDrafts/);
+  assert.doesNotMatch(body, /materializeTaskPackDraft|listActiveTaskPackDrafts/);
 }, true);
-await scenario("persisted Composer and Builder generation are disabled with controller backstop", () => {
-  assert.match(builder, /const canGenerate = canAnalyze && !persisted/);
+await scenario("persisted Builder may materialize while Composer ordinary generation stays disabled", () => {
+  assert.match(builder, /const canGenerate = canAnalyze && \(!persisted \|\| canMaterializeTaskPackDraft\(session\)\)/);
   assert.match(dashboard, /generationDisabled=\{!canOrdinaryGenerateTaskPackDraft\(dashboard.taskPackDraftSession\)/);
   assert.match(composer, /const canGenerate =\s*!generationDisabled/);
   assert.match(composer, /if \(canGenerate\) onGenerate\(selectedPaths\)/);
@@ -398,7 +398,7 @@ await scenario("response identity/project mismatch and invalid discard result fa
 });
 await scenario("pending operation ref prevents duplicate writes and stale errors do not affect active B", () => {
   const body = section(controller, "async function handleDraftPersistence(", "function dismissDraftPersistenceIssue(");
-  assert.match(body, /current.sessionId !== expectedSessionId \|\| draftOperationRef.current \|\| isLoading/);
+  assert.match(body, /current.sessionId !== expectedSessionId \|\| draftOperationRef.current \|\| materializationRef.current \|\| isLoading/);
   assert.ok(body.indexOf("draftOperationRef.current = operation") < body.indexOf("await executeTaskPackDraftOperation"));
   assert.match(body, /if \(draftSessionRef.current\?\.sessionId !== operation.sessionId\) return false/);
   assert.match(body, /if \(draftOperationRef.current === operation\)/);
