@@ -110,6 +110,23 @@ export function createTaskPackDraftSessionFromPersisted(
   };
 }
 
+/** Restart is not an exact round-trip: old process analysis is not current evidence. */
+export function createRestoredTaskPackDraftSession(
+  sessionId: string,
+  view: TaskPackPersistedDraftView,
+): TaskPackDraftSession {
+  if (view.lifecycle.state !== "active" || view.taskPackId !== null || view.baseRevisionId !== null) {
+    throw new Error("Only active unbound drafts can be restored.");
+  }
+  const session = createTaskPackDraftSessionFromPersisted(sessionId, view);
+  return { ...session, draft: {
+    ...session.draft,
+    performanceSessionId: undefined,
+    understandingSnapshotId: undefined,
+    reviewedUnderstandingSnapshotId: undefined,
+  } };
+}
+
 /**
  * Apply a successful response to its captured session, retaining current local edits.
  * Callers must associate responses with the originating session before applying them.

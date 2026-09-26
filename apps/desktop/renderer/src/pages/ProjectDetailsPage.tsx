@@ -40,6 +40,8 @@ interface ProjectDetailsPageProps {
   onRescan: (project: Project) => void;
   onGenerateAgents: (project: Project) => void;
   onCreateTaskPack: (project: Project) => void | Promise<void>;
+  onOpenSavedDrafts: (projectId: number) => void;
+  savedDraftCount?: number;
   onCreateTaskPackFromChanges: (project: Project) => void | Promise<void>;
   taskPacks: TaskPack[];
   freshnessByTaskPackId: ReadonlyMap<number, TaskPackFreshness>;
@@ -185,6 +187,8 @@ export function ProjectDetailsPage({
   onRescan,
   onGenerateAgents,
   onCreateTaskPack,
+  onOpenSavedDrafts,
+  savedDraftCount,
   onCreateTaskPackFromChanges,
   taskPacks,
   freshnessByTaskPackId,
@@ -313,6 +317,11 @@ export function ProjectDetailsPage({
             >
               <WandSparkles size={15} />
               {t("projectDetailsPage.actions.createTaskPack")}
+            </Button>
+            <Button type="button" variant="secondary" disabled={isLoading}
+              onClick={() => onOpenSavedDrafts(project.id)}>
+              <FileText size={15} aria-hidden="true" />
+              {t("taskPackDraftDiscovery.title")}{savedDraftCount === undefined ? "" : ` · ${savedDraftCount}`}
             </Button>
             <Button
               type="button"

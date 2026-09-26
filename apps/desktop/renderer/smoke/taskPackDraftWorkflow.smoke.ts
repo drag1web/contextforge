@@ -5,6 +5,7 @@ import type { ContextComposerPreview, TaskPackDraft, TaskPackDraftSession, TaskP
 import {
   applyTaskPackDraftOperationResult, canOrdinaryGenerateTaskPackDraft,
   captureTaskPackDraftOperation, createTaskPackDraftSessionFromPersisted,
+  createRestoredTaskPackDraftSession,
   createTransientTaskPackDraftSession, editTaskPackDraftSession,
   executeTaskPackDraftOperation, isTaskPackDraftSessionDirty,
   serializeTaskPackDraftContent, taskPackDraftPersistenceIssue, taskPackDraftSessionKey,
@@ -515,5 +516,32 @@ await scenario("confirmation starts on Cancel and menu restores focus to its sur
   assert.ok(confirmDialog.indexOf("{cancelLabel}") < confirmDialog.indexOf("{confirmLabel}"));
   assert.ok(dropdown.indexOf("buttonRef.current?.focus()") < dropdown.indexOf("action.onClick()"));
 }, true);
+
+await scenario("discovered restoration can save cleared analysis IDs through existing CAS workflow", async () => {
+  const original = view();
+  const restored = createRestoredTaskPackDraftSession("restored-local", original);
+  const operation = captureTaskPackDraftOperation(restored, "saving")!;
+  const response = view({ draftVersion: 5, content: serializeTaskPackDraftContent(restored.draft) });
+  const { api, calls } = apiReturning(response);
+  const saved = applyTaskPackDraftOperationResult(restored, operation, await executeTaskPackDraftOperation(operation, api))!;
+  assert.equal(calls.length, 1); assert.equal(calls[0].method, "PATCH");
+  assert.equal(saved.sessionId, "restored-local"); assert.equal(saved.persistence?.id, original.id);
+  assert.equal(saved.persistence?.draftVersion, 5); assert.equal(isTaskPackDraftSessionDirty(saved), false);
+  assert.equal(canOrdinaryGenerateTaskPackDraft(saved), false);
+});
+await scenario("fresh discovered session history cannot revive another renderer session's analysis", () => {
+  const restored = createRestoredTaskPackDraftSession("restored-local", view());
+  const previous = history(persisted());
+  previous.entries.push({ page: "projects", surface: "task-pack-builder", session: restored });
+  const editedRestore = editTaskPackDraftSession(restored, { ...restored.draft, rawTask: "restored edit" });
+  const next = synchronizeDraftSessionHistory(previous, editedRestore);
+  assert.deepEqual(next.entries[1], previous.entries[1]);
+  const entry = next.entries.at(-1)!;
+  assert.equal(entry.surface, "task-pack-builder");
+  if (entry.surface !== "task-pack-builder") throw new Error("Expected Builder history.");
+  assert.equal(entry.session.sessionId, "restored-local");
+  assert.equal(entry.session.draft.reviewedUnderstandingSnapshotId, undefined);
+  assert.equal(entry.session.persistence?.lastSavedContent.reviewedUnderstandingSnapshotId, "understanding");
+});
 
 process.stdout.write(`Task Pack draft workflow smoke passed: ${scenarios} scenarios (${scenarios - wiringScenarios} executable behavior, ${wiringScenarios} React wiring).\n`);

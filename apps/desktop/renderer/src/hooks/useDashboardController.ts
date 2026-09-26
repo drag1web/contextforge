@@ -35,12 +35,14 @@ import {
   canOrdinaryGenerateTaskPackDraft,
   captureTaskPackDraftOperation,
   createTransientTaskPackDraftSession,
+  createRestoredTaskPackDraftSession,
   editTaskPackDraftSession,
   executeTaskPackDraftOperation,
   taskPackDraftPersistenceIssue,
   type TaskPackDraftOperation,
   type TaskPackDraftPersistenceIssue,
 } from "../utils/taskPackDraftSession";
+import { restorableDraftIssue } from "../utils/taskPackDraftDiscovery";
 
 const draftPersistenceApi = {
   createTaskPackDraft, updateTaskPackDraft, discardTaskPackDraft, getTaskPackDraft,
@@ -185,6 +187,19 @@ export function useDashboardController(draftCallbacks: DraftSessionCallbacks = {
   function startTransientDraft(draft: TaskPackDraft) {
     const session = createTransientTaskPackDraftSession(crypto.randomUUID(), draft);
     setTaskPackDraftSession(session);
+    return session;
+  }
+
+  function restorePersistedTaskPackDraft(view: TaskPackPersistedDraftView) {
+    if (draftSessionRef.current !== taskPackDraftSession || isLoading || draftOperationRef.current ||
+      restorableDraftIssue(view, view, projects.map(project => project.id))) return null;
+    const session = createRestoredTaskPackDraftSession(crypto.randomUUID(), view);
+    setDraftPersistenceIssue(null);
+    setTaskPackContextPreview(null);
+    setContextComposerPreview(null);
+    setGeneratedTaskPack(null);
+    commitDraftSession(session);
+    setStatusMessage(i18n.t("taskPackDraftDiscovery.restored"));
     return session;
   }
 
@@ -902,6 +917,7 @@ export function useDashboardController(draftCallbacks: DraftSessionCallbacks = {
     draftPersistenceOperation,
     draftPersistenceIssue,
     handleDraftPersistence,
+    restorePersistedTaskPackDraft,
     dismissDraftPersistenceIssue,
     generatedTaskPack,
     contextComposerPreview,

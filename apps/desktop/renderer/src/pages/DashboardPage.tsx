@@ -51,6 +51,9 @@ import { TemplatesPage } from "./TemplatesPage";
 import { DashboardHomePage } from "./DashboardHomePage";
 
 import { useDashboardController } from "../hooks/useDashboardController";
+import { useTaskPackDraftDiscovery } from "../hooks/useTaskPackDraftDiscovery";
+import { TaskPackDraftChooserModal } from "../components/modals/TaskPackDraftChooserModal";
+import { getProjectActiveDraftCount, type createTaskPackDraftDiscovery } from "../utils/taskPackDraftDiscovery";
 
 import { TaskPacksPage } from "./TaskPacksPage";
 import { ContextBuilderPage } from "./ContextBuilderPage";
@@ -803,10 +806,14 @@ export function DashboardPage() {
   const { t } = useTranslation();
   const navigation = useWorkspaceNavigationHistory("dashboard");
   const contextDiffSessionOwner = useRef<string | null>(null);
+  const discoveryOwnerRef = useRef<ReturnType<typeof createTaskPackDraftDiscovery> | null>(null);
+  const specialStartupNavigation = useRef(false);
+  const [desktopLaunchReady, setDesktopLaunchReady] = useState({ sync: false, navigation: false });
   const dashboard = useDashboardController({
     onSessionChange: navigation.synchronizeTaskPackDraftSession,
     onPersistenceResult: (operation, view) => {
       navigation.applyTaskPackDraftPersistenceResult(operation, view);
+      discoveryOwnerRef.current?.reconcile(view);
       if (operation.kind !== "saving" && contextDiffSessionOwner.current === operation.sessionId) {
         contextDiffSessionOwner.current = null;
         setContextDiffSession(null);
@@ -1348,17 +1355,26 @@ export function DashboardPage() {
 
   useEffect(() => {
     const bridge = window.contextforge?.desktopSync;
-    if (!bridge) return undefined;
+    if (!bridge) {
+      setDesktopLaunchReady(current => current.sync ? current : { ...current, sync: true });
+      return undefined;
+    }
 
     let disposed = false;
     const openAccountSync = () => {
-      if (!disposed) handleNavigate("accountSync");
+      if (!disposed) {
+        specialStartupNavigation.current = true;
+        if (discoveryOwnerRef.current?.getSnapshot().open) discoveryOwnerRef.current.close();
+        handleNavigate("accountSync");
+      }
     };
     const unsubscribe = bridge.onLaunchRequest(openAccountSync);
 
     void bridge.peekLaunchRequest().then((request) => {
       if (request) openAccountSync();
-    }).catch(() => undefined);
+    }).catch(() => undefined).finally(() => {
+      if (!disposed) setDesktopLaunchReady(current => current.sync ? current : { ...current, sync: true });
+    });
 
     return () => {
       disposed = true;
@@ -1368,6 +1384,8 @@ export function DashboardPage() {
 
   const handleDesktopNavigationRequest = useCallback(
     (page: DesktopNavigationPage) => {
+      specialStartupNavigation.current = true;
+      if (discoveryOwnerRef.current?.getSnapshot().open) discoveryOwnerRef.current.close();
       handleNavigate(page);
     },
     [handleNavigate],
@@ -1380,6 +1398,8 @@ export function DashboardPage() {
       if (!disposed && page) {
         handleDesktopNavigationRequest(page);
       }
+    }).catch(() => undefined).finally(() => {
+      if (!disposed) setDesktopLaunchReady(current => current.navigation ? current : { ...current, navigation: true });
     });
 
     const unsubscribe = subscribeDesktopNavigationRequests(
@@ -1434,6 +1454,34 @@ export function DashboardPage() {
     (appSettings.onboardingShowEveryLaunch !== false ||
       !appSettings.onboardingCompleted),
   );
+
+  const draftDiscovery = useTaskPackDraftDiscovery({
+    startupReady: !isWelcomeVisible && minimumSplashDone && shellSettingsReady &&
+      desktopLaunchReady.sync && desktopLaunchReady.navigation &&
+      !shouldShowFirstRunOnboarding && !dashboard.isLoading,
+    canOffer: !isWelcomeVisible && !shouldShowFirstRunOnboarding && !specialStartupNavigation.current &&
+      !dashboard.taskPackDraftSession && !dashboard.generatedTaskPack && !dashboard.contextComposerPreview &&
+      !dashboard.isLoading && !dashboard.draftPersistenceOperation && !operationPresenceActivity &&
+      !isGlobalSearchOpen && !isCommandPaletteOpen && !dashboard.agentsPreview &&
+      (activeLocation.surface === "page" || activeLocation.surface === "project-details"),
+    projectIds: dashboard.projects.map(project => project.id),
+    session: dashboard.taskPackDraftSession,
+    busy: dashboard.isLoading || dashboard.draftPersistenceOperation !== null || operationPresenceActivity !== null,
+    restore: (view) => {
+      const session = dashboard.restorePersistedTaskPackDraft(view);
+      if (!session) return false;
+      contextDiffSessionOwner.current = null;
+      setContextDiffSession(null);
+      setQuickPeekTarget(null);
+      setSplitViewTarget(null);
+      setInspectorTarget(null);
+      setIsExplainabilityOpen(false);
+      setIsContextMapOpen(false);
+      openTaskPackBuilderLocation(session);
+      return true;
+    },
+  });
+  discoveryOwnerRef.current = draftDiscovery.owner;
 
   const currentCommandProjectId = useMemo(() => {
     if (activeLocation.surface === "project-details") {
@@ -1910,6 +1958,8 @@ export function DashboardPage() {
             onRescan={dashboard.handleRescanProject}
             onGenerateAgents={dashboard.handleGenerateAgentsPreview}
             onCreateTaskPack={handleCreateTaskPackDraftWithNavigation}
+            onOpenSavedDrafts={(projectId) => void draftDiscovery.owner.open(projectId)}
+            savedDraftCount={getProjectActiveDraftCount(draftDiscovery.state, selectedProject.id)}
             onCreateTaskPackFromChanges={
               handleCreateTaskPackDraftFromChangesWithNavigation
             }
@@ -2080,6 +2130,8 @@ export function DashboardPage() {
     activePage,
     dashboard,
     handleCloseProjectDetails,
+    draftDiscovery.state,
+    draftDiscovery.owner,
     handleCloseTaskPackSurface,
     handleCreateTaskPackDraftFromChangesWithNavigation,
     handleCreateTaskPackDraftWithNavigation,
@@ -2355,6 +2407,12 @@ export function DashboardPage() {
           </div>
         </div>
 
+        {draftDiscovery.state.open && (
+          <TaskPackDraftChooserModal state={draftDiscovery.state} owner={draftDiscovery.owner}
+            activeDraftId={dashboard.taskPackDraftSession?.persistence?.id ?? null}
+            projectName={dashboard.projects.find(project => project.id === draftDiscovery.state.scope)?.name} />
+        )}
+
         {dashboard.agentsPreview && (
           <AgentsPreviewModal
             preview={dashboard.agentsPreview}
@@ -2462,6 +2520,8 @@ export function DashboardPage() {
         message={
           isUnsupportedDropVisible
             ? t("dragAndDrop.unsupportedDrop")
+            : draftDiscovery.state.notice && draftDiscovery.state.notice !== "restored"
+            ? t(`taskPackDraftDiscovery.${draftDiscovery.state.notice}`)
             : dashboard.statusMessage === i18n.t("common.statusReady")
             ? ""
             : dashboard.statusMessage
