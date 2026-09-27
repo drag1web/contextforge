@@ -10,12 +10,14 @@ import {
   type TaskPackGitHubCreatedIssueLinkRecord,
 } from "./types.js";
 
-export const SQLITE_SCHEMA_VERSION = 5;
+export const SQLITE_SCHEMA_VERSION = 6;
 export const TASK_PACK_LIFECYCLE_MIGRATION_ID =
   "0003_task_pack_lifecycle_revisions" as const;
 export const TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID =
   "0004_task_pack_github_created_issue_link" as const;
 export const TASK_PACK_DRAFTS_MIGRATION_ID = "0005_task_pack_drafts" as const;
+export const TASK_PACK_LIFECYCLE_VERSION_RANGE_MIGRATION_ID =
+  "0006_task_pack_lifecycle_version_range" as const;
 
 export interface SqliteMigrationDefinition {
   id: string;
@@ -452,6 +454,19 @@ export const SQLITE_MIGRATIONS: SqliteMigrationDefinition[] = [
       db.run(SQLITE_TASK_PACK_DRAFTS_DDL);
     },
   },
+  {
+    id: TASK_PACK_LIFECYCLE_VERSION_RANGE_MIGRATION_ID,
+    version: 6,
+    name: "Task Pack lifecycle version range",
+    description:
+      "Aligns lifecycle version storage with the safe positive integer domain range; SQLite already uses 64-bit INTEGER.",
+    checksum: "task-pack-lifecycle-version-range-v1",
+    run(_db) {
+      // Logical compatibility migration only. SQLite INTEGER already represents
+      // the full safe-integer range; domain validation remains authoritative.
+      // No table rebuild, content rewrite, or change to draft_version is needed.
+    },
+  },
 ];
 
 export function applySqliteMigrationTransaction(
@@ -837,6 +852,44 @@ export async function applyPostgresTaskPackDraftsMigration(
         "Persisted Task Pack drafts",
         "Adds local persisted Task Pack drafts with optimistic concurrency and terminal draft lifecycle state.",
         "task-pack-drafts-v1",
+        appliedAt,
+      ],
+    );
+    await client.query("COMMIT");
+  } catch (error) {
+    try {
+      await client.query("ROLLBACK");
+    } catch {
+      // Preserve the original migration error.
+    }
+    throw error;
+  }
+}
+
+export const POSTGRES_TASK_PACK_LIFECYCLE_VERSION_RANGE_DDL = `
+  ALTER TABLE task_packs
+    ALTER COLUMN lifecycle_version TYPE BIGINT;
+  ALTER TABLE task_packs
+    ADD CONSTRAINT task_packs_lifecycle_version_safe_range_check
+    CHECK (lifecycle_version >= 1 AND lifecycle_version <= 9007199254740991);
+`;
+
+/** New migration: preserve the historical 0003 DDL/checksum and its lower-bound check. */
+export async function applyPostgresTaskPackLifecycleVersionRangeMigration(
+  client: PostgresMigrationClient,
+  appliedAt: string,
+): Promise<void> {
+  await client.query("BEGIN");
+  try {
+    await client.query(POSTGRES_TASK_PACK_LIFECYCLE_VERSION_RANGE_DDL);
+    await client.query(
+      `INSERT INTO schema_migrations (id, version, name, description, checksum, applied_at)
+       VALUES ($1, 6, $2, $3, $4, $5);`,
+      [
+        TASK_PACK_LIFECYCLE_VERSION_RANGE_MIGRATION_ID,
+        "Task Pack lifecycle version range",
+        "Widens the PostgreSQL lifecycle version to BIGINT with a safe positive integer range constraint.",
+        "task-pack-lifecycle-version-range-v1",
         appliedAt,
       ],
     );

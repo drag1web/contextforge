@@ -20,7 +20,9 @@ import {
   applyPostgresTaskPackLifecycleMigration,
   applyPostgresTaskPackGitHubCreatedIssueLinkMigration,
   applyPostgresTaskPackDraftsMigration,
+  applyPostgresTaskPackLifecycleVersionRangeMigration,
   TASK_PACK_DRAFTS_MIGRATION_ID,
+  TASK_PACK_LIFECYCLE_VERSION_RANGE_MIGRATION_ID,
   TASK_PACK_GITHUB_CREATED_ISSUE_LINK_MIGRATION_ID,
   TASK_PACK_LIFECYCLE_MIGRATION_ID,
 } from "./migrations.js";
@@ -422,6 +424,27 @@ export class PostgresStorageAdapter implements StorageAdapter {
         client.release();
       }
     }
+
+    const lifecycleVersionRangeMigration = await pool.query(
+      "SELECT id FROM schema_migrations WHERE id = $1;",
+      [TASK_PACK_LIFECYCLE_VERSION_RANGE_MIGRATION_ID],
+    );
+    if (lifecycleVersionRangeMigration.rowCount === 0) {
+      const client = await pool.connect();
+      try {
+        await applyPostgresTaskPackLifecycleVersionRangeMigration(
+          {
+            query: async <T>(text: string, values?: readonly unknown[]) => {
+              const result = await client.query(text, values ? [...values] : undefined);
+              return { rows: result.rows as T[], rowCount: result.rowCount };
+            },
+          },
+          new Date().toISOString(),
+        );
+      } finally {
+        client.release();
+      }
+    }
   }
 
   async getSchemaInfo(): Promise<StorageSchemaInfo> {
@@ -453,7 +476,10 @@ export class PostgresStorageAdapter implements StorageAdapter {
     const draftsApplied = appliedMigrations.some(
       (migration) => migration.id === TASK_PACK_DRAFTS_MIGRATION_ID,
     );
-    const currentVersion = draftsApplied ? 5 : githubLinkApplied ? 4 : lifecycleApplied ? 3 : 0;
+    const lifecycleVersionRangeApplied = appliedMigrations.some(
+      (migration) => migration.id === TASK_PACK_LIFECYCLE_VERSION_RANGE_MIGRATION_ID,
+    );
+    const currentVersion = lifecycleVersionRangeApplied ? 6 : draftsApplied ? 5 : githubLinkApplied ? 4 : lifecycleApplied ? 3 : 0;
     const pendingMigrations = [
       ...(!lifecycleApplied
         ? [{
@@ -482,10 +508,19 @@ export class PostgresStorageAdapter implements StorageAdapter {
               "Adds local persisted Task Pack drafts with optimistic concurrency and terminal draft lifecycle state.",
           }]
         : []),
+      ...(!lifecycleVersionRangeApplied
+        ? [{
+            id: TASK_PACK_LIFECYCLE_VERSION_RANGE_MIGRATION_ID,
+            version: 6,
+            name: "Task Pack lifecycle version range",
+            description:
+              "Widens the PostgreSQL lifecycle version to BIGINT with a safe positive integer range constraint.",
+          }]
+        : []),
     ];
     return {
       currentVersion,
-      latestVersion: 5,
+      latestVersion: 6,
       status: pendingMigrations.length === 0 ? "ready" : "needs_migration",
       pendingCount: pendingMigrations.length,
       appliedMigrations,

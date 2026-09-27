@@ -12,6 +12,7 @@ import {
   POSTGRES_TASK_PACK_DRAFTS_DDL,
   SQLITE_MIGRATIONS,
   TASK_PACK_DRAFTS_MIGRATION_ID,
+  TASK_PACK_LIFECYCLE_VERSION_RANGE_MIGRATION_ID,
   applyPostgresTaskPackDraftsMigration,
   applySqliteMigrationTransaction,
 } from "./migrations.js";
@@ -126,7 +127,7 @@ async function createSchemaV4Database(filePath: string): Promise<void> {
   const db = rawDatabase(adapter);
   db.run(`
     DROP TABLE task_pack_drafts;
-    DELETE FROM schema_migrations WHERE id = '${TASK_PACK_DRAFTS_MIGRATION_ID}';
+    DELETE FROM schema_migrations WHERE version >= 5;
     UPDATE app_storage_metadata SET value = '4'
       WHERE key IN ('schema_version', 'schema_latest_version');
   `);
@@ -148,7 +149,7 @@ async function expectDraftError(
 
 const migrationPath = path.join(temporaryRoot, "migration-v4.sqlite");
 
-scenario("SQLite schema-v4 database migrates additively to version 5", async () => {
+scenario("SQLite schema-v4 database applies draft migration 0005 and reaches logical version 6", async () => {
   await createSchemaV4Database(migrationPath);
   const before = new SQL.Database(fs.readFileSync(migrationPath));
   const historicBefore = JSON.stringify({
@@ -162,8 +163,8 @@ scenario("SQLite schema-v4 database migrates additively to version 5", async () 
   const adapter = new SqliteStorageAdapter(migrationPath);
   await adapter.ensureSchema();
   const info = await adapter.getSchemaInfo();
-  assert.equal(info.currentVersion, 5);
-  assert.equal(info.latestVersion, 5);
+  assert.equal(info.currentVersion, 6);
+  assert.equal(info.latestVersion, 6);
   assert.equal(info.pendingCount, 0);
   const db = rawDatabase(adapter);
   assert.equal(Number(scalar(db, "SELECT COUNT(*) AS value FROM task_pack_drafts;")), 0);
@@ -700,20 +701,20 @@ scenario("PostgreSQL adapter preserves locked guarded CAS and discard parity", (
   ]) assert.ok(discard.includes(token), token);
 });
 
-scenario("PostgreSQL ensureSchema and schema info expose independent version 5 state", () => {
+scenario("PostgreSQL ensureSchema preserves independent draft migration 0005 before version 6", () => {
   const source = fs.readFileSync(
     path.join(process.cwd(), "src", "storage", "PostgresStorageAdapter.ts"),
     "utf8",
   );
   assert.ok(source.includes("applyPostgresTaskPackDraftsMigration"));
   assert.ok(source.includes("[TASK_PACK_DRAFTS_MIGRATION_ID]"));
-  assert.ok(source.includes("const currentVersion = draftsApplied ? 5 : githubLinkApplied ? 4"));
-  assert.ok(source.includes("latestVersion: 5"));
+  assert.ok(source.includes("draftsApplied ? 5 : githubLinkApplied ? 4"));
+  assert.ok(source.includes("latestVersion: 6"));
   assert.ok(source.includes("version: 5"));
   assert.ok(source.includes("status: pendingMigrations.length === 0 ? \"ready\" : \"needs_migration\""));
 });
 
-scenario("PostgreSQL schema info reports version 4 pending and version 5 ready", async () => {
+scenario("PostgreSQL schema info reports version 4/5 pending and version 6 ready", async () => {
   const postgres = new PostgresStorageAdapter();
   const originalQuery = pool.query;
   const originalEnsureSchema = postgres.ensureSchema;
@@ -743,9 +744,9 @@ scenario("PostgreSQL schema info reports version 4 pending and version 5 ready",
     });
     const pending = await postgres.getSchemaInfo();
     assert.equal(pending.currentVersion, 4);
-    assert.equal(pending.latestVersion, 5);
+    assert.equal(pending.latestVersion, 6);
     assert.equal(pending.status, "needs_migration");
-    assert.equal(pending.pendingCount, 1);
+    assert.equal(pending.pendingCount, 2);
     assert.equal(pending.pendingMigrations[0]?.id, TASK_PACK_DRAFTS_MIGRATION_ID);
 
     migrationRows.push({
@@ -756,9 +757,21 @@ scenario("PostgreSQL schema info reports version 4 pending and version 5 ready",
       checksum: "task-pack-drafts-v1",
       appliedAt: "2026-09-22T00:00:00.000Z",
     });
+    const pendingRange = await postgres.getSchemaInfo();
+    assert.equal(pendingRange.currentVersion, 5);
+    assert.equal(pendingRange.pendingCount, 1);
+    assert.equal(pendingRange.pendingMigrations[0]?.id, TASK_PACK_LIFECYCLE_VERSION_RANGE_MIGRATION_ID);
+    migrationRows.push({
+      id: TASK_PACK_LIFECYCLE_VERSION_RANGE_MIGRATION_ID,
+      version: 6,
+      name: "Task Pack lifecycle version range",
+      description: null,
+      checksum: "task-pack-lifecycle-version-range-v1",
+      appliedAt: "2026-09-26T00:00:00.000Z",
+    });
     const ready = await postgres.getSchemaInfo();
-    assert.equal(ready.currentVersion, 5);
-    assert.equal(ready.latestVersion, 5);
+    assert.equal(ready.currentVersion, 6);
+    assert.equal(ready.latestVersion, 6);
     assert.equal(ready.status, "ready");
     assert.equal(ready.pendingCount, 0);
   } finally {
