@@ -6,7 +6,9 @@ import type {
   TaskPackAggregateLifecycleEvent,
   TaskPackDraftContent,
   TaskPackDraftState,
+  TaskPackEventSource,
   TaskPackJsonObject,
+  TaskPackLifecycleTransitionEvent,
   TaskPackRevision,
   TaskPackRevisionContent,
   TaskPackRevisionReviewEvent,
@@ -420,6 +422,43 @@ export type TaskPackRevisionRecord = TaskPackRevision;
 export type TaskPackAggregateLifecycleEventRecord = TaskPackAggregateLifecycleEvent;
 export type TaskPackRevisionReviewEventRecord = TaskPackRevisionReviewEvent;
 
+export interface TransitionTaskPackAggregateLifecycleInput {
+  readonly taskPackId: number;
+  readonly expectedLifecycleVersion: number;
+  readonly transition: TaskPackLifecycleTransitionEvent;
+  readonly eventId: string;
+  readonly source: TaskPackEventSource;
+  readonly actorId: string | null;
+  readonly createdAt: string;
+  /** Caller-supplied JSON only; never enriched with Task Pack content. */
+  readonly metadata: TaskPackJsonObject | null;
+}
+
+export interface TransitionTaskPackAggregateLifecycleResult {
+  readonly aggregate: TaskPackAggregateRecord;
+  readonly event: TaskPackAggregateLifecycleEventRecord;
+}
+
+export type TaskPackLifecycleStorageErrorCode =
+  | "TASK_PACK_LIFECYCLE_NOT_FOUND"
+  | "TASK_PACK_LIFECYCLE_CONFLICT"
+  | "TASK_PACK_LIFECYCLE_VERSION_EXHAUSTED"
+  | "TASK_PACK_LIFECYCLE_INVALID_TRANSITION"
+  | "TASK_PACK_LIFECYCLE_STATE_INVALID"
+  | "TASK_PACK_LIFECYCLE_EVENT_EXISTS";
+
+export class TaskPackLifecycleStorageError extends Error {
+  constructor(
+    readonly code: TaskPackLifecycleStorageErrorCode,
+    readonly taskPackId?: number,
+    readonly expectedLifecycleVersion?: number,
+    readonly actualLifecycleVersion?: number,
+  ) {
+    super(code);
+    this.name = "TaskPackLifecycleStorageError";
+  }
+}
+
 /**
  * Storage assigns the immutable revision identity, monotonically increasing
  * revision number, and canonical content hash inside one transaction.
@@ -528,6 +567,9 @@ export interface StorageAdapter {
   ): Promise<TaskPackRevisionRecord | null>;
   listTaskPackRevisions(taskPackId: number): Promise<TaskPackRevisionRecord[]>;
   appendTaskPackRevision(input: AppendTaskPackRevisionInput): Promise<TaskPackRevisionRecord>;
+  transitionTaskPackAggregateLifecycle(
+    input: TransitionTaskPackAggregateLifecycleInput
+  ): Promise<TransitionTaskPackAggregateLifecycleResult>;
   appendTaskPackAggregateLifecycleEvent(
     event: TaskPackAggregateLifecycleEventRecord
   ): Promise<void>;

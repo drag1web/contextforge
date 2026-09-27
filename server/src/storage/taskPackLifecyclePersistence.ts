@@ -1,9 +1,12 @@
+import { isDeepStrictEqual } from "node:util";
 import {
   assertTaskPackAggregate,
   assertTaskPackAggregateLifecycleEvent,
   assertTaskPackRevision,
   assertTaskPackRevisionReviewEvent,
   computeTaskPackRevisionContentHash,
+  transitionTaskPackAggregateLifecycle,
+  TaskPackLifecycleDomainError,
   type TaskPackAggregate,
   type TaskPackAggregateLifecycleEvent,
   type TaskPackJsonObject,
@@ -12,7 +15,104 @@ import {
   type TaskPackRevisionReviewEvent,
 } from "../taskPacks/taskPackLifecycle.js";
 import { parseJsonValue } from "./json.js";
-import type { CreateTaskPackInput } from "./types.js";
+import {
+  TaskPackLifecycleStorageError,
+  type CreateTaskPackInput,
+  type TransitionTaskPackAggregateLifecycleInput,
+  type TransitionTaskPackAggregateLifecycleResult,
+} from "./types.js";
+
+export function assertTaskPackLifecycleTransitionInput(input: TransitionTaskPackAggregateLifecycleInput): void {
+  if (!Number.isSafeInteger(input?.taskPackId) || input.taskPackId < 1 ||
+    !Number.isSafeInteger(input.expectedLifecycleVersion) || input.expectedLifecycleVersion < 1) {
+    throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_STATE_INVALID");
+  }
+  const transition = input.transition;
+  if (!transition || typeof transition !== "object" || Array.isArray(transition) ||
+    ![Object.prototype, null].includes(Object.getPrototypeOf(transition)) ||
+    Object.keys(transition).length !== 1 || !Object.hasOwn(transition, "type") ||
+    !["complete", "reopen", "archive", "unarchive"].includes(transition.type)) {
+    throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_INVALID_TRANSITION", input.taskPackId);
+  }
+}
+
+/** Safe error surface: never attach driver/domain messages, SQL, or error causes. */
+export function taskPackLifecycleStorageError(error: unknown, taskPackId: number): TaskPackLifecycleStorageError {
+  if (error instanceof TaskPackLifecycleStorageError) return error;
+  return new TaskPackLifecycleStorageError(
+    "TASK_PACK_LIFECYCLE_STATE_INVALID",
+    Number.isSafeInteger(taskPackId) && taskPackId > 0 ? taskPackId : undefined,
+  );
+}
+
+/** Shared preparation; the domain remains the only transition state machine. */
+export function prepareTaskPackAggregateLifecycleTransition(
+  current: TaskPackAggregate,
+  input: TransitionTaskPackAggregateLifecycleInput,
+): TransitionTaskPackAggregateLifecycleResult {
+  assertTaskPackAggregate(current);
+  if (current.id !== input.taskPackId) throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_STATE_INVALID", input.taskPackId);
+  if (current.lifecycleVersion !== input.expectedLifecycleVersion) {
+    throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_CONFLICT", current.id,
+      input.expectedLifecycleVersion, current.lifecycleVersion);
+  }
+  if (current.lifecycleVersion === Number.MAX_SAFE_INTEGER) {
+    throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_VERSION_EXHAUSTED", current.id);
+  }
+  let lifecycle: TaskPackAggregate["lifecycle"];
+  try {
+    lifecycle = transitionTaskPackAggregateLifecycle(current, input.transition);
+  } catch (error) {
+    if (error instanceof TaskPackLifecycleDomainError && error.code === "invalid_transition") {
+      throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_INVALID_TRANSITION", current.id);
+    }
+    throw error;
+  }
+  const aggregate: TaskPackAggregate = {
+    ...current, lifecycle, lifecycleVersion: current.lifecycleVersion + 1, updatedAt: input.createdAt,
+    completedAt: input.transition.type === "complete" ? input.createdAt : current.completedAt,
+    archivedAt: input.transition.type === "archive" ? input.createdAt : null,
+  };
+  const eventTypes = { complete: "completed", reopen: "reopened", archive: "archived", unarchive: "unarchived" } as const;
+  const event: TaskPackAggregateLifecycleEvent = {
+    id: input.eventId, taskPackId: current.id, eventType: eventTypes[input.transition.type],
+    fromState: current.lifecycle.state, toState: lifecycle.state,
+    revisionId: input.transition.type === "complete" ? current.currentRevisionId : null,
+    source: input.source, actorId: input.actorId, createdAt: input.createdAt, metadata: input.metadata,
+  };
+  assertTaskPackAggregate(aggregate);
+  assertTaskPackAggregateLifecycleEvent(event, { aggregate: current });
+  // Snapshot validated JSON before awaiting writes; JSONB may reorder object keys.
+  return { aggregate, event: { ...event, metadata: event.metadata === null ? null : JSON.parse(JSON.stringify(event.metadata)) } };
+}
+
+/** Verify authoritative readback, including every unchanged aggregate field. */
+export function validateTaskPackAggregateLifecycleTransitionResult(
+  current: TaskPackAggregate,
+  expected: TransitionTaskPackAggregateLifecycleResult,
+  aggregate: TaskPackAggregate,
+  event: TaskPackAggregateLifecycleEvent,
+): TransitionTaskPackAggregateLifecycleResult {
+  assertTaskPackAggregate(aggregate);
+  assertTaskPackAggregateLifecycleEvent(event, { aggregate: current });
+  // PostgreSQL TIMESTAMPTZ/pg Date canonicalizes whole seconds to .000Z. Preserve
+  // the caller's valid UTC representation only AFTER verifying the stored instant.
+  const timestamp = (actual: string | null, wanted: string | null) =>
+    actual !== null && wanted !== null && Date.parse(actual) === Date.parse(wanted) ? wanted : actual;
+  const result = {
+    aggregate: { ...aggregate,
+      createdAt: timestamp(aggregate.createdAt, expected.aggregate.createdAt)!,
+      updatedAt: timestamp(aggregate.updatedAt, expected.aggregate.updatedAt)!,
+      completedAt: timestamp(aggregate.completedAt, expected.aggregate.completedAt),
+      archivedAt: timestamp(aggregate.archivedAt, expected.aggregate.archivedAt),
+    },
+    event: { ...event, createdAt: timestamp(event.createdAt, expected.event.createdAt)! },
+  };
+  if (!isDeepStrictEqual(result, expected)) {
+    throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_STATE_INVALID", current.id);
+  }
+  return result;
+}
 
 export const CLOUD_HANDOFF_GENERATION_MESSAGE_PREFIX = "ContextForge cloud handoff:";
 

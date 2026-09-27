@@ -22,6 +22,7 @@ import {
   TaskPackGitHubCreatedIssueLinkStorageError,
   TaskPackDraftStorageError,
   TaskPackRevisionAppendStorageError,
+  TaskPackLifecycleStorageError,
 } from "./types.js";
 import {
   applySqliteMigrationTransaction,
@@ -37,6 +38,10 @@ import {
 } from "./storageBackupPaths.js";
 import {
   buildCreatedTaskPackRevisionContent,
+  assertTaskPackLifecycleTransitionInput,
+  prepareTaskPackAggregateLifecycleTransition,
+  validateTaskPackAggregateLifecycleTransitionResult,
+  taskPackLifecycleStorageError,
   mapTaskPackAggregatePersistenceRow,
   mapTaskPackLifecycleEventPersistenceRow,
   mapTaskPackReviewEventPersistenceRow,
@@ -81,7 +86,9 @@ import type {
   TaskPackRevisionReviewEventRecord,
   UpdateProjectMemoryInput,
   UpdateTaskPackDraftInput,
-  UpdateTaskPackContentInput
+  UpdateTaskPackContentInput,
+  TransitionTaskPackAggregateLifecycleInput,
+  TransitionTaskPackAggregateLifecycleResult,
 } from "./types.js";
 
 type BindValue = SqlValue;
@@ -1618,6 +1625,75 @@ export class SqliteStorageAdapter implements StorageAdapter {
       }
       return revision;
     });
+  }
+
+  async transitionTaskPackAggregateLifecycle(
+    input: TransitionTaskPackAggregateLifecycleInput,
+  ): Promise<TransitionTaskPackAggregateLifecycleResult> {
+    try {
+      assertTaskPackLifecycleTransitionInput(input);
+      return await this.withTransaction(async () => {
+        // Do not filter out broken current pointers and mistake them for missing rows.
+        const row = await this.getOne<TaskPackAggregatePersistenceRow>(
+          "SELECT * FROM task_packs WHERE id = ?;", [input.taskPackId],
+        );
+        if (!row) throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_NOT_FOUND", input.taskPackId);
+        if (row.lifecycle_state !== "archived" && row.archived_from_state !== null) {
+          throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_STATE_INVALID", input.taskPackId);
+        }
+        const current = mapTaskPackAggregatePersistenceRow(row);
+        const expected = prepareTaskPackAggregateLifecycleTransition(current, input);
+        const { aggregate: next, event } = expected;
+        await this.run(
+          `UPDATE task_packs
+           SET lifecycle_state = ?, archived_from_state = ?,
+               lifecycle_version = lifecycle_version + 1, updated_at = ?,
+               completed_at = ?, archived_at = ?
+           WHERE id = ? AND lifecycle_version = ?;`,
+          [next.lifecycle.state, next.lifecycle.archivedFromState, next.updatedAt,
+            next.completedAt, next.archivedAt, current.id, input.expectedLifecycleVersion],
+        );
+        const changed = await this.getOne<{ changed: number }>("SELECT changes() AS changed;");
+        if (changed?.changed !== 1) {
+          const actual = await this.getOne<{ lifecycle_version: number }>(
+            "SELECT lifecycle_version FROM task_packs WHERE id = ?;", [current.id],
+          );
+          throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_CONFLICT", current.id,
+            input.expectedLifecycleVersion,
+            actual && Number.isSafeInteger(actual.lifecycle_version) && actual.lifecycle_version > 0
+              ? actual.lifecycle_version : undefined);
+        }
+        try {
+          await this.run(
+            `INSERT INTO task_pack_lifecycle_events (
+              id, task_pack_id, revision_id, event_type, from_state, to_state,
+              source, actor_id, created_at, metadata
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+            [event.id, event.taskPackId, event.revisionId, event.eventType, event.fromState, event.toState,
+              event.source, event.actorId, event.createdAt,
+              event.metadata === null ? null : stringifyJsonValue(event.metadata)],
+          );
+        } catch (error) {
+          if (error instanceof Error && error.message === "UNIQUE constraint failed: task_pack_lifecycle_events.id") {
+            throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_EVENT_EXISTS", current.id);
+          }
+          throw error;
+        }
+        const finalRow = await this.getOne<TaskPackAggregatePersistenceRow>(
+          "SELECT * FROM task_packs WHERE id = ?;", [current.id],
+        );
+        const eventRow = await this.getOne<TaskPackLifecycleEventPersistenceRow>(
+          "SELECT * FROM task_pack_lifecycle_events WHERE id = ?;", [event.id],
+        );
+        if (!finalRow || !eventRow || finalRow.archived_from_state !== next.lifecycle.archivedFromState) {
+          throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_STATE_INVALID", current.id);
+        }
+        return validateTaskPackAggregateLifecycleTransitionResult(current, expected,
+          mapTaskPackAggregatePersistenceRow(finalRow), mapTaskPackLifecycleEventPersistenceRow(eventRow));
+      });
+    } catch (error) {
+      throw taskPackLifecycleStorageError(error, input?.taskPackId);
+    }
   }
 
   async appendTaskPackAggregateLifecycleEvent(

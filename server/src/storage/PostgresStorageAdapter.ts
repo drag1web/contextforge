@@ -7,6 +7,7 @@ import {
   TaskPackDraftStorageError,
   TaskPackGitHubCreatedIssueLinkStorageError,
   TaskPackRevisionAppendStorageError,
+  TaskPackLifecycleStorageError,
 } from "./types.js";
 import {
   assertTaskPackAggregateLifecycleEvent,
@@ -28,6 +29,10 @@ import {
 } from "./migrations.js";
 import {
   buildCreatedTaskPackRevisionContent,
+  assertTaskPackLifecycleTransitionInput,
+  prepareTaskPackAggregateLifecycleTransition,
+  validateTaskPackAggregateLifecycleTransitionResult,
+  taskPackLifecycleStorageError,
   mapTaskPackAggregatePersistenceRow,
   mapTaskPackLifecycleEventPersistenceRow,
   mapTaskPackReviewEventPersistenceRow,
@@ -71,7 +76,9 @@ import type {
   TaskPackRevisionReviewEventRecord,
   UpdateProjectMemoryInput,
   UpdateTaskPackDraftInput,
-  UpdateTaskPackContentInput
+  UpdateTaskPackContentInput,
+  TransitionTaskPackAggregateLifecycleInput,
+  TransitionTaskPackAggregateLifecycleResult,
 } from "./types.js";
 
 function mapProjectRow(row: any): ProjectRecord {
@@ -1838,6 +1845,79 @@ export class PostgresStorageAdapter implements StorageAdapter {
       throw error;
     } finally {
       client.release();
+    }
+  }
+
+  async transitionTaskPackAggregateLifecycle(
+    input: TransitionTaskPackAggregateLifecycleInput,
+  ): Promise<TransitionTaskPackAggregateLifecycleResult> {
+    try {
+      assertTaskPackLifecycleTransitionInput(input);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const selected = await client.query(
+          "SELECT * FROM task_packs WHERE id = $1 FOR UPDATE;", [input.taskPackId],
+        );
+        const row = selected.rows[0] as TaskPackAggregatePersistenceRow | undefined;
+        if (!row) throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_NOT_FOUND", input.taskPackId);
+        if (row.lifecycle_state !== "archived" && row.archived_from_state !== null) {
+          throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_STATE_INVALID", input.taskPackId);
+        }
+        const current = mapTaskPackAggregatePersistenceRow(row);
+        const expected = prepareTaskPackAggregateLifecycleTransition(current, input);
+        const { aggregate: next, event } = expected;
+        const updated = await client.query(
+          `UPDATE task_packs
+           SET lifecycle_state = $1, archived_from_state = $2,
+               lifecycle_version = lifecycle_version + 1, updated_at = $3,
+               completed_at = $4, archived_at = $5
+           WHERE id = $6 AND lifecycle_version = $7;`,
+          [next.lifecycle.state, next.lifecycle.archivedFromState, next.updatedAt,
+            next.completedAt, next.archivedAt, current.id, input.expectedLifecycleVersion],
+        );
+        if (updated.rowCount !== 1) {
+          const actual = await client.query(
+            "SELECT lifecycle_version FROM task_packs WHERE id = $1;", [current.id],
+          );
+          const version = Number(actual.rows[0]?.lifecycle_version);
+          throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_CONFLICT", current.id,
+            input.expectedLifecycleVersion, Number.isSafeInteger(version) && version > 0 ? version : undefined);
+        }
+        try {
+          await client.query(
+            `INSERT INTO task_pack_lifecycle_events (
+              id, task_pack_id, revision_id, event_type, from_state, to_state,
+              source, actor_id, created_at, metadata
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb);`,
+            [event.id, event.taskPackId, event.revisionId, event.eventType, event.fromState, event.toState,
+              event.source, event.actorId, event.createdAt, jsonParameter(event.metadata)],
+          );
+        } catch (error) {
+          if (error && typeof error === "object" && "code" in error && error.code === "23505" &&
+            "constraint" in error && error.constraint === "task_pack_lifecycle_events_pkey") {
+            throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_EVENT_EXISTS", current.id);
+          }
+          throw error;
+        }
+        const finalRow = await client.query("SELECT * FROM task_packs WHERE id = $1;", [current.id]);
+        const eventRow = await client.query("SELECT * FROM task_pack_lifecycle_events WHERE id = $1;", [event.id]);
+        if (!finalRow.rows[0] || !eventRow.rows[0] || finalRow.rows[0].archived_from_state !== next.lifecycle.archivedFromState) {
+          throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_STATE_INVALID", current.id);
+        }
+        const result = validateTaskPackAggregateLifecycleTransitionResult(current, expected,
+          mapTaskPackAggregatePersistenceRow(finalRow.rows[0] as TaskPackAggregatePersistenceRow),
+          mapTaskPackLifecycleEventPersistenceRow(eventRow.rows[0] as TaskPackLifecycleEventPersistenceRow));
+        await client.query("COMMIT");
+        return result;
+      } catch (error) {
+        try { await client.query("ROLLBACK"); } catch { /* Preserve the original operation failure. */ }
+        throw error;
+      } finally {
+        client.release();
+      }
+    } catch (error) {
+      throw taskPackLifecycleStorageError(error, input?.taskPackId);
     }
   }
 
