@@ -8,6 +8,7 @@ import {
   TaskPackGitHubCreatedIssueLinkStorageError,
   TaskPackRevisionAppendStorageError,
   TaskPackLifecycleStorageError,
+  TaskPackReviewStorageError,
 } from "./types.js";
 import {
   assertTaskPackAggregateLifecycleEvent,
@@ -33,6 +34,12 @@ import {
   prepareTaskPackAggregateLifecycleTransition,
   validateTaskPackAggregateLifecycleTransitionResult,
   taskPackLifecycleStorageError,
+  assertTaskPackReviewTransitionInput,
+  assertTaskPackReviewLifecycleVersion,
+  prepareTaskPackRevisionReviewTransition,
+  assertTaskPackReviewAppendOrder,
+  validateTaskPackRevisionReviewTransitionResult,
+  taskPackReviewStorageError,
   mapTaskPackAggregatePersistenceRow,
   mapTaskPackLifecycleEventPersistenceRow,
   mapTaskPackReviewEventPersistenceRow,
@@ -79,6 +86,8 @@ import type {
   UpdateTaskPackContentInput,
   TransitionTaskPackAggregateLifecycleInput,
   TransitionTaskPackAggregateLifecycleResult,
+  TransitionTaskPackRevisionReviewInput,
+  TransitionTaskPackRevisionReviewResult,
 } from "./types.js";
 
 function mapProjectRow(row: any): ProjectRecord {
@@ -1965,6 +1974,88 @@ export class PostgresStorageAdapter implements StorageAdapter {
     return result.rows.map((row) =>
       mapTaskPackLifecycleEventPersistenceRow(row as TaskPackLifecycleEventPersistenceRow),
     );
+  }
+
+  async transitionTaskPackRevisionReview(
+    input: TransitionTaskPackRevisionReviewInput,
+  ): Promise<TransitionTaskPackRevisionReviewResult> {
+    try {
+      assertTaskPackReviewTransitionInput(input);
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        const evidence = { taskPackId: input.taskPackId, revisionId: input.revisionId };
+        const selected = await client.query("SELECT * FROM task_packs WHERE id = $1 FOR UPDATE;", [input.taskPackId]);
+        const row = selected.rows[0] as TaskPackAggregatePersistenceRow | undefined;
+        if (!row) throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_NOT_FOUND", evidence);
+        if (row.lifecycle_state !== "archived" && row.archived_from_state !== null) {
+          throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_STATE_INVALID", evidence);
+        }
+        const aggregate = mapTaskPackAggregatePersistenceRow(row);
+        assertTaskPackReviewLifecycleVersion(aggregate, input);
+        const selectedRevision = await client.query(
+          "SELECT * FROM task_pack_revisions WHERE task_pack_id = $1 AND id = $2;", [input.taskPackId, input.revisionId]);
+        if (!selectedRevision.rows[0]) throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_REVISION_NOT_FOUND", evidence);
+        const revision = mapTaskPackRevisionPersistenceRow(selectedRevision.rows[0] as TaskPackRevisionPersistenceRow);
+        const historySql = `SELECT * FROM task_pack_revision_review_events
+          WHERE task_pack_id = $1 AND revision_id = $2 ORDER BY created_at ASC, id ASC;`;
+        const selectedHistory = await client.query(historySql, [input.taskPackId, input.revisionId]);
+        const history = selectedHistory.rows.map(row => mapTaskPackReviewEventPersistenceRow(row as TaskPackReviewEventPersistenceRow));
+        const expected = prepareTaskPackRevisionReviewTransition(aggregate, revision, history, input);
+        const { event } = expected;
+        const tail = history.at(-1);
+        if (tail) {
+          // Compare IDs with the same database collation as existing ordered reads.
+          const ordering = await client.query(
+            `SELECT (created_at < $1::timestamptz OR (created_at = $1::timestamptz AND id < $2::text)) AS append_order,
+                    id < $2::text AS id_after
+             FROM task_pack_revision_review_events WHERE id = $3;`, [event.createdAt, event.id, tail.id]);
+          assertTaskPackReviewAppendOrder(expected, tail, ordering.rows[0]);
+        }
+        if (input.transition.type === "accept") {
+          const updated = await client.query(`UPDATE task_packs SET accepted_revision_id = $1,
+            lifecycle_version = lifecycle_version + 1, updated_at = $2
+            WHERE id = $3 AND lifecycle_version = $4;`,
+          [revision.id, event.createdAt, aggregate.id, input.expectedLifecycleVersion]);
+          if (updated.rowCount !== 1) {
+            const actual = await client.query("SELECT lifecycle_version FROM task_packs WHERE id = $1;", [aggregate.id]);
+            const version = Number(actual.rows[0]?.lifecycle_version);
+            throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_CONFLICT", { ...evidence,
+              expectedLifecycleVersion: input.expectedLifecycleVersion,
+              actualLifecycleVersion: Number.isSafeInteger(version) && version > 0 ? version : undefined });
+          }
+        }
+        try {
+          await client.query(`INSERT INTO task_pack_revision_review_events (
+            id, task_pack_id, revision_id, event_type, from_state, to_state, source, actor_id, created_at, metadata
+          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb);`,
+          [event.id, event.taskPackId, event.revisionId, event.eventType, event.fromState, event.toState,
+            event.source, event.actorId, event.createdAt, jsonParameter(event.metadata)]);
+        } catch (error) {
+          if (error && typeof error === "object" && "code" in error && error.code === "23505" &&
+            "constraint" in error && error.constraint === "task_pack_revision_review_events_pkey") {
+            throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_EVENT_EXISTS", evidence);
+          }
+          throw error;
+        }
+        const finalAggregate = await client.query("SELECT * FROM task_packs WHERE id = $1;", [aggregate.id]);
+        const finalRevision = await client.query(
+          "SELECT * FROM task_pack_revisions WHERE task_pack_id = $1 AND id = $2;", [aggregate.id, revision.id]);
+        const finalHistory = await client.query(historySql, [aggregate.id, revision.id]);
+        if (!finalAggregate.rows[0] || !finalRevision.rows[0] || finalAggregate.rows[0].archived_from_state !== aggregate.lifecycle.archivedFromState) {
+          throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_STATE_INVALID", evidence);
+        }
+        const result = validateTaskPackRevisionReviewTransitionResult(expected, history,
+          mapTaskPackAggregatePersistenceRow(finalAggregate.rows[0] as TaskPackAggregatePersistenceRow),
+          mapTaskPackRevisionPersistenceRow(finalRevision.rows[0] as TaskPackRevisionPersistenceRow),
+          finalHistory.rows.map(row => mapTaskPackReviewEventPersistenceRow(row as TaskPackReviewEventPersistenceRow)));
+        await client.query("COMMIT");
+        return result;
+      } catch (error) {
+        try { await client.query("ROLLBACK"); } catch { /* Preserve the original operation failure. */ }
+        throw error;
+      } finally { client.release(); }
+    } catch (error) { throw taskPackReviewStorageError(error); }
   }
 
   async appendTaskPackRevisionReviewEvent(

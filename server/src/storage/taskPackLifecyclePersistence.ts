@@ -6,6 +6,7 @@ import {
   assertTaskPackRevisionReviewEvent,
   computeTaskPackRevisionContentHash,
   transitionTaskPackAggregateLifecycle,
+  transitionTaskPackReview,
   TaskPackLifecycleDomainError,
   type TaskPackAggregate,
   type TaskPackAggregateLifecycleEvent,
@@ -13,13 +14,17 @@ import {
   type TaskPackRevision,
   type TaskPackRevisionContent,
   type TaskPackRevisionReviewEvent,
+  type TaskPackReviewState,
 } from "../taskPacks/taskPackLifecycle.js";
 import { parseJsonValue } from "./json.js";
 import {
   TaskPackLifecycleStorageError,
+  TaskPackReviewStorageError,
   type CreateTaskPackInput,
   type TransitionTaskPackAggregateLifecycleInput,
   type TransitionTaskPackAggregateLifecycleResult,
+  type TransitionTaskPackRevisionReviewInput,
+  type TransitionTaskPackRevisionReviewResult,
 } from "./types.js";
 
 export function assertTaskPackLifecycleTransitionInput(input: TransitionTaskPackAggregateLifecycleInput): void {
@@ -111,6 +116,148 @@ export function validateTaskPackAggregateLifecycleTransitionResult(
   if (!isDeepStrictEqual(result, expected)) {
     throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_STATE_INVALID", current.id);
   }
+  return result;
+}
+
+export function assertTaskPackReviewTransitionInput(input: TransitionTaskPackRevisionReviewInput): void {
+  if (!input || ![input.taskPackId, input.revisionId, input.expectedLifecycleVersion]
+    .every(value => Number.isSafeInteger(value) && value > 0) ||
+    !["unreviewed", "in_review", "accepted", "changes_requested"].includes(input.expectedReviewState)) {
+    throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_STATE_INVALID");
+  }
+  const transition = input.transition;
+  if (!transition || typeof transition !== "object" || Array.isArray(transition) ||
+    ![Object.prototype, null].includes(Object.getPrototypeOf(transition)) ||
+    Object.keys(transition).length !== 1 || !Object.hasOwn(transition, "type") ||
+    !["start_review", "accept", "request_changes"].includes(transition.type)) {
+    throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_INVALID_TRANSITION", {
+      taskPackId: input.taskPackId, revisionId: input.revisionId,
+    });
+  }
+}
+
+export function taskPackReviewStorageError(error: unknown): TaskPackReviewStorageError {
+  return error instanceof TaskPackReviewStorageError ? error :
+    new TaskPackReviewStorageError("TASK_PACK_REVIEW_STATE_INVALID");
+}
+
+export function assertTaskPackReviewLifecycleVersion(
+  aggregate: TaskPackAggregate, input: TransitionTaskPackRevisionReviewInput,
+): void {
+  assertTaskPackAggregate(aggregate);
+  if (aggregate.id !== input.taskPackId) throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_STATE_INVALID");
+  if (aggregate.lifecycleVersion !== input.expectedLifecycleVersion) {
+    throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_CONFLICT", {
+      taskPackId: aggregate.id, revisionId: input.revisionId,
+      expectedLifecycleVersion: input.expectedLifecycleVersion, actualLifecycleVersion: aggregate.lifecycleVersion,
+    });
+  }
+}
+
+/** Replay the complete, database-ordered history, never just the last toState. */
+export function deriveTaskPackRevisionReviewState(
+  aggregate: TaskPackAggregate, revision: TaskPackRevision, events: readonly TaskPackRevisionReviewEvent[],
+): TaskPackReviewState {
+  try {
+    assertTaskPackAggregate(aggregate);
+    assertTaskPackRevision(revision, { aggregate, verifyContentHash: true });
+    let state: TaskPackReviewState = "unreviewed";
+    let previousTime = -Infinity;
+    const identities = new Set<string>();
+    const transitions = { review_started: "start_review", accepted: "accept", changes_requested: "request_changes" } as const;
+    for (const event of events) {
+      assertTaskPackRevisionReviewEvent(event, { aggregate, revision });
+      const time = Date.parse(event.createdAt);
+      if (identities.has(event.id) || time < previousTime || event.fromState !== state) {
+        throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_STATE_INVALID");
+      }
+      state = transitionTaskPackReview(state, { type: transitions[event.eventType] });
+      if (state !== event.toState) throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_STATE_INVALID");
+      identities.add(event.id);
+      previousTime = time;
+    }
+    return state;
+  } catch (error) { throw taskPackReviewStorageError(error); }
+}
+
+export function prepareTaskPackRevisionReviewTransition(
+  aggregate: TaskPackAggregate, revision: TaskPackRevision, history: readonly TaskPackRevisionReviewEvent[],
+  input: TransitionTaskPackRevisionReviewInput,
+): TransitionTaskPackRevisionReviewResult {
+  assertTaskPackReviewLifecycleVersion(aggregate, input);
+  if (revision.id !== input.revisionId) throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_STATE_INVALID");
+  const state = deriveTaskPackRevisionReviewState(aggregate, revision, history);
+  const evidence = { taskPackId: aggregate.id, revisionId: revision.id,
+    expectedReviewState: input.expectedReviewState, actualReviewState: state,
+    expectedLifecycleVersion: input.expectedLifecycleVersion, actualLifecycleVersion: aggregate.lifecycleVersion };
+  if (state !== input.expectedReviewState) throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_CONFLICT", evidence);
+  let reviewState: TaskPackReviewState;
+  try { reviewState = transitionTaskPackReview(state, input.transition); }
+  catch (error) {
+    if (error instanceof TaskPackLifecycleDomainError && error.code === "invalid_transition") {
+      throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_INVALID_TRANSITION", evidence);
+    }
+    throw error;
+  }
+  let next = aggregate;
+  if (input.transition.type === "accept") {
+    if (aggregate.lifecycleVersion === Number.MAX_SAFE_INTEGER) {
+      throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_VERSION_EXHAUSTED", evidence);
+    }
+    next = { ...aggregate, acceptedRevisionId: revision.id,
+      lifecycleVersion: aggregate.lifecycleVersion + 1, updatedAt: input.createdAt };
+    // Validate the resulting accepted/current invariant BEFORE either write.
+    // Timestamp/input validation below is separate from projection feasibility.
+    try { assertTaskPackAggregate({ ...next, updatedAt: aggregate.updatedAt }); }
+    catch (error) {
+      if (error instanceof TaskPackLifecycleDomainError) {
+        throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_INVALID_TRANSITION", evidence);
+      }
+      throw error;
+    }
+  }
+  const types = { start_review: "review_started", accept: "accepted", request_changes: "changes_requested" } as const;
+  const event: TaskPackRevisionReviewEvent = {
+    id: input.eventId, taskPackId: aggregate.id, revisionId: revision.id,
+    eventType: types[input.transition.type], fromState: state, toState: reviewState,
+    source: input.source, actorId: input.actorId, createdAt: input.createdAt, metadata: input.metadata,
+  };
+  assertTaskPackRevisionReviewEvent(event, { aggregate, revision });
+  assertTaskPackAggregate(next);
+  return { aggregate: next, revision, reviewState,
+    event: { ...event, metadata: event.metadata === null ? null : JSON.parse(JSON.stringify(event.metadata)) } };
+}
+
+/** The database supplies ID ordering under its actual column collation. SQLite
+ * also checks physical TEXT timestamp order, which may differ for Z/.000Z. */
+export function assertTaskPackReviewAppendOrder(
+  expected: TransitionTaskPackRevisionReviewResult, tail: TaskPackRevisionReviewEvent,
+  ordering: { append_order: boolean | number; id_after: boolean | number } | null | undefined,
+): void {
+  const time = Date.parse(expected.event.createdAt), tailTime = Date.parse(tail.createdAt);
+  if (!ordering || !ordering.append_order || time < tailTime || (time === tailTime && !ordering.id_after)) {
+    throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_CONFLICT", {
+      taskPackId: expected.aggregate.id, revisionId: expected.revision.id,
+      expectedReviewState: tail.toState, actualReviewState: tail.toState,
+    });
+  }
+}
+
+export function validateTaskPackRevisionReviewTransitionResult(
+  expected: TransitionTaskPackRevisionReviewResult, oldHistory: readonly TaskPackRevisionReviewEvent[],
+  aggregate: TaskPackAggregate, revision: TaskPackRevision, history: readonly TaskPackRevisionReviewEvent[],
+): TransitionTaskPackRevisionReviewResult {
+  const reviewState = deriveTaskPackRevisionReviewState(aggregate, revision, history);
+  if (history.length !== oldHistory.length + 1 || !isDeepStrictEqual(history.slice(0, -1), oldHistory)) {
+    throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_STATE_INVALID");
+  }
+  const event = history[history.length - 1];
+  // pg timestamps canonicalize whole seconds. Compare actual instants before
+  // preserving the caller's valid UTC spelling in the returned result.
+  const timestamp = (actual: string, wanted: string) => Date.parse(actual) === Date.parse(wanted) ? wanted : actual;
+  const result = { aggregate: { ...aggregate, updatedAt: timestamp(aggregate.updatedAt, expected.aggregate.updatedAt) },
+    revision, reviewState, event: { ...event, createdAt: timestamp(event.createdAt, expected.event.createdAt) } };
+  if (!isDeepStrictEqual(result, expected)) throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_STATE_INVALID");
   return result;
 }
 

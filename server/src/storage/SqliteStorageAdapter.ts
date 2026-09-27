@@ -23,6 +23,7 @@ import {
   TaskPackDraftStorageError,
   TaskPackRevisionAppendStorageError,
   TaskPackLifecycleStorageError,
+  TaskPackReviewStorageError,
 } from "./types.js";
 import {
   applySqliteMigrationTransaction,
@@ -42,6 +43,12 @@ import {
   prepareTaskPackAggregateLifecycleTransition,
   validateTaskPackAggregateLifecycleTransitionResult,
   taskPackLifecycleStorageError,
+  assertTaskPackReviewTransitionInput,
+  assertTaskPackReviewLifecycleVersion,
+  prepareTaskPackRevisionReviewTransition,
+  assertTaskPackReviewAppendOrder,
+  validateTaskPackRevisionReviewTransitionResult,
+  taskPackReviewStorageError,
   mapTaskPackAggregatePersistenceRow,
   mapTaskPackLifecycleEventPersistenceRow,
   mapTaskPackReviewEventPersistenceRow,
@@ -89,6 +96,8 @@ import type {
   UpdateTaskPackContentInput,
   TransitionTaskPackAggregateLifecycleInput,
   TransitionTaskPackAggregateLifecycleResult,
+  TransitionTaskPackRevisionReviewInput,
+  TransitionTaskPackRevisionReviewResult,
 } from "./types.js";
 
 type BindValue = SqlValue;
@@ -1740,6 +1749,82 @@ export class SqliteStorageAdapter implements StorageAdapter {
       [taskPackId],
     );
     return rows.map(mapTaskPackLifecycleEventPersistenceRow);
+  }
+
+  async transitionTaskPackRevisionReview(
+    input: TransitionTaskPackRevisionReviewInput,
+  ): Promise<TransitionTaskPackRevisionReviewResult> {
+    try {
+      assertTaskPackReviewTransitionInput(input);
+      return await this.withTransaction(async () => {
+        const evidence = { taskPackId: input.taskPackId, revisionId: input.revisionId };
+        const row = await this.getOne<TaskPackAggregatePersistenceRow>(
+          "SELECT * FROM task_packs WHERE id = ?;", [input.taskPackId]);
+        if (!row) throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_NOT_FOUND", evidence);
+        if (row.lifecycle_state !== "archived" && row.archived_from_state !== null) {
+          throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_STATE_INVALID", evidence);
+        }
+        const aggregate = mapTaskPackAggregatePersistenceRow(row);
+        assertTaskPackReviewLifecycleVersion(aggregate, input);
+        const revisionRow = await this.getOne<TaskPackRevisionPersistenceRow>(
+          "SELECT * FROM task_pack_revisions WHERE task_pack_id = ? AND id = ?;", [input.taskPackId, input.revisionId]);
+        if (!revisionRow) throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_REVISION_NOT_FOUND", evidence);
+        const revision = mapTaskPackRevisionPersistenceRow(revisionRow);
+        const historySql = `SELECT * FROM task_pack_revision_review_events
+          WHERE task_pack_id = ? AND revision_id = ? ORDER BY created_at ASC, id ASC;`;
+        const history = (await this.getAll<TaskPackReviewEventPersistenceRow>(historySql,
+          [input.taskPackId, input.revisionId])).map(mapTaskPackReviewEventPersistenceRow);
+        const expected = prepareTaskPackRevisionReviewTransition(aggregate, revision, history, input);
+        const { event } = expected;
+        const tail = history.at(-1);
+        if (tail) {
+          const ordering = await this.getOne<{ append_order: number; id_after: number }>(
+            `SELECT (created_at < ? OR (created_at = ? AND id < ?)) AS append_order,
+                    id < ? AS id_after
+             FROM task_pack_revision_review_events WHERE id = ?;`,
+            [event.createdAt, event.createdAt, event.id, event.id, tail.id]);
+          assertTaskPackReviewAppendOrder(expected, tail, ordering);
+        }
+        if (input.transition.type === "accept") {
+          await this.run(`UPDATE task_packs SET accepted_revision_id = ?,
+            lifecycle_version = lifecycle_version + 1, updated_at = ?
+            WHERE id = ? AND lifecycle_version = ?;`,
+          [revision.id, event.createdAt, aggregate.id, input.expectedLifecycleVersion]);
+          const changed = await this.getOne<{ changed: number }>("SELECT changes() AS changed;");
+          if (changed?.changed !== 1) {
+            const actual = await this.getOne<{ lifecycle_version: number }>(
+              "SELECT lifecycle_version FROM task_packs WHERE id = ?;", [aggregate.id]);
+            throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_CONFLICT", { ...evidence,
+              expectedLifecycleVersion: input.expectedLifecycleVersion,
+              actualLifecycleVersion: actual && Number.isSafeInteger(actual.lifecycle_version) && actual.lifecycle_version > 0
+                ? actual.lifecycle_version : undefined });
+          }
+        }
+        try {
+          await this.run(`INSERT INTO task_pack_revision_review_events (
+            id, task_pack_id, revision_id, event_type, from_state, to_state, source, actor_id, created_at, metadata
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?);`,
+          [event.id, event.taskPackId, event.revisionId, event.eventType, event.fromState, event.toState,
+            event.source, event.actorId, event.createdAt, event.metadata === null ? null : stringifyJsonValue(event.metadata)]);
+        } catch (error) {
+          if (error instanceof Error && error.message === "UNIQUE constraint failed: task_pack_revision_review_events.id") {
+            throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_EVENT_EXISTS", evidence);
+          }
+          throw error;
+        }
+        const finalAggregate = await this.getOne<TaskPackAggregatePersistenceRow>(
+          "SELECT * FROM task_packs WHERE id = ?;", [aggregate.id]);
+        const finalRevision = await this.getOne<TaskPackRevisionPersistenceRow>(
+          "SELECT * FROM task_pack_revisions WHERE task_pack_id = ? AND id = ?;", [aggregate.id, revision.id]);
+        const finalHistory = await this.getAll<TaskPackReviewEventPersistenceRow>(historySql, [aggregate.id, revision.id]);
+        if (!finalAggregate || !finalRevision || finalAggregate.archived_from_state !== aggregate.lifecycle.archivedFromState) {
+          throw new TaskPackReviewStorageError("TASK_PACK_REVIEW_STATE_INVALID", evidence);
+        }
+        return validateTaskPackRevisionReviewTransitionResult(expected, history,
+          mapTaskPackAggregatePersistenceRow(finalAggregate), mapTaskPackRevisionPersistenceRow(finalRevision),
+          finalHistory.map(mapTaskPackReviewEventPersistenceRow));
+      });
+    } catch (error) { throw taskPackReviewStorageError(error); }
   }
 
   async appendTaskPackRevisionReviewEvent(

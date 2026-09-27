@@ -12,6 +12,8 @@ import type {
   TaskPackRevision,
   TaskPackRevisionContent,
   TaskPackRevisionReviewEvent,
+  TaskPackReviewState,
+  TaskPackReviewTransitionEvent,
 } from "../taskPacks/taskPackLifecycle.js";
 
 export type StorageDriver = "sqlite" | "postgres";
@@ -459,6 +461,65 @@ export class TaskPackLifecycleStorageError extends Error {
   }
 }
 
+export interface TransitionTaskPackRevisionReviewInput {
+  readonly taskPackId: number;
+  readonly revisionId: number;
+  readonly expectedReviewState: TaskPackReviewState;
+  readonly expectedLifecycleVersion: number;
+  readonly transition: TaskPackReviewTransitionEvent;
+  readonly eventId: string;
+  readonly source: TaskPackEventSource;
+  readonly actorId: string | null;
+  readonly createdAt: string;
+  /** Validated caller JSON only; never enriched with revision content. */
+  readonly metadata: TaskPackJsonObject | null;
+}
+
+export interface TransitionTaskPackRevisionReviewResult {
+  readonly aggregate: TaskPackAggregateRecord;
+  readonly revision: TaskPackRevisionRecord;
+  readonly reviewState: TaskPackReviewState;
+  readonly event: TaskPackRevisionReviewEventRecord;
+}
+
+export type TaskPackReviewStorageErrorCode =
+  | "TASK_PACK_REVIEW_NOT_FOUND"
+  | "TASK_PACK_REVIEW_REVISION_NOT_FOUND"
+  | "TASK_PACK_REVIEW_CONFLICT"
+  | "TASK_PACK_REVIEW_VERSION_EXHAUSTED"
+  | "TASK_PACK_REVIEW_INVALID_TRANSITION"
+  | "TASK_PACK_REVIEW_STATE_INVALID"
+  | "TASK_PACK_REVIEW_EVENT_EXISTS";
+
+export interface TaskPackReviewStorageErrorEvidence {
+  readonly taskPackId?: number;
+  readonly revisionId?: number;
+  readonly expectedReviewState?: TaskPackReviewState;
+  readonly actualReviewState?: TaskPackReviewState;
+  readonly expectedLifecycleVersion?: number;
+  readonly actualLifecycleVersion?: number;
+}
+
+export class TaskPackReviewStorageError extends Error implements TaskPackReviewStorageErrorEvidence {
+  readonly taskPackId?: number;
+  readonly revisionId?: number;
+  readonly expectedReviewState?: TaskPackReviewState;
+  readonly actualReviewState?: TaskPackReviewState;
+  readonly expectedLifecycleVersion?: number;
+  readonly actualLifecycleVersion?: number;
+
+  constructor(readonly code: TaskPackReviewStorageErrorCode, evidence: TaskPackReviewStorageErrorEvidence = {}) {
+    super(code);
+    this.name = "TaskPackReviewStorageError";
+    this.taskPackId = evidence.taskPackId;
+    this.revisionId = evidence.revisionId;
+    this.expectedReviewState = evidence.expectedReviewState;
+    this.actualReviewState = evidence.actualReviewState;
+    this.expectedLifecycleVersion = evidence.expectedLifecycleVersion;
+    this.actualLifecycleVersion = evidence.actualLifecycleVersion;
+  }
+}
+
 /**
  * Storage assigns the immutable revision identity, monotonically increasing
  * revision number, and canonical content hash inside one transaction.
@@ -577,6 +638,9 @@ export interface StorageAdapter {
     taskPackId: number
   ): Promise<TaskPackAggregateLifecycleEventRecord[]>;
   appendTaskPackRevisionReviewEvent(event: TaskPackRevisionReviewEventRecord): Promise<void>;
+  transitionTaskPackRevisionReview(
+    input: TransitionTaskPackRevisionReviewInput
+  ): Promise<TransitionTaskPackRevisionReviewResult>;
   listTaskPackRevisionReviewEvents(
     taskPackId: number,
     revisionId?: number
