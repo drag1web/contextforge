@@ -1,5 +1,31 @@
 export type * from "./taskPackDrafts";
 
+// Separate from the flat TaskPack/document compatibility contract.
+export type TaskPackLifecycle =
+  | { state: "active"; archivedFromState: null }
+  | { state: "completed"; archivedFromState: null }
+  | { state: "archived"; archivedFromState: "active" | "completed" };
+export type TaskPackReviewState = "unreviewed" | "in_review" | "accepted" | "changes_requested";
+export interface TaskPackWorkflowState {
+  taskPackId: number;
+  lifecycle: TaskPackLifecycle;
+  lifecycleVersion: number;
+  currentRevisionId: number;
+  acceptedRevisionId: number | null;
+  completedAt: string | null;
+  archivedAt: string | null;
+  currentReviewState: TaskPackReviewState;
+}
+export interface TaskPackLifecycleRequest {
+  expectedLifecycleVersion: number;
+  action: "complete" | "reopen" | "archive" | "unarchive";
+}
+export interface TaskPackReviewRequest {
+  expectedLifecycleVersion: number;
+  expectedReviewState: TaskPackReviewState;
+  action: "start_review" | "accept" | "request_changes";
+}
+
 export interface ReadinessCheck {
   key: string;
   label: string;

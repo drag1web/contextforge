@@ -42,6 +42,8 @@ import {
 } from "../api/client";
 import { AiToolLogo } from "../components/ai/AiToolLogo";
 import { TaskPackExportActions } from "../components/taskPacks/TaskPackExportActions";
+import { TaskPackWorkflowBadges, TaskPackWorkflowCard } from "../components/taskPacks/TaskPackWorkflowCard";
+import { useTaskPackWorkflow } from "../hooks/useTaskPackWorkflow";
 import {
   TaskPackFreshnessBadge,
   TaskPackFreshnessNotice,
@@ -871,9 +873,13 @@ function GenerationSummaryCard({ taskPack }: { taskPack: TaskPack }) {
 function OriginalTaskCard({
   taskPack,
   onEdit,
+  canEdit,
+  editExplanation,
 }: {
   taskPack: TaskPack;
   onEdit: () => void;
+  canEdit: boolean;
+  editExplanation: string;
 }) {
   const { t } = useTranslation();
 
@@ -897,7 +903,9 @@ function OriginalTaskCard({
         <button
           type="button"
           onClick={onEdit}
-          className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500 transition hover:border-white/20 hover:text-white"
+          disabled={!canEdit}
+          title={editExplanation || t("taskPackResult.editOriginalTask")}
+          className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
           aria-label={t("taskPackResult.editOriginalTask")}
         >
           <Edit3 size={13} />
@@ -907,6 +915,7 @@ function OriginalTaskCard({
       <p className="mt-3 line-clamp-5 whitespace-pre-wrap text-xs leading-5 text-neutral-500">
         {taskPack.rawTask || t("taskPackResult.originalTaskEmpty")}
       </p>
+      {!canEdit ? <p className="mt-2 text-xs leading-5 text-neutral-400">{editExplanation}</p> : null}
     </section>
   );
 }
@@ -1187,8 +1196,12 @@ function TaskPackEditorDrawer({
   onClose,
   onSave,
   onOpenInBuilder,
+  canEdit,
+  editExplanation,
 }: {
   session: TaskPackEditorSession;
+  canEdit: boolean;
+  editExplanation: string;
   onClose: () => void;
   onSave: (input: {
     expectedCurrentRevisionId: number;
@@ -1216,7 +1229,7 @@ function TaskPackEditorDrawer({
   const trimmedValue = value.trim();
   const hasChanges = value !== sourceValue;
   const minimumLength = kind === "task" ? 3 : 3;
-  const canSave = trimmedValue.length >= minimumLength && hasChanges && !isSaving;
+  const canSave = canEdit && trimmedValue.length >= minimumLength && hasChanges && !isSaving;
   const viewItems = [
     {
       id: "edit" as const,
@@ -1233,6 +1246,7 @@ function TaskPackEditorDrawer({
   ];
 
   async function saveCurrentValue() {
+    if (!canEdit) throw new Error(editExplanation);
     if (!canSave) return taskPack;
 
     setIsSaving(true);
@@ -1368,6 +1382,7 @@ function TaskPackEditorDrawer({
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto p-5">
+            {!canEdit ? <p role="status" className="mb-4 rounded-xl border border-amber-300/15 bg-amber-400/[0.05] p-3 text-xs leading-5 text-amber-100">{editExplanation}</p> : null}
             <section className="mb-4 grid gap-3 sm:grid-cols-3">
               <div className="rounded-2xl border border-neutral-900 bg-black/35 p-4">
                 <p className="cf-tech-label text-[9px] uppercase text-neutral-700">
@@ -1488,7 +1503,7 @@ function TaskPackEditorDrawer({
                   <Button
                     variant="secondary"
                     onClick={handleOpenBuilder}
-                    disabled={isSaving || trimmedValue.length < minimumLength}
+                    disabled={isSaving || trimmedValue.length < minimumLength || (hasChanges && !canEdit)}
                   >
                     <Wrench size={15} />
                     {t("taskPackResult.openInBuilder")}
@@ -1532,6 +1547,18 @@ export function TaskPackResultPage({
   const [isPerformanceDiagnosticsOpen, setIsPerformanceDiagnosticsOpen] = useState(false);
   const [editorSession, setEditorSession] = useState<TaskPackEditorSession | null>(null);
   const [editorOpenError, setEditorOpenError] = useState("");
+  const workflowController = useTaskPackWorkflow(taskPack.id,
+    currentTaskPack.id === taskPack.id ? currentTaskPack.currentRevisionId : taskPack.currentRevisionId);
+  const { workflow } = workflowController;
+  const canEdit = currentTaskPack.id === taskPack.id && workflow?.taskPackId === currentTaskPack.id &&
+    workflow.lifecycle.state === "active" && !workflowController.blocked && !workflowController.loading &&
+    !workflowController.refreshing && !workflowController.activeAction;
+  const editExplanation = canEdit ? "" : t(workflowController.blocked || workflowController.loading || !workflow
+    ? "taskPackWorkflow.editUnavailable" : workflow.lifecycle.state === "completed"
+      ? "taskPackWorkflow.editCompleted" : workflow.lifecycle.state === "archived"
+        ? "taskPackWorkflow.editArchived" : "taskPackWorkflow.editPending");
+  const editAuthority = useRef({ taskPackId: currentTaskPack.id, canEdit, revisionId: workflow?.currentRevisionId });
+  editAuthority.current = { taskPackId: currentTaskPack.id, canEdit, revisionId: workflow?.currentRevisionId };
 
   useEffect(() => {
     setCurrentTaskPack(taskPack);
@@ -1551,6 +1578,11 @@ export function TaskPackResultPage({
       onClick: () => void;
       tone?: "default" | "accent";
     }> = [];
+
+    if (onOpenInBuilder) {
+      actions.push({ id: "open-in-builder", label: t("taskPackResult.openInBuilder"),
+        icon: <Wrench size={14} />, onClick: () => onOpenInBuilder(currentTaskPack) });
+    }
 
     if (sourceIssue) {
       actions.push({
@@ -1607,6 +1639,8 @@ export function TaskPackResultPage({
 
     return actions;
   }, [
+    currentTaskPack,
+    onOpenInBuilder,
     createdIssue,
     generationDiagnostics,
     performanceDiagnostics,
@@ -1622,6 +1656,7 @@ export function TaskPackResultPage({
 
   async function handleOpenEditor(kind: TaskPackEditorKind) {
     setEditorOpenError("");
+    if (!canEdit) { setEditorOpenError(editExplanation); return; }
     try {
       let taskPackForSession = currentTaskPack;
       if (
@@ -1629,7 +1664,12 @@ export function TaskPackResultPage({
         (taskPackForSession.currentRevisionId ?? 0) <= 0
       ) {
         taskPackForSession = await getTaskPack(currentTaskPack.id);
+        if (!editAuthority.current.canEdit || editAuthority.current.taskPackId !== taskPackForSession.id) return;
         handleTaskPackUpdated(taskPackForSession);
+      }
+      if (taskPackForSession.currentRevisionId !== editAuthority.current.revisionId) {
+        setEditorOpenError(t("taskPackWorkflow.issues.revision_changed"));
+        return;
       }
       setEditorSession(createTaskPackEditorSession(taskPackForSession, kind));
     } catch (error) {
@@ -1649,6 +1689,9 @@ export function TaskPackResultPage({
       generatedPrompt?: string;
     },
   ) {
+    if (!editAuthority.current.canEdit || editAuthority.current.taskPackId !== session.taskPackId) {
+      throw new Error(t("taskPackWorkflow.editUnavailable"));
+    }
     if (input.expectedCurrentRevisionId !== session.expectedCurrentRevisionId) {
       throw new Error("Task Pack editor revision token changed unexpectedly.");
     }
@@ -1686,8 +1729,9 @@ export function TaskPackResultPage({
               </p>
               <Pill tone="success">
                 <Check size={11} />
-                {t("taskPackResult.ready")}
+                {t("taskPackWorkflow.documentReady")}
               </Pill>
+              {workflow ? <TaskPackWorkflowBadges workflow={workflow} /> : null}
               <TaskPackFreshnessBadge freshness={freshness} />
             </div>
 
@@ -1746,10 +1790,15 @@ export function TaskPackResultPage({
 
       <div className="grid min-h-0 gap-4 overflow-hidden xl:grid-cols-[340px_minmax(0,1fr)]">
         <aside className="min-h-0 space-y-3 overflow-y-auto pr-1">
+          <TaskPackWorkflowCard key={`${taskPack.id}:${currentTaskPack.currentRevisionId ?? "unknown"}`}
+            {...workflowController} disabled={editorSession !== null}
+            onRefresh={workflowController.refresh} onExecute={workflowController.execute} onClearIssue={workflowController.clearIssue} />
           <GenerationSummaryCard taskPack={currentTaskPack} />
           <OriginalTaskCard
             taskPack={currentTaskPack}
             onEdit={() => void handleOpenEditor("task")}
+            canEdit={canEdit}
+            editExplanation={editExplanation}
           />
           <GenerationContractCard taskPack={currentTaskPack} />
         </aside>
@@ -1779,7 +1828,9 @@ export function TaskPackResultPage({
               <button
                 type="button"
                 onClick={() => void handleOpenEditor("prompt")}
-                className="inline-flex h-9 items-center gap-2 rounded-full border border-neutral-800 bg-neutral-950 px-3 text-xs font-medium text-neutral-300 transition hover:border-white/20 hover:text-white"
+                disabled={!canEdit}
+                title={editExplanation || t("taskPackResult.editTaskPack")}
+                className="inline-flex h-9 items-center gap-2 rounded-full border border-neutral-800 bg-neutral-950 px-3 text-xs font-medium text-neutral-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               >
                 <Edit3 size={13} />
                 {t("taskPackResult.editTaskPack")}
@@ -1788,6 +1839,7 @@ export function TaskPackResultPage({
             </div>
           </div>
 
+          {!canEdit ? <p className="border-b border-neutral-900 px-4 py-2 text-xs leading-5 text-neutral-400">{editExplanation}</p> : null}
           <div className="min-h-0 flex-1 p-3">
             <PromptPanel viewMode={viewMode} generatedPrompt={generatedPrompt} />
           </div>
@@ -1840,6 +1892,8 @@ export function TaskPackResultPage({
           <TaskPackEditorDrawer
             key={`${editorSession.taskPackId}:${editorSession.expectedCurrentRevisionId}:${editorSession.kind}`}
             session={editorSession}
+            canEdit={canEdit}
+            editExplanation={editExplanation}
             onClose={() => setEditorSession(null)}
             onSave={(input) => handleSaveEditor(editorSession, input)}
             onOpenInBuilder={onOpenInBuilder}

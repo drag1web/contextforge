@@ -30,6 +30,9 @@ import type {
   StorageAuditResult,
   WorkspaceBackupExportResult,
   TaskPack,
+  TaskPackWorkflowState,
+  TaskPackLifecycleRequest,
+  TaskPackReviewRequest,
   CreateTaskPackDraftRequest,
   UpdateTaskPackDraftRequest,
   DiscardTaskPackDraftRequest,
@@ -498,6 +501,28 @@ export async function getTaskPack(taskPackId: number): Promise<TaskPack> {
     `/task-packs/${taskPackId}`,
   );
   return data.taskPack;
+}
+
+export async function getTaskPackWorkflow(taskPackId: number): Promise<TaskPackWorkflowState> {
+  const data = await request<{ ok: true; workflow: TaskPackWorkflowState }>(`/task-packs/${taskPackId}/workflow`);
+  return data.workflow;
+}
+
+export async function transitionTaskPackLifecycle(taskPackId: number, input: TaskPackLifecycleRequest): Promise<void> {
+  await request<{ ok: true }>(`/task-packs/${taskPackId}/transitions`, {
+    method: "POST",
+    body: JSON.stringify({ expectedLifecycleVersion: input.expectedLifecycleVersion, action: input.action }),
+  });
+}
+
+export async function transitionTaskPackRevisionReview(
+  taskPackId: number, revisionId: number, input: TaskPackReviewRequest,
+): Promise<void> {
+  await request<{ ok: true }>(`/task-packs/${taskPackId}/revisions/${revisionId}/review-events`, {
+    method: "POST",
+    body: JSON.stringify({ expectedLifecycleVersion: input.expectedLifecycleVersion,
+      expectedReviewState: input.expectedReviewState, action: input.action }),
+  });
 }
 
 export async function listActiveTaskPackDrafts(
