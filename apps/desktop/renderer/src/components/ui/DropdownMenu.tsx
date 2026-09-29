@@ -16,6 +16,8 @@ interface DropdownMenuProps {
   actions: DropdownAction[];
   ariaLabel?: string;
   size?: "default" | "wide";
+  /** Optional visible label on desktop; existing icon-only callers keep their sizing. */
+  triggerLabel?: string;
 }
 
 interface MenuPosition {
@@ -52,7 +54,7 @@ export function getDropdownMenuPosition(
   };
 }
 
-export function DropdownMenu({ actions, ariaLabel, size = "default" }: DropdownMenuProps) {
+export function DropdownMenu({ actions, ariaLabel, size = "default", triggerLabel }: DropdownMenuProps) {
   const { t } = useTranslation();
   const resolvedAriaLabel = ariaLabel ?? t("common.moreActions");
   const buttonRef = useRef<HTMLButtonElement | null>(null);
@@ -135,9 +137,11 @@ export function DropdownMenu({ actions, ariaLabel, size = "default" }: DropdownM
         type="button"
         onClick={toggleMenu}
         aria-label={resolvedAriaLabel}
+        aria-expanded={isOpen}
         title={resolvedAriaLabel}
         className={[
-          "inline-flex size-8 items-center justify-center rounded-lg",
+          "inline-flex items-center justify-center rounded-lg",
+          triggerLabel ? "h-9 gap-2 px-2.5 sm:px-3" : "size-8",
           "border border-neutral-900 bg-neutral-950/80 text-neutral-500",
           "outline-none transition hover:border-neutral-700 hover:bg-neutral-950 hover:text-white",
           "focus-visible:border-white focus-visible:ring-4 focus-visible:ring-white/10",
@@ -145,6 +149,7 @@ export function DropdownMenu({ actions, ariaLabel, size = "default" }: DropdownM
         ].join(" ")}
       >
         <MoreHorizontal size={16} />
+        {triggerLabel ? <span className="hidden text-xs font-medium text-neutral-300 sm:inline">{triggerLabel}</span> : null}
       </button>
 
       {createPortal(

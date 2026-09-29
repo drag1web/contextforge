@@ -27,6 +27,9 @@ const taskPacksPageSource = read(
 const resultPageSource = read(
   "apps/desktop/renderer/src/pages/TaskPackResultPage.tsx",
 );
+const documentViewSource = read("apps/desktop/renderer/src/components/taskPacks/TaskPackDocumentView.tsx");
+const detailsViewSource = read("apps/desktop/renderer/src/components/taskPacks/TaskPackDetailsView.tsx");
+const headerSource = read("apps/desktop/renderer/src/components/taskPacks/TaskPackWorkspaceHeader.tsx");
 const projectDetailsSource = read(
   "apps/desktop/renderer/src/pages/ProjectDetailsPage.tsx",
 );
@@ -62,8 +65,20 @@ scenario("limited comparison cannot expose complete affected-file claims", () =>
 });
 
 scenario("Task Pack result surfaces freshness before reuse or export", () => {
-  assert.match(resultPageSource, /<TaskPackFreshnessBadge/);
-  assert.match(resultPageSource, /<TaskPackFreshnessNotice/);
+  assert.match(resultPageSource, /<TaskPackDocumentView[\s\S]*?freshness=\{freshness\}/);
+  assert.match(documentViewSource, /freshness.status !== "current" \? <TaskPackFreshnessNotice compact/);
+  assert.ok(documentViewSource.indexOf("<TaskPackFreshnessNotice") < documentViewSource.indexOf("<PromptPanel"));
+  assert.ok(documentViewSource.indexOf("<TaskPackFreshnessNotice") < documentViewSource.indexOf("<TaskPackExportActions"));
+  assert.match(detailsViewSource, /<TaskPackFreshnessNotice/);
+  assert.doesNotMatch(headerSource, /TaskPackFreshness/);
+});
+
+scenario("workspace quiet-unknown presentation is opt-in and preserves semantic status", () => {
+  assert.match(componentSource, /quietUnknown = false/);
+  assert.match(componentSource, /quietUnknown && freshness.status === "unknown"/);
+  assert.match(componentSource, /data-task-pack-freshness-notice=\{freshness.status\}/);
+  assert.match(documentViewSource, /TaskPackFreshnessNotice compact quietUnknown/);
+  assert.match(detailsViewSource, /TaskPackFreshnessNotice quietUnknown/);
 });
 
 scenario("Project Awareness exposes impacted Task Packs progressively", () => {

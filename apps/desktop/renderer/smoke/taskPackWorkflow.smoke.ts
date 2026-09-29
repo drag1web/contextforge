@@ -290,20 +290,23 @@ try {
 
 const source = (file: string) => fs.readFileSync(new URL(`../src/${file}`, import.meta.url), "utf8");
 const page = source("pages/TaskPackResultPage.tsx"), hook = source("hooks/useTaskPackWorkflow.ts"), card = source("components/taskPacks/TaskPackWorkflowCard.tsx");
-await scenario("Result uses dedicated hook and card before generation/original/contract", () => {
+const documentView = source("components/taskPacks/TaskPackDocumentView.tsx"), details = source("components/taskPacks/TaskPackDetailsView.tsx");
+const header = source("components/taskPacks/TaskPackWorkspaceHeader.tsx");
+await scenario("Result owns one workflow controller across document/review/details surfaces", () => {
   assert.match(page, /useTaskPackWorkflow\(taskPack.id,/);
   assert.match(hook, /\[taskPackId, currentRevisionId\]/);
   assert.match(hook, /useSyncExternalStore/); assert.match(hook, /return controller.dispose/);
-  assert.ok(page.indexOf("<TaskPackWorkflowCard") < page.indexOf("<GenerationSummaryCard"));
-  assert.ok(page.indexOf("<GenerationSummaryCard") < page.indexOf("<OriginalTaskCard"));
-  assert.ok(page.indexOf("<OriginalTaskCard") < page.indexOf("<GenerationContractCard"));
-  assert.doesNotMatch(page + card, /fetch\(|transitionTaskPackLifecycle\(|transitionTaskPackRevisionReview\(/);
+  assert.equal((page.match(/useTaskPackWorkflow\(/g) ?? []).length, 1);
+  assert.match(page, /data-task-pack-view="review"[\s\S]*?<TaskPackWorkflowCard/);
+  assert.doesNotMatch(documentView + details, /TaskPackWorkflowCard/);
+  assert.doesNotMatch(card + documentView + details + header, /useTaskPackWorkflow|fetch\(|transitionTaskPackLifecycle\(|transitionTaskPackRevisionReview\(/);
 });
 await scenario("direct editors gate opening and save on active authoritative workflow", () => {
   assert.match(page, /workflow.lifecycle.state === "active"/);
   assert.match(page, /!workflowController.blocked && !workflowController.loading/);
   assert.match(page, /if \(!canEdit\) \{ setEditorOpenError\(editExplanation\); return; \}/);
-  assert.ok((page.match(/disabled=\{!canEdit\}/g) ?? []).length >= 2);
+  assert.match(documentView, /disabled=\{!canEdit\}/);
+  assert.match(details, /disabled=\{!canEdit\}/);
   assert.match(page, /if \(!editAuthority.current.canEdit \|\| editAuthority.current.taskPackId !== session.taskPackId\)/);
   assert.match(page, /setCurrentTaskPack\(nextTaskPack\);\s*onTaskPackUpdated\?\.\(nextTaskPack\)/);
   assert.match(page, /handleTaskPackUpdated\(nextTaskPack\)/);
@@ -314,9 +317,12 @@ await scenario("shared confirmations only complete/archive, cancel never execute
   assert.match(card, /confirmDisabled=\{busy \|\| blocked \|\| disabled\}/);
   assert.match(card, /onClose=\{\(\) => \{ if \(!activeAction\) setConfirmation\(null\); \}\}/);
 });
-await scenario("document readiness, builder authoring, exports, diagnostics and GitHub remain distinct", () => {
-  for (const fragment of ["taskPackWorkflow.documentReady", "<TaskPackWorkflowBadges", "taskPackResult.openInBuilder",
-    "onOpenInBuilder(currentTaskPack)", "<TaskPackExportActions", "<CreateGitHubIssueModal", "<SelectorDiagnosticsModal",
+await scenario("quiet header preserves badges, builder, exports, diagnostics and GitHub", () => {
+  assert.match(header, /<TaskPackWorkflowBadges/);
+  assert.doesNotMatch(header, /documentReady|TaskPackFreshness|lifecycleVersion/);
+  assert.match(documentView, /<TaskPackExportActions/);
+  for (const fragment of ["taskPackResult.openInBuilder",
+    "onOpenInBuilder(currentTaskPack)", "<CreateGitHubIssueModal", "<SelectorDiagnosticsModal",
     "<GenerationDiagnosticsModal", "<PerformanceDiagnosticsModal", "buildTaskPackEditorUpdate(session, trimmedValue)"]) assert.ok(page.includes(fragment), fragment);
   assert.doesNotMatch(hook, /setInterval|setTimeout/);
 });

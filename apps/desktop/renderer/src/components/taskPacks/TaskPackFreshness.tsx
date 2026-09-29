@@ -54,18 +54,24 @@ export function TaskPackFreshnessNotice({
   freshness,
   onReviewProject,
   compact = false,
+  quietUnknown = false,
 }: {
   freshness: TaskPackFreshness;
   onReviewProject?: () => void;
   compact?: boolean;
+  /** Workspace-only presentation opt-in; actionable notices keep their existing emphasis. */
+  quietUnknown?: boolean;
 }) {
   const { t } = useTranslation();
   const shouldOfferReview =
     freshness.status === "affected" || freshness.status === "review_recommended";
+  const isQuiet = quietUnknown && freshness.status === "unknown";
 
   return (
     <section
-      className={`min-w-0 rounded-2xl border ${freshnessTone(freshness.status)} ${compact ? "px-3 py-2.5" : "p-4"}`}
+      className={isQuiet
+        ? "min-w-0 px-3 py-2.5 text-neutral-400"
+        : `min-w-0 rounded-2xl border ${freshnessTone(freshness.status)} ${compact ? "px-3 py-2.5" : "p-4"}`}
       data-task-pack-freshness-notice={freshness.status}
     >
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-3">

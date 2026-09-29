@@ -48,12 +48,12 @@ export function TaskPackWorkflowCard({ workflow, loading, refreshing, activeActi
   const actionButton = (action: TaskPackWorkflowAction) => {
     const Icon = icons[action];
     return <Button key={action} type="button" variant={action === "accept" || action === "complete" ? "primary" : "secondary"}
-      className="!min-h-8 !px-2.5 !text-xs" disabled={busy || blocked || disabled} onClick={() => choose(action)}>
+      className="!min-h-9 !px-3 !text-xs" disabled={busy || blocked || disabled} onClick={() => choose(action)}>
       {activeAction === action ? <Loader2 size={13} className="animate-spin" /> : <Icon size={13} />}
       {t(`taskPackWorkflow.actions.${action}`)}
     </Button>;
   };
-  return <section className="rounded-[1.5rem] border border-white/10 bg-gradient-to-b from-white/[0.04] to-black/35 p-4"
+  return <section className="min-w-0 py-2"
     aria-label={t("taskPackWorkflow.title")} aria-busy={busy}>
     <div className="flex items-center justify-between gap-3">
       <div className="flex min-w-0 items-center gap-2.5">
@@ -68,25 +68,32 @@ export function TaskPackWorkflowCard({ workflow, loading, refreshing, activeActi
     {loading ? <p role="status" className="mt-4 flex items-center gap-2 text-xs text-neutral-400">
       <Loader2 size={13} className="animate-spin" />{t("taskPackWorkflow.loading")}
     </p> : null}
-    {workflow ? <>
-      <dl className="mt-4 space-y-2.5 text-xs">
-        <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-neutral-400">{t("taskPackWorkflow.lifecycleLabel")}</dt>
-          <dd><StatusPill value={workflow.lifecycle.state} label={t(`taskPackWorkflow.lifecycle.${workflow.lifecycle.state}`)} /></dd></div>
-        <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-neutral-400">{t("taskPackWorkflow.reviewLabel")}</dt>
-          <dd><StatusPill value={workflow.currentReviewState} label={t(`taskPackWorkflow.review.${workflow.currentReviewState}`)} /></dd></div>
-        <div className="flex justify-between gap-2 pt-1 text-[11px] text-neutral-500"><dt>{t("taskPackWorkflow.revision")}</dt><dd>#{workflow.currentRevisionId}</dd></div>
-        <div className="flex justify-between gap-2 text-[11px] text-neutral-500"><dt>{t("taskPackWorkflow.version")}</dt><dd>{workflow.lifecycleVersion}</dd></div>
-      </dl>
-      <div className="mt-4 border-t border-white/[0.06] pt-3">
-        <p className="mb-2 text-[10px] font-medium uppercase tracking-wider text-neutral-500">{t("taskPackWorkflow.reviewLabel")}</p>
+    {workflow ? <div className="mt-4 grid items-stretch gap-5 md:grid-cols-2">
+      <section className="min-w-0 rounded-2xl bg-white/[0.025] p-5 sm:p-6" aria-label={t("taskPackWorkspace.revisionReview")}>
+        <h3 className="text-base font-semibold text-white">{t("taskPackWorkspace.revisionReview")}</h3>
+        <p className="mt-2 text-xs leading-5 text-neutral-400">{t("taskPackWorkspace.revisionReviewDescription")}</p>
+        <dl className="my-6 space-y-4 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-neutral-400">{t("taskPackWorkflow.revision")}</dt><dd className="text-neutral-200">#{workflow.currentRevisionId}</dd></div>
+          <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-neutral-400">{t("taskPackWorkspace.status")}</dt>
+            <dd><StatusPill value={workflow.currentReviewState} label={t(`taskPackWorkflow.review.${workflow.currentReviewState}`)} /></dd></div>
+          {workflow.acceptedRevisionId !== null && workflow.acceptedRevisionId !== workflow.currentRevisionId ?
+            <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-neutral-400">{t("taskPackWorkspace.acceptedRevision")}</dt><dd className="text-neutral-200">#{workflow.acceptedRevisionId}</dd></div> : null}
+        </dl>
         <div className="flex flex-wrap gap-2">{capabilities!.review.map(actionButton)}</div>
         {!capabilities!.review.length ? <p className="text-xs leading-5 text-neutral-400">{t("taskPackWorkflow.reviewTerminal")}</p> : null}
-        <p className="mb-2 mt-4 text-[10px] font-medium uppercase tracking-wider text-neutral-500">{t("taskPackWorkflow.lifecycleLabel")}</p>
+      </section>
+      <section className="min-w-0 rounded-2xl bg-white/[0.025] p-5 sm:p-6" aria-label={t("taskPackWorkspace.taskPackLifecycle")}>
+        <h3 className="text-base font-semibold text-white">{t("taskPackWorkspace.taskPackLifecycle")}</h3>
+        <p className="mt-2 text-xs leading-5 text-neutral-400">{t("taskPackWorkspace.lifecycleDescription")}</p>
+        <dl className="my-6 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2"><dt className="text-neutral-400">{t("taskPackWorkspace.status")}</dt>
+            <dd><StatusPill value={workflow.lifecycle.state} label={t(`taskPackWorkflow.lifecycle.${workflow.lifecycle.state}`)} /></dd></div>
+        </dl>
         <div className="flex flex-wrap gap-2">{capabilities!.lifecycle.map(actionButton)}</div>
         {workflow.lifecycle.state === "active" && !capabilities!.lifecycle.includes("complete") ?
-          <p className="mt-2 text-xs leading-5 text-neutral-400">{t("taskPackWorkflow.completionNeedsAcceptance")}</p> : null}
-      </div>
-    </> : null}
+          <p className="mt-3 text-xs leading-5 text-neutral-400">{t("taskPackWorkflow.completionNeedsAcceptance")}</p> : null}
+      </section>
+    </div> : null}
     {issue ? <div role="alert" className="mt-4 rounded-xl border border-amber-300/15 bg-amber-400/[0.05] p-3 text-xs leading-5 text-amber-100/90">
       {issue.phase === "load" ? <p className="mb-1 font-medium">{t("taskPackWorkflow.loadFailed")}</p> : null}
       {issue.phase === "refresh" || issue.refreshFailed ? <p className="mb-1 font-medium">{t("taskPackWorkflow.refreshFailed")}</p> : null}

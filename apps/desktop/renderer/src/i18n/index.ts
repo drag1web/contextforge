@@ -3404,6 +3404,14 @@ const resources = {
         saveProject: "Save to project",
         editorPlaceholder: "Write AGENTS.md instructions here...",
       },
+      taskPackWorkspace: {
+        document: "Document", review: "Review", details: "Details",
+        preview: "Preview", markdown: "Markdown", more: "More",
+        revisionReview: "Revision review", taskPackLifecycle: "Task Pack lifecycle",
+        revisionReviewDescription: "Review applies to the current revision of the document.",
+        lifecycleDescription: "Lifecycle describes the Task Pack as a whole. Completion is a separate action from acceptance.",
+        viewLabel: "Task Pack workspace view", status: "Status", acceptedRevision: "Previously accepted revision",
+      },
       taskPackWorkflow: {
         title: "Task Pack workflow", lifecycleLabel: "Lifecycle", reviewLabel: "Review",
         documentReady: "Document ready", revision: "Current revision", version: "Lifecycle version",
@@ -9294,6 +9302,14 @@ const resources = {
         overwrite: "Перезаписать AGENTS.md",
         saveProject: "Сохранить в проект",
         editorPlaceholder: "Введите инструкции AGENTS.md...",
+      },
+      taskPackWorkspace: {
+        document: "Документ", review: "Проверка", details: "Детали",
+        preview: "Просмотр", markdown: "Markdown", more: "Ещё",
+        revisionReview: "Проверка ревизии", taskPackLifecycle: "Жизненный цикл пакета",
+        revisionReviewDescription: "Проверка относится к текущей ревизии документа.",
+        lifecycleDescription: "Жизненный цикл относится ко всему пакету задач. Завершение — отдельное действие после принятия ревизии.",
+        viewLabel: "Раздел пакета задач", status: "Статус", acceptedRevision: "Ранее принятая ревизия",
       },
       taskPackWorkflow: {
         title: "Состояние пакета задач", lifecycleLabel: "Жизненный цикл", reviewLabel: "Проверка",

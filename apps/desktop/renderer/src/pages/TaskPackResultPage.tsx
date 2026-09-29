@@ -7,29 +7,16 @@ import {
   Activity,
   AlertTriangle,
   Archive,
-  ArrowLeft,
   Bot,
-  Check,
-  ChevronDown,
-  ChevronUp,
-  Clipboard,
-  Clock3,
-  Code2,
-  Copy,
-  Eye,
   Edit3,
+  Eye,
   ExternalLink,
-  FileText,
   Github,
-  ListChecks,
   Loader2,
-  MoreHorizontal,
   RotateCcw,
   Save,
   ScanSearch,
   ShieldCheck,
-  Sparkles,
-  Target,
   Wrench,
   X,
 } from "lucide-react";
@@ -40,14 +27,11 @@ import {
   getTaskPack,
   updateTaskPackContent,
 } from "../api/client";
-import { AiToolLogo } from "../components/ai/AiToolLogo";
-import { TaskPackExportActions } from "../components/taskPacks/TaskPackExportActions";
-import { TaskPackWorkflowBadges, TaskPackWorkflowCard } from "../components/taskPacks/TaskPackWorkflowCard";
+import { TaskPackWorkflowCard } from "../components/taskPacks/TaskPackWorkflowCard";
+import { TaskPackWorkspaceHeader, type TaskPackWorkspaceView } from "../components/taskPacks/TaskPackWorkspaceHeader";
+import { TaskPackDocumentView, type PromptViewMode } from "../components/taskPacks/TaskPackDocumentView";
+import { TaskPackDetailsView } from "../components/taskPacks/TaskPackDetailsView";
 import { useTaskPackWorkflow } from "../hooks/useTaskPackWorkflow";
-import {
-  TaskPackFreshnessBadge,
-  TaskPackFreshnessNotice,
-} from "../components/taskPacks/TaskPackFreshness";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { HorizontalSlidingSelector } from "../components/ui/SlidingSelectors";
@@ -72,8 +56,6 @@ interface TaskPackResultPageProps {
   freshness: TaskPackFreshness;
   onReviewProject: (projectId: number) => void;
 }
-
-type PromptViewMode = "preview" | "raw";
 
 const MARKDOWN_PREVIEW_STYLES = `
 .cf-markdown-preview {
@@ -218,69 +200,6 @@ const PAGE_TRANSITION = {
   ease: [0.16, 1, 0.3, 1],
 } as const;
 
-const TARGET_LABELS: Record<string, string> = {
-  codex: "Codex",
-  cursor: "Cursor",
-  claude: "Claude Code",
-  claudecode: "Claude Code",
-  gemini: "Gemini",
-  generic: "Generic",
-};
-
-const TASK_TYPE_KEYS: Record<string, string> = {
-  general: "taskPackResult.taskTypes.general",
-  ui: "taskPackResult.taskTypes.ui",
-  backend: "taskPackResult.taskTypes.backend",
-  fullstack: "taskPackResult.taskTypes.fullstack",
-  build: "taskPackResult.taskTypes.build",
-  bugfix: "taskPackResult.taskTypes.bugfix",
-  refactor: "taskPackResult.taskTypes.refactor",
-  docs: "taskPackResult.taskTypes.docs",
-  tests: "taskPackResult.taskTypes.tests",
-};
-
-function formatDuration(
-  durationMs: number | null | undefined,
-  t: (key: string, options?: Record<string, unknown>) => string,
-) {
-  if (!durationMs) {
-    return t("taskPackResult.noDuration");
-  }
-
-  if (durationMs < 1000) {
-    return t("taskPackResult.milliseconds", { value: durationMs });
-  }
-
-  return t("taskPackResult.seconds", {
-    value: (durationMs / 1000).toFixed(1),
-  });
-}
-
-function formatDate(value: string, language: string) {
-  return new Date(value).toLocaleString(
-    language.toLowerCase().startsWith("ru") ? "ru-RU" : "en-US",
-    {
-      year: "numeric",
-      month: "short",
-      day: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    },
-  );
-}
-
-function getTargetLabel(value: string) {
-  return TARGET_LABELS[String(value).toLowerCase()] ?? value;
-}
-
-function getTaskTypeLabel(
-  value: string,
-  t: (key: string, options?: Record<string, unknown>) => string,
-) {
-  const key = TASK_TYPE_KEYS[String(value).toLowerCase()];
-  return key ? t(key) : value;
-}
-
 function truncateForGitHubIssue(value: string, maxLength = 52000) {
   if (value.length <= maxLength) {
     return value;
@@ -382,233 +301,6 @@ async function openGitHubUrl(url: string) {
   }
 
   window.open(url, "_blank", "noopener,noreferrer");
-}
-
-function Pill({
-  children,
-  tone = "default",
-}: {
-  children: ReactNode;
-  tone?: "default" | "success" | "warning";
-}) {
-  const className =
-    tone === "success"
-      ? "border-emerald-400/20 bg-emerald-400/10 text-emerald-300"
-      : tone === "warning"
-        ? "border-amber-400/20 bg-amber-400/10 text-amber-200"
-        : "border-neutral-800 bg-neutral-950 text-neutral-400";
-
-  return (
-    <span
-      className={[
-        "inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[11px] font-medium",
-        className,
-      ].join(" ")}
-    >
-      {children}
-    </span>
-  );
-}
-
-function MoreActionsMenu({
-  actions,
-  label,
-}: {
-  actions: Array<{
-    id: string;
-    label: string;
-    icon: ReactNode;
-    onClick: () => void;
-    tone?: "default" | "accent";
-  }>;
-  label: string;
-}) {
-  const [isOpen, setIsOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!isOpen) {
-      return;
-    }
-
-    function handlePointerDown(event: PointerEvent) {
-      if (!menuRef.current?.contains(event.target as Node)) {
-        setIsOpen(false);
-      }
-    }
-
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        setIsOpen(false);
-      }
-    }
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [isOpen]);
-
-  if (actions.length === 0) {
-    return null;
-  }
-
-  return (
-    <div ref={menuRef} className="relative z-40">
-      <Button
-        variant="secondary"
-        onClick={() => setIsOpen((value) => !value)}
-        aria-haspopup="menu"
-        aria-expanded={isOpen}
-      >
-        <MoreHorizontal size={15} />
-        {label}
-        <ChevronDown
-          size={13}
-          className={["transition-transform", isOpen ? "rotate-180" : ""].join(" ")}
-        />
-      </Button>
-
-      {isOpen && (
-        <motion.div
-          role="menu"
-          className="absolute right-0 top-[calc(100%+0.55rem)] z-50 w-[260px] overflow-hidden rounded-2xl border border-neutral-800 bg-neutral-950/98 p-1.5 shadow-[0_22px_70px_rgba(0,0,0,0.72)] backdrop-blur-xl"
-          initial={{ opacity: 0, y: -6, scale: 0.985 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={PAGE_TRANSITION}
-        >
-          {actions.map((action) => (
-            <button
-              key={action.id}
-              type="button"
-              role="menuitem"
-              onClick={() => {
-                action.onClick();
-                setIsOpen(false);
-              }}
-              className={[
-                "flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-xs font-medium transition",
-                action.tone === "accent"
-                  ? "text-white hover:bg-white/10"
-                  : "text-neutral-400 hover:bg-white/[0.055] hover:text-white",
-              ].join(" ")}
-            >
-              <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-black/45 text-neutral-300">
-                {action.icon}
-              </span>
-              <span className="min-w-0 flex-1 truncate">{action.label}</span>
-            </button>
-          ))}
-        </motion.div>
-      )}
-    </div>
-  );
-}
-
-function ViewModeSwitch({
-  value,
-  onChange,
-  t,
-}: {
-  value: PromptViewMode;
-  onChange: (value: PromptViewMode) => void;
-  t: (key: string) => string;
-}) {
-  const options: Array<{
-    value: PromptViewMode;
-    label: string;
-    icon: ReactNode;
-  }> = [
-    {
-      value: "preview",
-      label: t("taskPackResult.preview"),
-      icon: <Eye size={14} />,
-    },
-    {
-      value: "raw",
-      label: t("taskPackResult.rawMarkdown"),
-      icon: <Code2 size={14} />,
-    },
-  ];
-
-  return (
-    <HorizontalSlidingSelector
-      items={options}
-      activeIndex={options.findIndex((option) => option.value === value)}
-      getItemKey={(option) => option.value}
-      onSelect={(option) => onChange(option.value)}
-      ariaLabel={t("taskPackResult.viewMode")}
-      className="h-11 w-full sm:w-[310px]"
-      itemClassName="rounded-[0.95rem]"
-      renderItem={(option, isActive) => (
-        <span className="flex h-full items-center justify-center gap-2 px-3">
-          <span className={isActive ? "text-black" : "text-neutral-500"}>
-            {option.icon}
-          </span>
-          <span className="truncate text-xs font-semibold">{option.label}</span>
-        </span>
-      )}
-    />
-  );
-}
-
-function SummaryMetric({
-  icon,
-  label,
-  value,
-  caption,
-}: {
-  icon: ReactNode;
-  label: string;
-  value: string | number;
-  caption: string;
-}) {
-  return (
-    <div className="min-w-0 rounded-2xl border border-neutral-900 bg-black/35 p-3">
-      <div className="flex items-center justify-between gap-3">
-        <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-          {icon}
-        </span>
-        <span className="truncate text-sm font-semibold text-white">{value}</span>
-      </div>
-      <p className="cf-tech-label mt-3 truncate text-[9px] uppercase text-neutral-600">
-        {label}
-      </p>
-      <p className="mt-1 truncate text-[10px] text-neutral-600">{caption}</p>
-    </div>
-  );
-}
-
-function MetadataRow({
-  label,
-  value,
-  caption,
-  icon,
-}: {
-  label: string;
-  value: string;
-  caption?: string;
-  icon: ReactNode;
-}) {
-  return (
-    <div className="flex min-w-0 items-center gap-3 rounded-2xl border border-neutral-900 bg-black/30 p-3">
-      <span className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-400">
-        {icon}
-      </span>
-      <div className="min-w-0 flex-1">
-        <p className="cf-tech-label truncate text-[9px] uppercase text-neutral-600">
-          {label}
-        </p>
-        <p className="mt-1 truncate text-xs font-semibold text-white">{value}</p>
-        {caption ? (
-          <p className="mt-0.5 truncate text-[10px] text-neutral-600">{caption}</p>
-        ) : null}
-      </div>
-    </div>
-  );
 }
 
 function CreateGitHubIssueModal({
@@ -799,395 +491,6 @@ function CreateGitHubIssueModal({
     </Modal>
   );
 }
-
-function GenerationSummaryCard({ taskPack }: { taskPack: TaskPack }) {
-  const { t, i18n } = useTranslation();
-  const targetLabel = getTargetLabel(taskPack.targetTool);
-  const taskTypeLabel = getTaskTypeLabel(taskPack.taskType, t);
-  const modeLabel =
-    taskPack.generationMode === "ollama"
-      ? t("taskPackResult.ollamaMode")
-      : t("taskPackResult.templateMode");
-
-  return (
-    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-4 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-      <div className="flex items-center gap-3">
-        <AiToolLogo
-          tool={taskPack.targetTool === "claude" ? "claudecode" : taskPack.targetTool}
-          size="lg"
-          tone="monochrome"
-        />
-        <div className="min-w-0">
-          <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-            {t("taskPackResult.generationSummary")}
-          </p>
-          <h2 className="mt-1 truncate text-base font-semibold text-white">
-            {targetLabel} · {taskTypeLabel}
-          </h2>
-        </div>
-      </div>
-
-      <div className="mt-4 grid grid-cols-2 gap-2">
-        <SummaryMetric
-          icon={<Target size={14} />}
-          label={t("taskPackResult.target")}
-          value={targetLabel}
-          caption={t("taskPackResult.agent")}
-        />
-        <SummaryMetric
-          icon={<Wrench size={14} />}
-          label={t("taskPackResult.taskType")}
-          value={taskTypeLabel}
-          caption={t("taskPackResult.effective")}
-        />
-        <SummaryMetric
-          icon={<Clock3 size={14} />}
-          label={t("taskPackResult.duration")}
-          value={formatDuration(taskPack.generationDurationMs, t)}
-          caption={t("taskPackResult.generation")}
-        />
-        <SummaryMetric
-          icon={<Bot size={14} />}
-          label={t("taskPackResult.mode")}
-          value={modeLabel}
-          caption={
-            taskPack.generationUsedFallback
-              ? t("taskPackResult.fallback")
-              : t("taskPackResult.stable")
-          }
-        />
-      </div>
-
-      <div className="mt-3 flex items-center gap-2 rounded-2xl border border-neutral-900 bg-black/25 px-3 py-2.5 text-[11px] text-neutral-600">
-        <FileText size={13} className="shrink-0" />
-        <span className="truncate">
-          {t("taskPackResult.created", {
-            date: formatDate(taskPack.createdAt, i18n.resolvedLanguage ?? i18n.language),
-          })}
-        </span>
-      </div>
-    </section>
-  );
-}
-
-function OriginalTaskCard({
-  taskPack,
-  onEdit,
-  canEdit,
-  editExplanation,
-}: {
-  taskPack: TaskPack;
-  onEdit: () => void;
-  canEdit: boolean;
-  editExplanation: string;
-}) {
-  const { t } = useTranslation();
-
-  return (
-    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-center gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-            <Clipboard size={15} />
-          </span>
-          <div className="min-w-0">
-            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-              {t("taskPackResult.originalTask")}
-            </p>
-            <h3 className="mt-1 truncate text-sm font-semibold text-white">
-              {t("taskPackResult.originalTaskTitle")}
-            </h3>
-          </div>
-        </div>
-
-        <button
-          type="button"
-          onClick={onEdit}
-          disabled={!canEdit}
-          title={editExplanation || t("taskPackResult.editOriginalTask")}
-          className="grid size-8 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-500 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-          aria-label={t("taskPackResult.editOriginalTask")}
-        >
-          <Edit3 size={13} />
-        </button>
-      </div>
-
-      <p className="mt-3 line-clamp-5 whitespace-pre-wrap text-xs leading-5 text-neutral-500">
-        {taskPack.rawTask || t("taskPackResult.originalTaskEmpty")}
-      </p>
-      {!canEdit ? <p className="mt-2 text-xs leading-5 text-neutral-400">{editExplanation}</p> : null}
-    </section>
-  );
-}
-
-function GenerationContractCard({ taskPack }: { taskPack: TaskPack }) {
-  const { t } = useTranslation();
-  const [isExpanded, setIsExpanded] = useState(false);
-  const recipe = taskPack.generationRecipe;
-
-  if (!recipe) {
-    return (
-      <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-4">
-        <div className="flex items-start gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-400">
-            <ShieldCheck size={15} />
-          </span>
-          <div>
-            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-              {t("taskPackResult.generationContract")}
-            </p>
-            <h3 className="mt-1 text-sm font-semibold text-white">
-              {t("taskPackResult.noRecipeMetadata")}
-            </h3>
-            <p className="mt-2 text-xs leading-5 text-neutral-600">
-              {t("taskPackResult.noRecipeMetadataDescription")}
-            </p>
-          </div>
-        </div>
-      </section>
-    );
-  }
-
-  const templateCaption = recipe.template
-    ? `${getTargetLabel(recipe.template.targetTool)} · ${getTaskTypeLabel(recipe.template.taskType, t)} · ${
-        recipe.template.isBuiltin
-          ? t("taskPackResult.builtIn")
-          : t("taskPackResult.custom")
-      }`
-    : t("taskPackResult.templateMissing");
-
-  const profileCaption = recipe.ruleProfile
-    ? `${getTaskTypeLabel(recipe.ruleProfile.taskType, t)} · ${
-        recipe.ruleProfile.isBuiltin
-          ? t("taskPackResult.builtIn")
-          : t("taskPackResult.custom")
-      }`
-    : t("taskPackResult.profileMissing");
-
-  return (
-    <section className="rounded-[1.5rem] border border-neutral-900 bg-black/35 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex min-w-0 items-start gap-3">
-          <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-emerald-400/20 bg-emerald-400/10 text-emerald-300">
-            <ShieldCheck size={15} />
-          </span>
-          <div className="min-w-0">
-            <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-              {t("taskPackResult.generationContract")}
-            </p>
-            <h3 className="mt-1 truncate text-sm font-semibold text-white">
-              {t("taskPackResult.contractReady")}
-            </h3>
-            <p className="mt-1 text-[11px] leading-5 text-neutral-600">
-              {t("taskPackResult.contractDescription")}
-            </p>
-          </div>
-        </div>
-      </div>
-
-      <div className="mt-4 space-y-2">
-        <MetadataRow
-          icon={<FileText size={14} />}
-          label={t("taskPackResult.template")}
-          value={recipe.template?.name ?? t("taskPackResult.noTemplate")}
-          caption={templateCaption}
-        />
-        <MetadataRow
-          icon={<ListChecks size={14} />}
-          label={t("taskPackResult.ruleProfile")}
-          value={recipe.ruleProfile?.name ?? t("taskPackResult.noProfile")}
-          caption={profileCaption}
-        />
-      </div>
-
-      <button
-        type="button"
-        onClick={() => setIsExpanded((value) => !value)}
-        className="mt-3 flex h-9 w-full items-center justify-center gap-2 rounded-full border border-neutral-800 bg-neutral-950 text-xs font-medium text-neutral-400 transition hover:border-white/20 hover:text-white"
-      >
-        {isExpanded ? <ChevronUp size={13} /> : <ChevronDown size={13} />}
-        {isExpanded
-          ? t("taskPackResult.hideContractDetails")
-          : t("taskPackResult.showContractDetails")}
-      </button>
-
-      {isExpanded && (
-        <motion.div
-          className="mt-4 space-y-3 border-t border-neutral-900 pt-4"
-          initial={{ opacity: 0, y: -6 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={PAGE_TRANSITION}
-        >
-          {recipe.taskClarifications && recipe.taskClarifications.length > 0 && (
-            <div className="rounded-2xl border border-white/10 bg-white/[0.035] p-3">
-              <p className="mb-2 flex items-center gap-2 text-xs font-semibold text-white">
-                <Sparkles size={13} />
-                {t("taskPackResult.userClarifications")}
-              </p>
-              <div className="space-y-2">
-                {recipe.taskClarifications.map((item, index) => (
-                  <div
-                    key={`${item.question}-${index}`}
-                    className="rounded-xl border border-neutral-900 bg-black/35 p-3"
-                  >
-                    <p className="text-[10px] leading-4 text-neutral-600">
-                      {item.question}
-                    </p>
-                    <p className="mt-1 text-xs leading-5 text-neutral-300">
-                      {item.answer}
-                    </p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {recipe.githubIssue && (
-            <button
-              type="button"
-              onClick={() => openGitHubUrl(recipe.githubIssue!.issueUrl)}
-              className="w-full rounded-2xl border border-neutral-900 bg-black/30 p-3 text-left transition hover:border-white/15"
-            >
-              <p className="flex items-center gap-2 text-xs font-semibold text-white">
-                <Github size={13} />
-                {t("taskPackResult.sourceIssue")}
-              </p>
-              <p className="mt-2 truncate text-xs text-neutral-400">
-                #{recipe.githubIssue.issueNumber} · {recipe.githubIssue.issueTitle}
-              </p>
-              <p className="mt-1 truncate text-[10px] text-neutral-600">
-                {recipe.githubIssue.fullName}
-              </p>
-            </button>
-          )}
-
-          {recipe.githubCreatedIssue && (
-            <button
-              type="button"
-              onClick={() => openGitHubUrl(recipe.githubCreatedIssue!.issueUrl)}
-              className="w-full rounded-2xl border border-emerald-400/15 bg-emerald-400/[0.055] p-3 text-left transition hover:border-emerald-300/25"
-            >
-              <p className="flex items-center gap-2 text-xs font-semibold text-emerald-100">
-                <ExternalLink size={13} />
-                {t("taskPackResult.createdIssue")}
-              </p>
-              <p className="mt-2 truncate text-xs text-white">
-                #{recipe.githubCreatedIssue.issueNumber} · {recipe.githubCreatedIssue.issueTitle}
-              </p>
-              <p className="mt-1 truncate text-[10px] text-emerald-100/60">
-                {recipe.githubCreatedIssue.fullName}
-              </p>
-            </button>
-          )}
-
-          <div className="rounded-2xl border border-neutral-900 bg-black/30 p-3">
-            <p className="text-xs font-semibold text-white">
-              {t("taskPackResult.enabledRules")}
-            </p>
-            <div className="mt-3 flex flex-wrap gap-2">
-              {recipe.enabledRules.length > 0 ? (
-                recipe.enabledRules.map((rule) => (
-                  <span
-                    key={rule.id}
-                    className="rounded-full border border-neutral-800 bg-neutral-950 px-2.5 py-1 text-[10px] text-neutral-400"
-                  >
-                    {rule.title}
-                  </span>
-                ))
-              ) : (
-                <span className="text-xs text-neutral-600">
-                  {t("taskPackResult.noEnabledRules")}
-                </span>
-              )}
-            </div>
-          </div>
-
-          {recipe.customRules.length > 0 && (
-            <div className="rounded-2xl border border-neutral-900 bg-black/30 p-3">
-              <p className="text-xs font-semibold text-white">
-                {t("taskPackResult.customRules")}
-              </p>
-              <ul className="mt-3 space-y-2">
-                {recipe.customRules.map((rule) => (
-                  <li
-                    key={rule}
-                    className="rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-[11px] leading-5 text-neutral-500"
-                  >
-                    {rule}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          <div className="rounded-2xl border border-neutral-900 bg-black/30 p-3">
-            <p className="text-xs font-semibold text-white">
-              {t("taskPackResult.acceptanceCriteria")}
-            </p>
-            {recipe.acceptanceCriteria.length > 0 ? (
-              <ol className="mt-3 space-y-2">
-                {recipe.acceptanceCriteria.map((criterion, index) => (
-                  <li
-                    key={criterion}
-                    className="flex items-start gap-2 rounded-xl border border-neutral-900 bg-black/35 px-3 py-2 text-[11px] leading-5 text-neutral-500"
-                  >
-                    <span className="grid size-5 shrink-0 place-items-center rounded-full border border-neutral-800 text-[9px] text-neutral-500">
-                      {index + 1}
-                    </span>
-                    <span>{criterion}</span>
-                  </li>
-                ))}
-              </ol>
-            ) : (
-              <p className="mt-3 text-xs text-neutral-600">
-                {t("taskPackResult.noAcceptanceCriteria")}
-              </p>
-            )}
-          </div>
-        </motion.div>
-      )}
-    </section>
-  );
-}
-
-function PromptPanel({
-  viewMode,
-  generatedPrompt,
-}: {
-  viewMode: PromptViewMode;
-  generatedPrompt: string;
-}) {
-  return (
-    <div className="h-full min-h-0 overflow-hidden rounded-[1.35rem] border border-neutral-900 bg-black/30 p-2.5 shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-      {viewMode === "preview" ? (
-        <motion.article
-          key="preview"
-          className="h-full min-h-0 overflow-y-auto rounded-[1rem] bg-neutral-950/45 px-6 py-5 text-sm"
-          initial={{ opacity: 0, y: 8, scale: 0.995 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={PAGE_TRANSITION}
-        >
-          <div className="cf-markdown-preview mx-auto max-w-4xl">
-            <ReactMarkdown remarkPlugins={[remarkGfm]}>
-              {generatedPrompt}
-            </ReactMarkdown>
-          </div>
-        </motion.article>
-      ) : (
-        <motion.pre
-          key="raw"
-          className="h-full min-h-0 overflow-y-auto whitespace-pre-wrap rounded-[1rem] bg-black/75 p-5 font-mono text-xs leading-6 text-neutral-300"
-          initial={{ opacity: 0, y: 8, scale: 0.995 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          transition={PAGE_TRANSITION}
-        >
-          {generatedPrompt}
-        </motion.pre>
-      )}
-    </div>
-  );
-}
-
 
 type TaskPackEditorView = "edit" | "preview";
 
@@ -1538,6 +841,7 @@ export function TaskPackResultPage({
   onReviewProject,
 }: TaskPackResultPageProps) {
   const { t } = useTranslation();
+  const [workspaceView, setWorkspaceView] = useState<TaskPackWorkspaceView>("document");
   const [viewMode, setViewMode] = useState<PromptViewMode>("preview");
   const [isCopied, setIsCopied] = useState(false);
   const [currentTaskPack, setCurrentTaskPack] = useState(taskPack);
@@ -1564,6 +868,8 @@ export function TaskPackResultPage({
     setCurrentTaskPack(taskPack);
   }, [taskPack]);
 
+  useEffect(() => { setWorkspaceView("document"); }, [taskPack.id]);
+
   const generatedPrompt = currentTaskPack.generatedPrompt ?? "";
   const sourceIssue = currentTaskPack.generationRecipe?.githubIssue;
   const createdIssue = currentTaskPack.generationRecipe?.githubCreatedIssue;
@@ -1576,8 +882,10 @@ export function TaskPackResultPage({
       label: string;
       icon: ReactNode;
       onClick: () => void;
-      tone?: "default" | "accent";
-    }> = [];
+    }> = [
+      { id: "open-archive", label: t("taskPackResult.openArchive"), icon: <Archive size={14} />, onClick: onOpenArchive },
+      { id: "inspect", label: t("inspector.inspect"), icon: <ScanSearch size={14} />, onClick: () => onInspectTaskPack(currentTaskPack) },
+    ];
 
     if (onOpenInBuilder) {
       actions.push({ id: "open-in-builder", label: t("taskPackResult.openInBuilder"),
@@ -1606,7 +914,6 @@ export function TaskPackResultPage({
         label: t("taskPackResult.createIssue"),
         icon: <Github size={14} />,
         onClick: () => setIsCreateIssueOpen(true),
-        tone: "accent",
       });
     }
 
@@ -1641,6 +948,8 @@ export function TaskPackResultPage({
   }, [
     currentTaskPack,
     onOpenInBuilder,
+    onOpenArchive,
+    onInspectTaskPack,
     createdIssue,
     generationDiagnostics,
     performanceDiagnostics,
@@ -1713,151 +1022,33 @@ export function TaskPackResultPage({
     <section className="grid h-[calc(100vh-96px)] min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-4 overflow-hidden pr-1">
       <style>{MARKDOWN_PREVIEW_STYLES}</style>
 
-      <header className="relative z-30 shrink-0 overflow-visible rounded-[1.5rem] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.045),rgba(255,255,255,0.012))] shadow-[0_14px_44px_rgba(0,0,0,0.32),inset_0_1px_0_rgba(255,255,255,0.045)]">
-        <div className="flex flex-col gap-4 p-4 xl:flex-row xl:items-start xl:justify-between">
-          <div className="min-w-0">
-            <div className="flex flex-wrap items-center gap-2 text-neutral-600">
-              <Sparkles size={13} />
-              <p className="cf-tech-label text-[10px] uppercase">
-                {t("taskPackResult.workspaceEyebrow", {
-                  project:
-                    currentTaskPack.projectName ??
-                    t("taskPackResult.projectFallback", {
-                      id: currentTaskPack.projectId,
-                    }),
-                })}
-              </p>
-              <Pill tone="success">
-                <Check size={11} />
-                {t("taskPackWorkflow.documentReady")}
-              </Pill>
-              {workflow ? <TaskPackWorkflowBadges workflow={workflow} /> : null}
-              <TaskPackFreshnessBadge freshness={freshness} />
-            </div>
+      <TaskPackWorkspaceHeader taskPack={currentTaskPack}
+        workflow={workflowController.blocked ? null : workflow}
+        view={workspaceView} onViewChange={setWorkspaceView} onBack={onClose}
+        onCopy={handleCopyPrompt} isCopied={isCopied} actions={secondaryActions} editorOpenError={editorOpenError} />
 
-            <h1 className="mt-2 line-clamp-2 max-w-5xl text-[27px] font-semibold leading-[1.05] tracking-[-0.05em] text-white">
-              {currentTaskPack.title}
-            </h1>
-
-            <p className="mt-2 max-w-4xl text-xs leading-5 text-neutral-500">
-              {t("taskPackResult.workspaceDescription")}
-            </p>
-          </div>
-
-          <div className="flex shrink-0 flex-wrap gap-2">
-            <Button variant="secondary" onClick={onClose}>
-              <ArrowLeft size={15} />
-              {t("taskPackResult.back")}
-            </Button>
-            <Button variant="secondary" onClick={onOpenArchive}>
-              <Archive size={15} />
-              {t("taskPackResult.openArchive")}
-            </Button>
-            <Button
-              variant="secondary"
-              onClick={() => onInspectTaskPack(currentTaskPack)}
-            >
-              <ScanSearch size={15} />
-              {t("inspector.inspect")}
-            </Button>
-            <Button variant="primary" onClick={handleCopyPrompt}>
-              {isCopied ? <Check size={15} /> : <Copy size={15} />}
-              {isCopied
-                ? t("taskPackResult.copied")
-                : t("taskPackResult.copyPrompt")}
-            </Button>
-            <MoreActionsMenu
-              actions={secondaryActions}
-              label={t("taskPackResult.moreActions")}
-            />
+      {/* Keep view instances alive: switching surfaces does not reset scroll, preview or confirmation state. */}
+      <main className="min-h-0 min-w-0 overflow-hidden">
+        <div hidden={workspaceView !== "document"} className={workspaceView === "document" ? "h-full min-h-0" : "hidden"}>
+          <TaskPackDocumentView taskPack={currentTaskPack} viewMode={viewMode} onViewModeChange={setViewMode}
+            freshness={freshness} onReviewProject={() => onReviewProject(currentTaskPack.projectId)}
+            onEdit={() => void handleOpenEditor("prompt")} canEdit={canEdit} editExplanation={editExplanation} />
+        </div>
+        <div hidden={workspaceView !== "review"} className={workspaceView === "review" ? "h-full min-h-0 overflow-y-auto pr-1" : "hidden"}
+          data-task-pack-view="review" aria-label={t("taskPackWorkspace.review")}>
+          <div className="mx-auto max-w-6xl px-2 pb-6 sm:px-4">
+            <TaskPackWorkflowCard key={`${taskPack.id}:${currentTaskPack.currentRevisionId ?? "unknown"}`}
+              {...workflowController} disabled={editorSession !== null}
+              onRefresh={workflowController.refresh} onExecute={workflowController.execute} onClearIssue={workflowController.clearIssue} />
           </div>
         </div>
-
-        {freshness.status !== "current" ? (
-          <div className="border-t border-white/[0.065] p-3">
-            <TaskPackFreshnessNotice
-              freshness={freshness}
-              onReviewProject={() => onReviewProject(currentTaskPack.projectId)}
-            />
-          </div>
-        ) : null}
-        {editorOpenError ? (
-          <div className="border-t border-red-400/15 bg-red-400/[0.055] px-4 py-3 text-xs text-red-200">
-            {editorOpenError}
-          </div>
-        ) : null}
-      </header>
-
-      <div className="grid min-h-0 gap-4 overflow-hidden xl:grid-cols-[340px_minmax(0,1fr)]">
-        <aside className="min-h-0 space-y-3 overflow-y-auto pr-1">
-          <TaskPackWorkflowCard key={`${taskPack.id}:${currentTaskPack.currentRevisionId ?? "unknown"}`}
-            {...workflowController} disabled={editorSession !== null}
-            onRefresh={workflowController.refresh} onExecute={workflowController.execute} onClearIssue={workflowController.clearIssue} />
-          <GenerationSummaryCard taskPack={currentTaskPack} />
-          <OriginalTaskCard
-            taskPack={currentTaskPack}
-            onEdit={() => void handleOpenEditor("task")}
-            canEdit={canEdit}
-            editExplanation={editExplanation}
-          />
-          <GenerationContractCard taskPack={currentTaskPack} />
-        </aside>
-
-        <main className="flex min-h-0 flex-col overflow-hidden rounded-[1.5rem] border border-neutral-900 bg-black/35 shadow-[inset_0_1px_0_rgba(255,255,255,0.035)]">
-          <div className="flex shrink-0 flex-col gap-3 border-b border-neutral-900 p-3 sm:flex-row sm:items-center sm:justify-between">
-            <div className="flex min-w-0 items-center gap-3 px-1">
-              <span className="grid size-9 shrink-0 place-items-center rounded-xl border border-neutral-800 bg-neutral-950 text-neutral-300">
-                <FileText size={16} />
-              </span>
-              <div className="min-w-0">
-                <p className="cf-tech-label text-[9px] uppercase text-neutral-600">
-                  {t("taskPackResult.documentEyebrow")}
-                </p>
-                <h2 className="mt-1 truncate text-sm font-semibold text-white">
-                  {t("taskPackResult.documentTitle")}
-                </h2>
-                <p className="mt-0.5 truncate text-[10px] text-neutral-600">
-                  {t("taskPackResult.documentCaption", {
-                    chars: generatedPrompt.length.toLocaleString(),
-                  })}
-                </p>
-              </div>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
-                onClick={() => void handleOpenEditor("prompt")}
-                disabled={!canEdit}
-                title={editExplanation || t("taskPackResult.editTaskPack")}
-                className="inline-flex h-9 items-center gap-2 rounded-full border border-neutral-800 bg-neutral-950 px-3 text-xs font-medium text-neutral-300 transition hover:border-white/20 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                <Edit3 size={13} />
-                {t("taskPackResult.editTaskPack")}
-              </button>
-              <ViewModeSwitch value={viewMode} onChange={setViewMode} t={t} />
-            </div>
-          </div>
-
-          {!canEdit ? <p className="border-b border-neutral-900 px-4 py-2 text-xs leading-5 text-neutral-400">{editExplanation}</p> : null}
-          <div className="min-h-0 flex-1 p-3">
-            <PromptPanel viewMode={viewMode} generatedPrompt={generatedPrompt} />
-          </div>
-
-          <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-neutral-900 px-4 py-2.5 text-[10px] text-neutral-600">
-            <span className="flex items-center gap-2">
-              <Check size={12} className="text-emerald-300" />
-              {t("taskPackResult.contentReady")}
-            </span>
-
-            <div className="flex flex-wrap items-center gap-3">
-              <span>{t("taskPackResult.localOnly")}</span>
-              <span className="hidden h-4 w-px bg-neutral-900 sm:block" />
-              <TaskPackExportActions taskPack={currentTaskPack} compact />
-            </div>
-          </div>
-        </main>
-      </div>
+        <div hidden={workspaceView !== "details"} className={workspaceView === "details" ? "h-full min-h-0" : "hidden"}>
+          <TaskPackDetailsView taskPack={currentTaskPack} freshness={freshness}
+            onReviewProject={() => onReviewProject(currentTaskPack.projectId)}
+            onEditOriginal={() => void handleOpenEditor("task")} onOpenGitHubUrl={(url) => void openGitHubUrl(url)}
+            canEdit={canEdit} editExplanation={editExplanation} />
+        </div>
+      </main>
 
       {isCreateIssueOpen && (
         <CreateGitHubIssueModal
