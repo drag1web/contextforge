@@ -9,16 +9,23 @@ import type {
   TaskPackCurrentRecord,
   TaskPackRecord,
   TaskPackRevisionRecord,
+  TaskPackLifecycleStorageErrorCode,
+  TaskPackReviewStorageErrorCode,
 } from "../storage/types.js";
 import {
   TaskPackCurrentStateStorageError,
   TaskPackRevisionAppendStorageError,
+  TaskPackLifecycleStorageError,
+  TaskPackReviewStorageError,
 } from "../storage/types.js";
 import {
   createTaskPackApplicationService,
   TaskPackCurrentStateError,
   TaskPackGeneratedCreateInputError,
   TaskPackRevisionConflictError,
+  TaskPackWorkflowApplicationError,
+  type TaskPackLifecycleCommandInput,
+  type TaskPackRevisionReviewCommandInput,
   type CreateGeneratedTaskPackInput,
   type TaskPackApplicationServiceStorage,
 } from "./taskPackApplicationService.js";
@@ -214,6 +221,9 @@ function storageFixture(
     createTaskPackWithInitialRevision: async () => taskPack,
     getTaskPackGitHubCreatedIssueLink: async () => null,
     createTaskPackGitHubCreatedIssueLink: async (input) => input,
+    listTaskPackRevisionReviewEvents: async () => [],
+    transitionTaskPackAggregateLifecycle: async () => { throw new Error("Unexpected lifecycle write"); },
+    transitionTaskPackRevisionReview: async () => { throw new Error("Unexpected review write"); },
     ...overrides,
   };
 }
@@ -444,6 +454,374 @@ scenario("transaction-level stale append becomes a typed service conflict", asyn
       return true;
     },
   );
+});
+
+// 05C: real SQLite workflows, with deterministic server-owned event fields.
+let workflowPack: TaskPackRecord;
+let workflowRevisionId: number;
+let eventSequence = 0;
+const workflowRuntime = {
+  now: () => new Date(Date.UTC(2030, 0, 1) + eventSequence * 1000).toISOString(),
+  createEventId: () => `workflow-service-${++eventSequence}`,
+};
+const workflowService = createTaskPackApplicationService(adapter, workflowRuntime);
+
+scenario("workflow fresh read is compact active/unreviewed with authoritative version", async () => {
+  workflowPack = await workflowService.createGeneratedTaskPack(generatedCreateInput());
+  const state = await workflowService.getCurrentTaskPackWorkflowState(workflowPack.id);
+  assert.ok(state);
+  workflowRevisionId = state.currentRevisionId;
+  assert.deepEqual(state, {
+    taskPackId: workflowPack.id, lifecycle: { state: "active", archivedFromState: null },
+    lifecycleVersion: 1, currentRevisionId: workflowRevisionId, acceptedRevisionId: null,
+    completedAt: null, archivedAt: null, currentReviewState: "unreviewed",
+  });
+});
+
+scenario("workflow missing read returns null", async () => {
+  assert.equal(await workflowService.getCurrentTaskPackWorkflowState(999999), null);
+});
+
+scenario("review forwards exact CAS/state/identity and server fields without any pre-read", async () => {
+  const forbiddenRead = async (): Promise<never> => { throw new Error("Command must not pre-read"); };
+  const service = createTaskPackApplicationService(storageFixture({
+    getTaskPackAggregate: forbiddenRead, getTaskPackRevisionById: forbiddenRead,
+    getTaskPackCurrentRecordById: forbiddenRead, listTaskPackRevisionReviewEvents: forbiddenRead,
+    transitionTaskPackRevisionReview: async input => {
+      assert.deepEqual(input, {
+        taskPackId: workflowPack.id, revisionId: workflowRevisionId,
+        expectedLifecycleVersion: 1, expectedReviewState: "unreviewed", transition: { type: "start_review" },
+        eventId: "workflow-service-1", createdAt: "2030-01-01T00:00:00.000Z",
+        source: "user", actorId: null, metadata: null,
+      });
+      return adapter.transitionTaskPackRevisionReview(input);
+    },
+  }), workflowRuntime);
+  const result = await service.transitionTaskPackRevisionReview({
+    taskPackId: workflowPack.id, revisionId: workflowRevisionId,
+    expectedLifecycleVersion: 1, expectedReviewState: "unreviewed", action: "start_review",
+  });
+  assert.equal(result.reviewState, "in_review");
+  assert.equal(result.aggregate.lifecycleVersion, 1);
+});
+
+scenario("workflow replays full current revision chain, not accepted pointer", async () => {
+  // changes_requested is terminal in the frozen domain: use a separate revision.
+  let sequence = 0;
+  const service = createTaskPackApplicationService(adapter, {
+    now: () => new Date(Date.UTC(2030, 0, 1) + sequence * 1000).toISOString(),
+    createEventId: () => `changes-requested-${++sequence}`,
+  });
+  const pack = await service.createGeneratedTaskPack(generatedCreateInput());
+  const revisionId = (await service.getCurrentTaskPackRevision(pack.id))!.id;
+  await service.transitionTaskPackRevisionReview({ taskPackId: pack.id, revisionId,
+    expectedLifecycleVersion: 1, expectedReviewState: "unreviewed", action: "start_review" });
+  await service.transitionTaskPackRevisionReview({
+    taskPackId: pack.id, revisionId,
+    expectedLifecycleVersion: 1, expectedReviewState: "in_review", action: "request_changes",
+  });
+  const state = await service.getCurrentTaskPackWorkflowState(pack.id);
+  assert.equal(state?.currentReviewState, "changes_requested");
+  assert.equal(state?.acceptedRevisionId, null);
+  assert.equal((await adapter.listTaskPackRevisionReviewEvents(pack.id, revisionId)).length, 2);
+});
+
+scenario("accept updates accepted pointer but does not complete Task Pack", async () => {
+  const result = await workflowService.transitionTaskPackRevisionReview({
+    taskPackId: workflowPack.id, revisionId: workflowRevisionId,
+    expectedLifecycleVersion: 1, expectedReviewState: "in_review", action: "accept",
+  });
+  assert.equal(result.reviewState, "accepted");
+  assert.equal(result.aggregate.lifecycle.state, "active");
+  assert.equal(result.aggregate.acceptedRevisionId, workflowRevisionId);
+  assert.equal(result.aggregate.lifecycleVersion, 2);
+  assert.equal((await workflowService.getCurrentTaskPackWorkflowState(workflowPack.id))?.currentReviewState, "accepted");
+});
+
+scenario("complete forwards exact token and server fields without pre-read", async () => {
+  const forbiddenRead = async (): Promise<never> => { throw new Error("Command must not pre-read"); };
+  const service = createTaskPackApplicationService(storageFixture({
+    getTaskPackAggregate: forbiddenRead, getTaskPackRevisionById: forbiddenRead,
+    getTaskPackCurrentRecordById: forbiddenRead, listTaskPackRevisionReviewEvents: forbiddenRead,
+    transitionTaskPackAggregateLifecycle: async input => {
+      assert.deepEqual(input, {
+        taskPackId: workflowPack.id, expectedLifecycleVersion: 2, transition: { type: "complete" },
+        eventId: "workflow-service-3", createdAt: "2030-01-01T00:00:02.000Z",
+        source: "user", actorId: null, metadata: null,
+      });
+      return adapter.transitionTaskPackAggregateLifecycle(input);
+    },
+  }), workflowRuntime);
+  const result = await service.transitionTaskPackLifecycle({
+    taskPackId: workflowPack.id, expectedLifecycleVersion: 2, action: "complete",
+  });
+  assert.equal(result.aggregate.lifecycle.state, "completed");
+  assert.equal(result.aggregate.lifecycleVersion, 3);
+  assert.equal(result.event.revisionId, workflowRevisionId);
+  assert.equal((await workflowService.getCurrentTaskPackWorkflowState(workflowPack.id))?.lifecycle.state, "completed");
+});
+
+scenario("reopen/archive/unarchive use authoritative storage and preserve current flat reads", async () => {
+  const flatBefore = await workflowService.getCurrentTaskPack(workflowPack.id);
+  for (const [action, version, state] of [["reopen", 3, "active"], ["archive", 4, "archived"], ["unarchive", 5, "active"]] as const) {
+    const result = await workflowService.transitionTaskPackLifecycle({ taskPackId: workflowPack.id, expectedLifecycleVersion: version, action });
+    assert.equal(result.aggregate.lifecycle.state, state);
+    assert.equal(result.event.revisionId, null);
+    assert.ok((await workflowService.listCurrentTaskPacks()).some(pack => pack.id === workflowPack.id));
+  }
+  assert.equal((await workflowService.getCurrentTaskPack(workflowPack.id))?.rawTask, flatBefore?.rawTask);
+});
+
+scenario("workflow follows appended current revision and queries only its exact history", async () => {
+  const edited = await workflowService.editTaskPackContent({ taskPackId: workflowPack.id,
+    expectedCurrentRevisionId: workflowRevisionId, rawTask: "New current revision after review." });
+  const queries: number[][] = [];
+  const service = createTaskPackApplicationService({
+    ...storageFixture({}),
+    getTaskPackCurrentRecordById: id => adapter.getTaskPackCurrentRecordById(id),
+    getTaskPackAggregate: id => adapter.getTaskPackAggregate(id),
+    getTaskPackRevisionById: (id, revisionId) => adapter.getTaskPackRevisionById(id, revisionId),
+    listTaskPackRevisionReviewEvents: async (id, revisionId) => {
+      assert.ok(revisionId);
+      queries.push([id, revisionId]);
+      return adapter.listTaskPackRevisionReviewEvents(id, revisionId);
+    },
+  });
+  const state = await service.getCurrentTaskPackWorkflowState(workflowPack.id);
+  assert.equal(state?.currentRevisionId, edited.currentRevisionId);
+  assert.equal(state?.acceptedRevisionId, workflowRevisionId);
+  assert.equal(state?.currentReviewState, "unreviewed");
+  assert.deepEqual(queries, [[workflowPack.id, edited.currentRevisionId]]);
+});
+
+const lifecycleCodes: TaskPackLifecycleStorageErrorCode[] = [
+  "TASK_PACK_LIFECYCLE_NOT_FOUND", "TASK_PACK_LIFECYCLE_CONFLICT", "TASK_PACK_LIFECYCLE_VERSION_EXHAUSTED",
+  "TASK_PACK_LIFECYCLE_INVALID_TRANSITION", "TASK_PACK_LIFECYCLE_STATE_INVALID", "TASK_PACK_LIFECYCLE_EVENT_EXISTS",
+];
+const reviewCodes: TaskPackReviewStorageErrorCode[] = [
+  "TASK_PACK_REVIEW_NOT_FOUND", "TASK_PACK_REVIEW_REVISION_NOT_FOUND", "TASK_PACK_REVIEW_CONFLICT",
+  "TASK_PACK_REVIEW_VERSION_EXHAUSTED", "TASK_PACK_REVIEW_INVALID_TRANSITION", "TASK_PACK_REVIEW_STATE_INVALID", "TASK_PACK_REVIEW_EVENT_EXISTS",
+];
+for (const code of lifecycleCodes) scenario(`lifecycle translates ${code} without storage details or retry`, async () => {
+  let calls = 0;
+  const storageError = new TaskPackLifecycleStorageError(code, 12, 4, 5);
+  storageError.message = "private SQL constraint details";
+  const service = createTaskPackApplicationService(storageFixture({
+    transitionTaskPackAggregateLifecycle: async () => { calls++; throw storageError; },
+  }), workflowRuntime);
+  await assert.rejects(() => service.transitionTaskPackLifecycle({ taskPackId: 12, expectedLifecycleVersion: 4, action: "complete" }), error => {
+    assert.ok(error instanceof TaskPackWorkflowApplicationError);
+    assert.equal(error.code, code);
+    assert.deepEqual(error.evidence, { taskPackId: 12, expectedLifecycleVersion: 4, actualLifecycleVersion: 5 });
+    assert.doesNotMatch(error.message, /private|SQL|constraint/);
+    assert.equal(Object.hasOwn(error, "cause"), false);
+    return true;
+  });
+  assert.equal(calls, 1);
+});
+for (const code of reviewCodes) scenario(`review translates ${code} with safe evidence and no retry`, async () => {
+  let calls = 0;
+  const evidence = { taskPackId: 12, revisionId: 18, expectedLifecycleVersion: 4, actualLifecycleVersion: 5,
+    expectedReviewState: "unreviewed", actualReviewState: "in_review" } as const;
+  const storageError = new TaskPackReviewStorageError(code, evidence);
+  storageError.message = "private driver message";
+  const service = createTaskPackApplicationService(storageFixture({
+    transitionTaskPackRevisionReview: async () => { calls++; throw storageError; },
+  }), workflowRuntime);
+  await assert.rejects(() => service.transitionTaskPackRevisionReview({ taskPackId: 12, revisionId: 18,
+    expectedLifecycleVersion: 4, expectedReviewState: "unreviewed", action: "accept" }), error => {
+    assert.ok(error instanceof TaskPackWorkflowApplicationError);
+    assert.equal(error.code, code);
+    assert.deepEqual(error.evidence, evidence);
+    assert.doesNotMatch(error.message, /private|driver/);
+    assert.equal(Object.hasOwn(error, "cause"), false);
+    return true;
+  });
+  assert.equal(calls, 1);
+});
+
+scenario("workflow rejects invalid public commands and caller event authority before runtime/write", async () => {
+  let calls = 0;
+  const fail = (): never => { calls++; throw new Error("Must not be reached"); };
+  const service = createTaskPackApplicationService(storageFixture({
+    transitionTaskPackAggregateLifecycle: async () => fail(), transitionTaskPackRevisionReview: async () => fail(),
+  }), { now: fail, createEventId: fail });
+  const lifecycle = { taskPackId: 1, expectedLifecycleVersion: 1, action: "archive" };
+  const review = { ...lifecycle, revisionId: 2, expectedReviewState: "unreviewed", action: "accept" };
+  const invalidNumbers = [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, "1", null, undefined];
+  const invalidLifecycle = invalidNumbers.flatMap(value => [ { ...lifecycle, taskPackId: value }, { ...lifecycle, expectedLifecycleVersion: value } ]);
+  const invalidReview = invalidNumbers.flatMap(value => [ { ...review, taskPackId: value }, { ...review, revisionId: value }, { ...review, expectedLifecycleVersion: value } ]);
+  for (const key of ["eventId", "createdAt", "source", "actorId", "metadata", "toState", "archivedFromState", "acceptedRevisionId"]) {
+    invalidLifecycle.push({ ...lifecycle, [key]: "forbidden" });
+    invalidReview.push({ ...review, [key]: "forbidden" });
+  }
+  for (const input of [...invalidLifecycle, { ...lifecycle, action: "accept" }]) {
+    await assert.rejects(() => service.transitionTaskPackLifecycle(input as TaskPackLifecycleCommandInput),
+      { code: "TASK_PACK_WORKFLOW_INVALID" });
+  }
+  for (const input of [...invalidReview, { ...review, action: "complete" }, { ...review, expectedReviewState: "unknown" }]) {
+    await assert.rejects(() => service.transitionTaskPackRevisionReview(input as TaskPackRevisionReviewCommandInput),
+      { code: "TASK_PACK_WORKFLOW_INVALID" });
+  }
+  for (const id of invalidNumbers) await assert.rejects(() => service.getCurrentTaskPackWorkflowState(id as number), { code: "TASK_PACK_WORKFLOW_INVALID" });
+  assert.equal(calls, 0);
+});
+
+scenario("default runtime supplies fresh server UUID and canonical ISO milliseconds", async () => {
+  const identities = new Set<string>();
+  const service = createTaskPackApplicationService(storageFixture({
+    transitionTaskPackAggregateLifecycle: async input => {
+      assert.match(input.createdAt, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/);
+      assert.equal(new Date(input.createdAt).toISOString(), input.createdAt);
+      assert.match(input.eventId, /^[\da-f]{8}-(?:[\da-f]{4}-){3}[\da-f]{12}$/);
+      identities.add(input.eventId);
+      throw new TaskPackLifecycleStorageError("TASK_PACK_LIFECYCLE_NOT_FOUND");
+    },
+  }));
+  for (let n = 0; n < 2; n++) await assert.rejects(() => service.transitionTaskPackLifecycle({ taskPackId: 999999, expectedLifecycleVersion: 1, action: "archive" }), { code: "TASK_PACK_LIFECYCLE_NOT_FOUND" });
+  assert.equal(identities.size, 2);
+});
+
+scenario("noncanonical injected timestamp is rejected without mutation", async () => {
+  const service = createTaskPackApplicationService(storageFixture({}), {
+    now: () => "2030-01-01T00:00:00Z", createEventId: () => "test-event",
+  });
+  await assert.rejects(() => service.transitionTaskPackLifecycle({ taskPackId: 1, expectedLifecycleVersion: 1, action: "archive" }), TaskPackCurrentStateError);
+});
+
+scenario("workflow corrupt revision hash fails closed", async () => {
+  const service = createTaskPackApplicationService(storageFixture({
+    getTaskPackRevisionById: async () => ({ ...revision, rawTask: "tampered" }),
+  }));
+  await assert.rejects(() => service.getCurrentTaskPackWorkflowState(taskPack.id), TaskPackCurrentStateError);
+});
+
+for (const dependency of [
+  "getTaskPackCurrentRecordById", "getTaskPackAggregate",
+  "getTaskPackRevisionById", "listTaskPackRevisionReviewEvents",
+] as const) scenario(`workflow ${dependency} operational error propagates unchanged without retry`, async () => {
+  const unexpected = new Error("private SQL driver details");
+  let reads = 0;
+  const service = createTaskPackApplicationService(storageFixture({
+    [dependency]: async () => { reads++; throw unexpected; },
+  }));
+  await assert.rejects(() => service.getCurrentTaskPackWorkflowState(taskPack.id), error => {
+    assert.equal(error, unexpected);
+    assert.equal(error instanceof TaskPackCurrentStateError, false);
+    return true;
+  });
+  assert.equal(reads, 1);
+});
+
+scenario("workflow known current-state and review corruption errors remain classified", async () => {
+  for (const known of [new TaskPackCurrentStateError(), new TaskPackCurrentStateStorageError(),
+    new TaskPackReviewStorageError("TASK_PACK_REVIEW_STATE_INVALID")]) {
+    const service = createTaskPackApplicationService(storageFixture({
+      listTaskPackRevisionReviewEvents: async () => { throw known; },
+    }));
+    await assert.rejects(() => service.getCurrentTaskPackWorkflowState(taskPack.id), TaskPackCurrentStateError);
+  }
+});
+
+scenario("workflow invalid aggregate and revision domain shapes remain current-state errors", async () => {
+  const validAggregate = (await storageFixture({}).getTaskPackAggregate(taskPack.id))!;
+  for (const overrides of [
+    { getTaskPackAggregate: async () => ({ ...validAggregate, lifecycleVersion: 0 }) },
+    { getTaskPackRevisionById: async () => ({ ...revision, rawTask: "" }) },
+  ]) {
+    await assert.rejects(() => createTaskPackApplicationService(storageFixture(overrides))
+      .getCurrentTaskPackWorkflowState(taskPack.id), TaskPackCurrentStateError);
+  }
+});
+
+scenario("workflow corrupt full history fails closed even with valid tail event", async () => {
+  const history = await adapter.listTaskPackRevisionReviewEvents(workflowPack.id, workflowRevisionId);
+  const service = createTaskPackApplicationService(storageFixture({
+    listTaskPackRevisionReviewEvents: async () => history.map(event => ({ ...event, taskPackId: taskPack.id, revisionId: revision.id } )).slice(1),
+  }));
+  await assert.rejects(() => service.getCurrentTaskPackWorkflowState(taskPack.id), TaskPackCurrentStateError);
+});
+
+scenario("workflow missing/foreign current revision or aggregate fails closed", async () => {
+  for (const overrides of [
+    { getTaskPackAggregate: async () => null },
+    { getTaskPackRevisionById: async () => null },
+    { getTaskPackRevisionById: async () => ({ ...revision, taskPackId: taskPack.id + 1 }) },
+    { getTaskPackRevisionById: async () => ({ ...revision, id: revision.id + 1 }) },
+  ]) await assert.rejects(() => createTaskPackApplicationService(storageFixture(overrides)).getCurrentTaskPackWorkflowState(taskPack.id), TaskPackCurrentStateError);
+});
+
+scenario("unknown mutation failures bubble without wrapping storage internals", async () => {
+  const unexpected = new Error("private SQL driver details");
+  const service = createTaskPackApplicationService(storageFixture({
+    transitionTaskPackAggregateLifecycle: async () => { throw unexpected; },
+    transitionTaskPackRevisionReview: async () => { throw unexpected; },
+  }));
+  await assert.rejects(() => service.transitionTaskPackLifecycle({ taskPackId: 1, expectedLifecycleVersion: 1, action: "archive" }), error => error === unexpected);
+  await assert.rejects(() => service.transitionTaskPackRevisionReview({ taskPackId: 1, revisionId: 1, expectedLifecycleVersion: 1, expectedReviewState: "unreviewed", action: "accept" }), error => error === unexpected);
+});
+
+scenario("malformed returned workflow records become application state errors", async () => {
+  const service = createTaskPackApplicationService(storageFixture({
+    transitionTaskPackAggregateLifecycle: async () => null as never,
+    transitionTaskPackRevisionReview: async () => null as never,
+  }));
+  await assert.rejects(() => service.transitionTaskPackLifecycle({ taskPackId: 1, expectedLifecycleVersion: 1, action: "archive" }), { code: "TASK_PACK_LIFECYCLE_STATE_INVALID" });
+  await assert.rejects(() => service.transitionTaskPackRevisionReview({ taskPackId: 1, revisionId: 1, expectedLifecycleVersion: 1, expectedReviewState: "unreviewed", action: "accept" }), { code: "TASK_PACK_REVIEW_STATE_INVALID" });
+});
+
+scenario("application error evidence omits absent and unsafe values", () => {
+  const error = new TaskPackWorkflowApplicationError("TASK_PACK_REVIEW_CONFLICT", {
+    taskPackId: 1, revisionId: NaN, actualLifecycleVersion: Infinity, expectedReviewState: "private SQL" as never,
+  });
+  assert.deepEqual(error.evidence, { taskPackId: 1 });
+});
+
+scenario("lifecycle response validation rejects valid-shaped but mismatched storage results", async () => {
+  const old = (await storageFixture({}).getTaskPackAggregate(taskPack.id))!;
+  const at = "2030-01-01T00:00:00.000Z";
+  const valid = {
+    aggregate: { ...old, lifecycle: { state: "archived", archivedFromState: "active" } as const,
+      lifecycleVersion: 2, updatedAt: at, archivedAt: at },
+    event: { id: "response-event", taskPackId: old.id, revisionId: null,
+      eventType: "archived", fromState: "active", toState: "archived", source: "user",
+      actorId: null, metadata: null, createdAt: at } as const,
+  };
+  for (const result of [
+    { ...valid, aggregate: { ...valid.aggregate, lifecycleVersion: 3 } },
+    { ...valid, event: { ...valid.event, id: "different-event" } },
+    { ...valid, event: { ...valid.event, metadata: { private: "must not reach the response" } } },
+    { ...valid, event: { ...valid.event, source: "system" as const } },
+  ]) {
+    const service = createTaskPackApplicationService(storageFixture({ transitionTaskPackAggregateLifecycle: async () => result }),
+      { now: () => at, createEventId: () => "response-event" });
+    await assert.rejects(() => service.transitionTaskPackLifecycle({ taskPackId: old.id, expectedLifecycleVersion: 1, action: "archive" }),
+      { code: "TASK_PACK_LIFECYCLE_STATE_INVALID" });
+  }
+});
+
+scenario("review response validation rejects hash, identity, version and privacy mismatches", async () => {
+  const old = (await storageFixture({}).getTaskPackAggregate(taskPack.id))!;
+  const at = "2030-01-01T00:00:00.000Z";
+  const valid = {
+    aggregate: { ...old, acceptedRevisionId: revision.id, lifecycleVersion: 2, updatedAt: at },
+    revision, reviewState: "accepted" as const,
+    event: { id: "response-event", taskPackId: old.id, revisionId: revision.id,
+      eventType: "accepted", fromState: "unreviewed", toState: "accepted", source: "user",
+      actorId: null, metadata: null, createdAt: at } as const,
+  };
+  for (const result of [
+    { ...valid, revision: { ...revision, generatedPrompt: "tampered" } },
+    { ...valid, aggregate: { ...valid.aggregate, lifecycleVersion: 3 } },
+    { ...valid, event: { ...valid.event, id: "different-event" } },
+    { ...valid, event: { ...valid.event, metadata: { private: "must not reach the response" } } },
+    { ...valid, event: { ...valid.event, actorId: "unexpected-actor" } },
+  ]) {
+    const service = createTaskPackApplicationService(storageFixture({ transitionTaskPackRevisionReview: async () => result }),
+      { now: () => at, createEventId: () => "response-event" });
+    await assert.rejects(() => service.transitionTaskPackRevisionReview({ taskPackId: old.id, revisionId: revision.id,
+      expectedLifecycleVersion: 1, expectedReviewState: "unreviewed", action: "accept" }), { code: "TASK_PACK_REVIEW_STATE_INVALID" });
+  }
 });
 
 let passed = 0;

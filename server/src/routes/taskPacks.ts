@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { Router } from "express";
 import { z } from "zod";
+import { registerTaskPackWorkflowRoutes } from "./taskPackWorkflowRoutes.js";
 
 import { storage } from "../storage/index.js";
 import {
@@ -2454,6 +2455,7 @@ export function registerTaskPackContentEditRoute(
 const taskPackApplicationService = createTaskPackApplicationService(storage);
 registerTaskPackCurrentReadRoutes(taskPacksRouter, taskPackApplicationService);
 registerTaskPackContentEditRoute(taskPacksRouter, taskPackApplicationService);
+registerTaskPackWorkflowRoutes(taskPacksRouter, taskPackApplicationService);
 
 const cloudTaskPackImportSchema = z.object({
   projectId: z.number().int().positive(),
