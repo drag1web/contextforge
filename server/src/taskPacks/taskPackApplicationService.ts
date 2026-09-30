@@ -66,6 +66,7 @@ export type TaskPackApplicationServiceStorage = Pick<
   | "transitionTaskPackAggregateLifecycle"
   | "transitionTaskPackRevisionReview"
   | "listTaskPackRevisionReviewEvents"
+  | "listTaskPackCurrentWorkflowSnapshots"
 >;
 
 export interface TaskPackWorkflowRuntime {
@@ -117,6 +118,14 @@ export interface TaskPackCurrentWorkflowState {
   readonly acceptedRevisionId: number | null;
   readonly completedAt: string | null;
   readonly archivedAt: string | null;
+  readonly currentReviewState: TaskPackReviewState;
+}
+
+/** Public library projection, separate from the flat Task Pack and CAS contracts. */
+export interface TaskPackWorkflowSummary {
+  readonly taskPackId: number;
+  readonly currentRevisionId: number;
+  readonly lifecycle: TaskPackAggregate["lifecycle"];
   readonly currentReviewState: TaskPackReviewState;
 }
 
@@ -214,6 +223,7 @@ export interface EditTaskPackContentInput {
 }
 
 export interface TaskPackApplicationService {
+  listCurrentTaskPackWorkflowSummaries(): Promise<TaskPackWorkflowSummary[]>;
   getCurrentTaskPackWorkflowState(taskPackId: number): Promise<TaskPackCurrentWorkflowState | null>;
   transitionTaskPackLifecycle(input: TaskPackLifecycleCommandInput): Promise<TaskPackLifecycleCommandResult>;
   transitionTaskPackRevisionReview(input: TaskPackRevisionReviewCommandInput): Promise<TaskPackRevisionReviewCommandResult>;
@@ -367,6 +377,37 @@ export function createTaskPackApplicationService(
   }
 
   return {
+    async listCurrentTaskPackWorkflowSummaries() {
+      let snapshots;
+      try {
+        snapshots = await storage.listTaskPackCurrentWorkflowSnapshots();
+      } catch (error) {
+        return translateStorageCurrentStateError(error);
+      }
+      // Only pure snapshot validation here. Operational errors above stay unexpected.
+      try {
+        const identities = new Set<number>();
+        const ordered = [...snapshots].sort((a, b) =>
+          Date.parse(b.aggregate.createdAt) - Date.parse(a.aggregate.createdAt) || a.aggregate.id - b.aggregate.id);
+        return ordered.map(({ aggregate, revision, reviewEvents }) => {
+          assertTaskPackAggregate(aggregate);
+          assertTaskPackRevision(revision, { aggregate, verifyContentHash: true });
+          if (identities.has(aggregate.id) || revision.id !== aggregate.currentRevisionId || revision.taskPackId !== aggregate.id) {
+            throw new TaskPackCurrentStateError();
+          }
+          identities.add(aggregate.id);
+          const currentReviewState = deriveTaskPackRevisionReviewState(aggregate, revision, reviewEvents);
+          const lifecycle: TaskPackAggregate["lifecycle"] = aggregate.lifecycle.state === "archived"
+            ? { state: "archived", archivedFromState: aggregate.lifecycle.archivedFromState }
+            : { state: aggregate.lifecycle.state, archivedFromState: null };
+          return { taskPackId: aggregate.id, currentRevisionId: revision.id,
+            lifecycle, currentReviewState };
+        });
+      } catch {
+        throw new TaskPackCurrentStateError();
+      }
+    },
+
     async getCurrentTaskPackWorkflowState(taskPackId) {
       if (!workflowIdentitySchema.safeParse(taskPackId).success) {
         throw new TaskPackWorkflowApplicationError("TASK_PACK_WORKFLOW_INVALID");

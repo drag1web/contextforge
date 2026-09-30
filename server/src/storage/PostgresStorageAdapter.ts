@@ -1,4 +1,5 @@
 import { pool } from "../db/pool.js";
+import { TASK_PACK_CURRENT_WORKFLOW_SQL, mapTaskPackCurrentWorkflowRows } from "./taskPackWorkflowIndex.js";
 import type { ScannedProject } from "../scanner/projectScanner.js";
 import {
   assertTaskPackGitHubCreatedIssueLinkInput,
@@ -76,6 +77,7 @@ import type {
   TaskPackAggregateLifecycleEventRecord,
   TaskPackAggregateRecord,
   TaskPackCurrentRecord,
+  TaskPackCurrentWorkflowSnapshot,
   TaskPackDraftRecord,
   TaskPackGitHubCreatedIssueLinkRecord,
   TaskPackRecord,
@@ -1669,6 +1671,12 @@ export class PostgresStorageAdapter implements StorageAdapter {
     );
 
     return this.getTaskPackById(taskPackId);
+  }
+
+  async listTaskPackCurrentWorkflowSnapshots(): Promise<TaskPackCurrentWorkflowSnapshot[]> {
+    // A single statement has MVCC snapshot consistency; no write lock/transaction needed.
+    const result = await pool.query(TASK_PACK_CURRENT_WORKFLOW_SQL);
+    return mapTaskPackCurrentWorkflowRows(result.rows);
   }
 
   async getTaskPackAggregate(taskPackId: number): Promise<TaskPackAggregateRecord | null> {

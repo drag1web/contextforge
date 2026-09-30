@@ -15,6 +15,7 @@ import {
   type TaskPackRevisionContent,
 } from "../taskPacks/taskPackLifecycle.js";
 import { parseJsonValue, stringifyJsonValue } from "./json.js";
+import { TASK_PACK_CURRENT_WORKFLOW_SQL, mapTaskPackCurrentWorkflowRows } from "./taskPackWorkflowIndex.js";
 import {
   assertTaskPackGitHubCreatedIssueLinkInput,
   projectTaskPackGenerationRecipeWithGitHubCreatedIssue,
@@ -86,6 +87,7 @@ import type {
   TaskPackAggregateLifecycleEventRecord,
   TaskPackAggregateRecord,
   TaskPackCurrentRecord,
+  TaskPackCurrentWorkflowSnapshot,
   TaskPackDraftRecord,
   TaskPackGitHubCreatedIssueLinkRecord,
   TaskPackRecord,
@@ -1500,6 +1502,11 @@ export class SqliteStorageAdapter implements StorageAdapter {
     this.persist();
 
     return this.getTaskPackById(taskPackId);
+  }
+
+  async listTaskPackCurrentWorkflowSnapshots(): Promise<TaskPackCurrentWorkflowSnapshot[]> {
+    const rows = await this.getAll<Record<string, unknown>>(TASK_PACK_CURRENT_WORKFLOW_SQL);
+    return mapTaskPackCurrentWorkflowRows(rows);
   }
 
   async getTaskPackAggregate(taskPackId: number): Promise<TaskPackAggregateRecord | null> {

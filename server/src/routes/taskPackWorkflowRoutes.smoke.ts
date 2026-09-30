@@ -37,8 +37,10 @@ const eventFields = { id: "server-event", taskPackId: pack.id, source: "user" as
   actorId: null, metadata: null, createdAt: at };
 let failure: Error | null = null;
 let missing = false;
+let indexSummaries = [{ taskPackId: pack.id, currentRevisionId: revision.id, lifecycle: aggregate.lifecycle, currentReviewState: "unreviewed" as const }];
 const calls: unknown[] = [];
 const service: TaskPackWorkflowService = {
+  listCurrentTaskPackWorkflowSummaries: async () => { calls.push("index"); return indexSummaries; },
   async getCurrentTaskPackWorkflowState(id) {
     calls.push(id);
     if (failure) throw failure;
@@ -86,6 +88,7 @@ const readDependencies = ["getTaskPackCurrentRecordById", "getTaskPackAggregate"
 let failedRead: typeof readDependencies[number] | null = null;
 let corruptRead: "aggregate" | "revision" | "history" | null = null;
 let failedReadCalls = 0;
+let indexFailure: Error | null = null;
 function checkRead(dependency: typeof readDependencies[number]): void {
   if (failedRead === dependency) {
     failedReadCalls++;
@@ -94,6 +97,15 @@ function checkRead(dependency: typeof readDependencies[number]): void {
 }
 const unexpectedWrite = async (): Promise<never> => { throw new Error("Read must not write"); };
 const readStorage: TaskPackApplicationServiceStorage = {
+  listTaskPackCurrentWorkflowSnapshots: async () => {
+    if (indexFailure) throw indexFailure;
+    return [{
+      aggregate: corruptRead === "aggregate" ? { ...aggregate, lifecycleVersion: 0 } : aggregate,
+      revision: corruptRead === "revision" ? { ...revision, rawTask: "tampered" } : revision,
+      reviewEvents: corruptRead === "history" ? [{ ...eventFields, revisionId: revision.id,
+        eventType: "accepted", fromState: "in_review", toState: "accepted" }] : [],
+    }];
+  },
   listTaskPackCurrentRecords: async () => [current],
   getTaskPackCurrentRecordById: async () => { checkRead("getTaskPackCurrentRecordById"); return current; },
   getTaskPackAggregate: async () => {
@@ -306,6 +318,44 @@ scenario("production router registers workflow module; module has no storage cal
   assert.match(routes, /registerTaskPackWorkflowRoutes\(taskPacksRouter, taskPackApplicationService\)/);
   const workflowSource = fs.readFileSync(new URL("./taskPackWorkflowRoutes.ts", import.meta.url), "utf8");
   assert.doesNotMatch(workflowSource, /(?:from\s+["'][^"']*storage|storage\.|transitionTaskPackAggregateLifecycle\()/);
+});
+
+scenario("workflow index is reachable after existing /:id registration with exact minimal fields", async () => {
+  const before = calls.length;
+  indexSummaries = [...indexSummaries, { ...indexSummaries[0], taskPackId: 999, currentRevisionId: 1000 }];
+  const response = await request("/workflows/current");
+  assert.deepEqual(response, { status: 200, body: { ok: true, workflows: indexSummaries } });
+  assert.deepEqual(calls.slice(before), ["index"], "must not be consumed as id=workflows");
+  for (const summary of response.body.workflows) assert.deepEqual(Object.keys(summary).sort(),
+    ["taskPackId", "currentRevisionId", "lifecycle", "currentReviewState"].sort());
+  assert.doesNotMatch(JSON.stringify(response.body), /lifecycleVersion|acceptedRevisionId|event|actor|metadata|rawTask|generatedPrompt|recipe|diagnostics/);
+  assert.equal((await request(`/${pack.id}`)).status, 200);
+  assert.equal((await request(`/${pack.id}/workflow`)).status, 200);
+});
+scenario("workflow index empty state is 200 with an empty array", async () => {
+  indexSummaries = [];
+  assert.deepEqual(await request("/workflows/current"), { status: 200, body: { ok: true, workflows: [] } });
+});
+scenario("real application/storage bulk index returns safe state without history or CAS tokens", async () => {
+  const response = await request("/workflows/current", undefined, "GET", "/real/task-packs");
+  assert.deepEqual(response, { status: 200, body: { ok: true, workflows: [{ taskPackId: pack.id, currentRevisionId: revision.id,
+    lifecycle: { state: "completed", archivedFromState: null }, currentReviewState: "accepted" }] } });
+});
+for (const corruption of ["aggregate", "revision", "history"] as const) scenario(`real service index corrupt ${corruption} fails closed at HTTP`, async () => {
+  corruptRead = corruption;
+  try {
+    const response = await request("/workflows/current", undefined, "GET", "/read-boundary/task-packs");
+    assert.deepEqual(response, { status: 500, body: { ok: false, code: "TASK_PACK_CURRENT_STATE_INVALID", message: "Task Pack current state is invalid." } });
+    assert.doesNotMatch(JSON.stringify(response), /SQL|driver|private|stack|cause|workflows/i);
+  } finally { corruptRead = null; }
+});
+scenario("real service index operational failure stays unexpected and HTTP returns fixed generic error", async () => {
+  indexFailure = new Error("private SQL driver constraint database details", { cause: new Error("private cause") });
+  try {
+    const response = await request("/workflows/current", undefined, "GET", "/read-boundary/task-packs");
+    assert.deepEqual(response, { status: 500, body: { ok: false, code: "TASK_PACK_WORKFLOW_INDEX_FAILED", message: "Failed to read Task Pack workflow index." } });
+    assert.doesNotMatch(JSON.stringify(response), /SQL|driver|private|stack|cause|constraint|database/i);
+  } finally { indexFailure = null; }
 });
 
 let passed = 0;

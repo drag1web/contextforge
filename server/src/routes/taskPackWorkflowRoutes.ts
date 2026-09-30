@@ -12,6 +12,7 @@ import {
 export type TaskPackWorkflowService = Pick<
   TaskPackApplicationService,
   | "getCurrentTaskPackWorkflowState"
+  | "listCurrentTaskPackWorkflowSummaries"
   | "transitionTaskPackLifecycle"
   | "transitionTaskPackRevisionReview"
 >;
@@ -70,6 +71,20 @@ export function registerTaskPackWorkflowRoutes(
   router: Router,
   service: TaskPackWorkflowService,
 ): void {
+  router.get("/workflows/current", async (_req, res) => {
+    try {
+      const workflows = await service.listCurrentTaskPackWorkflowSummaries();
+      return res.json({ ok: true, workflows });
+    } catch (error) {
+      if (error instanceof TaskPackCurrentStateError) {
+        return res.status(500).json({ ok: false, code: error.code, message: "Task Pack current state is invalid." });
+      }
+      return res.status(500).json({
+        ok: false, code: "TASK_PACK_WORKFLOW_INDEX_FAILED", message: "Failed to read Task Pack workflow index.",
+      });
+    }
+  });
+
   router.get("/:id/workflow", async (req, res) => {
     const id = pathIdSchema.safeParse(req.params.id);
     if (!id.success) return sendInvalid(res);

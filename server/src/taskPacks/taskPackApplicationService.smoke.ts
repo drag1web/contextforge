@@ -11,6 +11,7 @@ import type {
   TaskPackRevisionRecord,
   TaskPackLifecycleStorageErrorCode,
   TaskPackReviewStorageErrorCode,
+  TaskPackCurrentWorkflowSnapshot,
 } from "../storage/types.js";
 import {
   TaskPackCurrentStateStorageError,
@@ -202,6 +203,7 @@ function storageFixture(
 ): TaskPackApplicationServiceStorage {
   return {
     listTaskPackCurrentRecords: async () => [currentRecord],
+    listTaskPackCurrentWorkflowSnapshots: async () => [],
     getTaskPackCurrentRecordById: async () => currentRecord,
     getTaskPackAggregate: async () => ({
       id: taskPack.id,
@@ -822,6 +824,92 @@ scenario("review response validation rejects hash, identity, version and privacy
     await assert.rejects(() => service.transitionTaskPackRevisionReview({ taskPackId: old.id, revisionId: revision.id,
       expectedLifecycleVersion: 1, expectedReviewState: "unreviewed", action: "accept" }), { code: "TASK_PACK_REVIEW_STATE_INVALID" });
   }
+});
+
+async function indexFixture(reviewState: "unreviewed" | "in_review" | "accepted" | "changes_requested" = "unreviewed"): Promise<TaskPackCurrentWorkflowSnapshot> {
+  const aggregate = (await storageFixture({}).getTaskPackAggregate(taskPack.id))!;
+  const common = { taskPackId: aggregate.id, revisionId: revision.id, source: "user" as const, actorId: null, metadata: null };
+  const reviewEvents: TaskPackCurrentWorkflowSnapshot["reviewEvents"][number][] = [];
+  if (reviewState !== "unreviewed") reviewEvents.push({ ...common, id: "index-start", eventType: "review_started",
+    fromState: "unreviewed", toState: "in_review", createdAt: "2030-01-01T00:00:00.000Z" });
+  if (reviewState === "accepted" || reviewState === "changes_requested") reviewEvents.push({ ...common, id: "index-final",
+    eventType: reviewState, fromState: "in_review", toState: reviewState, createdAt: "2030-01-01T00:00:01.000Z" });
+  return { aggregate: { ...aggregate, acceptedRevisionId: reviewState === "accepted" ? revision.id : null }, revision, reviewEvents };
+}
+function indexService(snapshots: TaskPackCurrentWorkflowSnapshot[] | Error) {
+  let calls = 0;
+  const storage = new Proxy({} as TaskPackApplicationServiceStorage, {
+    get(_target, key) {
+      assert.equal(key, "listTaskPackCurrentWorkflowSnapshots", "index must not use per-id reads or writes");
+      return async () => { calls++; if (snapshots instanceof Error) throw snapshots; return snapshots; };
+    },
+  });
+  return { service: createTaskPackApplicationService(storage, {
+    now: () => { throw new Error("read must not create a timestamp"); },
+    createEventId: () => { throw new Error("read must not create an event"); },
+  }), calls: () => calls };
+}
+scenario("bulk workflow index empty input uses exactly one bulk call", async () => {
+  const test = indexService([]);
+  assert.deepEqual(await test.service.listCurrentTaskPackWorkflowSummaries(), []); assert.equal(test.calls(), 1);
+});
+for (const reviewState of ["unreviewed", "in_review", "accepted", "changes_requested"] as const) {
+  scenario(`bulk workflow index maps active/${reviewState} through complete replay with minimal fields`, async () => {
+    const snapshot = await indexFixture(reviewState), before = JSON.stringify(snapshot);
+    const test = indexService([snapshot]);
+    assert.deepEqual(await test.service.listCurrentTaskPackWorkflowSummaries(), [{ taskPackId: snapshot.aggregate.id,
+      currentRevisionId: snapshot.revision.id, lifecycle: { state: "active", archivedFromState: null }, currentReviewState: reviewState }]);
+    assert.equal(test.calls(), 1); assert.equal(JSON.stringify(snapshot), before);
+  });
+}
+for (const lifecycle of [
+  { state: "completed", archivedFromState: null },
+  { state: "archived", archivedFromState: "active" },
+  { state: "archived", archivedFromState: "completed" },
+] as const) scenario(`bulk index maps ${lifecycle.state}/${lifecycle.archivedFromState} without deriving review from lifecycle`, async () => {
+  const snapshot = await indexFixture(lifecycle.state === "completed" || lifecycle.archivedFromState === "completed" ? "accepted" : "unreviewed");
+  const test = indexService([{ ...snapshot, aggregate: { ...snapshot.aggregate, lifecycle,
+    completedAt: lifecycle.state === "completed" || lifecycle.archivedFromState === "completed" ? "2030-01-01T00:00:02.000Z" : null,
+    archivedAt: lifecycle.state === "archived" ? "2030-01-01T00:00:03.000Z" : null } }]);
+  const summaries = await test.service.listCurrentTaskPackWorkflowSummaries();
+  assert.deepEqual(summaries[0].lifecycle, lifecycle); assert.equal(test.calls(), 1);
+});
+scenario("bulk service normalizes deterministic createdAt/id ordering in memory with one call", async () => {
+  const snapshot = await indexFixture();
+  const other = { ...snapshot, aggregate: { ...snapshot.aggregate, id: snapshot.aggregate.id + 100, createdAt: "2031-01-01T00:00:00.000Z" },
+    revision: { ...snapshot.revision, taskPackId: snapshot.aggregate.id + 100 } };
+  const test = indexService([snapshot, other]);
+  assert.deepEqual((await test.service.listCurrentTaskPackWorkflowSummaries()).map(s => s.taskPackId), [other.aggregate.id, snapshot.aggregate.id]);
+  assert.equal(test.calls(), 1);
+});
+for (const invalid of ["aggregate", "revision", "hash", "foreign", "pointer", "history", "duplicate-event", "unordered-history", "duplicate-pack"] as const) {
+  scenario(`bulk service corrupt ${invalid} fails the entire index without partial success`, async () => {
+    const snapshot = await indexFixture("accepted");
+    const bad = structuredClone(snapshot);
+    // Mutate only test copies; the real service must validate all rows, not silently omit one.
+    const aggregate = bad.aggregate as { -readonly [K in keyof typeof bad.aggregate]: typeof bad.aggregate[K] };
+    const current = bad.revision as { -readonly [K in keyof typeof bad.revision]: typeof bad.revision[K] };
+    if (invalid === "aggregate") aggregate.lifecycleVersion = 0;
+    if (invalid === "revision") current.revisionNumber = 0;
+    if (invalid === "hash") current.rawTask = "tampered private content";
+    if (invalid === "foreign") current.taskPackId++;
+    if (invalid === "pointer") aggregate.currentRevisionId++;
+    const events = [...bad.reviewEvents];
+    if (invalid === "history") events[0] = { ...events[0], fromState: "in_review" };
+    if (invalid === "duplicate-event") events.splice(1, 0, events[0]);
+    if (invalid === "unordered-history") events[1] = { ...events[1], createdAt: "2029-01-01T00:00:00.000Z" };
+    const test = indexService(invalid === "duplicate-pack" ? [snapshot, snapshot] : [{ ...bad, reviewEvents: events }]);
+    await assert.rejects(() => test.service.listCurrentTaskPackWorkflowSummaries(), TaskPackCurrentStateError);
+    assert.equal(test.calls(), 1);
+  });
+}
+scenario("bulk service storage corruption is mapped but arbitrary operational error propagates unchanged", async () => {
+  const known = indexService(new TaskPackCurrentStateStorageError());
+  await assert.rejects(() => known.service.listCurrentTaskPackWorkflowSummaries(), TaskPackCurrentStateError);
+  const error = new Error("private SQL driver details", { cause: new Error("private cause") });
+  const unexpected = indexService(error);
+  await assert.rejects(() => unexpected.service.listCurrentTaskPackWorkflowSummaries(), e => e === error && !(e instanceof TaskPackCurrentStateError));
+  assert.equal(known.calls(), 1); assert.equal(unexpected.calls(), 1);
 });
 
 let passed = 0;

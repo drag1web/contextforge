@@ -94,6 +94,13 @@ export interface TaskPackCurrentRecord extends TaskPackRecord {
   readonly currentRevisionId: number;
 }
 
+/** One consistent, read-only aggregate/current-revision/history snapshot. */
+export interface TaskPackCurrentWorkflowSnapshot {
+  readonly aggregate: TaskPackAggregateRecord;
+  readonly revision: TaskPackRevisionRecord;
+  readonly reviewEvents: readonly TaskPackRevisionReviewEventRecord[];
+}
+
 export class TaskPackCurrentStateStorageError extends Error {
   readonly code = "TASK_PACK_CURRENT_STATE_INVALID" as const;
 
@@ -621,6 +628,7 @@ export interface StorageAdapter {
   ): Promise<TaskPackRecord | null>;
 
   getTaskPackAggregate(taskPackId: number): Promise<TaskPackAggregateRecord | null>;
+  listTaskPackCurrentWorkflowSnapshots(): Promise<TaskPackCurrentWorkflowSnapshot[]>;
   getCurrentTaskPackRevision(taskPackId: number): Promise<TaskPackRevisionRecord | null>;
   getTaskPackRevisionById(
     taskPackId: number,
