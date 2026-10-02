@@ -9,7 +9,7 @@ import {
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import {
-  Archive,
+  Library,
   Check,
   ChevronDown,
   Clipboard,
@@ -29,9 +29,13 @@ import {
   X,
 } from "lucide-react";
 
-import type { Project, TaskPack } from "../types";
+import type { Project, TaskPack, TaskPackWorkflowSummary } from "../types";
 import type { DesktopSyncTaskPackInboxItem } from "../types/desktopSync";
 import { getProjects, importCloudTaskPack } from "../api/client";
+import { useTaskPackWorkflowIndex } from "../hooks/useTaskPackWorkflowIndex";
+import { filterTaskPacksByLifecycle, getTaskPackLifecycleCounts, pairTaskPacksWithWorkflowSummaries,
+  type LifecycleFilter } from "../utils/taskPackWorkflowIndex";
+import { TaskPackWorkflowBadges } from "../components/taskPacks/TaskPackWorkflowCard";
 import { makeAiToolSelectOption } from "../components/ai/aiToolOptions";
 import { WorkspacePageHeader } from "../components/layout/WorkspacePageHeader";
 import { Button } from "../components/ui/Button";
@@ -124,18 +128,6 @@ function getTaskPackProjectName(
     taskPack.projectName ??
     t("labels.projectFallback", { id: taskPack.projectId })
   );
-}
-
-function getMostUsedTarget(taskPacks: TaskPack[]) {
-  const counts = new Map<string, number>();
-
-  for (const taskPack of taskPacks) {
-    counts.set(taskPack.targetTool, (counts.get(taskPack.targetTool) ?? 0) + 1);
-  }
-
-  const [target] = [...counts.entries()].sort((a, b) => b[1] - a[1])[0] ?? [];
-
-  return target ?? "—";
 }
 
 function matchesBodyMode(taskPack: TaskPack, filter: BodyModeFilter) {
@@ -248,7 +240,7 @@ function SummaryMetric({
       <p className="cf-display-font truncate text-xl font-semibold text-white">
         {value}
       </p>
-      <p className="mt-0.5 truncate text-[11px] text-neutral-600">{label}</p>
+      <p className="mt-0.5 text-[11px] text-neutral-500">{label}</p>
     </div>
   );
 }
@@ -266,6 +258,7 @@ function TaskPackCard({
   publishState,
   freshness,
   onReviewProject,
+  workflow,
 }: {
   taskPack: TaskPack;
   isCopied: boolean;
@@ -279,6 +272,7 @@ function TaskPackCard({
   publishState: PublishState;
   freshness: TaskPackFreshness;
   onReviewProject: () => void;
+  workflow: TaskPackWorkflowSummary | undefined;
 }) {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
@@ -345,7 +339,7 @@ function TaskPackCard({
             <FileText size={15} />
           </span>
 
-          <div className="min-w-0">
+          <div className="min-w-0 flex-1">
             <div className="flex min-w-0 flex-wrap items-start gap-2">
               <h4 className="min-w-0 flex-1 line-clamp-2 text-[15px] font-semibold leading-6 text-white">
                 {getTaskPackDisplayTitle(taskPack)}
@@ -353,7 +347,14 @@ function TaskPackCard({
               <TaskPackFreshnessBadge freshness={freshness} />
             </div>
 
-            <p className="mt-1 truncate text-xs text-neutral-600">
+            <div className="mt-2">
+              {workflow ? <TaskPackWorkflowBadges workflow={workflow} /> :
+                <span className="inline-flex rounded-lg border border-white/10 px-2 py-1 text-[11px] text-neutral-500">
+                  {t("taskPacksPage.workflowUnavailable")}
+                </span>}
+            </div>
+
+            <p className="mt-2 break-words text-xs text-neutral-500">
               {projectName} <span className="px-1.5 text-neutral-800">·</span>
               {taskPack.targetTool}
               <span className="px-1.5 text-neutral-800">·</span>
@@ -878,6 +879,17 @@ export function TaskPacksPage({
 }: TaskPacksPageProps) {
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
+  const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("all");
+  const workflowIndex = useTaskPackWorkflowIndex(taskPacks);
+  const workflowReady = workflowIndex.status === "ready";
+  const effectiveLifecycleFilter = workflowReady ? lifecycleFilter : "all";
+  const pairedWorkflows = useMemo(() => pairTaskPacksWithWorkflowSummaries(taskPacks, workflowIndex.byTaskPackId),
+    [taskPacks, workflowIndex.byTaskPackId]);
+  const lifecycleCounts = useMemo(() => getTaskPackLifecycleCounts(taskPacks, pairedWorkflows), [taskPacks, pairedWorkflows]);
+  const unresolvedCount = taskPacks.length - pairedWorkflows.size;
+  const lifecycleOptions = (["all", "active", "completed", "archived"] as const).map(value => ({
+    value, label: t(`taskPacksPage.lifecycle.${value}`), count: value === "all" || workflowReady ? lifecycleCounts[value] : "—",
+  }));
   const [taskTypeFilter, setTaskTypeFilter] = useState<TaskTypeFilter>("all");
   const [targetFilter, setTargetFilter] = useState("all");
   const [bodyModeFilter, setBodyModeFilter] = useState<BodyModeFilter>("all");
@@ -949,7 +961,7 @@ export function TaskPacksPage({
   const filteredTaskPacks = useMemo(() => {
     const normalizedQuery = normalize(query).trim();
 
-    return [...taskPacks]
+    return filterTaskPacksByLifecycle(taskPacks, pairedWorkflows, effectiveLifecycleFilter)
       .filter((taskPack) => {
         const recipe = taskPack.generationRecipe;
         const searchableText = [
@@ -1004,22 +1016,20 @@ export function TaskPacksPage({
     targetFilter,
     taskPacks,
     taskTypeFilter,
+    pairedWorkflows,
+    effectiveLifecycleFilter,
     t,
   ]);
-
-  const refinedCount = taskPacks.filter(
-    (taskPack) =>
-      taskPack.generationMode === "ollama" && !taskPack.generationUsedFallback,
-  ).length;
-  const mostUsedTarget = getMostUsedTarget(taskPacks);
 
   const advancedFilterCount = [
     taskTypeFilter !== "all",
     targetFilter !== "all",
     sortMode !== "newest",
+    bodyModeFilter !== "all",
   ].filter(Boolean).length;
 
   const hasActiveFilters =
+    lifecycleFilter !== "all" ||
     query.trim().length > 0 ||
     taskTypeFilter !== "all" ||
     targetFilter !== "all" ||
@@ -1027,6 +1037,7 @@ export function TaskPacksPage({
     sortMode !== "newest";
 
   function clearFilters() {
+    setLifecycleFilter("all");
     setQuery("");
     setTaskTypeFilter("all");
     setTargetFilter("all");
@@ -1073,21 +1084,30 @@ export function TaskPacksPage({
   return (
     <section className="flex h-[calc(100vh-96px)] min-h-0 flex-col gap-3 overflow-hidden">
       <WorkspacePageHeader
-        icon={<Archive size={18} />}
-        eyebrow={t("taskPacksPage.archive")}
+        icon={<Library size={18} />}
+        eyebrow={t("taskPacksPage.library")}
         title={t("taskPacksPage.libraryTitle")}
         description={t("taskPacksPage.libraryDescription")}
         className="shrink-0"
         aside={
-          <div className="flex w-full divide-x divide-neutral-900 rounded-2xl border border-neutral-900 bg-black/25 px-4 py-2.5 xl:w-auto">
-            <SummaryMetric value={taskPacks.length} label={t("taskPacksPage.savedSummary")} />
-            <SummaryMetric value={refinedCount} label={t("taskPacksPage.refinedSummary")} />
-            <SummaryMetric value={mostUsedTarget} label={t("taskPacksPage.topTargetSummary")} />
+          <div className="flex w-full flex-wrap gap-y-2 rounded-2xl border border-neutral-900 bg-black/25 px-4 py-2.5 xl:w-auto">
+            {(["active", "completed", "archived"] as const).map(state =>
+              <SummaryMetric key={state} value={workflowReady ? lifecycleCounts[state] : "—"} label={t(`taskPacksPage.lifecycle.${state}`)} />)}
           </div>
         }
       />
 
       <CloudTaskPackBridge onImportedTaskPack={onImportedTaskPack} />
+
+      {workflowIndex.status !== "ready" || unresolvedCount > 0 ? (
+        <div role={workflowIndex.status === "failed" ? "alert" : "status"} aria-busy={workflowIndex.status === "loading"}
+          className="flex shrink-0 flex-wrap items-center justify-between gap-2 rounded-xl border border-white/10 bg-white/[0.025] px-3 py-2 text-xs leading-5 text-neutral-400">
+          <span>{t(workflowIndex.status === "loading" ? "taskPacksPage.workflowLoading" : workflowIndex.status === "failed"
+            ? "taskPacksPage.workflowFailed" : "taskPacksPage.workflowUnresolved", { count: unresolvedCount })}</span>
+          {workflowIndex.status !== "loading" ? <Button type="button" variant="secondary" className="!min-h-8 !px-3 !text-xs"
+            onClick={() => void workflowIndex.retry()}><RefreshCw size={13} />{t("taskPacksPage.retry")}</Button> : null}
+        </div>
+      ) : null}
 
       {publishError && (
         <div className="shrink-0 rounded-xl border border-amber-500/20 bg-amber-500/[0.07] px-3 py-2 text-xs text-amber-100">
@@ -1096,7 +1116,7 @@ export function TaskPacksPage({
       )}
 
       <section className="shrink-0 rounded-[1.4rem] border border-neutral-900 bg-black/30 p-3">
-        <div className="grid gap-3 xl:grid-cols-[minmax(260px,1fr)_minmax(480px,640px)_auto] xl:items-center">
+        <div className="grid gap-3 xl:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_auto] xl:items-center">
           <div className="relative">
             <Search
               size={15}
@@ -1112,20 +1132,22 @@ export function TaskPacksPage({
             />
           </div>
 
-          <HorizontalSlidingSelector
-            items={localizedBodyModeOptions}
-            activeIndex={localizedBodyModeOptions.findIndex((option) => option.value === bodyModeFilter)}
-            getItemKey={(option) => option.value}
-            onSelect={(option) => setBodyModeFilter(option.value)}
-            ariaLabel={t("taskPacksPage.generationMode")}
-            itemClassName="h-10 px-2"
-            renderItem={(option, isActive) => (
-              <span className={[
-                "block truncate text-xs font-semibold",
-                isActive ? "text-black" : "text-neutral-400",
-              ].join(" ")}>{option.label}</span>
-            )}
-          />
+          <fieldset disabled={!workflowReady} className="min-w-0" aria-busy={workflowIndex.status === "loading"}>
+            <HorizontalSlidingSelector
+              items={lifecycleOptions}
+              activeIndex={lifecycleOptions.findIndex((option) => option.value === effectiveLifecycleFilter)}
+              getItemKey={(option) => option.value}
+              onSelect={(option) => setLifecycleFilter(option.value)}
+              ariaLabel={t("taskPacksPage.lifecycleFilter")}
+              itemClassName="min-h-10 px-1 py-2 disabled:cursor-not-allowed"
+              renderItem={(option, isActive) => (
+                <span className={[
+                  "flex flex-wrap items-center justify-center gap-x-1 text-xs font-semibold leading-5",
+                  isActive ? "text-black" : "text-neutral-400",
+                ].join(" ")}>{option.label}<span className="opacity-60">{option.count}</span></span>
+              )}
+            />
+          </fieldset>
 
           <Button
             variant="secondary"
@@ -1152,7 +1174,7 @@ export function TaskPacksPage({
           transition={{ duration: 0.22, ease: [0.16, 1, 0.3, 1] }}
         >
           <div className="overflow-hidden">
-            <div className="mt-3 grid gap-3 border-t border-neutral-900 pt-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
+            <div className="mt-3 grid gap-3 border-t border-neutral-900 pt-3 md:grid-cols-2 xl:grid-cols-[repeat(4,minmax(0,1fr))_auto]">
               <CustomSelect
                 value={taskTypeFilter}
                 options={localizedTaskTypeOptions}
@@ -1162,6 +1184,11 @@ export function TaskPacksPage({
                 value={targetFilter}
                 options={targetOptions}
                 onChange={setTargetFilter}
+              />
+              <CustomSelect
+                value={bodyModeFilter}
+                options={localizedBodyModeOptions}
+                onChange={(value) => setBodyModeFilter(value as BodyModeFilter)}
               />
               <CustomSelect
                 value={sortMode}
@@ -1214,13 +1241,15 @@ export function TaskPacksPage({
             >
               <EmptyState
                 icon={<Search size={22} />}
-                title={t(taskPacks.length === 0 ? "taskPacksPage.noTaskPacks" : "taskPacksPage.noMatching")}
-                description={t(taskPacks.length === 0 ? "taskPacksPage.noTaskPacksDescription" : "taskPacksPage.noMatchingDescription")}
+                title={t(taskPacks.length === 0 ? "taskPacksPage.noTaskPacks" : effectiveLifecycleFilter !== "all" && lifecycleCounts[effectiveLifecycleFilter] === 0
+                  ? `taskPacksPage.lifecycleEmpty.${effectiveLifecycleFilter}` : "taskPacksPage.noMatching")}
+                description={t(taskPacks.length === 0 ? "taskPacksPage.noTaskPacksDescription" : effectiveLifecycleFilter !== "all" && lifecycleCounts[effectiveLifecycleFilter] === 0
+                  ? "taskPacksPage.lifecycleEmptyDescription" : "taskPacksPage.noMatchingDescription")}
               />
             </motion.div>
           ) : (
             <motion.div
-              key={["list", query.trim(), taskTypeFilter, targetFilter, bodyModeFilter, sortMode].join(":")}
+              key={["list", effectiveLifecycleFilter, query.trim(), taskTypeFilter, targetFilter, bodyModeFilter, sortMode].join(":")}
               className="min-h-0 overflow-y-auto pr-2"
               initial={{ opacity: 0, y: 8 }}
               animate={{ opacity: 1, y: 0 }}
@@ -1233,6 +1262,7 @@ export function TaskPacksPage({
                     <TaskPackCard
                       key={taskPack.id}
                       taskPack={taskPack}
+                      workflow={pairedWorkflows.get(taskPack.id)}
                       isCopied={copiedTaskPackId === taskPack.id}
                       projectName={getTaskPackProjectName(taskPack, t)}
                       bodyLabel={getTaskPackBodyBadge(taskPack, t)}

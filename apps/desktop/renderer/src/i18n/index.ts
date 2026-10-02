@@ -512,7 +512,7 @@ const resources = {
         contextDesc:
           "Generate AGENTS.md-style project context and AI instructions.",
         taskPacksDesc:
-          "Searchable archive of generated prompts for coding agents.",
+          "Task Pack library with lifecycle, review status, and reusable prompts.",
         agentsDesc:
           "Agent profiles for Codex, Cursor, Claude Code, Gemini and Generic Task Packs.",
         templatesDesc: "Reusable task, prompt and project-context templates.",
@@ -659,12 +659,12 @@ const resources = {
           reviewProjectChangesDescription: "Open the grounded comparison with the previous scanner observation.",
           reviewProjectChangesLimitedDescription: "Open the scanner comparison; inventory coverage is limited.",
           openTaskPacks: "Open Task Packs",
-          openTaskPacksDescription: "Open the saved Task Pack archive.",
+          openTaskPacksDescription: "Open the saved Task Pack library.",
           openLatestTaskPack: "Open latest Task Pack",
           openLatestTaskPackDescription: "Open “{{title}}”.",
           reviewTaskPackFreshness_one: "Review {{count}} Task Pack requiring attention",
           reviewTaskPackFreshness_other: "Review {{count}} Task Packs requiring attention",
-          reviewTaskPackFreshnessDescription: "Open the archive to inspect existing freshness states.",
+          reviewTaskPackFreshnessDescription: "Open the library to inspect existing freshness states.",
           openPage: "Open {{page}}",
         },
       },
@@ -1110,10 +1110,10 @@ const resources = {
               bullet3: "Context budget pressure",
             },
             archive: {
-              kicker: "Task Pack archive",
+              kicker: "Task Pack library",
               title: "Keep generated briefs reusable.",
               description: "Every generated Task Pack can be stored, opened later, copied, compared, and reused for follow-up work.",
-              action: "Use the archive when you continue work later or need to reuse a previous brief.",
+              action: "Use the library when you continue work later or need to reuse a previous brief.",
               bullet1: "Recent Task Packs",
               bullet2: "Generated prompt history",
               bullet3: "Open or copy earlier packs",
@@ -1182,7 +1182,7 @@ const resources = {
           edit: "Edit",
           inspect: "Inspect",
           budget: "Budget",
-          openArchive: "Open archive",
+          openArchive: "Open library",
           taskPackExampleUi: "UI polish for imports page",
           taskPackExampleBackend: "Backend validation update",
           taskPackExampleChanges: "Review current local changes",
@@ -1269,7 +1269,7 @@ const resources = {
           "Your scanned projects do not have urgent readiness problems.",
         recentTaskPacks: "Recent Task Packs",
         recentTaskPacksCaption: "Latest prompts prepared for coding agents.",
-        openArchive: "Open archive",
+        openArchive: "Open library",
         noTaskPacks: "No Task Packs yet",
         noTaskPacksDesc:
           "Create a Task Pack from a project to see recent work here.",
@@ -1306,7 +1306,7 @@ const resources = {
         taskPackFreshnessAttention_other:
           "{{count}} Task Packs may require review",
         taskPackFreshnessAttentionCaption:
-          "Open the archive to review grounded project-change evidence.",
+          "Open the library to review grounded project-change evidence.",
         utilities: "Utilities",
         utilitiesCaption: "Secondary setup actions, kept outside the main workflow.",
         openContextBuilder: "Open Context Builder",
@@ -2478,7 +2478,7 @@ const resources = {
         noTaskPacks: "No Task Packs yet",
         noTaskPacksDescription:
           "Create a Task Pack from any project card. ContextForge will generate a structured prompt for Codex, Cursor, Claude Code, or another AI agent.",
-        archiveMetrics: "Archive metrics",
+        archiveMetrics: "Library metrics",
         storage: "Task Pack storage",
         storageDescription:
           "Saved prompts, body modes, visible results, and most used agent.",
@@ -2492,18 +2492,18 @@ const resources = {
         stableBodies: "stable safe bodies",
         topTarget: "Top target",
         mostUsedAgent: "most used agent",
-        archive: "Task Pack Archive",
+        archive: "Task Pack Library",
         searchablePrompts: "Searchable prompts",
         agentReadyHistory: "Agent-ready history",
         title: "Manage generated prompts across projects and coding agents.",
         description:
-          "Search, filter, copy, and reopen saved Task Packs generated from your local projects. Use this page as an archive of AI-ready development tasks.",
+          "Search, filter, copy, and open active, completed, and archived Task Packs from your local projects.",
         filterConsole: "Filter console",
         results: "{{count}} results",
         clearFilters: "Clear filters",
         searchPlaceholder: "Search by task, project, agent, prompt type...",
         taskType: "Task type",
-        narrowByTask: "Quickly narrow the archive by the kind of coding task.",
+        narrowByTask: "Quickly narrow the library by the kind of coding task.",
         allTypes: "All types",
         taskTypeDescription: {
           general: "General-purpose work",
@@ -2570,8 +2570,17 @@ const resources = {
         deliveryAttempt: "Attempt {count}",
         importSuccess: "Task Pack imported into the selected local project.",
         libraryTitle: "Task Packs",
+        library: "Library",
         libraryDescription:
-          "A focused library for saved prompts, exports, website handoff, and local reuse.",
+          "Active, completed, and archived Task Packs, ready for local reuse, export, and website handoff.",
+        lifecycleFilter: "Task Pack lifecycle",
+        lifecycle: { all: "All", active: "Active", completed: "Completed", archived: "Archived" },
+        lifecycleEmpty: { active: "No active Task Packs", completed: "No completed Task Packs", archived: "No archived Task Packs" },
+        lifecycleEmptyDescription: "Choose All or another lifecycle to browse the rest of your library.",
+        workflowLoading: "Loading workflow statuses. All Task Packs remain available.",
+        workflowFailed: "Workflow statuses are unavailable. You can still search, open, and use all Task Packs.",
+        workflowUnavailable: "Status unavailable",
+        workflowUnresolved: "Some Task Packs have no matching current workflow status ({{count}}). They remain available under All.",
         savedSummary: "saved packs",
         refinedSummary: "AI refined",
         topTargetSummary: "top target",
@@ -3453,7 +3462,7 @@ const resources = {
           "Review the final instruction, copy it, or export a local file.",
         moreActions: "More",
         back: "Back",
-        openArchive: "Open archive",
+        openArchive: "Open library",
         selectorDiagnostics: "Selector diagnostics",
         generationDiagnostics: "Generation diagnostics",
         performanceDiagnostics: "Performance diagnostics",
@@ -4726,7 +4735,7 @@ const resources = {
           recentTitle: "Latest generated Task Packs",
           recentDescription:
             "Open a saved package to review the task, target and generation mode.",
-          openArchive: "Open archive",
+          openArchive: "Open library",
           emptyTitle: "No Task Packs yet",
           emptyDescription:
             "Create a Task Pack to start building local prompt activity and target analytics.",
@@ -5075,7 +5084,7 @@ const resources = {
             "Select an issue to review its title, body, labels and source metadata.",
           packageReadyTitle: "Task package #{{id}} is ready",
           packageReadyDescription:
-            "Open the task package archive to review or export it. The GitHub issue link is stored in its metadata.",
+            "Open the task package library to review or export it. The GitHub issue link is stored in its metadata.",
         },
         security: {
           eyebrow: "Local-first security",
@@ -5803,7 +5812,7 @@ const resources = {
           navigationAssistant: { label: "Command Palette", description: "Open commands, projects, navigation and workspace actions." },
           addProject: { label: "Add Project", description: "Open the project folder picker." },
           createTaskPack: { label: "Create Task Pack", description: "Start the Task Pack generation flow." },
-          openTaskPacks: { label: "Open Task Packs", description: "Jump to the Task Pack archive." },
+          openTaskPacks: { label: "Open Task Packs", description: "Jump to the Task Pack library." },
           toggleFocusMode: { label: "Focus Mode", description: "Enter or exit Focus Mode in the Task Pack workflow." },
           openSettings: { label: "Open Settings", description: "Jump to application settings." }
         },
@@ -6347,7 +6356,7 @@ const resources = {
         scannersDesc:
           "Подробные сигналы сканера: команды, документация, тесты, CI и структура проекта.",
         contextDesc: "Генерация AGENTS.md, контекста проекта и AI-инструкций.",
-        taskPacksDesc: "Библиотека пакетов задач для AI-агентов.",
+        taskPacksDesc: "Библиотека пакетов задач: жизненный цикл, проверка и готовые промпты.",
         agentsDesc:
           "Профили агентов для Codex, Cursor, Claude Code, Gemini и универсальных пакетов задач.",
         templatesDesc: "Переиспользуемые шаблоны задач, промптов и контекста.",
@@ -6493,14 +6502,14 @@ const resources = {
           reviewProjectChangesDescription: "Открыть достоверное сравнение с предыдущим наблюдением сканера.",
           reviewProjectChangesLimitedDescription: "Открыть сравнение сканера; охват состава файлов ограничен.",
           openTaskPacks: "Открыть пакеты задач",
-          openTaskPacksDescription: "Открыть архив сохранённых пакетов задач.",
+          openTaskPacksDescription: "Открыть библиотеку сохранённых пакетов задач.",
           openLatestTaskPack: "Открыть последний пакет задач",
           openLatestTaskPackDescription: "Открыть «{{title}}».",
           reviewTaskPackFreshness_one: "Проверить {{count}} пакет задач, требующий внимания",
           reviewTaskPackFreshness_few: "Проверить {{count}} пакета задач, требующих внимания",
           reviewTaskPackFreshness_many: "Проверить {{count}} пакетов задач, требующих внимания",
           reviewTaskPackFreshness_other: "Проверить {{count}} пакета задач, требующих внимания",
-          reviewTaskPackFreshnessDescription: "Открыть архив и проверить существующие состояния свежести.",
+          reviewTaskPackFreshnessDescription: "Открыть библиотеку и проверить существующие состояния свежести.",
           openPage: "Открыть: {{page}}",
         },
       },
@@ -6948,10 +6957,10 @@ const resources = {
               bullet3: "Нагрузка на бюджет контекста",
             },
             archive: {
-              kicker: "Архив пакетов задач",
+              kicker: "Библиотека пакетов задач",
               title: "Переиспользуйте подготовленные задания.",
               description: "Каждый созданный пакет задачи можно сохранить, открыть позже, скопировать, сравнить и использовать для продолжения работы.",
-              action: "Используйте архив, когда возвращаетесь к работе или хотите взять за основу прежнее задание.",
+              action: "Используйте библиотеку, когда возвращаетесь к работе или хотите взять за основу прежнее задание.",
               bullet1: "Недавние пакеты задач",
               bullet2: "История созданных промптов",
               bullet3: "Открытие и копирование прежних пакетов",
@@ -7020,7 +7029,7 @@ const resources = {
           edit: "Изменение",
           inspect: "Просмотр",
           budget: "Бюджет",
-          openArchive: "Открыть архив",
+          openArchive: "Открыть библиотеку",
           taskPackExampleUi: "Полировка UI страницы импорта",
           taskPackExampleBackend: "Обновление проверки backend",
           taskPackExampleChanges: "Проверка текущих локальных изменений",
@@ -7108,7 +7117,7 @@ const resources = {
         recentTaskPacks: "Недавние пакеты задач",
         recentTaskPacksCaption:
           "Последние промпты, подготовленные для AI-агентов.",
-        openArchive: "Открыть архив",
+        openArchive: "Открыть библиотеку",
         noTaskPacks: "Пакетов задач пока нет",
         noTaskPacksDesc: "Создайте пакет задачи из проекта, и он появится здесь.",
         readinessBreakdown: "Структура готовности",
@@ -7148,7 +7157,7 @@ const resources = {
         taskPackFreshnessAttention_other:
           "{{count}} пакета задач могут требовать проверки",
         taskPackFreshnessAttentionCaption:
-          "Откройте архив, чтобы проверить подтверждённые данные об изменениях проекта.",
+          "Откройте библиотеку, чтобы проверить подтверждённые данные об изменениях проекта.",
         utilities: "Утилиты",
         utilitiesCaption: "Вторичные настройки вне основного сценария.",
         openContextBuilder: "Открыть Context Builder",
@@ -8380,7 +8389,7 @@ const resources = {
         noTaskPacks: "Пакетов задач пока нет",
         noTaskPacksDescription:
           "Создайте пакет задачи из любой карточки проекта. ContextForge подготовит структурированный промпт для Codex, Cursor, Claude Code или другого AI-агента.",
-        archiveMetrics: "Метрики архива",
+        archiveMetrics: "Метрики библиотеки",
         storage: "Хранилище пакетов задач",
         storageDescription:
           "Сохранённые промпты, режимы генерации, видимые результаты и самый частый агент.",
@@ -8394,7 +8403,7 @@ const resources = {
         stableBodies: "стабильные безопасные тексты",
         topTarget: "Основной агент",
         mostUsedAgent: "самый частый агент",
-        archive: "Архив пакетов задач",
+        archive: "Библиотека пакетов задач",
         searchablePrompts: "Поиск по промптам",
         agentReadyHistory: "История заданий для агентов",
         title:
@@ -8406,7 +8415,7 @@ const resources = {
         clearFilters: "Сбросить фильтры",
         searchPlaceholder: "Поиск по задаче, проекту, агенту, типу промпта...",
         taskType: "Тип задачи",
-        narrowByTask: "Быстро отфильтруйте архив по типу задачи.",
+        narrowByTask: "Быстро отфильтруйте библиотеку по типу задачи.",
         allTypes: "Все типы",
         taskTypeDescription: {
           general: "Универсальная задача",
@@ -8473,8 +8482,17 @@ const resources = {
         deliveryAttempt: "Попытка {count}",
         importSuccess: "Пакет задачи импортирован в выбранный локальный проект.",
         libraryTitle: "Пакеты задач",
+        library: "Библиотека",
         libraryDescription:
-          "Библиотека сохранённых пакетов задач, экспорта, передачи на сайт и повторного использования.",
+          "Активные, завершённые и архивные пакеты задач для локальной работы, экспорта и передачи на сайт.",
+        lifecycleFilter: "Жизненный цикл пакетов задач",
+        lifecycle: { all: "Все", active: "Активные", completed: "Завершённые", archived: "В архиве" },
+        lifecycleEmpty: { active: "Нет активных пакетов задач", completed: "Нет завершённых пакетов задач", archived: "Нет пакетов задач в архиве" },
+        lifecycleEmptyDescription: "Выберите «Все» или другое состояние, чтобы посмотреть остальные пакеты библиотеки.",
+        workflowLoading: "Загружаем статусы. Все пакеты задач остаются доступны.",
+        workflowFailed: "Статусы недоступны. Поиск, открытие и работа со всеми пакетами задач по-прежнему доступны.",
+        workflowUnavailable: "Статус недоступен",
+        workflowUnresolved: "Для некоторых пакетов нет совпадающего актуального статуса ({{count}}). Они доступны в разделе «Все».",
         savedSummary: "сохранено",
         refinedSummary: "улучшено AI",
         topTargetSummary: "главный target",
@@ -9352,7 +9370,7 @@ const resources = {
           "Проверьте итоговую инструкцию, скопируйте её или сохраните локальный файл.",
         moreActions: "Ещё",
         back: "Назад",
-        openArchive: "Открыть архив",
+        openArchive: "Открыть библиотеку",
         selectorDiagnostics: "Диагностика выбора контекста",
         generationDiagnostics: "Диагностика генерации",
         performanceDiagnostics: "Диагностика производительности",
@@ -10642,7 +10660,7 @@ const resources = {
           recentTitle: "Недавние пакеты задач",
           recentDescription:
             "Откройте сохранённый пакет, чтобы проверить задачу, цель и режим генерации.",
-          openArchive: "Открыть архив",
+          openArchive: "Открыть библиотеку",
           emptyTitle: "Пакетов задач пока нет",
           emptyDescription:
             "Создайте пакет задачи, чтобы появилась локальная аналитика промптов и целей.",
@@ -10993,7 +11011,7 @@ const resources = {
             "Выберите issue, чтобы проверить заголовок, описание, метки и метаданные источника.",
           packageReadyTitle: "Пакет задачи #{{id}} готов",
           packageReadyDescription:
-            "Откройте архив пакетов задач для проверки или экспорта. Ссылка на issue сохранена в метаданных.",
+            "Откройте библиотеку пакетов задач для проверки или экспорта. Ссылка на issue сохранена в метаданных.",
         },
         security: {
           eyebrow: "Безопасность local-first",
@@ -11723,7 +11741,7 @@ const resources = {
           navigationAssistant: { label: "Палитра команд", description: "Открыть команды, проекты, навигацию и действия рабочего пространства." },
           addProject: { label: "Добавить проект", description: "Открыть выбор папки проекта." },
           createTaskPack: { label: "Создать пакет задачи", description: "Запустить создание нового пакета задачи." },
-          openTaskPacks: { label: "Открыть пакеты задач", description: "Перейти к архиву пакетов задач." },
+          openTaskPacks: { label: "Открыть пакеты задач", description: "Перейти к библиотеке пакетов задач." },
           toggleFocusMode: { label: "Фокус-режим", description: "Включить или выключить фокус-режим в рабочем процессе Task Pack." },
           openSettings: { label: "Открыть настройки", description: "Перейти к настройкам приложения." }
         },

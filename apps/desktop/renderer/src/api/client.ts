@@ -47,6 +47,7 @@ import type {
   TaskUnderstandingResponse,
   UpdateAppSettingsInput,
 } from "../types";
+import { parseTaskPackWorkflowIndex } from "../utils/taskPackWorkflowIndex";
 
 const API_URL = "http://localhost:4000/api";
 
@@ -506,6 +507,10 @@ export async function getTaskPack(taskPackId: number): Promise<TaskPack> {
 export async function getTaskPackWorkflow(taskPackId: number): Promise<TaskPackWorkflowState> {
   const data = await request<{ ok: true; workflow: TaskPackWorkflowState }>(`/task-packs/${taskPackId}/workflow`);
   return data.workflow;
+}
+
+export async function getCurrentTaskPackWorkflowSummaries() {
+  return parseTaskPackWorkflowIndex(await request<unknown>("/task-packs/workflows/current"));
 }
 
 export async function transitionTaskPackLifecycle(taskPackId: number, input: TaskPackLifecycleRequest): Promise<void> {

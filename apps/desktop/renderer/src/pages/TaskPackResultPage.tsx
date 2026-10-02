@@ -6,7 +6,7 @@ import remarkGfm from "remark-gfm";
 import {
   Activity,
   AlertTriangle,
-  Archive,
+  Library,
   Bot,
   Edit3,
   Eye,
@@ -883,7 +883,7 @@ export function TaskPackResultPage({
       icon: ReactNode;
       onClick: () => void;
     }> = [
-      { id: "open-archive", label: t("taskPackResult.openArchive"), icon: <Archive size={14} />, onClick: onOpenArchive },
+      { id: "open-archive", label: t("taskPackResult.openArchive"), icon: <Library size={14} />, onClick: onOpenArchive },
       { id: "inspect", label: t("inspector.inspect"), icon: <ScanSearch size={14} />, onClick: () => onInspectTaskPack(currentTaskPack) },
     ];
 

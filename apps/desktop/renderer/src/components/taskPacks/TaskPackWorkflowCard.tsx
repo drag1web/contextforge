@@ -19,7 +19,7 @@ function StatusPill({ value, label }: { value: string; label: string }) {
 }
 
 /** Separate from generated-document readiness, including in the Result header. */
-export function TaskPackWorkflowBadges({ workflow }: { workflow: TaskPackWorkflowState }) {
+export function TaskPackWorkflowBadges({ workflow }: { workflow: Pick<TaskPackWorkflowState, "lifecycle" | "currentReviewState"> }) {
   const { t } = useTranslation();
   return <span className="inline-flex flex-wrap items-center gap-1.5" aria-label={t("taskPackWorkflow.title")}>
     <StatusPill value={workflow.lifecycle.state} label={t(`taskPackWorkflow.lifecycle.${workflow.lifecycle.state}`)} />

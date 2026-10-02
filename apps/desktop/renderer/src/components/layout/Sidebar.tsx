@@ -99,7 +99,7 @@ export const navigationSections: NavigationSection[] = [
         id: "taskPacks",
         label: "Task Packs",
         labelKey: "nav.taskPacks",
-        description: "Searchable archive of generated prompts for coding agents.",
+        description: "Task Pack library with lifecycle, review status, and reusable prompts.",
         descriptionKey: "nav.taskPacksDesc",
         icon: FileText,
         status: "alpha"

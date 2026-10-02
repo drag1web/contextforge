@@ -6,6 +6,12 @@ export type TaskPackLifecycle =
   | { state: "completed"; archivedFromState: null }
   | { state: "archived"; archivedFromState: "active" | "completed" };
 export type TaskPackReviewState = "unreviewed" | "in_review" | "accepted" | "changes_requested";
+export interface TaskPackWorkflowSummary {
+  readonly taskPackId: number;
+  readonly currentRevisionId: number;
+  readonly lifecycle: TaskPackLifecycle;
+  readonly currentReviewState: TaskPackReviewState;
+}
 export interface TaskPackWorkflowState {
   taskPackId: number;
   lifecycle: TaskPackLifecycle;
