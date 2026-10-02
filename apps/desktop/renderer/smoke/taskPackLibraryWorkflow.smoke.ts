@@ -1,13 +1,23 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { getCurrentTaskPackWorkflowSummaries, ApiRequestError } from "../src/api/client";
-import { TaskPackWorkflowBadges } from "../src/components/taskPacks/TaskPackWorkflowCard";
 import type { TaskPack, TaskPackWorkflowSummary } from "../src/types";
 import { createTaskPackWorkflowIndexController, filterTaskPacksByLifecycle, getTaskPackLifecycleCounts,
   pairTaskPacksWithWorkflowSummaries, parseTaskPackWorkflowIndex, taskPackWorkflowCollectionSignature } from "../src/utils/taskPackWorkflowIndex";
-import i18n from "../src/i18n";
+// The required root-level invocation must render with the application's JSX runtime.
+const rendererTsconfig = fileURLToPath(new URL("../tsconfig.app.json", import.meta.url));
+if (process.env.TSX_TSCONFIG_PATH !== rendererTsconfig) {
+  const result = spawnSync(process.execPath, [fileURLToPath(import.meta.resolve("tsx/cli")), "--tsconfig", rendererTsconfig,
+    fileURLToPath(import.meta.url)], { stdio: "inherit" });
+  if (result.error) throw result.error;
+  process.exit(result.status ?? 1);
+}
+const { TaskPackWorkflowBadges } = await import("../src/components/taskPacks/TaskPackWorkflowCard");
+const { default: i18n } = await import("../src/i18n");
 
 let passed = 0;
 async function scenario(name: string, run: () => void | Promise<void>) {
@@ -230,8 +240,11 @@ await scenario("flat TaskPack remains separate and summary contains no mutation 
   const cas: "lifecycleVersion" extends keyof TaskPackWorkflowSummary ? true : false = false;
   assert.equal(flat, false); assert.equal(cas, false);
 });
-await scenario("page owns one bulk hook, no individual reads, polling or transitions", () => {
-  assert.equal((page.match(/useTaskPackWorkflowIndex\(taskPacks\)/g) ?? []).length, 1);
+await scenario("workspace owns one shared bulk hook; Library is a read-only consumer", () => {
+  const workspace = source("pages/DashboardPage.tsx");
+  assert.equal((workspace.match(/useTaskPackWorkflowIndex\(dashboard\.taskPacks\)/g) ?? []).length, 1);
+  assert.doesNotMatch(page, /useTaskPackWorkflowIndex/);
+  assert.match(page, /const workflowIndex = workflowProjection/);
   // The existing Cloud bridge has independent inbox synchronization, not workflow polling.
   for (const code of [page.slice(page.indexOf("export function TaskPacksPage(")), hook, helper])
     assert.equal(/getTaskPackWorkflow\(|transitionTaskPackLifecycle|transitionTaskPackRevisionReview|Promise\.all|setInterval/.test(code), false);
@@ -250,8 +263,9 @@ await scenario("clear resets lifecycle and all original filters", () => {
   for (const setter of ['setLifecycleFilter("all")', 'setQuery("")', 'setTaskTypeFilter("all")', 'setTargetFilter("all")',
     'setBodyModeFilter("all")', 'setSortMode("newest")']) assert.ok(clear.includes(setter));
 });
-await scenario("page uses authoritative pair/filter/count helpers and All on loading/failure", () => {
-  assert.match(page, /pairTaskPacksWithWorkflowSummaries\(taskPacks, workflowIndex\.byTaskPackId\)/);
+await scenario("workspace pairs once; Library retains authoritative filter/count and All fallback", () => {
+  assert.match(source("pages/DashboardPage.tsx"), /pairTaskPacksWithWorkflowSummaries\(dashboard\.taskPacks, workflowIndex\.byTaskPackId\)/);
+  assert.match(page, /const pairedWorkflows = workflowProjection\.byTaskPackId/);
   assert.match(page, /filterTaskPacksByLifecycle\(taskPacks, pairedWorkflows, effectiveLifecycleFilter\)/);
   assert.match(page, /effectiveLifecycleFilter = workflowReady \? lifecycleFilter : "all"/);
   assert.match(page, /workflowReady \? lifecycleCounts\[state\] : "—"/);

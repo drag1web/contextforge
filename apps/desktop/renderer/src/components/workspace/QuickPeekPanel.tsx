@@ -23,11 +23,14 @@ import type { QuickPeekTarget } from "../../types/quickPeek";
 import type { TaskPackFreshness } from "../../utils/taskPackFreshness";
 import { ProjectAwarenessSummary } from "../projects/ProjectAwarenessPanel";
 import { TaskPackFreshnessNotice } from "../taskPacks/TaskPackFreshness";
+import { TaskPackWorkflowProjectionBadges } from "../taskPacks/TaskPackWorkflowProjectionBadges";
+import type { TaskPackWorkflowProjection } from "../../utils/taskPackWorkflowIndex";
 import { Button } from "../ui/Button";
 import { ProjectFileDragHandle } from "./ProjectFileDragHandle";
 
 interface QuickPeekPanelProps {
   target: QuickPeekTarget;
+  workflowProjection: TaskPackWorkflowProjection;
   mode?: "quick-peek" | "split-view";
   onClose: () => void;
   onInspect?: (target: QuickPeekTarget) => void;
@@ -54,6 +57,7 @@ function formatDate(value: string | null | undefined, locale: string) {
 
 export function QuickPeekPanel({
   target,
+  workflowProjection,
   mode = "quick-peek",
   onClose,
   onInspect,
@@ -401,6 +405,9 @@ export function QuickPeekPanel({
 
         {target.kind === "task-pack" ? (
           <div className="space-y-4">
+            <section className="rounded-2xl border border-neutral-900 bg-black/35 p-4" aria-label={t("taskPackWorkflow.title")}>
+              <TaskPackWorkflowProjectionBadges taskPack={target.taskPack} projection={workflowProjection} />
+            </section>
             {taskPackFreshness ? (
               <TaskPackFreshnessNotice
                 freshness={taskPackFreshness}

@@ -30,6 +30,8 @@ import { localizeReadinessIssueTitle } from "../components/projects/projectDetai
 import { Button } from "../components/ui/Button";
 import { WorkspaceDisclosure } from "../components/workspace/WorkspaceDisclosure";
 import { TaskPackFreshnessBadge } from "../components/taskPacks/TaskPackFreshness";
+import { TaskPackWorkflowProjectionBadges } from "../components/taskPacks/TaskPackWorkflowProjectionBadges";
+import type { TaskPackWorkflowProjection } from "../utils/taskPackWorkflowIndex";
 import type { Project, ReadinessCheck, TaskPack } from "../types";
 import type { TaskPackFreshness } from "../utils/taskPackFreshness";
 import {
@@ -45,6 +47,7 @@ import {
 interface DashboardHomePageProps {
   projects: Project[];
   taskPacks: TaskPack[];
+  workflowProjection: TaskPackWorkflowProjection;
   freshnessByTaskPackId: ReadonlyMap<number, TaskPackFreshness>;
   readinessScore: number | null;
   statusMessage: string;
@@ -547,6 +550,7 @@ function EmptyDashboard({
 export function DashboardHomePage({
   projects,
   taskPacks,
+  workflowProjection,
   freshnessByTaskPackId,
   readinessScore,
   statusMessage,
@@ -1034,6 +1038,9 @@ export function DashboardHomePage({
                           className="mt-2 max-w-full"
                         />
                       ) : null}
+                      <div className="mt-2">
+                        <TaskPackWorkflowProjectionBadges taskPack={taskPack} projection={workflowProjection} />
+                      </div>
                     </div>
                     <p className="truncate text-xs text-neutral-500">
                       {taskPack.projectName ??

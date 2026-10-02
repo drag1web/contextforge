@@ -32,9 +32,8 @@ import {
 import type { Project, TaskPack, TaskPackWorkflowSummary } from "../types";
 import type { DesktopSyncTaskPackInboxItem } from "../types/desktopSync";
 import { getProjects, importCloudTaskPack } from "../api/client";
-import { useTaskPackWorkflowIndex } from "../hooks/useTaskPackWorkflowIndex";
-import { filterTaskPacksByLifecycle, getTaskPackLifecycleCounts, pairTaskPacksWithWorkflowSummaries,
-  type LifecycleFilter } from "../utils/taskPackWorkflowIndex";
+import { filterTaskPacksByLifecycle, getTaskPackLifecycleCounts,
+  type LifecycleFilter, type TaskPackWorkflowProjection } from "../utils/taskPackWorkflowIndex";
 import { TaskPackWorkflowBadges } from "../components/taskPacks/TaskPackWorkflowCard";
 import { makeAiToolSelectOption } from "../components/ai/aiToolOptions";
 import { WorkspacePageHeader } from "../components/layout/WorkspacePageHeader";
@@ -51,6 +50,7 @@ import {
 
 interface TaskPacksPageProps {
   taskPacks: TaskPack[];
+  workflowProjection: TaskPackWorkflowProjection;
   onOpenTaskPack: (taskPack: TaskPack) => void;
   onQuickPeekTaskPack: (taskPack: TaskPack) => void;
   onInspectTaskPack: (taskPack: TaskPack) => void;
@@ -870,6 +870,7 @@ function CloudTaskPackBridge({
 
 export function TaskPacksPage({
   taskPacks,
+  workflowProjection,
   onOpenTaskPack,
   onQuickPeekTaskPack,
   onInspectTaskPack,
@@ -880,11 +881,10 @@ export function TaskPacksPage({
   const { t } = useTranslation();
   const [query, setQuery] = useState("");
   const [lifecycleFilter, setLifecycleFilter] = useState<LifecycleFilter>("all");
-  const workflowIndex = useTaskPackWorkflowIndex(taskPacks);
+  const workflowIndex = workflowProjection;
   const workflowReady = workflowIndex.status === "ready";
   const effectiveLifecycleFilter = workflowReady ? lifecycleFilter : "all";
-  const pairedWorkflows = useMemo(() => pairTaskPacksWithWorkflowSummaries(taskPacks, workflowIndex.byTaskPackId),
-    [taskPacks, workflowIndex.byTaskPackId]);
+  const pairedWorkflows = workflowProjection.byTaskPackId;
   const lifecycleCounts = useMemo(() => getTaskPackLifecycleCounts(taskPacks, pairedWorkflows), [taskPacks, pairedWorkflows]);
   const unresolvedCount = taskPacks.length - pairedWorkflows.size;
   const lifecycleOptions = (["all", "active", "completed", "archived"] as const).map(value => ({

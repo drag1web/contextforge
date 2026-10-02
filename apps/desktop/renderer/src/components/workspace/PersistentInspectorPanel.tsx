@@ -27,9 +27,12 @@ import {
 } from "../../utils/contextFileLabels";
 import { Button } from "../ui/Button";
 import { ProjectFileDragHandle } from "./ProjectFileDragHandle";
+import { TaskPackWorkflowProjectionBadges } from "../taskPacks/TaskPackWorkflowProjectionBadges";
+import type { TaskPackWorkflowProjection } from "../../utils/taskPackWorkflowIndex";
 
 interface PersistentInspectorPanelProps {
   target: InspectorTarget;
+  workflowProjection: TaskPackWorkflowProjection;
   onClose: () => void;
   onOpenInSplitView: (target: QuickPeekTarget) => void;
   onOpenProject: (projectId: number) => void;
@@ -165,6 +168,7 @@ function getTargetKindKey(target: InspectorTarget) {
 
 export function PersistentInspectorPanel({
   target,
+  workflowProjection,
   onClose,
   onOpenInSplitView,
   onOpenProject,
@@ -339,6 +343,9 @@ export function PersistentInspectorPanel({
 
         {target.kind === "task-pack" ? (
           <>
+            <InspectorSection title={t("taskPackWorkflow.title")} icon={<CheckCircle2 size={13} />}>
+              <TaskPackWorkflowProjectionBadges taskPack={target.taskPack} projection={workflowProjection} />
+            </InspectorSection>
             <div className="grid grid-cols-2 gap-2">
               <InspectorMetric
                 label={t("inspector.project")}

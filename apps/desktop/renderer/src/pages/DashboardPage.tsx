@@ -51,6 +51,8 @@ import { TemplatesPage } from "./TemplatesPage";
 import { DashboardHomePage } from "./DashboardHomePage";
 
 import { useDashboardController } from "../hooks/useDashboardController";
+import { useTaskPackWorkflowIndex } from "../hooks/useTaskPackWorkflowIndex";
+import { pairTaskPacksWithWorkflowSummaries, type TaskPackWorkflowProjection } from "../utils/taskPackWorkflowIndex";
 import { useTaskPackDraftDiscovery } from "../hooks/useTaskPackDraftDiscovery";
 import { TaskPackDraftChooserModal } from "../components/modals/TaskPackDraftChooserModal";
 import { getProjectActiveDraftCount, type createTaskPackDraftDiscovery } from "../utils/taskPackDraftDiscovery";
@@ -833,6 +835,12 @@ export function DashboardPage() {
     },
   });
   const workspaceZoom = useWorkspaceZoom();
+  const workflowIndex = useTaskPackWorkflowIndex(dashboard.taskPacks);
+  const taskPackWorkflowProjection = useMemo<TaskPackWorkflowProjection>(() => ({
+    status: workflowIndex.status,
+    byTaskPackId: pairTaskPacksWithWorkflowSummaries(dashboard.taskPacks, workflowIndex.byTaskPackId),
+    retry: workflowIndex.retry,
+  }), [dashboard.taskPacks, workflowIndex.status, workflowIndex.byTaskPackId, workflowIndex.retry]);
   const taskPackFreshnessById = useMemo(
     () =>
       buildTaskPackFreshnessIndex(dashboard.taskPacks, dashboard.projects),
@@ -1835,6 +1843,7 @@ export function DashboardPage() {
             });
           }}
           onTaskPackUpdated={handleTaskPackUpdatedWithNavigation}
+          onWorkflowActivity={workflowIndex.refresh}
           onOpenInBuilder={handleOpenTaskPackInBuilderWithNavigation}
         />
       );
@@ -1930,6 +1939,7 @@ export function DashboardPage() {
             });
           }}
           onTaskPackUpdated={handleTaskPackUpdatedWithNavigation}
+          onWorkflowActivity={workflowIndex.refresh}
           onOpenInBuilder={handleOpenTaskPackInBuilderWithNavigation}
         />
       );
@@ -1989,6 +1999,7 @@ export function DashboardPage() {
         <DashboardHomePage
           projects={dashboard.projects}
           taskPacks={dashboard.taskPacks}
+          workflowProjection={taskPackWorkflowProjection}
           freshnessByTaskPackId={taskPackFreshnessById}
           readinessScore={dashboard.readinessScore}
           statusMessage={dashboard.statusMessage}
@@ -2039,6 +2050,7 @@ export function DashboardPage() {
       return (
         <TaskPacksPage
           taskPacks={dashboard.taskPacks}
+          workflowProjection={taskPackWorkflowProjection}
           freshnessByTaskPackId={taskPackFreshnessById}
           onReviewProject={handleOpenProjectDetails}
           onOpenTaskPack={handleOpenTaskPackResult}
@@ -2091,6 +2103,7 @@ export function DashboardPage() {
         <ReportsPage
           projects={dashboard.projects}
           taskPacks={dashboard.taskPacks}
+          workflowProjection={taskPackWorkflowProjection}
           readinessScore={dashboard.readinessScore}
           onOpenProjects={() => handleNavigate("projects")}
           onOpenTaskPacks={() => handleNavigate("taskPacks")}
@@ -2163,6 +2176,8 @@ export function DashboardPage() {
     reviewedContextSelection,
     selectedProjectDetailsId,
     taskPackFreshnessById,
+    taskPackWorkflowProjection,
+    workflowIndex.refresh,
     updateCurrentContextComposerState,
   ]);
 
@@ -2265,6 +2280,7 @@ export function DashboardPage() {
                   }`}
                   mode="split-view"
                   target={splitViewTarget}
+                  workflowProjection={taskPackWorkflowProjection}
                   taskPackFreshness={
                     splitViewTarget.kind === "task-pack"
                       ? resolveTaskPackFreshness(splitViewTarget.taskPack)
@@ -2292,6 +2308,7 @@ export function DashboardPage() {
                           : inspectorTarget.evidence.evidenceId
                   }`}
                   target={inspectorTarget}
+                  workflowProjection={taskPackWorkflowProjection}
                   onClose={() => setInspectorTarget(null)}
                   onOpenInSplitView={(target) => {
                     setInspectorTarget(null);
@@ -2473,6 +2490,7 @@ export function DashboardPage() {
                     : quickPeekTarget.displayPath
               }`}
               target={quickPeekTarget}
+              workflowProjection={taskPackWorkflowProjection}
               taskPackFreshness={
                 quickPeekTarget.kind === "task-pack"
                   ? resolveTaskPackFreshness(quickPeekTarget.taskPack)

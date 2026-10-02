@@ -32,6 +32,7 @@ import { TaskPackWorkspaceHeader, type TaskPackWorkspaceView } from "../componen
 import { TaskPackDocumentView, type PromptViewMode } from "../components/taskPacks/TaskPackDocumentView";
 import { TaskPackDetailsView } from "../components/taskPacks/TaskPackDetailsView";
 import { useTaskPackWorkflow } from "../hooks/useTaskPackWorkflow";
+import { refreshTaskPackWorkflowProjectionAfterActivity } from "../utils/taskPackWorkflowIndex";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { HorizontalSlidingSelector } from "../components/ui/SlidingSelectors";
@@ -52,6 +53,7 @@ interface TaskPackResultPageProps {
   onOpenArchive: () => void;
   onInspectTaskPack: (taskPack: TaskPack) => void;
   onTaskPackUpdated?: (taskPack: TaskPack) => void;
+  onWorkflowActivity?: () => Promise<void>;
   onOpenInBuilder?: (taskPack: TaskPack) => void;
   freshness: TaskPackFreshness;
   onReviewProject: (projectId: number) => void;
@@ -836,6 +838,7 @@ export function TaskPackResultPage({
   onOpenArchive,
   onInspectTaskPack,
   onTaskPackUpdated,
+  onWorkflowActivity,
   onOpenInBuilder,
   freshness,
   onReviewProject,
@@ -1039,7 +1042,9 @@ export function TaskPackResultPage({
           <div className="mx-auto max-w-6xl px-2 pb-6 sm:px-4">
             <TaskPackWorkflowCard key={`${taskPack.id}:${currentTaskPack.currentRevisionId ?? "unknown"}`}
               {...workflowController} disabled={editorSession !== null}
-              onRefresh={workflowController.refresh} onExecute={workflowController.execute} onClearIssue={workflowController.clearIssue} />
+              onRefresh={() => refreshTaskPackWorkflowProjectionAfterActivity(workflowController.refresh, onWorkflowActivity)}
+              onExecute={(operation) => refreshTaskPackWorkflowProjectionAfterActivity(() => workflowController.execute(operation), onWorkflowActivity)}
+              onClearIssue={workflowController.clearIssue} />
           </div>
         </div>
         <div hidden={workspaceView !== "details"} className={workspaceView === "details" ? "h-full min-h-0" : "hidden"}>

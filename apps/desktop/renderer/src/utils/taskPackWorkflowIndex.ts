@@ -70,6 +70,31 @@ export interface TaskPackWorkflowIndexSnapshot {
   readonly byTaskPackId: ReadonlyMap<number, TaskPackWorkflowSummary>;
 }
 
+/** Workspace-owned, already paired read projection. No transition tokens or authority. */
+export interface TaskPackWorkflowProjection {
+  readonly status: TaskPackWorkflowIndexSnapshot["status"];
+  readonly byTaskPackId: ReadonlyMap<number, TaskPackWorkflowSummary>;
+  readonly retry: () => Promise<void>;
+}
+
+/** Cached Peek/Inspector targets may be older than the workspace collection. */
+export function resolveTaskPackWorkflowSummary(taskPack: TaskPackIdentity, projection: TaskPackWorkflowProjection) {
+  if (projection.status !== "ready") return undefined;
+  const summary = projection.byTaskPackId.get(taskPack.id);
+  return summary?.taskPackId === taskPack.id && summary.currentRevisionId === taskPack.currentRevisionId ? summary : undefined;
+}
+
+/** Result remains authoritative and responsive even if the shared read fails or stays pending. */
+export async function refreshTaskPackWorkflowProjectionAfterActivity(
+  activity: () => Promise<void>, refresh?: () => Promise<void>,
+) {
+  try { await activity(); }
+  finally {
+    try { void refresh?.().catch(() => {}); }
+    catch { /* Shared read failure must not change the Result operation outcome. */ }
+  }
+}
+
 /** Observable read-only owner. Failures retain no backend message, cause, stack, or evidence. */
 export function createTaskPackWorkflowIndexController(api: TaskPackWorkflowIndexApi) {
   let snapshot: TaskPackWorkflowIndexSnapshot = { status: "loading", signature: null, byTaskPackId: new Map() };
@@ -97,6 +122,8 @@ export function createTaskPackWorkflowIndexController(api: TaskPackWorkflowIndex
       return load(signature);
     },
     retry: () => alive && snapshot.status !== "loading" && snapshot.signature !== null ? load(snapshot.signature) : Promise.resolve(),
+    // Explicit workflow activity can invalidate an in-flight read of the SAME collection.
+    refresh: () => alive && snapshot.signature !== null ? load(snapshot.signature) : Promise.resolve(),
     dispose: () => { alive = false; ++generation; },
   };
 }

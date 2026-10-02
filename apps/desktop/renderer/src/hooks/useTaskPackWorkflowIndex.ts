@@ -13,5 +13,5 @@ export function useTaskPackWorkflowIndex(taskPacks: readonly TaskPack[]) {
   const current = snapshot.signature === signature;
   return { status: current ? snapshot.status : "loading" as const,
     byTaskPackId: useMemo(() => current ? snapshot.byTaskPackId : new Map(), [current, snapshot.byTaskPackId]),
-    retry: controller.retry };
+    retry: controller.retry, refresh: controller.refresh };
 }

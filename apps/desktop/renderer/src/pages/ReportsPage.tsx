@@ -27,6 +27,8 @@ import {
 } from "lucide-react";
 
 import type { Project, TaskPack } from "../types";
+import type { TaskPackWorkflowProjection } from "../utils/taskPackWorkflowIndex";
+import { TaskPackWorkflowProjectionBadges } from "../components/taskPacks/TaskPackWorkflowProjectionBadges";
 import { AiToolLogo } from "../components/ai/AiToolLogo";
 import { getAiToolLabel } from "../components/ai/aiToolOptions";
 import { WorkspacePageHeader } from "../components/layout/WorkspacePageHeader";
@@ -41,6 +43,7 @@ import {
 interface ReportsPageProps {
   projects: Project[];
   taskPacks: TaskPack[];
+  workflowProjection: TaskPackWorkflowProjection;
   readinessScore: number | null;
   onOpenProjects: () => void;
   onOpenTaskPacks: () => void;
@@ -601,11 +604,13 @@ function ProjectReportCard({
 
 function TaskPackActivityItem({
   taskPack,
+  workflowProjection,
   onOpen,
   locale,
   t,
 }: {
   taskPack: TaskPack;
+  workflowProjection: TaskPackWorkflowProjection;
   onOpen: (taskPack: TaskPack) => void;
   locale: string;
   t: TFunction;
@@ -636,6 +641,9 @@ function TaskPackActivityItem({
           className="shrink-0 text-neutral-700 transition group-hover:text-neutral-300"
         />
       </div>
+      <div className="mt-2">
+        <TaskPackWorkflowProjectionBadges taskPack={taskPack} projection={workflowProjection} />
+      </div>
       <div className="mt-3 flex flex-wrap gap-2">
         <span className="inline-flex items-center gap-1.5 rounded-full border border-neutral-900 bg-black/45 px-2.5 py-1 text-[11px] text-neutral-500">
           <AiToolLogo tool={taskPack.targetTool} size="sm" />
@@ -655,6 +663,7 @@ function TaskPackActivityItem({
 export function ReportsPage({
   projects,
   taskPacks,
+  workflowProjection,
   readinessScore,
   onOpenProjects,
   onOpenTaskPacks,
@@ -1128,6 +1137,7 @@ export function ReportsPage({
                       <TaskPackActivityItem
                         key={taskPack.id}
                         taskPack={taskPack}
+                        workflowProjection={workflowProjection}
                         onOpen={onOpenTaskPack}
                         locale={locale}
                         t={t}
@@ -1353,6 +1363,7 @@ export function ReportsPage({
                       <TaskPackActivityItem
                         key={taskPack.id}
                         taskPack={taskPack}
+                        workflowProjection={workflowProjection}
                         onOpen={onOpenTaskPack}
                         locale={locale}
                         t={t}
