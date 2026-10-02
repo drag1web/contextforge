@@ -101,6 +101,24 @@ export interface TaskPackCurrentWorkflowSnapshot {
   readonly reviewEvents: readonly TaskPackRevisionReviewEventRecord[];
 }
 
+/** Internal, read-only history from one database snapshot, never a public DTO. */
+export interface TaskPackRevisionHistorySnapshot {
+  readonly aggregate: TaskPackAggregateRecord;
+  readonly revisions: readonly {
+    readonly revision: TaskPackRevisionRecord;
+    readonly reviewEvents: readonly TaskPackRevisionReviewEventRecord[];
+  }[];
+}
+
+export class TaskPackRevisionHistoryStorageError extends Error {
+  readonly code = "TASK_PACK_REVISION_HISTORY_STATE_INVALID" as const;
+
+  constructor() {
+    super("Task Pack revision history is invalid.");
+    this.name = "TaskPackRevisionHistoryStorageError";
+  }
+}
+
 export class TaskPackCurrentStateStorageError extends Error {
   readonly code = "TASK_PACK_CURRENT_STATE_INVALID" as const;
 
@@ -635,6 +653,7 @@ export interface StorageAdapter {
     revisionId: number
   ): Promise<TaskPackRevisionRecord | null>;
   listTaskPackRevisions(taskPackId: number): Promise<TaskPackRevisionRecord[]>;
+  getTaskPackRevisionHistorySnapshot(taskPackId: number): Promise<TaskPackRevisionHistorySnapshot | null>;
   appendTaskPackRevision(input: AppendTaskPackRevisionInput): Promise<TaskPackRevisionRecord>;
   transitionTaskPackAggregateLifecycle(
     input: TransitionTaskPackAggregateLifecycleInput

@@ -16,6 +16,7 @@ import {
 } from "../taskPacks/taskPackLifecycle.js";
 import { parseJsonValue, stringifyJsonValue } from "./json.js";
 import { TASK_PACK_CURRENT_WORKFLOW_SQL, mapTaskPackCurrentWorkflowRows } from "./taskPackWorkflowIndex.js";
+import { taskPackRevisionHistorySql, mapTaskPackRevisionHistoryRows } from "./taskPackRevisionHistory.js";
 import {
   assertTaskPackGitHubCreatedIssueLinkInput,
   projectTaskPackGenerationRecipeWithGitHubCreatedIssue,
@@ -92,6 +93,7 @@ import type {
   TaskPackGitHubCreatedIssueLinkRecord,
   TaskPackRecord,
   TaskPackRevisionRecord,
+  TaskPackRevisionHistorySnapshot,
   TaskPackRevisionReviewEventRecord,
   UpdateProjectMemoryInput,
   UpdateTaskPackDraftInput,
@@ -1551,6 +1553,12 @@ export class SqliteStorageAdapter implements StorageAdapter {
       [taskPackId],
     );
     return rows.map(mapTaskPackRevisionPersistenceRow);
+  }
+
+  async getTaskPackRevisionHistorySnapshot(taskPackId: number): Promise<TaskPackRevisionHistorySnapshot | null> {
+    // One statement reads all history coherently, without write locks or sql.js persist.
+    const rows = await this.getAll<Record<string, unknown>>(taskPackRevisionHistorySql("?"), [taskPackId]);
+    return mapTaskPackRevisionHistoryRows(taskPackId, rows);
   }
 
   async appendTaskPackRevision(

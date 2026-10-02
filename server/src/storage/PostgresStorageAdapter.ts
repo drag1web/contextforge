@@ -1,5 +1,6 @@
 import { pool } from "../db/pool.js";
 import { TASK_PACK_CURRENT_WORKFLOW_SQL, mapTaskPackCurrentWorkflowRows } from "./taskPackWorkflowIndex.js";
+import { taskPackRevisionHistorySql, mapTaskPackRevisionHistoryRows } from "./taskPackRevisionHistory.js";
 import type { ScannedProject } from "../scanner/projectScanner.js";
 import {
   assertTaskPackGitHubCreatedIssueLinkInput,
@@ -82,6 +83,7 @@ import type {
   TaskPackGitHubCreatedIssueLinkRecord,
   TaskPackRecord,
   TaskPackRevisionRecord,
+  TaskPackRevisionHistorySnapshot,
   TaskPackRevisionReviewEventRecord,
   UpdateProjectMemoryInput,
   UpdateTaskPackDraftInput,
@@ -1728,6 +1730,12 @@ export class PostgresStorageAdapter implements StorageAdapter {
     return result.rows.map((row) =>
       mapTaskPackRevisionPersistenceRow(row as TaskPackRevisionPersistenceRow),
     );
+  }
+
+  async getTaskPackRevisionHistorySnapshot(taskPackId: number): Promise<TaskPackRevisionHistorySnapshot | null> {
+    // A single MVCC statement is a consistent snapshot; no transaction client needed.
+    const result = await pool.query(taskPackRevisionHistorySql("$1"), [taskPackId]);
+    return mapTaskPackRevisionHistoryRows(taskPackId, result.rows);
   }
 
   async appendTaskPackRevision(
