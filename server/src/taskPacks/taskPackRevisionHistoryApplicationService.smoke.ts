@@ -59,6 +59,15 @@ function service(snapshot: TaskPackRevisionHistorySnapshot | null) {
 const topKeys = ["taskPackId", "currentRevisionId", "revisions"];
 const rowKeys = ["id", "revisionNumber", "baseRevisionId", "sourceKind", "createdAt", "generatedAt", "contentHash",
   "generationMode", "generationModel", "generationUsedFallback", "reviewState"];
+const detailKeys = [...rowKeys, "rawTask", "taskType", "targetTool", "generatedPrompt"];
+function detailFixture(): TaskPackRevisionHistorySnapshot {
+  const snapshot = fixture();
+  return { ...snapshot, revisions: snapshot.revisions.map((item, index) => {
+    const fields = { ...content(item.revision.sourceKind), rawTask: ` \tHistorical task ${index + 1}\r\nKeep this text.\n  `,
+      generatedPrompt: `\n  Historical document ${index + 1}\r\n\tEnd.  ` };
+    return { ...item, revision: { ...item.revision, ...fields, contentHash: computeTaskPackRevisionContentHash(fields) } };
+  }) };
+}
 async function expectCorrupt(snapshot: TaskPackRevisionHistorySnapshot) {
   await assert.rejects(() => service(snapshot).getTaskPackRevisionHistoryList(packId), error => {
     assert.ok(error instanceof TaskPackRevisionHistoryApplicationError);
@@ -197,6 +206,127 @@ scenario("invalid public identity rejects before storage read", async () => {
       e instanceof TaskPackRevisionHistoryApplicationError && e.code === "TASK_PACK_REVISION_HISTORY_INPUT_INVALID");
   }
   assert.equal(calls, 0);
+});
+scenario("detail reads the current revision using its exact identity and real ordinal", async () => {
+  const snapshot = detailFixture();
+  const result = (await service(snapshot).getTaskPackRevisionDetail(packId, 309))!;
+  assert.equal(result.taskPackId, packId); assert.equal(result.currentRevisionId, 309);
+  assert.equal(result.revision.id, 309); assert.equal(result.revision.revisionNumber, 3);
+  assert.equal(result.revision.reviewState, "changes_requested");
+});
+scenario("historical detail returns historical bodies, not current content", async () => {
+  const snapshot = detailFixture(), historical = snapshot.revisions[0].revision;
+  const result = (await service(snapshot).getTaskPackRevisionDetail(packId, 101))!;
+  assert.equal(result.currentRevisionId, 309); assert.equal(result.revision.id, 101);
+  assert.equal(result.revision.revisionNumber, 1); assert.equal(result.revision.baseRevisionId, null);
+  assert.equal(result.revision.rawTask, historical.rawTask); assert.equal(result.revision.generatedPrompt, historical.generatedPrompt);
+  assert.notEqual(result.revision.rawTask, snapshot.revisions[2].revision.rawTask);
+});
+scenario("detail preserves leading/trailing whitespace, tabs and CRLF authored strings exactly", async () => {
+  const snapshot = detailFixture();
+  for (const { revision } of snapshot.revisions) {
+    const result = (await service(snapshot).getTaskPackRevisionDetail(packId, revision.id))!;
+    assert.equal(result.revision.rawTask, revision.rawTask); assert.equal(result.revision.generatedPrompt, revision.generatedPrompt);
+    assert.notEqual(result.revision.rawTask, result.revision.rawTask.trim());
+    assert.ok(result.revision.generatedPrompt.includes("\r\n"));
+  }
+});
+scenario("detail exposes exactly the closed outer/detail whitelist", async () => {
+  const result = (await service(fixture()).getTaskPackRevisionDetail(packId, 101))!;
+  assert.deepEqual(Object.keys(result).sort(), ["taskPackId", "currentRevisionId", "revision"].sort());
+  assert.deepEqual(Object.keys(result.revision).sort(), [...detailKeys].sort());
+  assert.equal(result.revision.taskType, "tests"); assert.equal(result.revision.targetTool, "generic");
+});
+scenario("detail recursive runtime privacy excludes diagnostics, recipe, review events, actors and CAS", async () => {
+  const result = (await service(fixture()).getTaskPackRevisionDetail(packId, 101))!;
+  const forbidden = new Set(["diagnostics", "generationRecipe", "groundedContextSnapshot", "freshnessBasis",
+    "generationMessage", "generationDurationMs", "reviewEvents", "actorId", "metadata", "eventId", "lifecycleVersion",
+    "expectedLifecycleVersion", "expectedReviewState", "lifecycle", "acceptedRevisionId", "completedAt", "archivedAt", "stack", "cause"]);
+  function inspect(value: unknown) {
+    if (!value || typeof value !== "object") return;
+    for (const [key, child] of Object.entries(value)) { assert.equal(forbidden.has(key), false, key); inspect(child); }
+  }
+  inspect(result);
+  assert.doesNotMatch(JSON.stringify(result), /PRIVATE_(?:ACTOR|EVENT|RECIPE|SELECTOR|GENERATION|PERFORMANCE|POLICY)|src\/private/);
+});
+scenario("detail derives each historical chain independently, including multiple accepted revisions", async () => {
+  const snapshot = fixture();
+  for (const [id, expected] of [[101, "accepted"], [205, "accepted"], [309, "changes_requested"]] as const) {
+    assert.equal((await service(snapshot).getTaskPackRevisionDetail(packId, id))!.revision.reviewState, expected);
+  }
+});
+scenario("detail zero-event review is unreviewed, not inferred from accepted pointer", async () => {
+  const snapshot = fixture();
+  const withoutEvents = { ...snapshot, revisions: snapshot.revisions.map(item => ({ ...item, reviewEvents: [] })) };
+  assert.equal((await service(withoutEvents).getTaskPackRevisionDetail(packId, 205))!.revision.reviewState, "unreviewed");
+});
+scenario("detail ignores which legitimate historical revision the accepted pointer recognizes", async () => {
+  const snapshot = fixture();
+  const original = await service(snapshot).getTaskPackRevisionDetail(packId, 101);
+  assert.deepEqual(await service({ ...snapshot, aggregate: { ...snapshot.aggregate, acceptedRevisionId: 101 } })
+    .getTaskPackRevisionDetail(packId, 101), original);
+});
+scenario("detail missing pack, missing revision and out-of-pack identity all return null", async () => {
+  assert.equal(await service(null).getTaskPackRevisionDetail(packId, 101), null);
+  assert.equal(await service(fixture()).getTaskPackRevisionDetail(packId, 987654), null);
+  // Only the requested pack's snapshot is consulted; global identities are not looked up.
+  assert.equal(await service(fixture()).getTaskPackRevisionDetail(packId, 777), null);
+});
+scenario("detail performs exactly one snapshot call, with no per-revision lookup/write", async () => {
+  let calls = 0;
+  const storage = new Proxy({ getTaskPackRevisionHistorySnapshot: async (id: number) => {
+    calls++; assert.equal(id, packId); return fixture();
+  } }, { get(target, key, receiver) {
+    if (key !== "getTaskPackRevisionHistorySnapshot") throw new Error("detail may only read the snapshot");
+    return Reflect.get(target, key, receiver);
+  } });
+  await createTaskPackRevisionHistoryApplicationService(storage).getTaskPackRevisionDetail(packId, 101);
+  assert.equal(calls, 1);
+});
+scenario("detail validates both identities before reading storage", async () => {
+  let calls = 0;
+  const sut = createTaskPackRevisionHistoryApplicationService({ getTaskPackRevisionHistorySnapshot: async () => { calls++; return null; } });
+  for (const id of [0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, "101" as unknown as number]) {
+    for (const [taskPackId, revisionId] of [[id, 101], [packId, id]]) {
+      await assert.rejects(() => sut.getTaskPackRevisionDetail(taskPackId, revisionId), e =>
+        e instanceof TaskPackRevisionHistoryApplicationError && e.code === "TASK_PACK_REVISION_HISTORY_INPUT_INVALID");
+    }
+  }
+  assert.equal(calls, 0);
+});
+scenario("detail rejects corruption elsewhere in the full history, even for a missing requested revision", async () => {
+  const snapshot = fixture();
+  const corrupt = { ...snapshot, revisions: snapshot.revisions.map((item, index) => index === 2
+    ? { ...item, revision: { ...item.revision, rawTask: "Tampered private text" } } : item) };
+  for (const id of [101, 987654]) await assert.rejects(() => service(corrupt).getTaskPackRevisionDetail(packId, id), e =>
+    e instanceof TaskPackRevisionHistoryApplicationError && e.code === "TASK_PACK_REVISION_HISTORY_STATE_INVALID");
+});
+scenario("detail rejects a broken historical prefix despite a plausible accepted tail", async () => {
+  const snapshot = fixture();
+  const corrupt = { ...snapshot, revisions: snapshot.revisions.map((item, index) => index === 0
+    ? { ...item, reviewEvents: [{ ...item.reviewEvents[0], fromState: "in_review" as const }, item.reviewEvents[1]] } : item) };
+  await assert.rejects(() => service(corrupt).getTaskPackRevisionDetail(packId, 101), e =>
+    e instanceof TaskPackRevisionHistoryApplicationError && e.code === "TASK_PACK_REVISION_HISTORY_STATE_INVALID");
+});
+scenario("detail translates typed storage corruption without attaching cause/message evidence", async () => {
+  const sut = createTaskPackRevisionHistoryApplicationService({ getTaskPackRevisionHistorySnapshot: async () => {
+    throw new TaskPackRevisionHistoryStorageError();
+  } });
+  await assert.rejects(() => sut.getTaskPackRevisionDetail(packId, 101), e =>
+    e instanceof TaskPackRevisionHistoryApplicationError && e.code === "TASK_PACK_REVISION_HISTORY_STATE_INVALID" && !("cause" in e));
+});
+scenario("detail operational driver failure propagates unchanged and is never retried", async () => {
+  const error = new Error("private SQL driver details", { cause: new Error("private cause") }); let calls = 0;
+  const sut = createTaskPackRevisionHistoryApplicationService({ getTaskPackRevisionHistorySnapshot: async () => { calls++; throw error; } });
+  await assert.rejects(() => sut.getTaskPackRevisionDetail(packId, 101), e => e === error);
+  assert.equal(calls, 1);
+});
+scenario("detail does not mutate historical authored content, pointers, events or timestamps", async () => {
+  const snapshot = detailFixture(), before = structuredClone(snapshot);
+  const result = (await service(snapshot).getTaskPackRevisionDetail(packId, 101))!;
+  assert.deepEqual(snapshot, before); assert.notEqual(result.revision, snapshot.revisions[0].revision);
+  (result.revision as { rawTask: string }).rawTask = "Output changed independently";
+  assert.deepEqual(snapshot, before);
 });
 scenario("real SQLite -> actual application service returns validated metadata without writing persistence", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "contextforge-history-service-"));

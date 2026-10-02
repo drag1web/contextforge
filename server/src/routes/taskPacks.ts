@@ -4,6 +4,8 @@ import path from "node:path";
 import { Router } from "express";
 import { z } from "zod";
 import { registerTaskPackWorkflowRoutes } from "./taskPackWorkflowRoutes.js";
+import { registerTaskPackRevisionHistoryRoutes } from "./taskPackRevisionHistoryRoutes.js";
+import { createTaskPackRevisionHistoryApplicationService } from "../taskPacks/taskPackRevisionHistoryApplicationService.js";
 
 import { storage } from "../storage/index.js";
 import {
@@ -2456,6 +2458,7 @@ const taskPackApplicationService = createTaskPackApplicationService(storage);
 registerTaskPackCurrentReadRoutes(taskPacksRouter, taskPackApplicationService);
 registerTaskPackContentEditRoute(taskPacksRouter, taskPackApplicationService);
 registerTaskPackWorkflowRoutes(taskPacksRouter, taskPackApplicationService);
+registerTaskPackRevisionHistoryRoutes(taskPacksRouter, createTaskPackRevisionHistoryApplicationService(storage));
 
 const cloudTaskPackImportSchema = z.object({
   projectId: z.number().int().positive(),
