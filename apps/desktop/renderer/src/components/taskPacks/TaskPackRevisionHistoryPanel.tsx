@@ -1,8 +1,9 @@
-import { History, Loader2, RefreshCw } from "lucide-react";
+import { ArrowLeftRight, History, Loader2, RefreshCw } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import type { ReactNode } from "react";
+import { useRef, type ReactNode } from "react";
 import type { TaskPackReviewState } from "../../types";
-import type { TaskPackRevisionHistorySnapshot } from "../../utils/taskPackRevisionHistory";
+import type { RevisionComparisonSide, TaskPackRevisionHistorySnapshot } from "../../utils/taskPackRevisionHistory";
+import { TaskPackRevisionComparison } from "./TaskPackRevisionComparison";
 import { Button } from "../ui/Button";
 
 interface Props extends TaskPackRevisionHistorySnapshot {
@@ -10,6 +11,12 @@ interface Props extends TaskPackRevisionHistorySnapshot {
   onRetryHistory: () => Promise<void>;
   onSelectRevision: (revisionId: number) => Promise<void>;
   onRetryDetail: () => Promise<void>;
+  onStartComparison: (revisionId: number) => void;
+  onChooseComparisonRevision: (side: RevisionComparisonSide, revisionId: number) => void;
+  onCompareSelectedRevisions: () => Promise<void>;
+  onSwapComparisonSides: () => void;
+  onClearComparison: () => void;
+  onRetryComparison: () => Promise<void>;
 }
 
 /** Review-only presentation; never invent an aggregate lifecycle for a revision. */
@@ -30,10 +37,16 @@ function Metadata({ label, children }: { label: string; children: ReactNode }) {
 
 /** Pure read surface: callbacks can only read history/detail, never edit or transition. */
 export function TaskPackRevisionHistoryPanel({ status, history, selectedRevisionId, detailStatus, detail,
-  detailUnavailable, onRefresh, onRetryHistory, onSelectRevision, onRetryDetail }: Props) {
+  detailUnavailable, comparison, onRefresh, onRetryHistory, onSelectRevision, onRetryDetail,
+  onStartComparison, onChooseComparisonRevision, onCompareSelectedRevisions, onSwapComparisonSides, onClearComparison, onRetryComparison }: Props) {
   const { t, i18n } = useTranslation();
   const date = (value: string) => <time dateTime={value}>{new Date(value).toLocaleString(i18n.language)}</time>;
   const item = detail?.revision;
+  const comparisonTrigger = useRef<HTMLButtonElement | null>(null);
+  function exitComparison() {
+    onClearComparison();
+    comparisonTrigger.current?.focus(); // existing row button survives comparison unmount
+  }
   return <section data-task-pack-revision-history className="mt-6 rounded-2xl border border-white/10 bg-white/[0.02] p-4 sm:p-5"
     aria-label={t("taskPackRevisionHistory.title")}>
     <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
@@ -73,9 +86,18 @@ export function TaskPackRevisionHistoryPanel({ status, history, selectedRevision
                 {revision.generationModel !== null && <> · {t("taskPackRevisionHistory.model")}: {revision.generationModel}</>}
               </span>
             </button>
+            <Button variant="ghost" className="mt-1 gap-1.5 text-xs" disabled={history.revisions.length < 2}
+              aria-label={t("taskPackRevisionComparison.compareRevision", { number: revision.revisionNumber })}
+              onClick={event => { comparisonTrigger.current = event.currentTarget; onStartComparison(revision.id); }}>
+              <ArrowLeftRight size={12} aria-hidden="true" />{t("taskPackRevisionComparison.compare")}
+            </Button>
           </li>)}
         </ul>
         <div className="min-w-0" aria-live="polite" data-revision-detail>
+          {comparison.active && <TaskPackRevisionComparison history={history} comparison={comparison}
+            onChooseRevision={onChooseComparisonRevision} onCompare={onCompareSelectedRevisions}
+            onSwap={onSwapComparisonSides} onExit={exitComparison} onRetry={onRetryComparison} />}
+          {!comparison.active && <>
           {detailStatus === "idle" && <p className="text-sm text-neutral-400">{t("taskPackRevisionHistory.select")}</p>}
           {detailStatus === "loading" && <p role="status" className="flex items-center gap-2 text-sm text-neutral-400">
             <Loader2 size={14} className="animate-spin" aria-hidden="true" />{t("taskPackRevisionHistory.loadingRevision")}</p>}
@@ -117,6 +139,7 @@ export function TaskPackRevisionHistoryPanel({ status, history, selectedRevision
               <pre data-historical-generated-document className="whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-black/15 p-4 text-sm leading-relaxed text-neutral-300">{item.generatedPrompt}</pre>
             </section>
           </article>}
+          </>}
         </div>
       </div>)}
   </section>;

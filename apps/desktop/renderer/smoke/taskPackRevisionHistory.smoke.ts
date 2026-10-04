@@ -6,6 +6,7 @@ import { ApiRequestError, getTaskPackRevisionHistory, getTaskPackRevisionDetail 
 import { TaskPackRevisionHistoryPanel } from "../src/components/taskPacks/TaskPackRevisionHistoryPanel";
 import { TASK_PACK_WORKSPACE_VIEWS } from "../src/components/taskPacks/TaskPackWorkspaceHeader";
 import { createTaskPackRevisionHistoryController, parseTaskPackRevisionHistoryResponse, parseTaskPackRevisionDetailResponse,
+  emptyTaskPackRevisionComparison,
   type TaskPackRevisionHistoryApi, type TaskPackRevisionHistorySnapshot } from "../src/utils/taskPackRevisionHistory";
 import type { TaskPackRevisionDetail, TaskPackRevisionHistory, TaskPackRevisionHistoryItem } from "../src/types";
 import i18n from "../src/i18n";
@@ -54,10 +55,11 @@ const ownerSource = source("utils/taskPackRevisionHistory.ts");
 const hookSource = source("hooks/useTaskPackRevisionHistory.ts");
 const navigationSource = source("hooks/useWorkspaceNavigationHistory.ts");
 const actions = { onRefresh: async () => {}, onRetryHistory: async () => {},
-  onSelectRevision: async () => {}, onRetryDetail: async () => {} };
+  onSelectRevision: async () => {}, onRetryDetail: async () => {}, onStartComparison: () => {}, onChooseComparisonRevision: () => {},
+  onCompareSelectedRevisions: async () => {}, onSwapComparisonSides: () => {}, onClearComparison: () => {}, onRetryComparison: async () => {} };
 const ready = (patch: Partial<TaskPackRevisionHistorySnapshot> = {}): TaskPackRevisionHistorySnapshot => ({
   taskPackId: 7, status: "ready", history: history(), selectedRevisionId: null, detailStatus: "idle", detail: null,
-  detailUnavailable: false, ...patch,
+  detailUnavailable: false, comparison: emptyTaskPackRevisionComparison(), ...patch,
 });
 const render = (state = ready()) => renderToStaticMarkup(createElement(TaskPackRevisionHistoryPanel, { ...state, ...actions }));
 
@@ -328,7 +330,8 @@ await scenario("observable owner notifies subscribers and supports cleanup", asy
   await f.controller.selectRevision(102); assert.equal(notifications, saved); f.controller.dispose();
 });
 await scenario("no polling, per-row Promise.all, current-workflow reads or mutation capability", () => {
-  assert.doesNotMatch(ownerSource + hookSource, /setInterval|setTimeout|Promise\.all|getTaskPackWorkflow|transitionTaskPack|updateTaskPack|createTaskPackEditorSession/);
+  assert.doesNotMatch(ownerSource + hookSource, /setInterval|setTimeout|Promise\.all\([^\n]*\.map\(|getTaskPackWorkflow|transitionTaskPack|updateTaskPack|createTaskPackEditorSession/);
+  assert.match(ownerSource, /Promise\.all\(\[readSide\(leftRevisionId\), readSide\(rightRevisionId\)\]\)/); // fixed two-side 06D read, not N+1
   assert.match(hookSource, /\[taskPackId\]/); assert.match(hookSource, /return controller.dispose/);
   assert.match(hookSource, /useSyncExternalStore/);
 });
@@ -408,8 +411,8 @@ await scenario("selecting current revision still renders only a read-only histor
 await scenario("historical article contains no mutation, export or comparison controls", () => {
   const html = render(selected()), article = html.slice(html.indexOf("<article"), html.indexOf("</article>") + 10);
   assert.doesNotMatch(article, /<button|<input|<textarea|contenteditable|<a\b/);
-  assert.doesNotMatch(panelSource, /onSave|onEdit|onComplete|onArchive|onAccept|onRestore|onRevert|onPromote|onPublish|onCompare|compare|diff|\.\.\/api\//i);
-  assert.doesNotMatch(html, />Save<|>Edit<|>Archive<|>Complete<|>Accept<|>Compare<|>Export</);
+  assert.doesNotMatch(panelSource, /onSave|onEdit|onComplete|onArchive|onAccept|onRestore|onRevert|onPromote|onPublish|\.\.\/api\//i);
+  assert.doesNotMatch(article, />Save<|>Edit<|>Archive<|>Complete<|>Accept<|>Compare<|>Export</);
 });
 await scenario("current Result editor and workflow wiring remain authoritative", () => {
   assert.match(pageSource, /workflow.lifecycle.state === "active"/);

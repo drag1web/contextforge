@@ -74,6 +74,21 @@ export function parseTaskPackRevisionDetailResponse(value: unknown, taskPackId: 
 }
 
 export type RevisionHistoryReadStatus = "idle" | "loading" | "ready" | "failed";
+export type RevisionComparisonSide = "left" | "right";
+export interface TaskPackRevisionComparisonState {
+  readonly active: boolean;
+  readonly status: RevisionHistoryReadStatus;
+  readonly leftRevisionId: number | null;
+  readonly rightRevisionId: number | null;
+  readonly leftDetail: TaskPackRevisionDetail | null;
+  readonly rightDetail: TaskPackRevisionDetail | null;
+  readonly leftIssue: "unavailable" | "failed" | null;
+  readonly rightIssue: "unavailable" | "failed" | null;
+}
+export function emptyTaskPackRevisionComparison(): TaskPackRevisionComparisonState {
+  return { active: false, status: "idle", leftRevisionId: null, rightRevisionId: null,
+    leftDetail: null, rightDetail: null, leftIssue: null, rightIssue: null };
+}
 export interface TaskPackRevisionHistorySnapshot {
   readonly taskPackId: number;
   readonly status: RevisionHistoryReadStatus;
@@ -82,6 +97,7 @@ export interface TaskPackRevisionHistorySnapshot {
   readonly detailStatus: RevisionHistoryReadStatus;
   readonly detail: TaskPackRevisionDetail | null;
   readonly detailUnavailable: boolean;
+  readonly comparison: TaskPackRevisionComparisonState;
 }
 export interface TaskPackRevisionHistoryApi {
   getTaskPackRevisionHistory(taskPackId: number): Promise<unknown>;
@@ -92,10 +108,12 @@ export interface TaskPackRevisionHistoryApi {
 export function createTaskPackRevisionHistoryController(taskPackId: number, api: TaskPackRevisionHistoryApi) {
   assertTaskPackRevisionReadId(taskPackId);
   let state: TaskPackRevisionHistorySnapshot = { taskPackId, status: "idle", history: null,
-    selectedRevisionId: null, detailStatus: "idle", detail: null, detailUnavailable: false };
+    selectedRevisionId: null, detailStatus: "idle", detail: null, detailUnavailable: false,
+    comparison: emptyTaskPackRevisionComparison() };
   let alive = false;
   let historyRequest = 0;
   let detailRequest = 0;
+  let comparisonRequest = 0;
   const listeners = new Set<() => void>();
   const publish = (next: Partial<TaskPackRevisionHistorySnapshot>) => {
     state = { ...state, ...next }; listeners.forEach(listener => listener());
@@ -104,9 +122,60 @@ export function createTaskPackRevisionHistoryController(taskPackId: number, api:
     ++detailRequest;
     publish({ selectedRevisionId: null, detailStatus: "idle", detail: null, detailUnavailable: false });
   }
+  function clearComparison() {
+    ++comparisonRequest;
+    publish({ comparison: emptyTaskPackRevisionComparison() });
+  }
+  const isListed = (revisionId: number) => state.status === "ready" && state.history?.revisions.some(item => item.id === revisionId);
+  function startComparison(revisionId: number) {
+    if (!alive || !isListed(revisionId) || (state.history?.revisions.length ?? 0) < 2) return;
+    ++comparisonRequest;
+    publish({ comparison: { ...emptyTaskPackRevisionComparison(), active: true, leftRevisionId: revisionId } });
+  }
+  async function loadComparison(leftRevisionId: number, rightRevisionId: number) {
+    const request = ++comparisonRequest;
+    publish({ comparison: { ...emptyTaskPackRevisionComparison(), active: true, status: "loading", leftRevisionId, rightRevisionId } });
+    const readSide = async (revisionId: number) => {
+      try {
+        return { detail: parseTaskPackRevisionDetail(await api.getTaskPackRevisionDetail(taskPackId, revisionId), taskPackId, revisionId), issue: null };
+      } catch (error) {
+        const issue = error instanceof ApiRequestError && error.status === 404 ? "unavailable" as const : "failed" as const;
+        return { detail: null, issue };
+      }
+    };
+    // Exactly two public detail reads, not a map/prefetch over the history list.
+    // Fresh rereads on explicit retry avoid pretending mutable review metadata is permanently cached.
+    const [left, right] = await Promise.all([readSide(leftRevisionId), readSide(rightRevisionId)]);
+    if (alive && request === comparisonRequest) publish({ comparison: { active: true,
+      status: left.issue || right.issue ? "failed" : "ready", leftRevisionId, rightRevisionId,
+      leftDetail: left.detail, rightDetail: right.detail, leftIssue: left.issue, rightIssue: right.issue } });
+  }
+  function chooseComparisonRevision(side: RevisionComparisonSide, revisionId: number) {
+    if (!alive || !state.comparison.active || !isListed(revisionId)) return;
+    const current = state.comparison;
+    const left = side === "left" ? revisionId : current.leftRevisionId;
+    const right = side === "right" ? revisionId : current.rightRevisionId;
+    if (left === right || (left === current.leftRevisionId && right === current.rightRevisionId)) return;
+    ++comparisonRequest;
+    publish({ comparison: { ...emptyTaskPackRevisionComparison(), active: true, leftRevisionId: left, rightRevisionId: right } });
+  }
+  function compareSelectedRevisions() {
+    const current = state.comparison;
+    return alive && state.status === "ready" && current.active && current.status !== "loading" &&
+      current.leftRevisionId !== null && current.rightRevisionId !== null && current.leftRevisionId !== current.rightRevisionId
+      ? loadComparison(current.leftRevisionId, current.rightRevisionId) : Promise.resolve();
+  }
+  function swapComparisonSides() {
+    const current = state.comparison;
+    if (!alive || !current.active || current.status === "loading" || current.leftRevisionId === null || current.rightRevisionId === null) return;
+    ++comparisonRequest;
+    publish({ comparison: { ...current, leftRevisionId: current.rightRevisionId, rightRevisionId: current.leftRevisionId,
+      leftDetail: current.rightDetail, rightDetail: current.leftDetail, leftIssue: current.rightIssue, rightIssue: current.leftIssue } });
+  }
   async function refresh() {
     if (!alive || state.status === "loading") return;
     const request = ++historyRequest;
+    clearComparison();
     clearSelection();
     publish({ status: "loading", history: null });
     try {
@@ -117,8 +186,9 @@ export function createTaskPackRevisionHistoryController(taskPackId: number, api:
     }
   }
   async function selectRevision(revisionId: number) {
-    if (!alive || state.status !== "ready" || !state.history?.revisions.some(item => item.id === revisionId) ||
-      (state.selectedRevisionId === revisionId && state.detailStatus === "loading")) return;
+    if (!alive || !isListed(revisionId)) return;
+    if (state.comparison.active) clearComparison(); // explicit return to single inspection
+    if (state.selectedRevisionId === revisionId && state.detailStatus === "loading") return;
     const request = ++detailRequest;
     publish({ selectedRevisionId: revisionId, detailStatus: "loading", detail: null, detailUnavailable: false });
     try {
@@ -143,6 +213,12 @@ export function createTaskPackRevisionHistoryController(taskPackId: number, api:
     selectRevision,
     retryDetail: () => state.selectedRevisionId === null ? Promise.resolve() : selectRevision(state.selectedRevisionId),
     clearSelection,
-    dispose: () => { alive = false; ++historyRequest; ++detailRequest; },
+    startComparison, chooseComparisonRevision, compareSelectedRevisions, swapComparisonSides, clearComparison,
+    retryComparison: () => {
+      const current = state.comparison;
+      return alive && current.active && current.status === "failed" && current.leftRevisionId !== null && current.rightRevisionId !== null
+        ? loadComparison(current.leftRevisionId, current.rightRevisionId) : Promise.resolve();
+    },
+    dispose: () => { alive = false; ++historyRequest; ++detailRequest; ++comparisonRequest; },
   };
 }

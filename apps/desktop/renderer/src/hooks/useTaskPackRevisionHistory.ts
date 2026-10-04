@@ -10,5 +10,8 @@ export function useTaskPackRevisionHistory(taskPackId: number) {
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   useEffect(() => { void controller.activate(); return controller.dispose; }, [controller]);
   return { ...snapshot, refresh: controller.refresh, retryHistory: controller.retryHistory,
-    selectRevision: controller.selectRevision, retryDetail: controller.retryDetail, clearSelection: controller.clearSelection };
+    selectRevision: controller.selectRevision, retryDetail: controller.retryDetail, clearSelection: controller.clearSelection,
+    startComparison: controller.startComparison, chooseComparisonRevision: controller.chooseComparisonRevision,
+    compareSelectedRevisions: controller.compareSelectedRevisions,
+    swapComparisonSides: controller.swapComparisonSides, clearComparison: controller.clearComparison, retryComparison: controller.retryComparison };
 }

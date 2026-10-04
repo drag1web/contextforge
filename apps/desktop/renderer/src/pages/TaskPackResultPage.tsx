@@ -1050,7 +1050,10 @@ export function TaskPackResultPage({
               onClearIssue={workflowController.clearIssue} />
             <TaskPackRevisionHistoryPanel {...revisionHistory} onRefresh={revisionHistory.refresh}
               onRetryHistory={revisionHistory.retryHistory} onSelectRevision={revisionHistory.selectRevision}
-              onRetryDetail={revisionHistory.retryDetail} />
+              onRetryDetail={revisionHistory.retryDetail} onStartComparison={revisionHistory.startComparison}
+              onChooseComparisonRevision={revisionHistory.chooseComparisonRevision} onCompareSelectedRevisions={revisionHistory.compareSelectedRevisions}
+              onSwapComparisonSides={revisionHistory.swapComparisonSides} onClearComparison={revisionHistory.clearComparison}
+              onRetryComparison={revisionHistory.retryComparison} />
           </div>
         </div>
         <div hidden={workspaceView !== "details"} className={workspaceView === "details" ? "h-full min-h-0" : "hidden"}>
