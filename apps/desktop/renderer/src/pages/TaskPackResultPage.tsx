@@ -28,10 +28,12 @@ import {
   updateTaskPackContent,
 } from "../api/client";
 import { TaskPackWorkflowCard } from "../components/taskPacks/TaskPackWorkflowCard";
+import { TaskPackRevisionHistoryPanel } from "../components/taskPacks/TaskPackRevisionHistoryPanel";
 import { TaskPackWorkspaceHeader, type TaskPackWorkspaceView } from "../components/taskPacks/TaskPackWorkspaceHeader";
 import { TaskPackDocumentView, type PromptViewMode } from "../components/taskPacks/TaskPackDocumentView";
 import { TaskPackDetailsView } from "../components/taskPacks/TaskPackDetailsView";
 import { useTaskPackWorkflow } from "../hooks/useTaskPackWorkflow";
+import { useTaskPackRevisionHistory } from "../hooks/useTaskPackRevisionHistory";
 import { refreshTaskPackWorkflowProjectionAfterActivity } from "../utils/taskPackWorkflowIndex";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
@@ -857,6 +859,7 @@ export function TaskPackResultPage({
   const workflowController = useTaskPackWorkflow(taskPack.id,
     currentTaskPack.id === taskPack.id ? currentTaskPack.currentRevisionId : taskPack.currentRevisionId);
   const { workflow } = workflowController;
+  const revisionHistory = useTaskPackRevisionHistory(taskPack.id);
   const canEdit = currentTaskPack.id === taskPack.id && workflow?.taskPackId === currentTaskPack.id &&
     workflow.lifecycle.state === "active" && !workflowController.blocked && !workflowController.loading &&
     !workflowController.refreshing && !workflowController.activeAction;
@@ -1045,6 +1048,9 @@ export function TaskPackResultPage({
               onRefresh={() => refreshTaskPackWorkflowProjectionAfterActivity(workflowController.refresh, onWorkflowActivity)}
               onExecute={(operation) => refreshTaskPackWorkflowProjectionAfterActivity(() => workflowController.execute(operation), onWorkflowActivity)}
               onClearIssue={workflowController.clearIssue} />
+            <TaskPackRevisionHistoryPanel {...revisionHistory} onRefresh={revisionHistory.refresh}
+              onRetryHistory={revisionHistory.retryHistory} onSelectRevision={revisionHistory.selectRevision}
+              onRetryDetail={revisionHistory.retryDetail} />
           </div>
         </div>
         <div hidden={workspaceView !== "details"} className={workspaceView === "details" ? "h-full min-h-0" : "hidden"}>

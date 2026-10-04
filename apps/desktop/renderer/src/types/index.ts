@@ -1,4 +1,5 @@
 export type * from "./taskPackDrafts";
+export type * from "./taskPackRevisionHistory";
 
 // Separate from the flat TaskPack/document compatibility contract.
 export type TaskPackLifecycle =

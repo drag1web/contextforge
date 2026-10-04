@@ -30,6 +30,8 @@ import type {
   StorageAuditResult,
   WorkspaceBackupExportResult,
   TaskPack,
+  TaskPackRevisionHistory,
+  TaskPackRevisionDetail,
   TaskPackWorkflowState,
   TaskPackLifecycleRequest,
   TaskPackReviewRequest,
@@ -48,6 +50,8 @@ import type {
   UpdateAppSettingsInput,
 } from "../types";
 import { parseTaskPackWorkflowIndex } from "../utils/taskPackWorkflowIndex";
+import { assertTaskPackRevisionReadId, parseTaskPackRevisionHistoryResponse,
+  parseTaskPackRevisionDetailResponse } from "../utils/taskPackRevisionHistory";
 
 const API_URL = "http://localhost:4000/api";
 
@@ -507,6 +511,18 @@ export async function getTaskPack(taskPackId: number): Promise<TaskPack> {
 export async function getTaskPackWorkflow(taskPackId: number): Promise<TaskPackWorkflowState> {
   const data = await request<{ ok: true; workflow: TaskPackWorkflowState }>(`/task-packs/${taskPackId}/workflow`);
   return data.workflow;
+}
+
+export async function getTaskPackRevisionHistory(taskPackId: number): Promise<TaskPackRevisionHistory> {
+  assertTaskPackRevisionReadId(taskPackId);
+  return parseTaskPackRevisionHistoryResponse(await request<unknown>(`/task-packs/${taskPackId}/revisions`), taskPackId);
+}
+
+export async function getTaskPackRevisionDetail(taskPackId: number, revisionId: number): Promise<TaskPackRevisionDetail> {
+  assertTaskPackRevisionReadId(taskPackId);
+  assertTaskPackRevisionReadId(revisionId);
+  return parseTaskPackRevisionDetailResponse(
+    await request<unknown>(`/task-packs/${taskPackId}/revisions/${revisionId}`), taskPackId, revisionId);
 }
 
 export async function getCurrentTaskPackWorkflowSummaries() {
