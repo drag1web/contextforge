@@ -92,6 +92,7 @@ import type {
   TransitionTaskPackAggregateLifecycleResult,
   TransitionTaskPackRevisionReviewInput,
   TransitionTaskPackRevisionReviewResult,
+  WorkspaceBackupStorageSnapshot,
 } from "./types.js";
 
 function mapProjectRow(row: any): ProjectRecord {
@@ -556,6 +557,60 @@ export class PostgresStorageAdapter implements StorageAdapter {
       driver: this.driver,
       database: result.rows[0]
     };
+  }
+
+  async getWorkspaceBackupSnapshot(): Promise<WorkspaceBackupStorageSnapshot> {
+    const client = await pool.connect();
+    let begun = false;
+    try {
+      await client.query("BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY;");
+      begun = true;
+      const projects = (await client.query(`${selectProjectsSql} ORDER BY id ASC;`)).rows.map(row => {
+        if (row.detectedStack == null || row.scripts == null || row.readinessReport == null || row.readinessScore == null) {
+          throw new Error("Workspace backup project row is invalid.");
+        }
+        const timestamp = (value: string | Date) => value instanceof Date ? value.toISOString() : value;
+        return mapProjectRow({ ...row, createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt),
+          lastScanAt: row.lastScanAt === null ? null : timestamp(row.lastScanAt) });
+      });
+      const memories = (await client.query(`SELECT id, project_id AS "projectId", title, content, category,
+        is_enabled AS "isEnabled", created_at AS "createdAt", updated_at AS "updatedAt"
+        FROM project_memories ORDER BY project_id ASC, id ASC;`)).rows.map(row => {
+        if (typeof row.isEnabled !== "boolean" || row.category === null) throw new Error("Workspace backup memory row is invalid.");
+        const timestamp = (value: string | Date) => value instanceof Date ? value.toISOString() : value;
+        return mapProjectMemoryRow({ ...row, createdAt: timestamp(row.createdAt), updatedAt: timestamp(row.updatedAt) });
+      });
+      const taskPackAggregates = (await client.query("SELECT * FROM task_packs ORDER BY id ASC;")).rows.map(row => {
+        const aggregate = mapTaskPackAggregatePersistenceRow(row as TaskPackAggregatePersistenceRow);
+        if (aggregate.lifecycle.archivedFromState !== row.archived_from_state) throw new Error("Workspace backup aggregate row is invalid.");
+        return aggregate;
+      });
+      const taskPackRevisions = (await client.query(
+        "SELECT * FROM task_pack_revisions ORDER BY task_pack_id ASC, revision_number ASC, id ASC;",
+      )).rows.map(row => {
+        if (typeof row.generation_used_fallback !== "boolean") throw new Error("Workspace backup revision row is invalid.");
+        return mapTaskPackRevisionPersistenceRow(row as TaskPackRevisionPersistenceRow);
+      });
+      const taskPackLifecycleEvents = (await client.query(
+        "SELECT * FROM task_pack_lifecycle_events ORDER BY task_pack_id ASC, created_at ASC, id ASC;",
+      )).rows.map(row => mapTaskPackLifecycleEventPersistenceRow(row as TaskPackLifecycleEventPersistenceRow));
+      const taskPackReviewEvents = (await client.query(
+        "SELECT * FROM task_pack_revision_review_events ORDER BY task_pack_id ASC, revision_id ASC, created_at ASC, id ASC;",
+      )).rows.map(row => mapTaskPackReviewEventPersistenceRow(row as TaskPackReviewEventPersistenceRow));
+      const grouped = new Map(projects.map(project => [project.id, [] as ProjectMemoryRecord[]]));
+      for (const memory of memories) {
+        const owned = grouped.get(memory.projectId);
+        if (!owned) throw new Error("Workspace backup memory ownership is invalid.");
+        owned.push(memory);
+      }
+      const snapshot = { projects, projectMemory: projects.map(project => ({ projectId: project.id, memories: grouped.get(project.id)! })),
+        taskPackAggregates, taskPackRevisions, taskPackLifecycleEvents, taskPackReviewEvents };
+      await client.query("COMMIT;");
+      return snapshot;
+    } catch (error) {
+      if (begun) try { await client.query("ROLLBACK;"); } catch { /* Preserve original failure. */ }
+      throw error;
+    } finally { client.release(); }
   }
 
   async listProjects(): Promise<ProjectRecord[]> {

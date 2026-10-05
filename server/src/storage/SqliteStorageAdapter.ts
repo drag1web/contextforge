@@ -102,6 +102,7 @@ import type {
   TransitionTaskPackAggregateLifecycleResult,
   TransitionTaskPackRevisionReviewInput,
   TransitionTaskPackRevisionReviewResult,
+  WorkspaceBackupStorageSnapshot,
 } from "./types.js";
 
 type BindValue = SqlValue;
@@ -579,6 +580,73 @@ export class SqliteStorageAdapter implements StorageAdapter {
         path: this.databasePath
       }
     };
+  }
+
+  async getWorkspaceBackupSnapshot(): Promise<WorkspaceBackupStorageSnapshot> {
+    const db = await this.getDatabase();
+    // BEGIN is outside the catch: if it fails, we do not own the transaction.
+    db.run("BEGIN DEFERRED;");
+    try {
+      // Synchronous sql.js reads only. No await/yield/public helper/persist
+      // between the owned BEGIN and COMMIT (including row mapping).
+      const read = <T extends Record<string, unknown>>(sql: string): T[] => {
+        const statement = db.prepare(sql);
+        try {
+          const rows: T[] = [];
+          while (statement.step()) rows.push(statement.getAsObject() as T);
+          return rows;
+        } finally { statement.free(); }
+      };
+      const projects = read<ProjectRow>("SELECT * FROM projects ORDER BY id ASC;").map(row => {
+        // Do not let the compatibility mapper's malformed-JSON fallback hide
+        // corruption. Valid content is still mapped by the existing mapper.
+        for (const value of [row.detected_stack, row.scripts, row.readiness_report]) {
+          if (typeof value !== "string") throw new Error("Workspace backup project row is invalid.");
+          JSON.parse(value);
+        }
+        return mapProjectRow(row);
+      });
+      const memories = read<ProjectMemoryRow>("SELECT * FROM project_memories ORDER BY project_id ASC, id ASC;").map(row => {
+        if ((row.is_enabled !== 0 && row.is_enabled !== 1) || row.category === null) {
+          throw new Error("Workspace backup memory row is invalid.");
+        }
+        return mapProjectMemoryRow(row);
+      });
+      const taskPackAggregates = read<TaskPackAggregatePersistenceRow>("SELECT * FROM task_packs ORDER BY id ASC;").map(row => {
+        const aggregate = mapTaskPackAggregatePersistenceRow(row);
+        if (aggregate.lifecycle.archivedFromState !== row.archived_from_state) {
+          throw new Error("Workspace backup aggregate row is invalid.");
+        }
+        return aggregate;
+      });
+      const taskPackRevisions = read<TaskPackRevisionPersistenceRow>(
+        "SELECT * FROM task_pack_revisions ORDER BY task_pack_id ASC, revision_number ASC, id ASC;",
+      ).map(row => {
+        if (row.generation_used_fallback !== 0 && row.generation_used_fallback !== 1) {
+          throw new Error("Workspace backup revision row is invalid.");
+        }
+        return mapTaskPackRevisionPersistenceRow(row);
+      });
+      const taskPackLifecycleEvents = read<TaskPackLifecycleEventPersistenceRow>(
+        "SELECT * FROM task_pack_lifecycle_events ORDER BY task_pack_id ASC, created_at ASC, id ASC;",
+      ).map(mapTaskPackLifecycleEventPersistenceRow);
+      const taskPackReviewEvents = read<TaskPackReviewEventPersistenceRow>(
+        "SELECT * FROM task_pack_revision_review_events ORDER BY task_pack_id ASC, revision_id ASC, created_at ASC, id ASC;",
+      ).map(mapTaskPackReviewEventPersistenceRow);
+      const grouped = new Map(projects.map(project => [project.id, [] as ProjectMemoryRecord[]]));
+      for (const memory of memories) {
+        const owned = grouped.get(memory.projectId);
+        if (!owned) throw new Error("Workspace backup memory ownership is invalid.");
+        owned.push(memory);
+      }
+      const snapshot = { projects, projectMemory: projects.map(project => ({ projectId: project.id, memories: grouped.get(project.id)! })),
+        taskPackAggregates, taskPackRevisions, taskPackLifecycleEvents, taskPackReviewEvents };
+      db.run("COMMIT;");
+      return snapshot;
+    } catch (error) {
+      try { db.run("ROLLBACK;"); } catch { /* Preserve the original read/mapping failure. */ }
+      throw error;
+    }
   }
 
   async listProjects(): Promise<ProjectRecord[]> {

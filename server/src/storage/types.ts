@@ -596,6 +596,20 @@ export interface StorageHealth {
   database: Record<string, unknown>;
 }
 
+/** One consistent relational read. No flat projections, drafts, integration
+ * stores, settings or schema metadata; no destination/import authority. */
+export interface WorkspaceBackupStorageSnapshot {
+  readonly projects: readonly ProjectRecord[];
+  readonly projectMemory: readonly {
+    readonly projectId: number;
+    readonly memories: readonly ProjectMemoryRecord[];
+  }[];
+  readonly taskPackAggregates: readonly TaskPackAggregateRecord[];
+  readonly taskPackRevisions: readonly TaskPackRevisionRecord[];
+  readonly taskPackLifecycleEvents: readonly TaskPackAggregateLifecycleEventRecord[];
+  readonly taskPackReviewEvents: readonly TaskPackRevisionReviewEventRecord[];
+}
+
 export interface StorageAdapter {
   readonly driver: StorageDriver;
 
@@ -606,6 +620,7 @@ export interface StorageAdapter {
   writeRulesAndTemplatesCatalog?(store: RulesAndTemplatesStore): Promise<void>;
   importRulesAndTemplatesCatalog?(store: RulesAndTemplatesStore): Promise<{ imported: boolean; count: number }>;
   getRulesAndTemplatesCatalogStats?(): Promise<RulesAndTemplatesCatalogStats>;
+  getWorkspaceBackupSnapshot(): Promise<WorkspaceBackupStorageSnapshot>;
 
   listProjects(): Promise<ProjectRecord[]>;
   getProjectById(projectId: number): Promise<ProjectRecord | null>;

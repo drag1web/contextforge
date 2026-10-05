@@ -1,44 +1,25 @@
 import fs from "node:fs/promises";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { config } from "../config/index.js";
 import type { RulesAndTemplatesStore } from "../rules/types.js";
 import { storage } from "./index.js";
 import { getWorkspaceBackupDirectory } from "./storageBackupPaths.js";
+import { WORKSPACE_BACKUP_FORMAT, WORKSPACE_BACKUP_SAFE_SETTING_KEYS, type WorkspaceBackupV2 } from "./workspaceBackupFormat.js";
+import { parseWorkspaceBackup } from "./workspaceBackupReader.js";
+import type { TaskPackJsonValue } from "../taskPacks/taskPackLifecycle.js";
 
 export interface WorkspaceBackupExportResult {
   fileName: string;
   filePath: string;
   sizeBytes: number;
   createdAt: string;
-  counts: {
-    projects: number;
-    taskPacks: number;
-    projectMemories: number;
-    ruleTemplates: number;
-    settings: number;
-  };
+  counts: WorkspaceBackupV2["counts"];
   included: string[];
   excluded: string[];
   warnings: string[];
 }
-
-type SafeSettingsSnapshot = Record<string, unknown>;
-
-const BACKUP_FORMAT = "contextforge.workspace.backup";
-const BACKUP_FORMAT_VERSION = 1;
-
-const SAFE_SETTING_KEYS = [
-  "generation_mode",
-  "ai_provider",
-  "default_target_tool",
-  "default_task_type",
-  "default_ollama_model",
-  "language",
-  "theme",
-  "composer_file_limits",
-  "sidebar_show_descriptions"
-] as const;
 
 const EXCLUDED_SETTINGS = [
   "openai_compatible_api_key",
@@ -57,25 +38,15 @@ const EXCLUDED_SETTINGS = [
 
 function makeBackupFileName(createdAt: string) {
   const safeTimestamp = createdAt.replace(/[:.]/g, "-");
-  return `contextforge-workspace-backup-${safeTimestamp}.json`;
+  // Millisecond timestamps alone collide under simultaneous export requests.
+  return `contextforge-workspace-backup-${safeTimestamp}-${randomUUID()}.json`;
 }
 
-async function collectProjectMemories(projects: Array<{ id: number }>) {
-  const entries = await Promise.all(
-    projects.map(async (project) => ({
-      projectId: project.id,
-      memories: await storage.listProjectMemories(project.id)
-    }))
-  );
+async function collectSafeSettings(): Promise<WorkspaceBackupV2["data"]["safeSettings"]> {
+  const settings = {} as Record<typeof WORKSPACE_BACKUP_SAFE_SETTING_KEYS[number], TaskPackJsonValue>;
 
-  return entries;
-}
-
-async function collectSafeSettings(): Promise<SafeSettingsSnapshot> {
-  const settings: SafeSettingsSnapshot = {};
-
-  for (const key of SAFE_SETTING_KEYS) {
-    settings[key] = await storage.getSettingValue<unknown>(key, null);
+  for (const key of WORKSPACE_BACKUP_SAFE_SETTING_KEYS) {
+    settings[key] = await storage.getSettingValue<TaskPackJsonValue>(key, null);
   }
 
   return settings;
@@ -92,9 +63,7 @@ function countRulesAndTemplates(store: RulesAndTemplatesStore) {
 
 export async function exportWorkspaceBackup(): Promise<WorkspaceBackupExportResult> {
   const createdAt = new Date().toISOString();
-  const projects = await storage.listProjects();
-  const taskPacks = await storage.listTaskPacks();
-  const projectMemory = await collectProjectMemories(projects);
+  const snapshot = await storage.getWorkspaceBackupSnapshot();
   const rulesAndTemplates = storage.readRulesAndTemplatesCatalog
     ? await storage.readRulesAndTemplatesCatalog()
     : null;
@@ -102,7 +71,10 @@ export async function exportWorkspaceBackup(): Promise<WorkspaceBackupExportResu
   const safeSettings = await collectSafeSettings();
   const included = [
     "projects",
-    "taskPacks",
+    "taskPackAggregates",
+    "taskPackRevisions",
+    "taskPackLifecycleEvents",
+    "taskPackReviewEvents",
     "projectMemory",
     "rulesAndTemplates",
     "safeSettings",
@@ -115,19 +87,22 @@ export async function exportWorkspaceBackup(): Promise<WorkspaceBackupExportResu
     "rawLocalDiffs",
     "GitHubTokens",
     "GitHubAccountMetadata",
-    "GitHubRepositoryLinks",
+    "standaloneGitHubRepositoryLinks",
+    "standaloneTaskPackGitHubCreatedIssueLinks",
+    "persistedTaskPackDrafts",
     "node_modules",
     "projectSourceFiles"
   ];
   const warnings = [
-    "Provider API keys, endpoint URLs, GitHub auth data and GitHub repository links are intentionally excluded from this backup.",
+    "This private local backup preserves complete authored and historical content, which may contain sensitive information entered or generated during use.",
+    "Dedicated provider credentials/endpoints and standalone GitHub auth, account and link stores are excluded; historical GitHub provenance embedded in immutable Task Pack content is preserved.",
     "Project source files are not copied; projects are referenced by their local paths.",
     "Restore/import is not implemented in this foundation stage yet."
   ];
 
-  const payload = {
-    format: BACKUP_FORMAT,
-    formatVersion: BACKUP_FORMAT_VERSION,
+  const payload: WorkspaceBackupV2 = {
+    format: WORKSPACE_BACKUP_FORMAT,
+    formatVersion: 2,
     appVersion: config.appVersion,
     exportedAt: createdAt,
     storage: {
@@ -148,9 +123,12 @@ export async function exportWorkspaceBackup(): Promise<WorkspaceBackupExportResu
         : null
     },
     counts: {
-      projects: projects.length,
-      taskPacks: taskPacks.length,
-      projectMemories: projectMemory.reduce(
+      projects: snapshot.projects.length,
+      taskPacks: snapshot.taskPackAggregates.length,
+      revisions: snapshot.taskPackRevisions.length,
+      lifecycleEvents: snapshot.taskPackLifecycleEvents.length,
+      reviewEvents: snapshot.taskPackReviewEvents.length,
+      projectMemories: snapshot.projectMemory.reduce(
         (total, item) => total + item.memories.length,
         0
       ),
@@ -161,33 +139,38 @@ export async function exportWorkspaceBackup(): Promise<WorkspaceBackupExportResu
     excluded,
     warnings,
     data: {
-      projects,
-      taskPacks,
-      projectMemory,
+      ...snapshot,
       rulesAndTemplates,
       safeSettings
     }
   };
 
+  // Validate the exact bytes to be published, not a repaired/second projection.
+  const serialized = `${JSON.stringify(payload, null, 2)}\n`;
+  if (parseWorkspaceBackup(serialized).formatVersion !== 2) throw new Error("Workspace backup version is invalid.");
   const backupsDir = getWorkspaceBackupDirectory();
   await fs.mkdir(backupsDir, { recursive: true });
 
   const fileName = makeBackupFileName(createdAt);
   const filePath = path.join(backupsDir, fileName);
-  await fs.writeFile(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
-
-  const stat = await fs.stat(filePath);
-
-  return {
-    fileName,
-    filePath,
-    sizeBytes: stat.size,
-    createdAt,
-    counts: payload.counts,
-    included,
-    excluded,
-    warnings
-  };
+  const temporaryPath = `${filePath}.${randomUUID()}.tmp`;
+  let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
+  let temporaryOwned = false;
+  try {
+    handle = await fs.open(temporaryPath, "wx");
+    temporaryOwned = true;
+    await handle.writeFile(serialized, "utf8");
+    await handle.close();
+    handle = null;
+    await fs.rename(temporaryPath, filePath);
+    temporaryOwned = false;
+    const stat = await fs.stat(filePath);
+    return { fileName, filePath, sizeBytes: stat.size, createdAt, counts: payload.counts, included, excluded, warnings };
+  } catch (error) {
+    if (handle) try { await handle.close(); } catch { /* Preserve original failure. */ }
+    if (temporaryOwned) try { await fs.unlink(temporaryPath); } catch { /* Best-effort cleanup, never mask the failure. */ }
+    throw error;
+  }
 }
 
 export async function getWorkspaceBackupStats() {

@@ -34,12 +34,12 @@ storageRouter.post("/backups/export", async (_req, res) => {
       backup
     });
   } catch (error) {
-    console.error("Workspace backup export failed:", error);
+    // This boundary must not echo/log private content, SQL or filesystem paths.
+    console.error("Workspace backup export failed");
 
     res.status(500).json({
       ok: false,
-      message: "Workspace backup export failed",
-      error: error instanceof Error ? error.message : String(error)
+      message: "Workspace backup export failed"
     });
   }
 });
