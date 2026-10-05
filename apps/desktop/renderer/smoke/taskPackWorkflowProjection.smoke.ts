@@ -211,7 +211,11 @@ await scenario("all six Dashboard child mounts pass same projection; all Result 
   assert.equal((dashboard.match(/onWorkflowActivity=\{workflowIndex\.refresh\}/g) ?? []).length, (dashboard.match(/<TaskPackResultPage/g) ?? []).length);
   assert.match(dashboard, /taskPackWorkflowProjection,\s*workflowIndex\.refresh,/);
   assert.match(result, /refreshTaskPackWorkflowProjectionAfterActivity\(workflowController\.refresh, onWorkflowActivity\)/);
-  assert.match(result, /refreshTaskPackWorkflowProjectionAfterActivity\(\(\) => workflowController\.execute\(operation\), onWorkflowActivity\)/);
+  const executeHandler = result.slice(result.indexOf("async function handleExecuteWorkflow"), result.indexOf("async function handleCopyPrompt"));
+  assert.match(executeHandler, /refreshTaskPackWorkflowProjectionAfterActivity\(\s*\(\) => workflowController.execute\(operation,/);
+  assert.match(executeHandler, /invalidateTaskPackHistoryAfterReview\(activity, operation, revisionHistory.invalidateAndRefresh\)\),\s*onWorkflowActivity\)/);
+  assert.doesNotMatch(executeHandler, /if\s*\(activity.isCurrent\(\)\)\s*(?:await\s*)?onWorkflowActivity/);
+  assert.match(result, /onExecute=\{handleExecuteWorkflow\}/);
   assert.equal((result.match(/useTaskPackWorkflow\(/g) ?? []).length, 1);
 });
 await scenario("shared read has no workflow polling; existing Cloud inbox polling is preserved", () => {

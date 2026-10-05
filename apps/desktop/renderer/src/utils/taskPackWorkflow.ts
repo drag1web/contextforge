@@ -103,7 +103,8 @@ export function taskPackWorkflowIssue(error: unknown, phase: TaskPackWorkflowIss
     phase, ...(status !== undefined ? { status } : {}), ...(code ? { code } : {}), evidence: Object.freeze(safe) };
 }
 
-export async function executeTaskPackWorkflowOperation(operation: TaskPackWorkflowOperation, api: TaskPackWorkflowApi) {
+export async function executeTaskPackWorkflowOperation(operation: TaskPackWorkflowOperation, api: TaskPackWorkflowApi,
+  onMutationSucceeded?: () => void) {
   const read = async () => parseTaskPackWorkflow(await api.getTaskPackWorkflow(operation.taskPackId), operation.taskPackId);
   try {
     const { action } = operation;
@@ -122,6 +123,9 @@ export async function executeTaskPackWorkflowOperation(operation: TaskPackWorkfl
     }
     return { workflow: null, issue };
   }
+  // Notify only after the POST succeeds, even if the following authoritative GET fails.
+  // A read-only observer must not change the mutation/read outcome.
+  try { onMutationSucceeded?.(); } catch { /* Observer failure is independent of workflow. */ }
   try { return { workflow: await read(), issue: null }; }
   catch (error) { return { workflow: null, issue: taskPackWorkflowIssue(error, "refresh") }; }
 }
@@ -162,13 +166,15 @@ export function createTaskPackWorkflowController(
       if (owns(request)) reconcile(null, taskPackWorkflowIssue(error, phase));
     }
   }
-  async function execute(input: TaskPackWorkflowAction | TaskPackWorkflowOperation) {
+  async function execute(input: TaskPackWorkflowAction | TaskPackWorkflowOperation, onMutationSucceeded?: () => void) {
     if (!alive || state.blocked || state.loading || state.refreshing || state.activeAction || !state.workflow) return;
     const operation = typeof input === "string" ? captureTaskPackWorkflowOperation(state.workflow, input) : input;
     if (operation.taskPackId !== taskPackId || operation.currentRevisionId !== state.workflow.currentRevisionId) return;
     const request = ++generation;
     publish({ activeAction: operation.action, issue: null }); // synchronous duplicate-click lock
-    const result = await executeTaskPackWorkflowOperation(operation, api);
+    const result = await executeTaskPackWorkflowOperation(operation, api, () => {
+      if (owns(request)) onMutationSucceeded?.();
+    });
     if (owns(request)) reconcile(result.workflow, result.issue);
   }
   return {

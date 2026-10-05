@@ -132,11 +132,13 @@ export function TaskPackRevisionHistoryPanel({ status, history, selectedRevision
             </dl>
             <section aria-label={t("taskPackRevisionHistory.rawTask")}>
               <h4 className="mb-2 text-xs font-semibold text-neutral-300">{t("taskPackRevisionHistory.rawTask")}</h4>
-              <pre data-historical-raw-task className="whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-black/15 p-4 text-sm leading-relaxed text-neutral-300">{item.rawTask}</pre>
+              <pre data-historical-raw-task tabIndex={0} aria-label={t("taskPackRevisionHistory.rawTask")}
+                className="max-h-96 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-black/15 p-4 text-sm leading-relaxed text-neutral-300">{item.rawTask}</pre>
             </section>
             <section aria-label={t("taskPackRevisionHistory.generatedDocument")}>
               <h4 className="mb-2 text-xs font-semibold text-neutral-300">{t("taskPackRevisionHistory.generatedDocument")}</h4>
-              <pre data-historical-generated-document className="whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-black/15 p-4 text-sm leading-relaxed text-neutral-300">{item.generatedPrompt}</pre>
+              <pre data-historical-generated-document tabIndex={0} aria-label={t("taskPackRevisionHistory.generatedDocument")}
+                className="max-h-96 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-black/15 p-4 text-sm leading-relaxed text-neutral-300">{item.generatedPrompt}</pre>
             </section>
           </article>}
           </>}

@@ -445,6 +445,30 @@ await scenario("large fallback renders exact complete left/right text with a tru
   assert.equal(html.match(/<pre data-full-text="right"[^>]*>([\s\S]*?)<\/pre>/)![1], right);
   assert.doesNotMatch(html, /No content differences/);
 });
+await scenario("large comparison fallback keeps only one bounded keyboard-scrollable full-text block per side/field", () => {
+  const left = "\tLARGE_LEFT\r\n" + "x".repeat(150_000) + "\r\nEND_LEFT  ";
+  const right = "\tLARGE_RIGHT\r\n" + "y".repeat(150_000) + "\r\nEND_RIGHT  ";
+  const html = renderPanel(snapshot(readyComparison(detail(810, { rawTask: left, generatedPrompt: left }), detail(25, { rawTask: right, generatedPrompt: right }))));
+  assert.doesNotMatch(html, /data-historical-revision/);
+  const blocks = [...html.matchAll(/<pre data-full-text="(left|right)"([^>]*)>([\s\S]*?)<\/pre>/gu)];
+  assert.equal(blocks.length, 4); assert.equal((html.match(/<pre\b/gu) ?? []).length, 4);
+  for (const block of blocks) {
+    assert.equal(block[3], block[1] === "left" ? left : right);
+    for (const css of ["max-h-96", "min-w-0", "overflow-auto", "whitespace-pre-wrap"]) assert.ok(block[2].includes(css));
+    assert.match(block[2], /tabindex="0"/); assert.match(block[2], /aria-label=/);
+  }
+});
+await scenario("detailed comparison regions are bounded/scrollable and render per line, never per character", () => {
+  const html = render(readyComparison(detail(810, { rawTask: "a\n".repeat(200) }), detail(25, { rawTask: "b\n".repeat(200) })));
+  const regions = [...html.matchAll(/<div class="([^"]*)" data-diff-mode="line_diff"([^>]*)>/gu)];
+  assert.equal(regions.length, 2);
+  for (const region of regions) {
+    for (const css of ["max-h-96", "min-w-0", "overflow-auto"]) assert.ok(region[1].includes(css));
+    assert.match(region[2], /tabindex="0"/); assert.match(region[2], /role="region"/); assert.match(region[2], /aria-label=/);
+  }
+  assert.doesNotMatch(comparisonSource, /ReactMarkdown|\.split\(""\)|Array\.from\(value\.|\.substring\(|\.slice\(/);
+  assert.match(comparisonSource, /value.rows.map/);
+});
 await scenario("comparison failure is safe/localized with usable History and Retry", () => {
   const state = { ...readyComparison(), status: "failed" as const, leftDetail: null, rightDetail: null,
     leftIssue: "unavailable" as const, rightIssue: "failed" as const };

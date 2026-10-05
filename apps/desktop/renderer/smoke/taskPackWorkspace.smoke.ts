@@ -48,7 +48,8 @@ await i18n.changeLanguage("en");
 scenario("workspace has exactly Document, Review, Details and defaults to Document", () => {
   assert.deepEqual(TASK_PACK_WORKSPACE_VIEWS, ["document", "review", "details"]);
   assert.match(page, /useState<TaskPackWorkspaceView>\("document"\)/);
-  assert.match(page, /setWorkspaceView\("document"\); \}, \[taskPack.id\]/);
+  assert.match(page, /createTaskPackResultActivityOwner\(taskPack.id\), \[taskPack.id\]/);
+  assert.match(page, /useEffect\(\(\) => \{\s*setWorkspaceView\("document"\);[\s\S]*?\}, \[resultOwner\]/);
 });
 scenario("Document renders real Markdown and compact local exports", () => {
   const html = renderDocument();

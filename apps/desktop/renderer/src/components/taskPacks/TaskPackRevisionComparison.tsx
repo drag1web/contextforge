@@ -70,10 +70,12 @@ function TextComparison({ value, title, field, showWhitespace }: { value: Revisi
       <div className="grid min-w-0 gap-3 sm:grid-cols-2" data-diff-mode="side_by_side">
         {(["left", "right"] as const).map(side => <div key={side} className="min-w-0">
           <h5 className="mb-2 text-xs text-neutral-500">{t(`taskPackRevisionComparison.${side}`)}</h5>
-          <pre data-full-text={side} className="whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-black/15 p-3 text-xs leading-relaxed text-neutral-300">{side === "left" ? value.leftText : value.rightText}</pre>
+          <pre data-full-text={side} tabIndex={0} aria-label={`${title}: ${t(`taskPackRevisionComparison.${side}`)}`}
+            className="max-h-96 min-w-0 overflow-auto whitespace-pre-wrap break-words rounded-xl border border-white/10 bg-black/15 p-3 text-xs leading-relaxed text-neutral-300">{side === "left" ? value.leftText : value.rightText}</pre>
         </div>)}
       </div>
-    </> : <div className="min-w-0 overflow-hidden rounded-xl border border-white/10" data-diff-mode="line_diff">
+    </> : <div className="max-h-96 min-w-0 overflow-auto rounded-xl border border-white/10" data-diff-mode="line_diff"
+      tabIndex={0} role="region" aria-label={title}>
       <div className="grid grid-cols-1 gap-1 px-3 py-2 text-xs text-neutral-500 sm:grid-cols-2">
         <span>{t("taskPackRevisionComparison.left")}</span><span>{t("taskPackRevisionComparison.right")}</span>
       </div>

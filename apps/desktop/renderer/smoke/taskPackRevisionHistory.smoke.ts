@@ -245,6 +245,83 @@ await scenario("history refresh performs one reread and no automatic detail requ
   assert.deepEqual(f.calls, ["history:7", "detail:7:102", "history:7"]);
   assert.equal(f.controller.getSnapshot().selectedRevisionId, null); f.controller.dispose();
 });
+await scenario("manual refresh remains deduplicated while a history load is pending", async () => {
+  const pending = deferred<unknown>(); let reads = 0;
+  const f = fixture({ getTaskPackRevisionHistory: () => { reads++; return pending.promise; } });
+  const loading = f.controller.activate(); await f.controller.refresh(); await f.controller.retryHistory();
+  assert.equal(reads, 1); pending.resolve(history()); await loading; f.controller.dispose();
+});
+await scenario("mutation invalidation supersedes loading; newest authoritative response wins in reverse order", async () => {
+  const old = deferred<unknown>(), fresh = deferred<unknown>(); let reads = 0;
+  const f = fixture({ getTaskPackRevisionHistory: () => ++reads === 1 ? old.promise : fresh.promise });
+  const activation = f.controller.activate(), mutation = f.controller.invalidateAndRefresh();
+  assert.equal(reads, 2);
+  const authoritative = { ...history(), currentRevisionId: 209, revisions: [row(209, 4), ...history().revisions] };
+  fresh.resolve(authoritative); await mutation; old.resolve(history()); await activation;
+  assert.deepEqual(f.controller.getSnapshot().history, authoritative); assert.equal(f.controller.getSnapshot().detail, null);
+  assert.deepEqual(f.calls, []); f.controller.dispose(); // custom list reader, no detail calls
+});
+await scenario("old list success/failure cannot publish even before the authoritative reread resolves", async () => {
+  for (const failure of [false, true]) {
+    const old = deferred<unknown>(), fresh = deferred<unknown>(); let reads = 0;
+    const f = fixture({ getTaskPackRevisionHistory: () => ++reads === 1 ? old.promise : fresh.promise });
+    const activation = f.controller.activate(), mutation = f.controller.invalidateAndRefresh();
+    if (failure) old.reject(new Error("private")); else old.resolve(history()); await activation;
+    assert.equal(f.controller.getSnapshot().status, "loading"); assert.equal(f.controller.getSnapshot().history, null);
+    fresh.resolve(history()); await mutation; assert.equal(f.controller.getSnapshot().status, "ready"); f.controller.dispose();
+  }
+});
+await scenario("repeated mutation generations never authorize any older list after the latest one", async () => {
+  const reads = [deferred<unknown>(), deferred<unknown>(), deferred<unknown>()]; let count = 0;
+  const f = fixture({ getTaskPackRevisionHistory: () => reads[count++].promise });
+  const first = f.controller.activate(), second = f.controller.invalidateAndRefresh(), third = f.controller.invalidateAndRefresh();
+  const latest = { ...history(), revisions: [{ ...row(), reviewState: "accepted" as const }] };
+  reads[2].resolve(latest); await third; reads[0].resolve(history()); await first; reads[1].reject(new Error("private")); await second;
+  assert.deepEqual(f.controller.getSnapshot().history, latest); assert.equal(count, 3); f.controller.dispose();
+});
+await scenario("invalidation atomically clears detail and comparison and issues no detail reads", async () => {
+  const f = fixture(); await f.controller.activate(); await f.controller.selectRevision(102);
+  f.controller.startComparison(102); f.controller.chooseComparisonRevision("right", 187); await f.controller.compareSelectedRevisions();
+  const notifications: TaskPackRevisionHistorySnapshot[] = []; f.controller.subscribe(() => notifications.push(f.controller.getSnapshot()));
+  const before = f.calls.length; await f.controller.invalidateAndRefresh();
+  assert.deepEqual(f.calls.slice(before), ["history:7"]);
+  for (const state of notifications) {
+    assert.equal(state.detail, null); assert.equal(state.selectedRevisionId, null);
+    assert.deepEqual(state.comparison, emptyTaskPackRevisionComparison());
+  }
+  f.controller.dispose();
+});
+await scenario("pending selected detail cannot repopulate after mutation invalidation", async () => {
+  const pending = deferred<unknown>(); const f = fixture({ getTaskPackRevisionDetail: () => pending.promise });
+  await f.controller.activate(); const selected = f.controller.selectRevision(102);
+  await f.controller.invalidateAndRefresh(); pending.resolve(detail()); await selected;
+  assert.equal(f.controller.getSnapshot().detailStatus, "idle"); assert.equal(f.controller.getSnapshot().detail, null);
+  assert.equal(f.controller.getSnapshot().selectedRevisionId, null); f.controller.dispose();
+});
+await scenario("pending comparison cannot repopulate after mutation invalidation", async () => {
+  const pending = deferred<unknown>(); const f = fixture({ getTaskPackRevisionDetail: (_pack, id) => id === 102 ? pending.promise : Promise.resolve(detail(id)) });
+  await f.controller.activate(); f.controller.startComparison(102); f.controller.chooseComparisonRevision("right", 187);
+  const compare = f.controller.compareSelectedRevisions(); await f.controller.invalidateAndRefresh(); pending.resolve(detail()); await compare;
+  assert.deepEqual(f.controller.getSnapshot().comparison, emptyTaskPackRevisionComparison()); f.controller.dispose();
+});
+await scenario("failed authoritative reread never restores old data and one Retry recovers", async () => {
+  const pending = deferred<unknown>(); let reads = 0;
+  const f = fixture({ getTaskPackRevisionHistory: async () => { reads++; if (reads === 1) return pending.promise;
+    if (reads === 2) throw new Error("private SQL driver details"); return history(); } });
+  const old = f.controller.activate(); await f.controller.invalidateAndRefresh(); pending.resolve(history()); await old;
+  const state = f.controller.getSnapshot(); assert.equal(state.status, "failed"); assert.equal(state.history, null);
+  assert.equal(state.detail, null); assert.equal(state.comparison.active, false);
+  assert.doesNotMatch(JSON.stringify(state), /private|SQL|driver/);
+  await f.controller.retryHistory(); assert.equal(reads, 3); assert.equal(f.controller.getSnapshot().status, "ready"); f.controller.dispose();
+});
+await scenario("StrictMode disposal invalidates even a mutation-aware reread for the same owner", async () => {
+  const pending = deferred<unknown>(); let reads = 0;
+  const f = fixture({ getTaskPackRevisionHistory: async () => ++reads === 2 ? pending.promise : history() });
+  await f.controller.activate(); const old = f.controller.invalidateAndRefresh(); f.controller.dispose(); await f.controller.activate();
+  const current = f.controller.getSnapshot(); pending.reject(new Error("private")); await old;
+  assert.equal(f.controller.getSnapshot(), current); assert.equal(reads, 3);
+  f.controller.dispose(); await f.controller.invalidateAndRefresh(); assert.equal(reads, 3);
+});
 await scenario("failed history has one explicit retry and no automatic retry", async () => {
   let count = 0;
   const f = fixture({ getTaskPackRevisionHistory: async () => { if (++count === 1) throw new Error("private"); return history(); } });
@@ -402,6 +479,20 @@ await scenario("authored content is escaped and rendered without trimming, tabs/
   assert.equal(task, rawTask);
   assert.equal(document, generatedPrompt.replace(/</g, "&lt;").replace(/>/g, "&gt;"));
   assert.doesNotMatch(html, /<script>/); assert.match(html, /whitespace-pre-wrap/);
+});
+await scenario("large single raw task/document each have one exact keyboard-scrollable bounded block", () => {
+  const largeTask = "\tBEGIN_TASK\r\n" + "x".repeat(150_000) + "\rEND_TASK  ";
+  const largeDocument = "\tBEGIN_DOCUMENT\r\n" + "\n".repeat(1500) + "END_DOCUMENT  ";
+  const value = detail(); const html = render(ready({ selectedRevisionId: 102, detailStatus: "ready",
+    detail: { ...value, revision: { ...value.revision, rawTask: largeTask, generatedPrompt: largeDocument } } }));
+  for (const [marker, text] of [["data-historical-raw-task", largeTask], ["data-historical-generated-document", largeDocument]]) {
+    const match = html.match(new RegExp(`<pre ${marker}([^>]*)>([\\s\\S]*?)<\\/pre>`, "u"))!;
+    assert.equal(match[2], text); for (const css of ["max-h-96", "min-w-0", "overflow-auto", "whitespace-pre-wrap"]) assert.ok(match[1].includes(css));
+    assert.match(match[1], /tabindex="0"/); assert.match(match[1], /aria-label=/);
+    assert.equal((html.match(new RegExp(marker, "gu")) ?? []).length, 1);
+  }
+  assert.equal((html.match(/<pre\b/gu) ?? []).length, 2);
+  assert.doesNotMatch(panelSource, /ReactMarkdown|\.split\(""\)|Array\.from\(item\.|\.slice\(|\.substring\(/);
 });
 await scenario("selecting current revision still renders only a read-only history document", () => {
   const html = render(ready({ selectedRevisionId: 187, detailStatus: "ready", detail: detail(187) }));

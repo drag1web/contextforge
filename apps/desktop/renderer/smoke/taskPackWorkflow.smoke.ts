@@ -307,9 +307,13 @@ await scenario("direct editors gate opening and save on active authoritative wor
   assert.match(page, /if \(!canEdit\) \{ setEditorOpenError\(editExplanation\); return; \}/);
   assert.match(documentView, /disabled=\{!canEdit\}/);
   assert.match(details, /disabled=\{!canEdit\}/);
-  assert.match(page, /if \(!editAuthority.current.canEdit \|\| editAuthority.current.taskPackId !== session.taskPackId\)/);
+  const saveHandler = page.slice(page.indexOf("async function handleSaveEditor"), page.indexOf("async function handleExecuteWorkflow"));
+  assert.match(saveHandler, /!editAuthority.current.canEdit/);
+  assert.match(saveHandler, /editAuthority.current.taskPackId !== session.taskPackId/);
+  assert.match(saveHandler, /editAuthority.current.revisionId !== session.expectedCurrentRevisionId/);
+  assert.match(saveHandler, /!activity.isCurrent\(\)/);
   assert.match(page, /setCurrentTaskPack\(nextTaskPack\);\s*onTaskPackUpdated\?\.\(nextTaskPack\)/);
-  assert.match(page, /handleTaskPackUpdated\(nextTaskPack\)/);
+  assert.match(saveHandler, /saveTaskPackResultContent\(activity,[\s\S]*handleTaskPackUpdated, revisionHistory.invalidateAndRefresh/);
 });
 await scenario("shared confirmations only complete/archive, cancel never executes", () => {
   assert.match(card, /action === "complete" \|\| action === "archive"/);

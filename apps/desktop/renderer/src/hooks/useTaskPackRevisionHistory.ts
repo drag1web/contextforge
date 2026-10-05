@@ -9,7 +9,7 @@ export function useTaskPackRevisionHistory(taskPackId: number) {
   const controller = useMemo(() => createTaskPackRevisionHistoryController(taskPackId, historyApi), [taskPackId]);
   const snapshot = useSyncExternalStore(controller.subscribe, controller.getSnapshot);
   useEffect(() => { void controller.activate(); return controller.dispose; }, [controller]);
-  return { ...snapshot, refresh: controller.refresh, retryHistory: controller.retryHistory,
+  return { ...snapshot, refresh: controller.refresh, invalidateAndRefresh: controller.invalidateAndRefresh, retryHistory: controller.retryHistory,
     selectRevision: controller.selectRevision, retryDetail: controller.retryDetail, clearSelection: controller.clearSelection,
     startComparison: controller.startComparison, chooseComparisonRevision: controller.chooseComparisonRevision,
     compareSelectedRevisions: controller.compareSelectedRevisions,

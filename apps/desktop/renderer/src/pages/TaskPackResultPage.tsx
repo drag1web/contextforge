@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { useTranslation } from "react-i18next";
 import ReactMarkdown from "react-markdown";
@@ -35,6 +35,9 @@ import { TaskPackDetailsView } from "../components/taskPacks/TaskPackDetailsView
 import { useTaskPackWorkflow } from "../hooks/useTaskPackWorkflow";
 import { useTaskPackRevisionHistory } from "../hooks/useTaskPackRevisionHistory";
 import { refreshTaskPackWorkflowProjectionAfterActivity } from "../utils/taskPackWorkflowIndex";
+import { captureTaskPackResultActivity, createTaskPackResultActivityOwner,
+  invalidateTaskPackHistoryAfterReview, saveTaskPackResultContent } from "../utils/taskPackResultActivity";
+import type { TaskPackWorkflowOperation } from "../utils/taskPackWorkflow";
 import { Button } from "../components/ui/Button";
 import { Modal } from "../components/ui/Modal";
 import { HorizontalSlidingSelector } from "../components/ui/SlidingSelectors";
@@ -856,6 +859,15 @@ export function TaskPackResultPage({
   const [isPerformanceDiagnosticsOpen, setIsPerformanceDiagnosticsOpen] = useState(false);
   const [editorSession, setEditorSession] = useState<TaskPackEditorSession | null>(null);
   const [editorOpenError, setEditorOpenError] = useState("");
+  const resultOwner = useMemo(() => createTaskPackResultActivityOwner(taskPack.id), [taskPack.id]);
+  const currentResultOwner = useRef(resultOwner);
+  const editorOwner = useRef(resultOwner);
+  useLayoutEffect(() => {
+    // Ownership follows committed navigation, never an interrupted/abandoned render.
+    currentResultOwner.current = resultOwner;
+    resultOwner.activate();
+    return resultOwner.dispose;
+  }, [resultOwner]);
   const workflowController = useTaskPackWorkflow(taskPack.id,
     currentTaskPack.id === taskPack.id ? currentTaskPack.currentRevisionId : taskPack.currentRevisionId);
   const { workflow } = workflowController;
@@ -874,7 +886,11 @@ export function TaskPackResultPage({
     setCurrentTaskPack(taskPack);
   }, [taskPack]);
 
-  useEffect(() => { setWorkspaceView("document"); }, [taskPack.id]);
+  useEffect(() => {
+    setWorkspaceView("document");
+    setEditorSession(null);
+    setEditorOpenError("");
+  }, [resultOwner]);
 
   const generatedPrompt = currentTaskPack.generatedPrompt ?? "";
   const sourceIssue = currentTaskPack.generationRecipe?.githubIssue;
@@ -965,11 +981,14 @@ export function TaskPackResultPage({
   ]);
 
   function handleTaskPackUpdated(nextTaskPack: TaskPack) {
+    if (currentResultOwner.current !== resultOwner || !resultOwner.owns(resultOwner.capture()) || nextTaskPack.id !== taskPack.id) return;
     setCurrentTaskPack(nextTaskPack);
     onTaskPackUpdated?.(nextTaskPack);
   }
 
   async function handleOpenEditor(kind: TaskPackEditorKind) {
+    const activity = captureTaskPackResultActivity(resultOwner, () => currentResultOwner.current);
+    if (!activity.isCurrent()) return;
     setEditorOpenError("");
     if (!canEdit) { setEditorOpenError(editExplanation); return; }
     try {
@@ -979,15 +998,18 @@ export function TaskPackResultPage({
         (taskPackForSession.currentRevisionId ?? 0) <= 0
       ) {
         taskPackForSession = await getTaskPack(currentTaskPack.id);
-        if (!editAuthority.current.canEdit || editAuthority.current.taskPackId !== taskPackForSession.id) return;
+        if (!activity.isCurrent() || !editAuthority.current.canEdit || editAuthority.current.taskPackId !== taskPackForSession.id) return;
         handleTaskPackUpdated(taskPackForSession);
       }
       if (taskPackForSession.currentRevisionId !== editAuthority.current.revisionId) {
         setEditorOpenError(t("taskPackWorkflow.issues.revision_changed"));
         return;
       }
+      if (!activity.isCurrent()) return;
+      editorOwner.current = resultOwner;
       setEditorSession(createTaskPackEditorSession(taskPackForSession, kind));
     } catch (error) {
+      if (!activity.isCurrent()) return;
       setEditorOpenError(
         error instanceof Error
           ? error.message
@@ -1004,15 +1026,28 @@ export function TaskPackResultPage({
       generatedPrompt?: string;
     },
   ) {
-    if (!editAuthority.current.canEdit || editAuthority.current.taskPackId !== session.taskPackId) {
+    const activity = captureTaskPackResultActivity(resultOwner, () => currentResultOwner.current);
+    if (!activity.isCurrent() || editorOwner.current !== resultOwner || !editAuthority.current.canEdit ||
+      editAuthority.current.taskPackId !== session.taskPackId || editAuthority.current.revisionId !== session.expectedCurrentRevisionId) {
       throw new Error(t("taskPackWorkflow.editUnavailable"));
     }
     if (input.expectedCurrentRevisionId !== session.expectedCurrentRevisionId) {
       throw new Error("Task Pack editor revision token changed unexpectedly.");
     }
-    const nextTaskPack = await updateTaskPackContent(session.taskPackId, input);
-    handleTaskPackUpdated(nextTaskPack);
+    const nextTaskPack = await saveTaskPackResultContent(activity,
+      () => updateTaskPackContent(session.taskPackId, input), handleTaskPackUpdated, revisionHistory.invalidateAndRefresh);
+    // Do not let a stale drawer continuation close/open a surface for another Result owner.
+    if (!nextTaskPack) throw new Error(t("taskPackWorkflow.editUnavailable"));
     return nextTaskPack;
+  }
+
+  async function handleExecuteWorkflow(operation: TaskPackWorkflowOperation) {
+    const activity = captureTaskPackResultActivity(resultOwner, () => currentResultOwner.current);
+    if (!activity.isCurrent()) return;
+    await refreshTaskPackWorkflowProjectionAfterActivity(
+      () => workflowController.execute(operation, () =>
+        invalidateTaskPackHistoryAfterReview(activity, operation, revisionHistory.invalidateAndRefresh)),
+      onWorkflowActivity);
   }
 
   async function handleCopyPrompt() {
@@ -1046,7 +1081,7 @@ export function TaskPackResultPage({
             <TaskPackWorkflowCard key={`${taskPack.id}:${currentTaskPack.currentRevisionId ?? "unknown"}`}
               {...workflowController} disabled={editorSession !== null}
               onRefresh={() => refreshTaskPackWorkflowProjectionAfterActivity(workflowController.refresh, onWorkflowActivity)}
-              onExecute={(operation) => refreshTaskPackWorkflowProjectionAfterActivity(() => workflowController.execute(operation), onWorkflowActivity)}
+              onExecute={handleExecuteWorkflow}
               onClearIssue={workflowController.clearIssue} />
             <TaskPackRevisionHistoryPanel {...revisionHistory} onRefresh={revisionHistory.refresh}
               onRetryHistory={revisionHistory.retryHistory} onSelectRevision={revisionHistory.selectRevision}
@@ -1093,15 +1128,17 @@ export function TaskPackResultPage({
         />
       )}
       <AnimatePresence>
-        {editorSession ? (
+        {editorSession && editorOwner.current === resultOwner && editorSession.taskPackId === taskPack.id ? (
           <TaskPackEditorDrawer
             key={`${editorSession.taskPackId}:${editorSession.expectedCurrentRevisionId}:${editorSession.kind}`}
             session={editorSession}
             canEdit={canEdit}
             editExplanation={editExplanation}
-            onClose={() => setEditorSession(null)}
+            onClose={() => { if (currentResultOwner.current === resultOwner) setEditorSession(null); }}
             onSave={(input) => handleSaveEditor(editorSession, input)}
-            onOpenInBuilder={onOpenInBuilder}
+            onOpenInBuilder={onOpenInBuilder ? (nextTaskPack) => {
+              if (currentResultOwner.current === resultOwner) onOpenInBuilder(nextTaskPack);
+            } : undefined}
           />
         ) : null}
       </AnimatePresence>

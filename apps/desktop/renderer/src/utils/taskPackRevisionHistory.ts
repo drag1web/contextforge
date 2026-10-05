@@ -172,18 +172,23 @@ export function createTaskPackRevisionHistoryController(taskPackId: number, api:
     publish({ comparison: { ...current, leftRevisionId: current.rightRevisionId, rightRevisionId: current.leftRevisionId,
       leftDetail: current.rightDetail, rightDetail: current.leftDetail, leftIssue: current.rightIssue, rightIssue: current.leftIssue } });
   }
-  async function refresh() {
-    if (!alive || state.status === "loading") return;
+  async function loadHistory() {
+    if (!alive) return;
     const request = ++historyRequest;
-    clearComparison();
-    clearSelection();
-    publish({ status: "loading", history: null });
+    ++detailRequest;
+    ++comparisonRequest;
+    // Publish one cleared snapshot; no listener can see stale detail during invalidation.
+    publish({ status: "loading", history: null, selectedRevisionId: null, detailStatus: "idle",
+      detail: null, detailUnavailable: false, comparison: emptyTaskPackRevisionComparison() });
     try {
       const history = parseTaskPackRevisionHistory(await api.getTaskPackRevisionHistory(taskPackId), taskPackId);
       if (alive && request === historyRequest) publish({ status: "ready", history });
     } catch {
       if (alive && request === historyRequest) publish({ status: "failed", history: null });
     }
+  }
+  function refresh() {
+    return state.status === "loading" ? Promise.resolve() : loadHistory();
   }
   async function selectRevision(revisionId: number) {
     if (!alive || !isListed(revisionId)) return;
@@ -209,6 +214,8 @@ export function createTaskPackRevisionHistoryController(taskPackId: number, api:
       return refresh();
     },
     refresh,
+    // A completed mutation supersedes even an in-flight pre-mutation list read.
+    invalidateAndRefresh: loadHistory,
     retryHistory: refresh,
     selectRevision,
     retryDetail: () => state.selectedRevisionId === null ? Promise.resolve() : selectRevision(state.selectedRevisionId),
