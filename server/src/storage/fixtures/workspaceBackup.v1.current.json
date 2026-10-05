@@ -1,0 +1,124 @@
+{
+  "format": "contextforge.workspace.backup",
+  "formatVersion": 1,
+  "appVersion": "0.7.1-alpha",
+  "exportedAt": "2030-01-01T00:00:00.000Z",
+  "storage": {
+    "driver": "sqlite",
+    "sqliteFirst": true,
+    "schema": null
+  },
+  "counts": {
+    "projects": 1,
+    "taskPacks": 1,
+    "projectMemories": 0,
+    "ruleTemplates": 0,
+    "settings": 9
+  },
+  "included": [
+    "projects",
+    "taskPacks",
+    "projectMemory",
+    "rulesAndTemplates",
+    "safeSettings",
+    "schemaMetadata"
+  ],
+  "excluded": [
+    "providerApiKeys",
+    "providerBaseUrls",
+    "setting:openai_compatible_api_key",
+    "setting:gemini_api_key",
+    "setting:openai_compatible_base_url",
+    "setting:gemini_base_url",
+    "setting:ollama_url",
+    "setting:github_access_token",
+    "setting:github_token_scope",
+    "setting:github_user_login",
+    "setting:github_user_avatar_url",
+    "setting:github_user_html_url",
+    "setting:github_connected_at",
+    "setting:github_last_checked_at",
+    "rawLocalDiffs",
+    "GitHubTokens",
+    "GitHubAccountMetadata",
+    "GitHubRepositoryLinks",
+    "node_modules",
+    "projectSourceFiles"
+  ],
+  "warnings": [
+    "Provider API keys, endpoint URLs, GitHub auth data and GitHub repository links are intentionally excluded from this backup.",
+    "Project source files are not copied; projects are referenced by their local paths.",
+    "Restore/import is not implemented in this foundation stage yet."
+  ],
+  "data": {
+    "projects": [
+      {
+        "id": 10,
+        "name": "Synthetic project",
+        "localPath": "/synthetic/workspace",
+        "packageManager": null,
+        "detectedStack": [],
+        "scripts": {},
+        "readinessScore": 0,
+        "readinessReport": {
+          "score": 0,
+          "checks": [],
+          "issues": []
+        },
+        "createdAt": "2030-01-01T00:00:00.000Z",
+        "updatedAt": "2030-01-01T00:00:00.000Z",
+        "lastScanAt": null
+      }
+    ],
+    "taskPacks": [
+      {
+        "id": 30,
+        "projectId": 10,
+        "projectName": "Synthetic project",
+        "title": "Synthetic task",
+        "rawTask": "  Задача\r\n\tстрока  \r\n",
+        "taskType": "tests",
+        "targetTool": "generic",
+        "generatedPrompt": "# Document\r\n\r\n\tExact text  \r\n",
+        "generationMode": "template",
+        "generationModel": null,
+        "generationMessage": null,
+        "generationUsedFallback": false,
+        "generationDurationMs": null,
+        "generationRecipe": {
+          "githubIssue": {
+            "number": 12,
+            "title": "Synthetic source",
+            "htmlUrl": "https://example.invalid/source"
+          },
+          "githubCreatedIssue": {
+            "number": 13,
+            "htmlUrl": "https://example.invalid/created"
+          }
+        },
+        "createdAt": "2030-01-01T00:00:00.000Z",
+        "updatedAt": "2030-01-02T00:00:00.000Z"
+      }
+    ],
+    "projectMemory": [
+      {
+        "projectId": 10,
+        "memories": []
+      }
+    ],
+    "rulesAndTemplates": null,
+    "safeSettings": {
+      "generation_mode": null,
+      "ai_provider": null,
+      "default_target_tool": null,
+      "default_task_type": null,
+      "default_ollama_model": null,
+      "language": "ru",
+      "theme": null,
+      "composer_file_limits": {
+        "maxFiles": 12
+      },
+      "sidebar_show_descriptions": null
+    }
+  }
+}
