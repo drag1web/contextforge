@@ -177,8 +177,21 @@ function readTaskPackString(value, field, maxLength, { optional = false } = {}) 
   return normalized;
 }
 
+function readTaskPackOriginIdentity(input, sourceTaskPackId) {
+  const hasAggregate = Object.prototype.hasOwnProperty.call(input ?? {}, "originTaskPackId");
+  const hasRevision = Object.prototype.hasOwnProperty.call(input ?? {}, "originRevisionId");
+  if (!hasAggregate && !hasRevision) return {};
+  if (!hasAggregate || !hasRevision ||
+    !Number.isSafeInteger(input.originTaskPackId) || input.originTaskPackId <= 0 ||
+    !Number.isSafeInteger(input.originRevisionId) || input.originRevisionId <= 0 ||
+    String(input.originTaskPackId) !== sourceTaskPackId) {
+    throw Object.assign(new Error("Invalid Task Pack origin identity."), { code: "TASK_PACK_INVALID" });
+  }
+  return { originTaskPackId: input.originTaskPackId, originRevisionId: input.originRevisionId };
+}
+
 function sanitizeTaskPackUpload(input) {
-  return {
+  const sanitized = {
     sourceTaskPackId: readTaskPackString(input?.sourceTaskPackId, "id", 120),
     title: readTaskPackString(input?.title, "title", 180),
     projectName: readTaskPackString(input?.projectName, "project name", 180, { optional: true }),
@@ -188,6 +201,8 @@ function sanitizeTaskPackUpload(input) {
     generatedPrompt: readTaskPackString(input?.generatedPrompt, "prompt", 160_000),
     sourceCreatedAt: toIsoString(input?.sourceCreatedAt)
   };
+  // Installation authority stays with the authenticated website, never input.
+  return { ...sanitized, ...readTaskPackOriginIdentity(input, sanitized.sourceTaskPackId) };
 }
 
 function computeTaskPackContentHash(taskPack) {
@@ -224,6 +239,8 @@ function sanitizeCloudTaskPack(taskPack) {
     createdAt: toIsoString(taskPack.createdAt),
     updatedAt: toIsoString(taskPack.updatedAt)
   };
+  Object.assign(sanitized, readTaskPackOriginIdentity(taskPack, sanitized.sourceTaskPackId));
+  // Legacy body integrity does not authenticate the additive origin IDs.
   const actualHash = computeTaskPackContentHash(sanitized);
   const integrityValid = /^[a-f0-9]{64}$/i.test(sanitized.contentHash) &&
     crypto.timingSafeEqual(Buffer.from(actualHash, "hex"), Buffer.from(sanitized.contentHash, "hex"));

@@ -65,6 +65,8 @@ export interface DesktopSyncLaunchRequest {
 
 export interface DesktopSyncTaskPackUpload {
   sourceTaskPackId: string;
+  originTaskPackId?: number;
+  originRevisionId?: number;
   title: string;
   projectName?: string;
   rawTask: string;
@@ -78,6 +80,8 @@ export interface DesktopSyncCloudTaskPack {
   id: string;
   originInstallationId: string;
   sourceTaskPackId: string;
+  originTaskPackId?: number;
+  originRevisionId?: number;
   title: string;
   projectName: string;
   rawTask: string;

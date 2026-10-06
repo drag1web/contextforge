@@ -624,6 +624,8 @@ export async function importCloudTaskPack(input: {
   source: {
     taskPackId: string;
     originInstallationId: string;
+    originTaskPackId?: number;
+    originRevisionId?: number;
     projectName?: string;
   };
   taskPack: {

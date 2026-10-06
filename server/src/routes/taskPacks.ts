@@ -2467,6 +2467,11 @@ const cloudTaskPackImportSchema = z.object({
     taskPackId: z.string().uuid(),
     originInstallationId: z.string().min(3).max(120),
     projectName: z.string().max(180).optional().default(""),
+    originTaskPackId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+    originRevisionId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
+  }).refine((source) => (source.originTaskPackId === undefined) === (source.originRevisionId === undefined), {
+    message: "Origin Task Pack and revision IDs must be provided together.",
+    path: ["originRevisionId"],
   }),
   taskPack: z.object({
     title: z.string().trim().min(1).max(180),
@@ -2532,6 +2537,9 @@ taskPacksRouter.post("/import", async (req, res) => {
         taskPackId: source.taskPackId,
         originInstallationId: source.originInstallationId,
         projectName: source.projectName,
+        ...(source.originTaskPackId !== undefined && source.originRevisionId !== undefined
+          ? { originTaskPackId: source.originTaskPackId, originRevisionId: source.originRevisionId }
+          : {}),
       },
     });
   } catch (error) {

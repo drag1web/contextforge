@@ -32,6 +32,7 @@ import {
 import type { Project, TaskPack, TaskPackWorkflowSummary } from "../types";
 import type { DesktopSyncTaskPackInboxItem } from "../types/desktopSync";
 import { getProjects, importCloudTaskPack } from "../api/client";
+import { getDesktopSyncPublishOriginIdentity, getDesktopSyncImportOriginIdentity } from "../utils/desktopSyncTaskPackIdentity";
 import { filterTaskPacksByLifecycle, getTaskPackLifecycleCounts,
   type LifecycleFilter, type TaskPackWorkflowProjection } from "../utils/taskPackWorkflowIndex";
 import { TaskPackWorkflowBadges } from "../components/taskPacks/TaskPackWorkflowCard";
@@ -575,6 +576,7 @@ function CloudTaskPackBridge({
           taskPackId: item.taskPack.id,
           originInstallationId: item.taskPack.originInstallationId,
           projectName: item.taskPack.projectName,
+          ...getDesktopSyncImportOriginIdentity(item.taskPack),
         },
         taskPack: {
           title: item.taskPack.title,
@@ -1066,6 +1068,7 @@ export function TaskPacksPage({
     try {
       await bridge.publishTaskPack({
         sourceTaskPackId: String(taskPack.id),
+        ...getDesktopSyncPublishOriginIdentity(taskPack),
         title: getTaskPackDisplayTitle(taskPack),
         projectName: getTaskPackProjectName(taskPack, t),
         rawTask: taskPack.rawTask,

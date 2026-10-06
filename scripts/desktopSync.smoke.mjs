@@ -26,6 +26,12 @@ const temporaryDirectory = fs.mkdtempSync(
 const rawToken = "cfdt_0123456789abcdefghijklmnopqrstuvwxyz";
 const requests = [];
 const emittedStatuses = [];
+let inboxIdentity = {};
+let revisionIdentityScenarios = 0;
+async function revisionIdentityScenario(name, run) {
+  await run(); revisionIdentityScenarios++;
+  console.log(`PASS ${name}`);
+}
 
 function taskPackHash(taskPack) {
   return createHash("sha256").update(JSON.stringify({
@@ -175,7 +181,10 @@ async function fetchImpl(url, options = {}) {
         contentBytes: Buffer.byteLength(body.generatedPrompt, "utf8"),
         sourceCreatedAt: body.sourceCreatedAt,
         createdAt: "2026-07-24T08:00:00.000Z",
-        updatedAt: "2026-07-24T08:00:00.000Z"
+        updatedAt: "2026-07-24T08:00:00.000Z",
+        ...(Object.hasOwn(body, "originTaskPackId")
+          ? { originTaskPackId: body.originTaskPackId, originRevisionId: body.originRevisionId }
+          : {})
       }
     }, 201);
   }
@@ -212,7 +221,8 @@ async function fetchImpl(url, options = {}) {
           contentHash: taskPackHash(taskPack),
           contentBytes: Buffer.byteLength(taskPack.generatedPrompt, "utf8"),
           createdAt: "2026-07-24T08:00:00.000Z",
-          updatedAt: "2026-07-24T08:01:00.000Z"
+          updatedAt: "2026-07-24T08:01:00.000Z",
+          ...inboxIdentity
         }
       }]
     });
@@ -366,6 +376,88 @@ try {
   );
   assert.equal(acknowledged.status, "imported");
 
+  const legacyUpload = {
+    sourceTaskPackId: "17", title: "Shared Task Pack", projectName: "ContextForge",
+    rawTask: "Add the requested UI.", taskType: "ui", targetTool: "codex",
+    generatedPrompt: "Implement and verify the requested UI.", sourceCreatedAt: "2026-07-24T08:00:00.000Z"
+  };
+  const goldenHash = "cc7105d09563df2447afcd192271af8e45cd559581a05349ace85c6fe724e00b";
+  await revisionIdentityScenario("legacy upload keeps the eight fields and strips spoofed installation/private extras", async () => {
+    const result = await service.publishTaskPack({ ...legacyUpload, originInstallationId: "spoofed-origin",
+      localPath: "C:\\synthetic-private-root", diagnostics: { private: "not-transport-content" } });
+    const request = requests.at(-1);
+    assert.deepEqual(request.body, legacyUpload);
+    assert.equal(result.originInstallationId, "cf-test");
+    assert.equal(result.integrityValid, true); assert.equal(result.contentHash, goldenHash);
+    assert.equal(Object.hasOwn(result, "originTaskPackId"), false);
+    assert.equal(Object.hasOwn(result, "originRevisionId"), false);
+  });
+  await revisionIdentityScenario("revision-aware upload carries both IDs, not renderer installation authority", async () => {
+    const result = await service.publishTaskPack({ ...legacyUpload, originTaskPackId: 17, originRevisionId: 41,
+      originInstallationId: "spoofed-origin" });
+    assert.deepEqual(requests.at(-1).body, { ...legacyUpload, originTaskPackId: 17, originRevisionId: 41 });
+    assert.equal(result.originInstallationId, "cf-test");
+    assert.equal(result.originTaskPackId, 17); assert.equal(result.originRevisionId, 41);
+    assert.equal(result.integrityValid, true);
+    assert.equal(result.contentHash, goldenHash); assert.equal(result.contentHash, published.contentHash);
+  });
+  await revisionIdentityScenario("maximum safe revision ID remains a numeric transport identity", async () => {
+    const result = await service.publishTaskPack({ ...legacyUpload, originTaskPackId: 17, originRevisionId: Number.MAX_SAFE_INTEGER });
+    assert.equal(result.originRevisionId, Number.MAX_SAFE_INTEGER);
+    assert.equal(result.contentHash, goldenHash);
+  });
+  const invalidPairs = [
+    { originTaskPackId: 17 }, { originRevisionId: 41 },
+    { originTaskPackId: 17, originRevisionId: null },
+    { originTaskPackId: 17, originRevisionId: undefined },
+    { originTaskPackId: 17, originRevisionId: 41, sourceTaskPackId: "18" },
+    ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, "17", null].map(value => ({ originTaskPackId: value, originRevisionId: 41 })),
+    ...[0, -1, 1.5, Number.MAX_SAFE_INTEGER + 1, NaN, Infinity, "41"].map(value => ({ originTaskPackId: 17, originRevisionId: value }))
+  ];
+  for (const [index, pair] of invalidPairs.entries()) {
+    await revisionIdentityScenario(`invalid outgoing origin pair ${index + 1} fails before HTTP`, async () => {
+      const before = requests.length;
+      await assert.rejects(service.publishTaskPack({ ...legacyUpload, ...pair }), error => {
+        assert.equal(error.code, "TASK_PACK_INVALID");
+        assert.equal(error.message, "Invalid Task Pack origin identity."); return true;
+      });
+      assert.equal(requests.length, before);
+    });
+  }
+  await revisionIdentityScenario("legacy website inbox is still valid with neither new identity field", () => {
+    assert.equal(inbox[0].taskPack.integrityValid, true);
+    assert.equal(inbox[0].taskPack.contentHash, goldenHash);
+    assert.equal(Object.hasOwn(inbox[0].taskPack, "originTaskPackId"), false);
+    assert.equal(Object.hasOwn(inbox[0].taskPack, "originRevisionId"), false);
+  });
+  const tuple = taskPack => [taskPack.originInstallationId, taskPack.originTaskPackId, taskPack.originRevisionId];
+  await revisionIdentityScenario("origin identity differs across installations and revisions, never by numeric IDs alone", async () => {
+    const values = [];
+    for (const [originInstallationId, originRevisionId, id] of [
+      ["cf-origin-a", 41, "33333333-3333-4333-8333-333333333333"],
+      ["cf-origin-b", 41, "44444444-4444-4444-8444-444444444444"],
+      ["cf-origin-a", 42, "55555555-5555-4555-8555-555555555555"]
+    ]) {
+      inboxIdentity = { id, originInstallationId, originTaskPackId: 17, originRevisionId };
+      const value = (await service.getTaskPackInbox())[0].taskPack;
+      assert.deepEqual(tuple(value), [originInstallationId, 17, originRevisionId]);
+      assert.equal(value.contentHash, goldenHash); assert.equal(value.integrityValid, true);
+      values.push(value);
+    }
+    assert.equal(new Set(values.map(value => JSON.stringify(tuple(value)))).size, 3);
+    assert.notDeepEqual(tuple(values[0]), tuple(values[1]));
+    assert.notDeepEqual(tuple(values[0]), tuple(values[2]));
+    // Hash equality is body integrity only; it does not authenticate these IDs.
+    assert.equal(values[0].contentHash, values[2].contentHash);
+  });
+  for (const [index, pair] of invalidPairs.entries()) {
+    await revisionIdentityScenario(`malformed inbox origin pair ${index + 1} cannot downgrade to legacy`, async () => {
+      inboxIdentity = { originInstallationId: "cf-origin-a", ...pair };
+      await assert.rejects(service.getTaskPackInbox(), error => error.code === "TASK_PACK_INVALID");
+    });
+  }
+  inboxIdentity = {};
+
   const disconnectedStatus = await service.unpair();
   assert.equal(disconnectedStatus.connected, false);
   assert.equal(disconnectedStatus.user, null);
@@ -395,7 +487,7 @@ try {
   );
   assert.ok(emittedStatuses.length >= 6);
 
-  console.log("Desktop sync smoke test passed.");
+  console.log(`Desktop sync smoke test passed (existing legacy suite + ${revisionIdentityScenarios} revision identity scenarios).`);
 } finally {
   fs.rmSync(temporaryDirectory, { recursive: true, force: true });
 }
