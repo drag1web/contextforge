@@ -61,7 +61,13 @@ export function createTaskPackExportContent(
   taskPack: TaskPack,
   format: TaskPackExportFormat
 ) {
-  const generatedPrompt = taskPack.generatedPrompt?.trim() || "";
+  // Trim only tests emptiness; non-empty authored bodies stay exact.
+  const rawTask = taskPack.rawTask?.trim() ? taskPack.rawTask : "";
+  const generatedPrompt = taskPack.generatedPrompt?.trim() ? taskPack.generatedPrompt : "";
+  const revisionId = typeof taskPack.currentRevisionId === "number"
+    && Number.isSafeInteger(taskPack.currentRevisionId) && taskPack.currentRevisionId > 0
+    ? taskPack.currentRevisionId
+    : null;
   const exportedAt = getExportedAt();
   const recipe = taskPack.generationRecipe;
 
@@ -72,6 +78,8 @@ export function createTaskPackExportContent(
       "",
       `Title: ${formatMetaValue(taskPack.title)}`,
       `Project: ${formatMetaValue(taskPack.projectName ?? `Project #${taskPack.projectId}`)}`,
+      `Task Pack ID: ${formatMetaValue(taskPack.id)}`,
+      `Revision ID: ${formatMetaValue(revisionId)}`,
       `Target tool: ${formatMetaValue(taskPack.targetTool)}`,
       `Task type: ${formatMetaValue(taskPack.taskType)}`,
       `Generation mode: ${formatMetaValue(taskPack.generationMode ?? "template")}`,
@@ -81,7 +89,7 @@ export function createTaskPackExportContent(
       "",
       "RAW TASK",
       "--------",
-      taskPack.rawTask?.trim() || "—",
+      rawTask || "—",
       "",
       ...(getClarificationLines(taskPack).length > 0
         ? [
@@ -107,6 +115,8 @@ export function createTaskPackExportContent(
 
   const metadataLines = [
     `- **Project:** ${formatMetaValue(taskPack.projectName ?? `Project #${taskPack.projectId}`)}`,
+    `- **Task Pack ID:** ${formatMetaValue(taskPack.id)}`,
+    `- **Revision ID:** ${formatMetaValue(revisionId)}`,
     `- **Target tool:** ${formatMetaValue(taskPack.targetTool)}`,
     `- **Task type:** ${formatMetaValue(taskPack.taskType)}`,
     `- **Generation mode:** ${formatMetaValue(taskPack.generationMode ?? "template")}`,
@@ -145,7 +155,7 @@ export function createTaskPackExportContent(
     "",
     "## Raw task",
     "",
-    taskPack.rawTask?.trim() || "—",
+    rawTask || "—",
     "",
     ...(clarificationLines.length > 0
       ? ["## User clarifications", "", ...clarificationLines]
