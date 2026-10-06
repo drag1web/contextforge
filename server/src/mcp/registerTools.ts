@@ -162,9 +162,10 @@ export function registerContextForgeTools(input: {
     {
       title: "Get Task Pack",
       description:
-        "Read one saved Task Pack with explicit prompt and diagnostics controls.",
+        "Read the current saved Task Pack or an explicitly pinned revision, with prompt and diagnostics controls.",
       inputSchema: {
-        taskPackId: z.number().int().positive(),
+        taskPackId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        revisionId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
         includeGeneratedPrompt: z.boolean().default(true),
         includeDiagnostics: z.boolean().default(false),
         maxPromptChars: z.number().int().min(1_000).max(120_000).optional(),
@@ -237,9 +238,10 @@ export function registerContextForgeTools(input: {
     {
       title: "Explain Task Pack",
       description:
-        "Explain stored Task Pack selection, quality, rules, and execution metadata without a new AI call.",
+        "Explain current or explicitly pinned Task Pack selection, quality, rules, and execution metadata without a new AI call.",
       inputSchema: {
-        taskPackId: z.number().int().positive(),
+        taskPackId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
+        revisionId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
       },
       annotations: readOnlyAnnotations,
     },

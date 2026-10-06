@@ -28,6 +28,7 @@ ContextForge is local-first. Read tools expose selected stored project data, ena
 export interface McpProvenance {
   projectId?: number;
   taskPackId?: number;
+  revisionId?: number;
   source: string;
   generatedAt: string;
   contextForgeVersion: string;
@@ -59,6 +60,7 @@ export const mcpResultEnvelopeSchema = z.object({
   provenance: z.object({
     projectId: z.number().int().positive().optional(),
     taskPackId: z.number().int().positive().optional(),
+    revisionId: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).optional(),
     source: z.string(),
     generatedAt: z.string(),
     contextForgeVersion: z.string(),
@@ -67,7 +69,7 @@ export const mcpResultEnvelopeSchema = z.object({
 
 export function createMcpProvenance(
   source: string,
-  ids: { projectId?: number; taskPackId?: number } = {},
+  ids: { projectId?: number; taskPackId?: number; revisionId?: number } = {},
 ): McpProvenance {
   return {
     ...ids,
@@ -83,6 +85,7 @@ export function createMcpSuccess<T>(input: {
   warnings?: string[];
   projectId?: number;
   taskPackId?: number;
+  revisionId?: number;
   source?: string;
 }): McpResultEnvelope<T> {
   return {
@@ -93,6 +96,7 @@ export function createMcpSuccess<T>(input: {
     provenance: createMcpProvenance(input.source ?? "contextforge-storage", {
       projectId: input.projectId,
       taskPackId: input.taskPackId,
+      ...(input.revisionId === undefined ? {} : { revisionId: input.revisionId }),
     }),
   };
 }

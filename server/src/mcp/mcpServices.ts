@@ -4,7 +4,10 @@ import type {
   ProjectRecord,
   StorageAdapter,
   TaskPackRecord,
+  TaskPackRevisionRecord,
 } from "../storage/types.js";
+import { validateTaskPackRevisionHistorySnapshot } from "../storage/taskPackRevisionHistory.js";
+import type { TaskPackReviewState } from "../taskPacks/taskPackLifecycle.js";
 import { isSecretLikePath } from "../selection/safetyPolicy.js";
 import type { CreateTaskPackRequest } from "../routes/taskPacks.js";
 import {
@@ -19,6 +22,23 @@ const MAX_MEMORY_CONTENT_CHARS = 12_000;
 const MAX_TASK_PROMPT_CHARS = 120_000;
 const MAX_RAW_TASK_CHARS = 12_000;
 const MAX_SANITIZED_ARRAY_ITEMS = 100;
+
+interface ResolvedTaskPackRead {
+  taskPack: TaskPackRecord;
+  revision?: {
+    revisionId: number;
+    revisionNumber: number;
+    currentRevisionId: number;
+    isCurrentRevision: boolean;
+    baseRevisionId: number | null;
+    sourceKind: TaskPackRevisionRecord["sourceKind"];
+    reviewState: TaskPackReviewState;
+    contentHash: string;
+    createdAt: string;
+    generatedAt: string | null;
+  };
+  diagnostics?: TaskPackRevisionRecord["diagnostics"];
+}
 
 function normalizeLimit(limit?: number) {
   if (!Number.isInteger(limit)) return DEFAULT_LIST_LIMIT;
@@ -403,11 +423,13 @@ export class ContextForgeMcpServices {
 
   async getTaskPack(input: {
     taskPackId: number;
+    revisionId?: number;
     includeGeneratedPrompt?: boolean;
     includeDiagnostics?: boolean;
     maxPromptChars?: number;
   }) {
-    const taskPack = await this.requireTaskPack(input.taskPackId);
+    const resolved = await this.resolveTaskPackRead(input.taskPackId, input.revisionId);
+    const { taskPack } = resolved;
     const maxPromptChars = Math.min(
       Math.max(input.maxPromptChars ?? 60_000, 1_000),
       MAX_TASK_PROMPT_CHARS,
@@ -430,7 +452,9 @@ export class ContextForgeMcpServices {
       operation: "contextforge_get_task_pack",
       projectId: taskPack.projectId,
       taskPackId: taskPack.id,
+      revisionId: resolved.revision?.revisionId,
       data: {
+        ...(resolved.revision ? { revision: resolved.revision } : {}),
         taskPack: {
           taskPackId: taskPack.id,
           project: {
@@ -452,6 +476,9 @@ export class ContextForgeMcpServices {
             durationMs: taskPack.generationDurationMs,
           },
           generationRecipe: recipeWithoutDiagnostics,
+          ...(resolved.revision && input.includeDiagnostics === true
+            ? { diagnostics: sanitizeStoredValue(resolved.diagnostics) }
+            : {}),
           selectedContextSummary: extractRecipeSummary(taskPack.generationRecipe),
           createdAt: taskPack.createdAt,
           updatedAt: taskPack.updatedAt,
@@ -476,8 +503,9 @@ export class ContextForgeMcpServices {
     });
   }
 
-  async explainTaskPack(input: { taskPackId: number }) {
-    const taskPack = await this.requireTaskPack(input.taskPackId);
+  async explainTaskPack(input: { taskPackId: number; revisionId?: number }) {
+    const resolved = await this.resolveTaskPackRead(input.taskPackId, input.revisionId);
+    const { taskPack } = resolved;
     const recipe = sanitizeStoredValue(taskPack.generationRecipe) as
       | Record<string, unknown>
       | null;
@@ -486,7 +514,9 @@ export class ContextForgeMcpServices {
       operation: "contextforge_explain_task_pack",
       projectId: taskPack.projectId,
       taskPackId: taskPack.id,
+      revisionId: resolved.revision?.revisionId,
       data: {
+        ...(resolved.revision ? { revision: resolved.revision } : {}),
         taskPackId: taskPack.id,
         selection: extractRecipeSummary(taskPack.generationRecipe) ?? "unavailable",
         executionContract: recipe?.executionContract ?? "unavailable",
@@ -609,6 +639,69 @@ export class ContextForgeMcpServices {
       );
     }
     return project;
+  }
+
+  private async resolveTaskPackRead(
+    taskPackId: number,
+    revisionId?: number,
+  ): Promise<ResolvedTaskPackRead> {
+    // Omitted revision identity MUST retain the current compatibility projection,
+    // including its aggregate timestamps and current-only integration overlays.
+    if (revisionId === undefined) return { taskPack: await this.requireTaskPack(taskPackId) };
+    if (!Number.isSafeInteger(taskPackId) || taskPackId <= 0 ||
+      !Number.isSafeInteger(revisionId) || revisionId <= 0) {
+      throw new ContextForgeMcpError("MCP_INVALID_INPUT", "Task Pack and revision IDs must be positive safe integers.");
+    }
+    const snapshot = await this.storage.getTaskPackRevisionHistorySnapshot(taskPackId);
+    if (!snapshot) {
+      throw new ContextForgeMcpError("MCP_TASK_PACK_NOT_FOUND", `Task Pack ${taskPackId} does not exist.`,
+        { taskPackId, revisionId });
+    }
+    // Validate ALL history before selection. Corruption/driver errors propagate
+    // to the safe MCP internal boundary, never masquerading as an absent revision.
+    const reviewStates = validateTaskPackRevisionHistorySnapshot(taskPackId, snapshot);
+    const index = snapshot.revisions.findIndex(item => item.revision.id === revisionId);
+    if (index < 0) {
+      throw new ContextForgeMcpError("MCP_TASK_PACK_REVISION_NOT_FOUND",
+        "Task Pack revision does not exist for the requested Task Pack.", { taskPackId, revisionId });
+    }
+    const { aggregate } = snapshot;
+    const { revision } = snapshot.revisions[index];
+    const project = await this.requireProject(aggregate.projectId);
+    return {
+      // Explicit whitelist; never return the snapshot, events or mutable drafts.
+      taskPack: {
+        id: aggregate.id,
+        projectId: aggregate.projectId,
+        projectName: project.name,
+        title: aggregate.title,
+        rawTask: revision.rawTask,
+        taskType: revision.taskType,
+        targetTool: revision.targetTool,
+        generatedPrompt: revision.generatedPrompt,
+        generationMode: revision.generationMode,
+        generationModel: revision.generationModel,
+        generationMessage: revision.generationMessage,
+        generationUsedFallback: revision.generationUsedFallback,
+        generationDurationMs: revision.generationDurationMs,
+        generationRecipe: revision.generationRecipe,
+        createdAt: aggregate.createdAt,
+        updatedAt: aggregate.updatedAt,
+      },
+      revision: {
+        revisionId: revision.id,
+        revisionNumber: revision.revisionNumber,
+        currentRevisionId: aggregate.currentRevisionId,
+        isCurrentRevision: revision.id === aggregate.currentRevisionId,
+        baseRevisionId: revision.baseRevisionId,
+        sourceKind: revision.sourceKind,
+        reviewState: reviewStates[index],
+        contentHash: revision.contentHash,
+        createdAt: revision.createdAt,
+        generatedAt: revision.generatedAt,
+      },
+      diagnostics: revision.diagnostics,
+    };
   }
 
   private async requireTaskPack(taskPackId: number) {

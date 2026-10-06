@@ -4,6 +4,7 @@ import { createMcpProvenance } from "./mcpContracts.js";
 export type ContextForgeMcpErrorCode =
   | "MCP_PROJECT_NOT_FOUND"
   | "MCP_TASK_PACK_NOT_FOUND"
+  | "MCP_TASK_PACK_REVISION_NOT_FOUND"
   | "MCP_INVALID_INPUT"
   | "MCP_WRITE_DISABLED"
   | "MCP_CONFIRMATION_REQUIRED"
@@ -17,7 +18,7 @@ export class ContextForgeMcpError extends Error {
   constructor(
     readonly code: ContextForgeMcpErrorCode,
     message: string,
-    readonly ids: { projectId?: number; taskPackId?: number } = {},
+    readonly ids: { projectId?: number; taskPackId?: number; revisionId?: number } = {},
   ) {
     super(message);
     this.name = "ContextForgeMcpError";

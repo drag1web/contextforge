@@ -26,10 +26,11 @@ function resourceText(uri: URL, envelope: McpResultEnvelope) {
 function templateValue(value: string | string[] | undefined, name: string) {
   const normalized = Array.isArray(value) ? value[0] : value;
   const parsed = Number(normalized);
-  if (!Number.isInteger(parsed) || parsed <= 0) {
+  if (typeof normalized !== "string" || !/^\d+$/.test(normalized) ||
+    !Number.isSafeInteger(parsed) || parsed <= 0) {
     throw new McpError(
       ErrorCode.InvalidParams,
-      `MCP_INVALID_INPUT: ${name} must be a positive integer.`,
+      `MCP_INVALID_INPUT: ${name} must be a positive safe integer.`,
     );
   }
   return parsed;
@@ -43,10 +44,12 @@ async function safeResource(
   try {
     return resourceText(uri, await handler());
   } catch (error) {
+    if (error instanceof McpError && error.code === ErrorCode.InvalidParams) throw error;
     const envelope = toSafeMcpError(error, operation);
     if (
       envelope.error?.code === "MCP_PROJECT_NOT_FOUND" ||
-      envelope.error?.code === "MCP_TASK_PACK_NOT_FOUND"
+      envelope.error?.code === "MCP_TASK_PACK_NOT_FOUND" ||
+      envelope.error?.code === "MCP_TASK_PACK_REVISION_NOT_FOUND"
     ) {
       throw new McpError(
         ErrorCode.InvalidRequest,
@@ -174,6 +177,27 @@ export function registerContextForgeResources(
       safeResource(uri, "contextforge_resource_task_pack", () =>
         services.getTaskPack({
           taskPackId: templateValue(variables.taskPackId, "taskPackId"),
+          includeGeneratedPrompt: true,
+          includeDiagnostics: false,
+        }),
+      ),
+  );
+
+  server.registerResource(
+    "contextforge-task-pack-revision",
+    new ResourceTemplate("contextforge://task-packs/{taskPackId}/revisions/{revisionId}", {
+      list: undefined,
+    }),
+    {
+      title: "ContextForge Task Pack revision",
+      description: "One explicitly requested immutable Task Pack revision.",
+      mimeType: "application/json",
+    },
+    (uri, variables) =>
+      safeResource(uri, "contextforge_resource_task_pack_revision", () =>
+        services.getTaskPack({
+          taskPackId: templateValue(variables.taskPackId, "taskPackId"),
+          revisionId: templateValue(variables.revisionId, "revisionId"),
           includeGeneratedPrompt: true,
           includeDiagnostics: false,
         }),
