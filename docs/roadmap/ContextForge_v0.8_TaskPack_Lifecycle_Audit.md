@@ -723,6 +723,8 @@ Version workspace backup, preserve v1 reading, add revision metadata to text exp
 
 **Gate:** v1/v2 backup fixtures, export privacy, Desktop Sync integrity, MCP smoke/backward compatibility, no absolute paths/secrets.
 
+**Additional prerequisite before TP-LC-08:** after TP-LC-07 closure, complete the mandatory CE2 Real-World Quality Decision Gate defined in [CE2 Real-World Validation Protocol](ContextForge_v0.8_CE2_RealWorld_Validation.md). TP-LC-08 and TP-LC-09 retain their existing scope and order but await that decision; this note does not revise historical milestone requirements or results.
+
 ### TP-LC-08 — Bounded work splitting contract
 
 Create child aggregates and revision-pinned split relations for frontend/backend/tests/docs/review work. Every child uses existing grounding and authorization; no automatic execution.
