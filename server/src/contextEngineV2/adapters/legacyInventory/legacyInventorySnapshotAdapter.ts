@@ -6,7 +6,7 @@ import type {
   SnapshotId,
   SnapshotTruncationReason,
 } from "../../contracts/index.js";
-import { validateRepositorySnapshot } from "../../domain/index.js";
+import { validateRepositorySnapshot } from "../../domain/invariant.js";
 import { mapLegacyInventoryFiles } from "./legacyInventoryFileMapper.js";
 import {
   LEGACY_INVENTORY_ADAPTER_VERSION,

@@ -127,8 +127,9 @@ check("live read full-file budget range split and BOM decoding witnesses are pre
   const text = source(live).text;
   for (const needle of ["descriptor.sizeBytes > request.maxBytes", 'new TextDecoder("utf-8", { fatal: true })', 'lines.slice(request.startLine - 1, request.endLine).join("\\n")', "MAX_PHYSICAL_READ_BYTES = 16 * 1024 * 1024"]) assert.ok(text.includes(needle));
 });
-check("canonical preparation runtime barrel reaches filesystem/scanner and remains excluded", () => {
-  witness(canonical, "contextEngineV2/adapters/legacyInventory/index.ts");
+check("canonical direct imports exclude the filesystem barrel; reader still does not connect preparation", () => {
+  witness(canonical, "contextEngineV2/adapters/legacyInventory/legacyInventorySnapshotAdapter.ts");
+  witness("contextEngineV2/adapters/legacyInventory/legacyInventorySnapshotAdapter.ts", "contextEngineV2/domain/invariant.ts");
   witness("contextEngineV2/adapters/legacyInventory/index.ts", "contextEngineV2/adapters/legacyInventory/legacyInventorySnapshotPort.ts");
   witness("contextEngineV2/adapters/legacyInventory/legacyInventorySnapshotPort.ts", "scanner/projectInventoryScanner.ts");
 });

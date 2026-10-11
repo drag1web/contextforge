@@ -219,8 +219,9 @@ check("live entry/barrels still have explicit unsafe assembly; evaluation must u
   edge("contextEngineV2/retirement/index.ts", assembly);
   edge("contextEngineV2/shadow/index.ts", "contextEngineV2/shadow/shadowExecutionService.ts");
 });
-check("canonical preparation barrel filesystem witness is excluded, not assumed pure", () => {
-  edge("contextEngineV2/shadow/shadowInputPreparation.ts", "contextEngineV2/adapters/legacyInventory/index.ts");
+check("canonical direct imports exclude the filesystem barrel; core still does not connect preparation", () => {
+  edge("contextEngineV2/shadow/shadowInputPreparation.ts", "contextEngineV2/adapters/legacyInventory/legacyInventorySnapshotAdapter.ts");
+  edge("contextEngineV2/adapters/legacyInventory/legacyInventorySnapshotAdapter.ts", "contextEngineV2/domain/invariant.ts");
   edge("contextEngineV2/adapters/legacyInventory/index.ts", "contextEngineV2/adapters/legacyInventory/legacyInventorySnapshotPort.ts");
   edge("contextEngineV2/adapters/legacyInventory/legacyInventorySnapshotPort.ts", "scanner/projectInventoryScanner.ts");
   assert.ok(!safe.local.includes("contextEngineV2/shadow/shadowInputPreparation.ts"));

@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import path from "node:path";
 
-import { adaptLegacyInventoryToRepositorySnapshot } from "../adapters/legacyInventory/index.js";
+import { adaptLegacyInventoryToRepositorySnapshot } from "../adapters/legacyInventory/legacyInventorySnapshotAdapter.js";
 import type {
   ExplicitTargetConstraint,
   NegativeConstraint,
