@@ -124,6 +124,20 @@ interface Admission {
   policy: Readonly<PrimaryBudgetIdentity>;
 }
 
+export interface SyntheticSourceReadBasis {
+  readonly sourceDigest: string;
+  readonly files: readonly Readonly<{ path: string; bytes: number; digest: string }>[];
+}
+// Authenticate the issuer itself before a port can call its methods. This is
+// source-read authority only; no execution state or caller callback is stored.
+const sourceReadIssuers = new WeakMap<object, (permit: unknown) => SyntheticSourceReadBasis>();
+
+export function describeSyntheticSourceReadBasis(boundary: unknown, permit: unknown): SyntheticSourceReadBasis {
+  const describe = sourceReadIssuers.get(boundary as object);
+  if (!describe) throw new PrimaryBoundaryError("capability_rejected");
+  return describe(permit);
+}
+
 function check(raw: unknown): Admission {
   const input = boundaryRecord(raw, ["profileId", "source", "sourceDigest", "authorization", "capabilities", "policy", "plannerMode"]);
   if (input.profileId !== PRIMARY_BOUNDARY_PROFILE || input.plannerMode !== "deterministic") throw new PrimaryBoundaryError("invalid_input");
@@ -145,7 +159,7 @@ function rejection(error: unknown): Rejection {
 export function createPrimaryReadOnlyBoundary() {
   // Source-read authority belongs only to this issuer, never another instance.
   const permits = new WeakMap<object, Readonly<Admission>>();
-  return Object.freeze({
+  const boundary = Object.freeze({
     requestSourceReadPermit(raw: unknown): Rejection | Readonly<{
       status: "source_read_permitted";
       technicalStatus: "not_run";
@@ -175,4 +189,13 @@ export function createPrimaryReadOnlyBoundary() {
       return readRestrictedSyntheticFile(admission.source, admission.authorization, admission.capability, path);
     },
   });
+  sourceReadIssuers.set(boundary, (permit) => {
+    const admission = permits.get(permit as object);
+    if (!admission) throw new PrimaryBoundaryError("capability_rejected");
+    assertRestrictedPrimaryAdmission(admission.source, admission.source.sourceDigest, admission.authorization, admission.capability);
+    return Object.freeze({ sourceDigest: admission.source.sourceDigest,
+      files: Object.freeze(sources.get(admission.source)!.map(({ path, bytes, digest }) => Object.freeze({ path, bytes, digest }))),
+    });
+  });
+  return boundary;
 }
