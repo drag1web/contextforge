@@ -6,7 +6,7 @@ import {
   createFactExtractorRegistry,
   createManifestFactExtractor,
   createTypeScriptJavaScriptFactExtractor,
-} from "../adapters/index.js";
+} from "../adapters/extraction/index.js";
 import type {
   EntityId,
   FactId,
