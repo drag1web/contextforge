@@ -117,10 +117,14 @@ check("synthetic adapter exposes no canonical preparation Primary core or live a
     visit(source(file).emitted);
   }
 });
-check("live search is coupled to physical FS and inventory-preview behavior, not imported", () => {
+check("live reader retains physical FS; production search delegates to a separate module, neither imported", () => {
   assert.ok(edges(live).includes("node:fs/promises"));
   const text = source(live).text;
-  for (const needle of ["async function search", '["path", "textHints", "semanticFacts"]', '["path", "symbols", "exports", "imports"]', "inventoryContentPreview"]) assert.ok(text.includes(needle));
+  assert.ok(text.includes("inventoryContentPreview") && text.includes("const search = createLiveRepositorySearch(input)"));
+  const search = "contextEngineV2/adapters/liveShadow/liveRepositorySearch.ts";
+  witness(live, search);
+  for (const needle of ["async function search", '["path", "textHints", "semanticFacts"]', '["path", "symbols", "exports", "imports"]']) assert.ok(source(search).text.includes(needle));
+  assert.ok(!safe.local.includes(search));
   assert.ok(source(entry).text.includes("throw new ProductionSearchNotConnectedError()"));
 });
 check("live read full-file budget range split and BOM decoding witnesses are present", () => {
