@@ -36,6 +36,7 @@ const KNOWN_LAYERS = new Set([
   "policy",
   "facade",
   "planner",
+  "assembly",
 ]);
 const ALLOWED_TARGET_LAYERS: Readonly<Record<string, ReadonlySet<string>>> = {
   contracts: new Set(["contracts"]),
@@ -49,7 +50,8 @@ const ALLOWED_TARGET_LAYERS: Readonly<Record<string, ReadonlySet<string>>> = {
     "adapters",
   ]),
   policy: new Set(["contracts", "domain", "policy"]),
-  facade: new Set(["contracts", "domain", "ports", "application", "adapters", "planner"]),
+  facade: new Set(["contracts", "domain", "ports", "application", "adapters", "planner", "assembly"]),
+  assembly: new Set(["contracts", "domain", "ports", "application", "adapters"]),
   planner: new Set(["contracts", "domain", "ports", "application", "adapters", "planner"]),
   validation: new Set(["contracts", "domain", "ports", "application", "adapters", "validation"]),
   shadow: new Set(["contracts", "domain", "ports", "application", "adapters", "facade", "planner", "shadow"]),
@@ -75,6 +77,8 @@ interface ArchitectureModuleReference {
   importPath: string;
   typeOnly: boolean;
   importedNames: string[];
+  namedRuntimeImport?: boolean;
+  assemblyOnly?: boolean;
 }
 function normalizePath(value: string): string {
   return value.replaceAll("\\", "/");
@@ -156,6 +160,9 @@ function extractModuleReferences(
         importPath: node.moduleSpecifier.text,
         typeOnly,
         importedNames,
+        namedRuntimeImport: ts.isImportDeclaration(node) && !typeOnly && !importClause?.name &&
+          Boolean(namedBindings && ts.isNamedImports(namedBindings)) &&
+          namedImports.length > 0 && namedImports.every((element) => !element.isTypeOnly),
       });
     } else if (
       ts.isImportTypeNode(node) &&
@@ -178,18 +185,19 @@ function extractModuleReferences(
         typeOnly: false,
         importedNames: [],
       });
-    } else if (
-      ts.isCallExpression(node) &&
-      node.arguments.length === 1 &&
-      ts.isStringLiteralLike(node.arguments[0]) &&
-      (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
-        (ts.isIdentifier(node.expression) && node.expression.text === "require"))
-    ) {
-      references.push({
-        importPath: node.arguments[0].text,
-        typeOnly: false,
-        importedNames: [],
-      });
+    } else if (ts.isCallExpression(node)) {
+      let expression: ts.Expression = node.expression;
+      while (ts.isParenthesizedExpression(expression)) expression = expression.expression;
+      if (expression.kind === ts.SyntaxKind.ImportKeyword ||
+          (ts.isIdentifier(expression) && expression.text === "require") ||
+          (ts.isPropertyAccessExpression(expression) && expression.name.text === "require")) {
+        const literal = node.arguments[0] && ts.isStringLiteralLike(node.arguments[0]) ? node.arguments[0].text : null;
+        const previouslyRecognized = node.arguments.length === 1 && literal !== null &&
+          (node.expression.kind === ts.SyntaxKind.ImportKeyword ||
+            (ts.isIdentifier(node.expression) && node.expression.text === "require"));
+        references.push({ importPath: literal ?? "<dynamic-load>", typeOnly: false,
+          importedNames: [], assemblyOnly: !previouslyRecognized });
+      }
     }
     ts.forEachChild(node, visit);
   }
@@ -448,6 +456,16 @@ function isAllowedModelProviderImport(
   return resolved === expected;
 }
 
+function isAllowedAssemblyNativeImport(
+  v2Root: string,
+  importingFile: string,
+  reference: ArchitectureModuleReference,
+): boolean {
+  return path.resolve(importingFile) === path.resolve(v2Root, "assembly", "productionInvestigationRunner.ts") &&
+    reference.importPath === "node:util/types" && reference.namedRuntimeImport === true &&
+    !reference.typeOnly && reference.importedNames.length === 1 && reference.importedNames[0] === "isProxy";
+}
+
 export function evaluateArchitectureImports(input: {
   repositoryRoot: string;
   modules: readonly ArchitectureSourceModule[];
@@ -475,6 +493,9 @@ export function evaluateArchitectureImports(input: {
       module.sourceText,
       module.filePath,
     )) {
+      // Existing layers retain their original reference interpretation. Assembly
+      // additionally rejects unresolved/options/indirect require load attempts.
+      if (reference.assemblyOnly && layer !== "assembly") continue;
       const importPath = reference.importPath;
       if (layer && isLegacySelectorImport(module.filePath, importPath)) {
         if (
@@ -537,11 +558,19 @@ export function evaluateArchitectureImports(input: {
       const isCanaryLayer = layer === "canary";
       const isRetirementLayer = layer === "retirement";
       const isPlannerLayer = layer === "planner";
-      if (!isCoreLayer && !isAdapterLayer && !isValidationLayer && !isShadowLayer && !isComposerLayer && !isCanaryLayer && !isRetirementLayer && !isPlannerLayer) {
+      const isAssemblyLayer = layer === "assembly";
+      if (!isCoreLayer && !isAdapterLayer && !isValidationLayer && !isShadowLayer && !isComposerLayer && !isCanaryLayer && !isRetirementLayer && !isPlannerLayer && !isAssemblyLayer) {
         continue;
       }
       if (!importPath.startsWith(".")) {
-        if (isCoreLayer) {
+        if (isAssemblyLayer) {
+          if (!isAllowedAssemblyNativeImport(v2Root, module.filePath, reference)) violations.push({
+            filePath: module.filePath,
+            importPath,
+            rule: "core_external_dependency",
+            message: "Assembly permits only the reviewed isProxy named runtime import in its exact production runner module.",
+          });
+        } else if (isCoreLayer) {
           violations.push({
             filePath: module.filePath,
             importPath,
@@ -626,7 +655,7 @@ export function evaluateArchitectureImports(input: {
           });
           continue;
         }
-        if (isCoreLayer) {
+        if (isCoreLayer || isAssemblyLayer) {
           violations.push({
             filePath: module.filePath,
             importPath,

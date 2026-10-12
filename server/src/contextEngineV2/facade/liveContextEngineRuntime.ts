@@ -1,13 +1,9 @@
-import {
-  createInvestigationRunner,
-} from "../application/index.js";
+import { createProductionInvestigationRunner } from "../assembly/productionInvestigationRunner.js";
 import type {
   InvestigationRunnerInput,
   InvestigationRunnerResult,
 } from "../application/index.js";
 import {
-  createFactExtractorRegistry,
-  createInMemoryKnowledgeGraphStore,
   createLiveRepositoryAdapter,
   createManifestFactExtractor,
   createTypeScriptJavaScriptFactExtractor,
@@ -79,16 +75,15 @@ export function createLiveContextEngineExecution(
         ...(input.observeModelPlanner ? { observe: input.observeModelPlanner } : {}),
       })
     : undefined;
-  const runner = createInvestigationRunner({
+  const runner = createProductionInvestigationRunner({
     clock: input.clock,
     cancellation,
     repositoryReader: repository.reader,
     repositorySearch: repository.search,
-    factExtractor: createFactExtractorRegistry([
+    extractors: [
       createTypeScriptJavaScriptFactExtractor(input.clock),
       createManifestFactExtractor(input.clock),
-    ]),
-    graphStore: createInMemoryKnowledgeGraphStore(),
+    ],
     ...(actionPlanner ? { actionPlanner, plannerSignal: input.abortSignal } : {}),
   });
   return runner.run(input.runnerInput);

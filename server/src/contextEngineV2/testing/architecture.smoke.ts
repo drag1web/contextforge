@@ -1054,75 +1054,156 @@ function testCoreSelectorCannotImportRetirement(): void {
   assert.equal(violations[1]?.rule, "production_isolation");
 }
 
-testCurrentArchitecturePasses();
-testLayerDirectionViolationIsDetected();
-testProductionImportIsDetected();
-testAllowedApplicationDependenciesPass();
-testPolicyCannotImportProductionRoute();
-testUnknownLayerIsRejected();
-testAllowedPolicyDependenciesPass();
-testTestingLayerAllowsTestDependencies();
-testDomainInlineTypeImportFromApplicationIsRejected();
-testDomainInlineTypeImportFromProductionIsRejected();
-testPolicyInlineTypeImportFromProductionIsRejected();
-testAllowedInlineTypeImportFromContractsPasses();
-testAdapterCanImportLegacyScannerContract();
-testAdapterCannotImportScannerSuffixFromEvilDirectory();
-testAdapterCannotImportScannerSuffixOutsideRepository();
-testAdapterCannotImportLegacySelector();
-testTypeScriptExtractorCanImportCompilerApi();
-testExtractorCannotImportLegacySelector();
-testGraphAdapterCanImportContractsAndPorts();
-testDomainCannotImportGraphAdapter();
-testProductionRouteCannotImportGraphAdapter();
-testEvidenceLedgerCanImportContracts();
-testStopPolicyCanImportContractsAndDomain();
-testEvidenceLedgerCannotImportKnowledgeAdapter();
-testStopPolicyCannotImportRepositoryReaderPort();
-testProductionRouteCannotImportDomainService();
-testDomainServiceCannotImportLegacySelector();
-testInvestigationRunnerCanImportCoreBoundaries();
-testInterpreterCanImportContractsAndDomain();
-testInterpreterCannotImportLegacyTaskUnderstandingImplementation();
-testPlannerCanImportContractsAndDomain();
-testPlannerCannotImportConcreteRepositoryAdapter();
-testDomainCannotImportInvestigationRunner();
-testProductionRouteCannotImportInvestigationRunner();
-testProductionServiceCannotImportInterpreter();
-testLegacySelectorCannotImportInvestigationRunner();
-testRunnerCannotImportProductOrUiLayers();
-testTestingRepositoryAdapterCanImportPortsAndContracts();
-testTransactionTestAdapterCanImportGraphPortAndContracts();
-testProductFacingFacadeRemainsNotImplemented();
-testApplicationProjectionCannotImportLegacyContracts();
-testLegacySelectionAdapterCanImportOnlyAllowedContractTypes();
-testLegacySelectionAdapterCannotImportSelectorHelpers();
-testProductionClientsCannotImportProjection();
-testDomainCannotImportProjectionOrLegacyAdapter();
-testValidationCanImportOfflineBoundaries();
-testCoreCannotImportValidation();
-testValidationCannotImportProductionOrSelector();
-testTaskPackRouteCanImportOnlyPublicShadowFacade();
-testShadowCannotImportValidationOrProductAssembly();
-testCoreAndSelectorCannotImportShadow();
-testContextComposerCanImportOnlyComposerFacade();
-testComposerCannotImportShadowValidationOrSelector();
-testComposerCanUseNeutralLiveFacade();
-testCoreAndSelectorCannotImportComposer();
-testTaskPackRouteCanImportOnlyPublicCanaryFacade();
-testCanaryCanReuseNeutralRuntimeAndShadowCanonicalBoundary();
-testCanaryCannotImportProductComposerOrValidation();
-testCoreAndSelectorCannotImportCanary();
-testPlannerCompositionCanUseApplicationPortAndAdapter();
-testModelAdapterMayUseOnlyApprovedProviderBoundary();
-testDomainAndProjectionCannotImportModelPlanner();
-testCanaryCannotImportModelPlanner();
-testTaskPackRouteCannotImportModelPlanner();
-testShadowAndComposerMayUsePlannerModeOnly();
-testValidationCannotImportOnlineProvider();
-testTaskPackRouteCanImportPrimaryRetirementFacade();
-testExternalValidationCommandHasNarrowCompositionAccess();
-testRetirementCanUseOnlyNeutralPrimaryBoundaries();
-testRetirementCannotImportProductValidationOrModelPlanner();
-testCoreSelectorCannotImportRetirement();
-console.log("Context Engine v2 architecture smoke passed: 70 scenarios.");
+function testAssemblyArchitectureBoundaries(): void {
+  const assembly = "server/src/contextEngineV2/assembly/productionInvestigationRunner.ts";
+  let positive = 0, negative = 0;
+  function accepted(name: string, file: string, source: string): void {
+    assert.deepEqual(evaluateArchitectureImports({ repositoryRoot, modules: [fixtureModule(file, source)] }), [], name);
+    positive++;
+    console.log(`PASS assembly positive: ${name}`);
+  }
+  function rejected(name: string, file: string, source: string, rule: string, importPath: string): void {
+    const violations = evaluateArchitectureImports({ repositoryRoot, modules: [fixtureModule(file, source)] });
+    assert.equal(violations.length, 1, name);
+    assert.equal(violations[0].rule, rule, name);
+    assert.equal(violations[0].importPath, importPath, name);
+    assert.equal(violations[0].filePath, path.join(repositoryRoot, ...file.split("/")), name);
+    negative++;
+    console.log(`PASS assembly negative: ${name} (${rule})`);
+  }
+  accepted("facade delegates to specific assembly", "server/src/contextEngineV2/facade/liveContextEngineRuntime.ts",
+    'import { createProductionInvestigationRunner } from "../assembly/productionInvestigationRunner.js";');
+  accepted("assembly uses actual application runner", assembly,
+    'import { createInvestigationRunner } from "../application/investigationRunner.js";');
+  accepted("assembly uses real registry and graph factories", assembly,
+    'import { createFactExtractorRegistry } from "../adapters/extraction/factExtractorRegistry.js"; import { createInMemoryKnowledgeGraphStore } from "../adapters/knowledge/inMemoryKnowledgeGraphStore.js";');
+  accepted("assembly uses contracts and domain", assembly,
+    'import type { SnapshotId } from "../contracts/index.js"; import { validateRepositorySnapshot } from "../domain/invariant.js";');
+  accepted("assembly uses port and application types", assembly,
+    'import type { FactExtractorPort } from "../ports/factExtractorPort.js"; import type { InvestigationRunner } from "../application/investigationRunnerTypes.js";');
+  accepted("exact named native import", assembly, 'import { isProxy } from "node:util/types";');
+  accepted("named binding alias keeps same native capability", assembly, 'import { isProxy as detectProxy } from "node:util/types";');
+
+  rejected("facade self dependency still forbidden", "server/src/contextEngineV2/facade/other.ts",
+    'import { runtime } from "./liveContextEngineRuntime.js";', "layer_direction", "./liveContextEngineRuntime.js");
+  rejected("facade native import still forbidden", "server/src/contextEngineV2/facade/other.ts",
+    'import { isProxy } from "node:util/types";', "core_external_dependency", "node:util/types");
+  for (const file of ["server/src/contextEngineV2/assembly/other.ts", "server/src/contextEngineV2/assembly/productionInvestigationRunnerExtra.ts",
+    "server/src/contextEngineV2/assembly/nested/productionInvestigationRunner.ts"]) {
+    rejected(`exact module exception rejects ${file}`, file, 'import { isProxy } from "node:util/types";', "core_external_dependency", "node:util/types");
+  }
+  for (const external of ["node:fs", "node:fs/promises", "node:child_process", "node:worker_threads", "node:crypto", "node:path", "typescript", "arbitrary-package"]) {
+    rejected(`assembly external ${external}`, assembly, `import { value } from "${external}";`, "core_external_dependency", external);
+  }
+  for (const layer of ["facade", "planner", "shadow", "retirement", "validation", "composer", "canary", "testing", "assembly"]) {
+    const target = `../${layer}/index.js`;
+    rejected(`assembly cannot import ${layer}`, assembly, `import { value } from "${target}";`, "layer_direction", target);
+  }
+  for (const form of [
+    'import { isProxy, isDate } from "node:util/types";',
+    'import { isProxy, type Extra } from "node:util/types";',
+    'import * as types from "node:util/types";',
+    'import types from "node:util/types";',
+    'import types, { isProxy } from "node:util/types";',
+    'import "node:util/types";',
+    'import type { isProxy } from "node:util/types";',
+    'export { isProxy } from "node:util/types";',
+    'const types = import("node:util/types");',
+    'const types = import("node:util/types", { with: { type: "json" } });',
+    'const types = require("node:util/types");',
+    'const types = (require)("node:util/types");',
+    'const types = module.require("node:util/types");',
+    'import types = require("node:util/types");',
+  ]) rejected(`native shape rejected: ${form}`, assembly, form, "core_external_dependency", "node:util/types");
+  for (const form of ['const types = import(target);', 'const types = require(target);', 'const types = import("node:" + "util/types");'])
+    rejected(`unresolved load rejected: ${form}`, assembly, form, "core_external_dependency", "<dynamic-load>");
+  rejected("assembly cannot leave CE2 for routes", assembly, 'import { route } from "../../routes/taskPacks.js";', "core_boundary_escape", "../../routes/taskPacks.js");
+  rejected("assembly cannot use adapter scanner exception", assembly, 'import type { ProjectInventory } from "../../scanner/projectInventoryScanner.js";',
+    "core_boundary_escape", "../../scanner/projectInventoryScanner.js");
+  rejected("assembly cannot use legacy selector exception", assembly, 'import type { TaskFileSelection } from "../../ollama/taskFileSelector.js";',
+    "forbidden_legacy_dependency", "../../ollama/taskFileSelector.js");
+  rejected("outside product cannot import internal assembly", "server/src/routes/assemblyLeak.ts",
+    'import { createProductionInvestigationRunner } from "../contextEngineV2/assembly/productionInvestigationRunner.js";',
+    "production_isolation", "../contextEngineV2/assembly/productionInvestigationRunner.js");
+  rejected("unknown layers remain rejected", "server/src/contextEngineV2/unknownLayer/module.ts",
+    'import { value } from "../assembly/productionInvestigationRunner.js";', "unknown_layer", "<module>");
+  assert.deepEqual(scanContextEngineV2Architecture(repositoryRoot), []);
+  positive++;
+  console.log(`Assembly architecture smoke passed: ${positive} positive + ${negative} negative scenarios.`);
+}
+
+let originalScenarios = 0;
+function runOriginal(test: () => void): void { test(); originalScenarios++; }
+runOriginal(testCurrentArchitecturePasses);
+runOriginal(testLayerDirectionViolationIsDetected);
+runOriginal(testProductionImportIsDetected);
+runOriginal(testAllowedApplicationDependenciesPass);
+runOriginal(testPolicyCannotImportProductionRoute);
+runOriginal(testUnknownLayerIsRejected);
+runOriginal(testAllowedPolicyDependenciesPass);
+runOriginal(testTestingLayerAllowsTestDependencies);
+runOriginal(testDomainInlineTypeImportFromApplicationIsRejected);
+runOriginal(testDomainInlineTypeImportFromProductionIsRejected);
+runOriginal(testPolicyInlineTypeImportFromProductionIsRejected);
+runOriginal(testAllowedInlineTypeImportFromContractsPasses);
+runOriginal(testAdapterCanImportLegacyScannerContract);
+runOriginal(testAdapterCannotImportScannerSuffixFromEvilDirectory);
+runOriginal(testAdapterCannotImportScannerSuffixOutsideRepository);
+runOriginal(testAdapterCannotImportLegacySelector);
+runOriginal(testTypeScriptExtractorCanImportCompilerApi);
+runOriginal(testExtractorCannotImportLegacySelector);
+runOriginal(testGraphAdapterCanImportContractsAndPorts);
+runOriginal(testDomainCannotImportGraphAdapter);
+runOriginal(testProductionRouteCannotImportGraphAdapter);
+runOriginal(testEvidenceLedgerCanImportContracts);
+runOriginal(testStopPolicyCanImportContractsAndDomain);
+runOriginal(testEvidenceLedgerCannotImportKnowledgeAdapter);
+runOriginal(testStopPolicyCannotImportRepositoryReaderPort);
+runOriginal(testProductionRouteCannotImportDomainService);
+runOriginal(testDomainServiceCannotImportLegacySelector);
+runOriginal(testInvestigationRunnerCanImportCoreBoundaries);
+runOriginal(testInterpreterCanImportContractsAndDomain);
+runOriginal(testInterpreterCannotImportLegacyTaskUnderstandingImplementation);
+runOriginal(testPlannerCanImportContractsAndDomain);
+runOriginal(testPlannerCannotImportConcreteRepositoryAdapter);
+runOriginal(testDomainCannotImportInvestigationRunner);
+runOriginal(testProductionRouteCannotImportInvestigationRunner);
+runOriginal(testProductionServiceCannotImportInterpreter);
+runOriginal(testLegacySelectorCannotImportInvestigationRunner);
+runOriginal(testRunnerCannotImportProductOrUiLayers);
+runOriginal(testTestingRepositoryAdapterCanImportPortsAndContracts);
+runOriginal(testTransactionTestAdapterCanImportGraphPortAndContracts);
+runOriginal(testProductFacingFacadeRemainsNotImplemented);
+runOriginal(testApplicationProjectionCannotImportLegacyContracts);
+runOriginal(testLegacySelectionAdapterCanImportOnlyAllowedContractTypes);
+runOriginal(testLegacySelectionAdapterCannotImportSelectorHelpers);
+runOriginal(testProductionClientsCannotImportProjection);
+runOriginal(testDomainCannotImportProjectionOrLegacyAdapter);
+runOriginal(testValidationCanImportOfflineBoundaries);
+runOriginal(testCoreCannotImportValidation);
+runOriginal(testValidationCannotImportProductionOrSelector);
+runOriginal(testTaskPackRouteCanImportOnlyPublicShadowFacade);
+runOriginal(testShadowCannotImportValidationOrProductAssembly);
+runOriginal(testCoreAndSelectorCannotImportShadow);
+runOriginal(testContextComposerCanImportOnlyComposerFacade);
+runOriginal(testComposerCannotImportShadowValidationOrSelector);
+runOriginal(testComposerCanUseNeutralLiveFacade);
+runOriginal(testCoreAndSelectorCannotImportComposer);
+runOriginal(testTaskPackRouteCanImportOnlyPublicCanaryFacade);
+runOriginal(testCanaryCanReuseNeutralRuntimeAndShadowCanonicalBoundary);
+runOriginal(testCanaryCannotImportProductComposerOrValidation);
+runOriginal(testCoreAndSelectorCannotImportCanary);
+runOriginal(testPlannerCompositionCanUseApplicationPortAndAdapter);
+runOriginal(testModelAdapterMayUseOnlyApprovedProviderBoundary);
+runOriginal(testDomainAndProjectionCannotImportModelPlanner);
+runOriginal(testCanaryCannotImportModelPlanner);
+runOriginal(testTaskPackRouteCannotImportModelPlanner);
+runOriginal(testShadowAndComposerMayUsePlannerModeOnly);
+runOriginal(testValidationCannotImportOnlineProvider);
+runOriginal(testTaskPackRouteCanImportPrimaryRetirementFacade);
+runOriginal(testExternalValidationCommandHasNarrowCompositionAccess);
+runOriginal(testRetirementCanUseOnlyNeutralPrimaryBoundaries);
+runOriginal(testRetirementCannotImportProductValidationOrModelPlanner);
+runOriginal(testCoreSelectorCannotImportRetirement);
+console.log(`Context Engine v2 architecture smoke passed: ${originalScenarios} original test functions (including repository scan).`);
+testAssemblyArchitectureBoundaries();

@@ -98,7 +98,9 @@ check("canonical preparation and exact downstream callback wired in production",
 check("live execution uses real runner and guarded repository ports", () => {
   assert.ok(calls(functionSource(service, "executeLiveTaskPackPrimaryInvestigation"), "createLiveContextEngineExecution"));
   const execution = functionSource(facade, "createLiveContextEngineExecution");
-  assert.ok(calls(execution, "createInvestigationRunner"));
+  assert.ok(calls(execution, "createProductionInvestigationRunner"));
+  edge(facade, "contextEngineV2/assembly/productionInvestigationRunner.ts");
+  assert.ok(calls(functionSource("contextEngineV2/assembly/productionInvestigationRunner.ts", "createProductionInvestigationRunner"), "createInvestigationRunner"));
   assert.ok(calls(execution, "createLiveRepositoryAdapter"));
   edge("contextEngineV2/adapters/liveShadow/index.ts", "contextEngineV2/adapters/liveShadow/liveRepositoryAdapter.ts");
   const repository = source("contextEngineV2/adapters/liveShadow/liveRepositoryAdapter.ts");
