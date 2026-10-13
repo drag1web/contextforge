@@ -1,9 +1,10 @@
-import ts from "typescript";
 import type { ClockPort, FactExtractorPort } from "../../ports/index.js";
-import { createTypeScriptJavaScriptFactExtractorCore } from "./typescriptJavaScriptFactExtractorCore.js";
+import { createGenuineTypeScriptParserCustodian } from "./genuineTypeScriptParserAdmission.js";
 
 export function createTypeScriptJavaScriptFactExtractor(
   clock: ClockPort,
 ): FactExtractorPort {
-  return createTypeScriptJavaScriptFactExtractorCore(clock, ts);
+  const custodian = createGenuineTypeScriptParserCustodian();
+  const grant = custodian.admit();
+  return custodian.createExtractor(grant.session, grant.custody, clock);
 }

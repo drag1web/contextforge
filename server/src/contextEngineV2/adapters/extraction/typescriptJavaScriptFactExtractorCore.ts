@@ -1,4 +1,5 @@
 import type ts from "typescript";
+import type { TypeScriptParserCapabilities } from "./typescriptParserCapabilities.js";
 
 import type {
   EntityKind,
@@ -45,7 +46,7 @@ const TEST_HELPERS = new Set(["describe", "expect", "assert", "test", "it"]);
 // Import safety does not authorize or establish trust in the supplied parser.
 export function createTypeScriptJavaScriptFactExtractorCore(
   clock: ClockPort,
-  ts: typeof import("typescript"),
+  ts: TypeScriptParserCapabilities,
 ): FactExtractorPort {
   function extensionFor(filePath: string): string {
     const match = filePath.toLowerCase().match(/\.[^.\/]+$/u);

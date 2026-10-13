@@ -12,6 +12,8 @@ const wrapper = "contextEngineV2/adapters/extraction/typescriptJavaScriptFactExt
 const baseline = "contextEngineV2/testing/fixtures/typescriptJavaScriptFactExtractorBaseline.ts";
 const helper = "contextEngineV2/adapters/extraction/extractionSupport.ts";
 const semantic = "contextEngineV2/domain/semanticLiteralSafety.ts";
+const admission = "contextEngineV2/adapters/extraction/genuineTypeScriptParserAdmission.ts";
+const capabilityContract = "contextEngineV2/adapters/extraction/typescriptParserCapabilities.ts";
 const options = ts.parseJsonConfigFileContent(ts.readConfigFile(path.join(root, "../tsconfig.json"), ts.sys.readFile).config, ts.sys, path.join(root, "..")).options;
 assert.equal(options.module, ts.ModuleKind.NodeNext);
 assert.equal(JSON.parse(fs.readFileSync(path.join(root, "../package.json"), "utf8")).type, "module");
@@ -139,17 +141,23 @@ check("core parser parameter is required, explicit and contains no runtime parse
   const fn = factory(core, "createTypeScriptJavaScriptFactExtractorCore");
   assert.deepEqual(fn.parameters.map(n => n.name.getText()), ["clock", "ts"]);
   assert.ok(fn.parameters.every(n => !n.initializer && !n.questionToken));
-  assert.equal(fn.parameters[1].type?.getText(), 'typeof import("typescript")');
+  assert.equal(fn.parameters[1].type?.getText(), "TypeScriptParserCapabilities");
   assert.ok(source(core).text.startsWith('import type ts from "typescript";'));
+  assert.ok(source(core).text.includes('import type { TypeScriptParserCapabilities } from "./typescriptParserCapabilities.js";'));
 });
-check("production wrapper retains exact signature and passes genuine imported TypeScript", () => {
+check("production wrapper retains exact signature and delegates genuine session issuance", () => {
   const old = factory(baseline, "createTypeScriptJavaScriptFactExtractor"), fn = factory(wrapper, "createTypeScriptJavaScriptFactExtractor");
   assert.equal(fn.getText().slice(0, fn.body!.getStart() - fn.getStart()), old.getText().slice(0, old.body!.getStart() - old.getStart()));
-  assert.equal(fn.body!.statements.length, 1);
-  assert.equal(fn.body!.statements[0].getText(), "return createTypeScriptJavaScriptFactExtractorCore(clock, ts);");
-  assert.deepEqual(edges(source(wrapper).emitted), ["typescript", "./typescriptJavaScriptFactExtractorCore.js"]);
-  assert.deepEqual(normal.local, [wrapper, ...safe.local].sort());
-  assert.deepEqual(normal.external, ["node:crypto", "typescript"]);
+  assert.deepEqual(fn.body!.statements.map(n => n.getText()), [
+    "const custodian = createGenuineTypeScriptParserCustodian();",
+    "const grant = custodian.admit();",
+    "return custodian.createExtractor(grant.session, grant.custody, clock);",
+  ]);
+  assert.deepEqual(edges(source(wrapper).emitted), ["./genuineTypeScriptParserAdmission.js"]);
+  assert.ok(source(admission).text.includes('import ts from "typescript";'));
+  assert.ok(source(admission).text.includes("createTypeScriptJavaScriptFactExtractorCore(clock, admitted.capabilities)"));
+  assert.deepEqual(normal.local, [wrapper, admission, capabilityContract, ...safe.local].sort());
+  assert.deepEqual(normal.external, ["node:crypto", "node:fs", "node:module", "node:path", "typescript"]);
 });
 check("core is not added to product barrel and live extractor order remains genuine TS then manifest", () => {
   const live = source("contextEngineV2/facade/liveContextEngineRuntime.ts").text;
