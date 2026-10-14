@@ -4,8 +4,13 @@ import type { InvestigationCancellationPort, RepositorySearchPort, SearchResult 
 import type { ProjectInventory } from "../../../scanner/projectInventoryScanner.js";
 
 export interface LiveRepositorySearchInput {
-  inventory: ProjectInventory;
-  snapshot: RepositorySnapshot;
+  // Only fields consumed by the unchanged production search. Full production
+  // inventories/snapshots still satisfy this contract; no fabricated root or
+  // scanner metadata is needed by a source-bound synthetic caller.
+  inventory: { files: Pick<ProjectInventory["files"][number],
+    "path" | "name" | "textHints" | "semanticFacts" | "symbols" | "exports" | "imports">[] };
+  snapshot: { id: RepositorySnapshot["id"]; files: Pick<RepositorySnapshot["files"][number],
+    "id" | "snapshotId" | "path" | "normalizedPath" | "sizeBytes" | "contentFingerprint">[] };
   negativeConstraints: readonly NegativeConstraint[];
   cancellation: InvestigationCancellationPort;
   abortSignal?: AbortSignal;

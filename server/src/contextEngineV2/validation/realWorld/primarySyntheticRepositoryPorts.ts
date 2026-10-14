@@ -4,12 +4,22 @@ import type { FileDescriptor } from "../../contracts/repository.js";
 import type { RepositoryReaderPort, ReadFileRequest, ReadRangeRequest, RepositoryReadResult, RepositoryReadFailure } from "../../ports/repositoryReaderPort.js";
 import type { RepositorySearchPort } from "../../ports/repositorySearchPort.js";
 import type { InvestigationCancellationPort } from "../../ports/investigationCancellationPort.js";
+import type { NegativeConstraint } from "../../contracts/task.js";
+import { createLiveRepositorySearch } from "../../adapters/liveShadow/liveRepositorySearch.js";
+import type { LiveRepositorySearchInput } from "../../adapters/liveShadow/liveRepositorySearch.js";
 import { boundaryRecord, boundaryDigest, boundaryHash, boundaryPath, PrimaryBoundaryError } from "./primaryBoundaryData.js";
 import { describeSyntheticSourceReadBasis } from "./primaryReadOnlyBoundary.js";
 import type { createPrimaryReadOnlyBoundary, SyntheticSourceReadPermit } from "./primaryReadOnlyBoundary.js";
 
 export const SYNTHETIC_REPOSITORY_PORT_PROFILE = "rw02b3-synthetic-repository-ports" as const;
-export const PRODUCTION_SEARCH_STATUS = "NOT_CONNECTED — PRODUCTION_SEARCH_PARITY_UNPROVEN" as const;
+export const PRODUCTION_SEARCH_STATUS = "CONNECTED — SYNTHETIC_PATH_METADATA_ONLY" as const;
+export const SYNTHETIC_SEARCH_COVERAGE = Object.freeze({
+  searchPaths: "path_and_derived_name",
+  searchText: "path_only",
+  searchSymbols: "path_only",
+  unavailableFields: Object.freeze(["textHints", "semanticFacts", "symbols", "exports", "imports"]),
+  noMatchIsAbsenceEvidence: false,
+} as const);
 // Match the live reader's request ceiling, NOT a change to CE2 policy budgets.
 const MAX_READ_REQUEST_BYTES = 16 * 1024 * 1024;
 type ReadDescriptor = Readonly<Pick<FileDescriptor, "id" | "snapshotId" | "path" | "normalizedPath" | "sizeBytes" | "contentFingerprint">>;
@@ -23,10 +33,29 @@ export interface SyntheticRepositoryPortsInput {
   boundary: ReturnType<typeof createPrimaryReadOnlyBoundary>;
   permit: SyntheticSourceReadPermit;
   sourceDigest: string;
+  negativeConstraints?: readonly NegativeConstraint[];
 }
-export class ProductionSearchNotConnectedError extends Error {
-  readonly code = "production_search_not_connected";
-  constructor() { super("Production search is not connected."); this.name = "ProductionSearchNotConnectedError"; }
+
+function captureNegativeConstraints(raw: unknown): NegativeConstraint[] {
+  if (!Array.isArray(raw) || Object.getPrototypeOf(raw) !== Array.prototype || raw.length > 16) throw new PrimaryBoundaryError("invalid_input");
+  const fields = Object.getOwnPropertyDescriptors(raw);
+  if (Reflect.ownKeys(fields).length !== raw.length + 1) throw new PrimaryBoundaryError("invalid_input");
+  const constraints = Array.from({ length: raw.length }, (_, index): NegativeConstraint => {
+    const field = fields[String(index)];
+    if (!field || !("value" in field) || !field.enumerable) throw new PrimaryBoundaryError("invalid_input");
+    const kind = Object.getOwnPropertyDescriptor(field.value ?? {}, "kind")?.value;
+    const value = boundaryRecord(field.value, kind === "path" ? ["kind", "pattern"] : ["kind", "description"]);
+    if (value.kind === "path" && typeof value.pattern === "string" && value.pattern.length <= 160 &&
+        /^[A-Za-z0-9_.*\/\\-]*$/u.test(value.pattern) && !/^[\/\\]|(?:^|[\/\\])\.{1,2}(?:[\/\\]|$)/u.test(value.pattern)) {
+      return Object.freeze({ kind: "path", pattern: value.pattern });
+    }
+    if (value.kind === "semantic" && typeof value.description === "string" && value.description.length <= 160) {
+      return Object.freeze({ kind: "semantic", description: value.description });
+    }
+    throw new PrimaryBoundaryError("invalid_input");
+  });
+  Object.freeze(constraints);
+  return constraints;
 }
 
 function readRequest(raw: unknown, range: boolean): ReadFileRequest | ReadRangeRequest {
@@ -49,7 +78,8 @@ function failure(request: ReadFileRequest, reason: RepositoryReadFailure["reason
 
 /** Source-only mechanical ports. NOT a canonical input, scanner or executable session. */
 export function createPrimarySyntheticRepositoryPorts(raw: unknown) {
-  const input = boundaryRecord(raw, ["boundary", "permit", "sourceDigest"]);
+  const hasConstraints = raw !== null && typeof raw === "object" && Object.hasOwn(raw, "negativeConstraints");
+  const input = boundaryRecord(raw, hasConstraints ? ["boundary", "permit", "sourceDigest", "negativeConstraints"] : ["boundary", "permit", "sourceDigest"]);
   // This authenticates the actual frozen issuer, not a structural/callback imitation.
   const basis = describeSyntheticSourceReadBasis(input.boundary, input.permit);
   if (boundaryDigest(input.sourceDigest) !== basis.sourceDigest) throw new PrimaryBoundaryError("source_mismatch");
@@ -64,6 +94,41 @@ export function createPrimarySyntheticRepositoryPorts(raw: unknown) {
   const byId = new Map(files.map((file) => [file.id, file]));
   let cancelled = false; // Owned per adapter; no caller-supplied cancellation callbacks.
   const cancellation: InvestigationCancellationPort = Object.freeze({ isCancellationRequested: () => cancelled });
+  const negativeConstraints = captureNegativeConstraints(hasConstraints ? input.negativeConstraints : []);
+  // These are NOT scanner results. Empty lists represent UNAVAILABLE metadata,
+  // not proof that the source contains no hints/symbols/imports/exports.
+  const inventory: LiveRepositorySearchInput["inventory"] = { files: files.map((file) => ({
+    path: file.path, name: file.path.split("/").at(-1)!, textHints: [], symbols: [], imports: [], exports: [],
+  })) };
+  for (const file of inventory.files) {
+    for (const list of [file.textHints, file.symbols, file.imports, file.exports]) Object.freeze(list);
+    Object.freeze(file);
+  }
+  Object.freeze(inventory.files); Object.freeze(inventory);
+  const searchSnapshot: LiveRepositorySearchInput["snapshot"] = { id: snapshotId, files: files.map((file) => Object.freeze({ ...file })) };
+  Object.freeze(searchSnapshot.files); Object.freeze(searchSnapshot);
+  const productionSearch = createLiveRepositorySearch({ inventory, snapshot: searchSnapshot, negativeConstraints, cancellation });
+
+  async function searchAuthorized(rawQuery: unknown, operation: keyof RepositorySearchPort) {
+    const query = boundaryRecord(rawQuery, ["snapshotId", "query", "limit"]);
+    if (typeof query.snapshotId !== "string") throw new PrimaryBoundaryError("invalid_input");
+    if (typeof query.query !== "string") throw new TypeError("Search query must be a string.");
+    const admitted = describeSyntheticSourceReadBasis(boundary, permit);
+    if (admitted.sourceDigest !== basis.sourceDigest || admitted.files.length !== files.length ||
+        boundaryHash(JSON.stringify(admitted.files.map(({ path, bytes: size, digest }) => ({ path, bytes: size, digest })))) !== basis.sourceDigest ||
+        admitted.files.some((file, index) => file.path !== files[index].path || file.bytes !== files[index].sizeBytes ||
+          file.digest !== files[index].contentFingerprint || inventory.files[index].path !== file.path ||
+          inventory.files[index].name !== file.path.split("/").at(-1) || searchSnapshot.files[index].id !== files[index].id)) {
+      throw new PrimaryBoundaryError("source_mismatch");
+    }
+    const results = await productionSearch[operation](query as unknown as Parameters<RepositorySearchPort[typeof operation]>[0]);
+    // Verify binding, never rerank/filter or invent leads returned by production.
+    for (const result of results) {
+      const file = result.entityId === undefined ? undefined : byId.get(result.entityId);
+      if (result.snapshotId !== snapshotId || !file || result.path !== file.path) throw new PrimaryBoundaryError("source_mismatch");
+    }
+    return results;
+  }
 
   function read(rawRequest: unknown, range: boolean): RepositoryReadResult {
     const request = readRequest(rawRequest, range);
@@ -106,13 +171,11 @@ export function createPrimarySyntheticRepositoryPorts(raw: unknown) {
     async readFile(request: ReadFileRequest) { return read(request, false); },
     async readRange(request: ReadRangeRequest) { return read(request, true); },
   });
-  // Throw rather than return an empty search result that could be misread as a
-  // genuine production no-match. No alternate search/ranking algorithm exists.
-  const search: RepositorySearchPort = Object.freeze({
-    async searchPaths() { throw new ProductionSearchNotConnectedError(); },
-    async searchText() { throw new ProductionSearchNotConnectedError(); },
-    async searchSymbols() { throw new ProductionSearchNotConnectedError(); },
+  const search: RepositorySearchPort = Object.freeze<RepositorySearchPort>({
+    searchPaths(query) { return searchAuthorized(query, "searchPaths"); },
+    searchText(query) { return searchAuthorized(query, "searchText"); },
+    searchSymbols(query) { return searchAuthorized(query, "searchSymbols"); },
   });
   return Object.freeze({ profileId: SYNTHETIC_REPOSITORY_PORT_PROFILE, snapshot, reader, search,
-    searchStatus: PRODUCTION_SEARCH_STATUS, cancellation, cancel() { cancelled = true; } });
+    searchStatus: PRODUCTION_SEARCH_STATUS, searchCoverage: SYNTHETIC_SEARCH_COVERAGE, cancellation, cancel() { cancelled = true; } });
 }

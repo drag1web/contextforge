@@ -153,10 +153,11 @@ check("production wrapper forwards the exact input reference and preserves reade
   assert.ok(edges(source(live).emitted).includes("node:fs/promises"));
   assert.equal(resolve(live, "./liveRepositorySearch.js"), search);
 });
-check("B3 remains disconnected, permits cannot become search metadata or Primary authority", () => {
+check("synthetic search delegates without scanner metadata or Primary authority", () => {
   const synthetic = source("contextEngineV2/validation/realWorld/primarySyntheticRepositoryPorts.ts");
-  assert.ok(synthetic.text.includes("throw new ProductionSearchNotConnectedError()"));
-  assert.ok(!closure("contextEngineV2/validation/realWorld/primarySyntheticRepositoryPorts.ts").local.includes(search));
+  assert.ok(synthetic.text.includes("const productionSearch = createLiveRepositorySearch("));
+  assert.ok(closure("contextEngineV2/validation/realWorld/primarySyntheticRepositoryPorts.ts").local.includes(search));
+  assert.ok(synthetic.text.includes("SYNTHETIC_PATH_METADATA_ONLY") && synthetic.text.includes("noMatchIsAbsenceEvidence: false"));
   assert.ok(source("contextEngineV2/validation/realWorld/primaryReadOnlyBoundary.ts").text.includes("requestPrimaryExecutionPermit"));
 });
 process.stdout.write(`Production repository search import/compatibility smoke passed: ${scenarios} scenarios; two reviewed runtime modules; no runtime external imports; setImmediate yield only; zero audited modules executed.\n`);

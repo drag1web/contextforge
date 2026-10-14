@@ -228,18 +228,20 @@ await check("accessors cannot invoke unexpected callbacks during construction or
   await assert.rejects(reader.readFile(req), { code: "invalid_input" });
   assert.equal(invoked, 0);
 });
-await check("all production search methods explicitly reject, not return fake no-matches", async () => {
+await check("production search is connected only for documented path metadata", async () => {
   assert.equal(f.ports.searchStatus, PRODUCTION_SEARCH_STATUS);
-  const query = { snapshotId: f.ports.snapshot.id, query: "inert", limit: 1 };
+  assert.equal(f.ports.searchCoverage.noMatchIsAbsenceEvidence, false);
+  const query = { snapshotId: f.ports.snapshot.id, query: "src/a.ts", limit: 1 };
   for (const search of [f.ports.search.searchPaths, f.ports.search.searchText, f.ports.search.searchSymbols]) {
-    await assert.rejects(search(query), { code: "production_search_not_connected", message: "Production search is not connected." });
+    assert.deepEqual(await search(query), [{ kind: "lead", snapshotId: f.ports.snapshot.id, entityId: request().fileId, path: "src/a.ts" }]);
+    assert.deepEqual(await search({ ...query, query: "second" }), []);
   }
 });
 await check("source reading cannot mint Primary execution authority or construct a session", () => {
   assert.equal(f.input.boundary.requestPrimaryExecutionPermit(f.packet).code, "production_adapter_not_connected");
   assert.equal(f.input.boundary.requestPrimaryExecutionPermit(f.input.permit).code, "invalid_input");
   assert.equal(f.input.boundary.requestPrimaryExecutionPermit({ ...f.packet, capabilities: f.input.permit }).code, "capability_rejected");
-  assert.deepEqual(Object.keys(f.ports).sort(), ["profileId", "snapshot", "reader", "search", "searchStatus", "cancellation", "cancel"].sort());
+  assert.deepEqual(Object.keys(f.ports).sort(), ["profileId", "snapshot", "reader", "search", "searchStatus", "searchCoverage", "cancellation", "cancel"].sort());
 });
 await check("no source body retained in metadata or diagnostic channel", () => {
   assert.ok(!JSON.stringify(f.ports).includes(authored));

@@ -10,6 +10,7 @@ const entry = "contextEngineV2/validation/realWorld/primarySyntheticRepositoryPo
 const boundary = "contextEngineV2/validation/realWorld/primaryReadOnlyBoundary.ts";
 const canonical = "contextEngineV2/shadow/shadowInputPreparation.ts";
 const live = "contextEngineV2/adapters/liveShadow/liveRepositoryAdapter.ts";
+const search = "contextEngineV2/adapters/liveShadow/liveRepositorySearch.ts";
 const modules = new Map<string, { text: string; ast: ts.SourceFile; emitted: ts.SourceFile }>();
 function source(relative: string) {
   assert.ok(/^[A-Za-z0-9_./-]+\.ts$/u.test(relative) && !relative.includes(".."));
@@ -55,6 +56,10 @@ function capabilityCheck(ast: ts.SourceFile) {
     assert.ok(!ts.isImportEqualsDeclaration(node), "commonjs_load_rejected");
     if (ts.isCallExpression(node)) assert.notEqual(node.expression.kind, ts.SyntaxKind.ImportKeyword, "dynamic_load_rejected");
     if (ts.isIdentifier(node)) assert.ok(!forbidden.has(node.text), "ambient_capability_rejected");
+    if (ts.isIdentifier(node) && node.text === "setImmediate") {
+      assert.ok(ts.isCallExpression(node.parent) && node.parent.expression === node && node.parent.arguments.length === 1 &&
+        ts.isIdentifier(node.parent.arguments[0]) && node.parent.arguments[0].text === "resolve", "unexpected_scheduler_capability");
+    }
     ts.forEachChild(node, visit);
   }
   visit(ast);
@@ -63,7 +68,8 @@ let scenarios = 0;
 function check(name: string, run: () => void) { run(); scenarios += 1; process.stdout.write(`PASS ${name}\n`); }
 const safe = closure(entry);
 check("complete emitted runtime closure resolves only reviewed synthetic DATA/authority modules", () => {
-  assert.deepEqual(safe.local, [entry, boundary, "contextEngineV2/validation/realWorld/primaryBoundaryData.ts", "contextEngineV2/validation/realWorld/primaryBoundaryPolicy.ts"].sort());
+  assert.deepEqual(safe.local, [entry, boundary, "contextEngineV2/validation/realWorld/primaryBoundaryData.ts", "contextEngineV2/validation/realWorld/primaryBoundaryPolicy.ts",
+    search, "contextEngineV2/domain/negativeConstraintMatcher.ts"].sort());
   assert.deepEqual(safe.external, ["node:crypto"]);
 });
 check("reader search cancellation and snapshot production types are erased runtime edges", () => {
@@ -117,15 +123,16 @@ check("synthetic adapter exposes no canonical preparation Primary core or live a
     visit(source(file).emitted);
   }
 });
-check("live reader retains physical FS; production search delegates to a separate module, neither imported", () => {
+check("live reader stays excluded; synthetic search imports the exact shared production function", () => {
   assert.ok(edges(live).includes("node:fs/promises"));
   const text = source(live).text;
   assert.ok(text.includes("inventoryContentPreview") && text.includes("const search = createLiveRepositorySearch(input)"));
-  const search = "contextEngineV2/adapters/liveShadow/liveRepositorySearch.ts";
   witness(live, search);
+  witness(entry, search);
   for (const needle of ["async function search", '["path", "textHints", "semanticFacts"]', '["path", "symbols", "exports", "imports"]']) assert.ok(source(search).text.includes(needle));
-  assert.ok(!safe.local.includes(search));
-  assert.ok(source(entry).text.includes("throw new ProductionSearchNotConnectedError()"));
+  assert.ok(safe.local.includes(search) && !safe.local.includes(live));
+  assert.ok(source(entry).text.includes("const productionSearch = createLiveRepositorySearch("));
+  assert.ok(source(entry).text.includes("SYNTHETIC_PATH_METADATA_ONLY"));
 });
 check("live read full-file budget range split and BOM decoding witnesses are present", () => {
   const text = source(live).text;
